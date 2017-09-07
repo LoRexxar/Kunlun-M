@@ -1,4 +1,9 @@
 # Cobra-W
+[![Coverage Status](https://coveralls.io/repos/github/LoRexxar/Cobra-W/badge.svg?branch=master)](https://coveralls.io/github/LoRexxar/Cobra-W?branch=master)
+[![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
+[![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
+
+[![asciicast](https://raw.githubusercontent.com/LoRexxar/Cobra-W/master/docs/report_03.jpg)](https://asciinema.org/a/132572)
 
 ## Introduction（介绍）
 Cobra是一款**源代码安全审计**工具，支持检测多种开发语言源代码中的**大部分显著**的安全问题和漏洞。
