@@ -23,13 +23,9 @@ import urllib
 import requests
 import json
 
-from .log import logger
-from .config import Config, issue_history_path
 from .__version__ import __version__, __python_version__, __platform__, __url__
 from .config import Config, issue_history_path
-from .exceptions import PickupException, NotExistException, AuthFailedException
 from .log import logger
-from .pickup import Git, NotExistError, AuthError, Decompress
 
 TARGET_MODE_GIT = 'git'
 TARGET_MODE_FILE = 'file'
@@ -124,37 +120,7 @@ class ParseArgs(object):
 
     def target_directory(self, target_mode):
         target_directory = None
-        if target_mode == TARGET_MODE_GIT:
-            logger.debug('GIT Project')
-            # branch or tag
-            split_target = self.target.split(':')
-            if len(split_target) == 3:
-                target, branch = '{p}:{u}'.format(p=split_target[0], u=split_target[1]), split_target[-1]
-            elif len(split_target) == 2:
-                target, branch = self.target, 'master'
-            else:
-                logger.critical('Target url exception: {u}'.format(u=self.target))
-            if 'gitlab' in target:
-                username = Config('git', 'username').value
-                password = Config('git', 'password').value
-            else:
-                username = None
-                password = None
-            gg = Git(repo_address=target, branch=branch, username=username, password=password)
-
-            # Git Clone Error
-            try:
-                clone_ret, clone_err = gg.clone()
-                if clone_ret is False:
-                    raise PickupException('Clone Failed ({0})'.format(clone_err), gg)
-            except NotExistError:
-                raise NotExistException(4001, 'Repository Does not exist!', gg)
-            except AuthError:
-                raise AuthFailedException('Git Authentication Failed')
-            target_directory = gg.repo_directory
-        elif target_mode == TARGET_MODE_COMPRESS:
-            ret, target_directory = Decompress(self.target).decompress()
-        elif target_mode == TARGET_MODE_FOLDER:
+        if target_mode == TARGET_MODE_FOLDER:
             target_directory = self.target
         elif target_mode == TARGET_MODE_FILE:
             target_directory = self.target
