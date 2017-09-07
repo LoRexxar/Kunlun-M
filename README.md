@@ -1,27 +1,30 @@
-# Cobra
-[![Build Status](https://travis-ci.org/wufeifei/cobra.svg?branch=master)](https://travis-ci.org/wufeifei/cobra)
-[![Coverage Status](https://coveralls.io/repos/github/wufeifei/cobra/badge.svg?branch=master)](https://coveralls.io/github/wufeifei/cobra?branch=master)
-[![GitHub (pre-)release](https://img.shields.io/github/release/wufeifei/cobra/all.svg)](https://github.com/wufeifei/cobra/releases)
-[![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
-
-[![asciicast](https://raw.githubusercontent.com/wufeifei/cobra/master/docs/report_03.jpg)](https://asciinema.org/a/132572)
+# Cobra-W
 
 ## Introduction（介绍）
 Cobra是一款**源代码安全审计**工具，支持检测多种开发语言源代码中的**大部分显著**的安全问题和漏洞。
+[https://github.com/wufeifei/cobra](https://github.com/wufeifei/cobra)
 
-## Features（特点）
-#### Multi-language Supported（支持多种开发语言）
-> 支持PHP、Java等开发语言，并支持数十种类型文件。
+Cobra-W是从Cobra2.0发展而来的分支，着眼于白帽子使用的白盒审计工具，将工具重心从尽可能的发现威胁转变为提高发现漏洞的准确率以及精度。
 
-#### Multi-Vulnerabilities Supported（支持多种漏洞类型）
-> 首批开放数万条不安全的依赖检查规则和数十条代码安全扫描规则，后续将持续开放更多扫描规则。
+## 特点
+- Cobra-W将提高漏洞发现的准确率以及精度。
+- 提供更易于从代码层面定制审计思路的规则书写方式，更易于白帽子使用。
 
-#### GUI/CLI/API Mode（命令行模式和API模式）
-> 提供本地Web Server服务，可使用GUI可视化操作，也可支持本地API接口，方便和其它系统（发布系统、CI等）对接扩展。
+## TODO
+- <del>改写grep以及find，提供更好的底层支持</del>
+- 去除不符合白帽子审计习惯的部分模式以及相关冗余代码
+- 重写AST
+- 重写rule规则方式，改为更容易针对定制的方式
+- ...
 
-## Screenshot（截图）
-[![report01](https://raw.githubusercontent.com/wufeifei/cobra/master/docs/report_01.jpg)](https://wufeifei.github.io/cobra/api)
-[![report02](https://raw.githubusercontent.com/wufeifei/cobra/master/docs/report_02.jpg)](https://wufeifei.github.io/cobra/api)
+## 更新日志
+- 2017-9-7
+    - Cobra 2.0完成
+    - 改写grep以及find，提供更好的底层支持
+- 2017-9-7
+    - Cobra-W 0.1完成
+    - 去除相关冗余代码
 
 ## Links（链接）
 - [Cobra文档](https://wufeifei.github.io/cobra/)
+- Cobra-W文档待完善...
