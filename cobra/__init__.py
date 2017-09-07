@@ -18,7 +18,7 @@ import argparse
 import logging
 import traceback
 from .log import logger
-from . import cli, api, config
+from . import cli, config
 from .cli import get_sid
 from .engine import Running
 from .utils import unhandled_exception_message, create_github_issue
@@ -43,7 +43,7 @@ def main():
         parser_group_scan = parser.add_argument_group('Scan')
         parser_group_scan.add_argument('-t', '--target', dest='target', action='store', default='', metavar='<target>', help='file, folder, compress, or repository address')
         parser_group_scan.add_argument('-f', '--format', dest='format', action='store', default='json', metavar='<format>', choices=['html', 'json', 'csv', 'xml'], help='vulnerability output format (formats: %(choices)s)')
-        parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE, HTTP API URL, MAIL')
+        parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: CVI-100001,cvi-190001')
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
 
@@ -57,24 +57,21 @@ def main():
             parser.print_help()
             exit()
 
-        if args.host is not None and args.port is not None:
-            logger.debug('[INIT] start RESTful Server...')
-            api.start(args.host, args.port, args.debug)
-        else:
-            logger.debug('[INIT] start scanning...')
+        logger.debug('[INIT] start scanning...')
 
-            # Native CLI mode
-            if args.sid is None:
-                a_sid = get_sid(args.target, True)
-                data = {
-                    'status': 'running',
-                    'report': ''
-                }
-                Running(a_sid).status(data)
-            else:
-                # API call CLI mode
-                a_sid = args.sid
-            cli.start(args.target, args.format, args.output, args.special_rules, a_sid)
+        # Native CLI mode
+        if args.sid is None:
+            a_sid = get_sid(args.target, True)
+            data = {
+                'status': 'running',
+                'report': ''
+            }
+            Running(a_sid).status(data)
+        else:
+            # API call CLI mode
+            a_sid = args.sid
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid)
+
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))
     except Exception as e:

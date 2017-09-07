@@ -19,10 +19,8 @@ from .exceptions import PickupException
 from .export import write_to_file
 from .log import logger
 from .pickup import Directory
-from .send_mail import send_mail
 from .utils import ParseArgs
 from .utils import md5, random_generator
-from .push_to_api import PushToThird
 
 
 def get_sid(target, is_a_sid=False):
@@ -107,17 +105,5 @@ def start(target, formatter, output, special_rules, a_sid=None):
         Running(s_sid).data(result)
         raise
 
-    # 匹配邮箱地址
-    if re.match(r'^[A-Za-z\d]+([-_.][A-Za-z\d]+)*@([A-Za-z\d]+[-.])+[A-Za-z\d]{2,4}$', output):
-        # 生成邮件附件
-        attachment_name = s_sid + '.' + formatter
-        write_to_file(target=target, sid=s_sid, output_format=formatter, filename=attachment_name)
-        # 发送邮件
-        send_mail(target=target, filename=attachment_name, receiver=output)
-    elif output.startswith('http'):
-        # HTTP API URL
-        pusher = PushToThird(url=output)
-        pusher.add_data(target=target, sid=s_sid)
-        pusher.push()
-    else:
-        write_to_file(target=target, sid=s_sid, output_format=formatter, filename=output)
+    # 输出写入文件
+    write_to_file(target=target, sid=s_sid, output_format=formatter, filename=output)
