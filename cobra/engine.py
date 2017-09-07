@@ -384,6 +384,8 @@ class SingleRule(object):
         mr.solution = self.sr['solution']
         mr.level = self.sr['level']
 
+        return mr
+
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,

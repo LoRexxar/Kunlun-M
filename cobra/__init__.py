@@ -53,23 +53,19 @@ def main():
             logger.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
 
-        if args.host is None and args.port is None and args.target is '' and args.output is '':
+        if  args.target is '' and args.output is '':
             parser.print_help()
             exit()
 
         logger.debug('[INIT] start scanning...')
 
-        # Native CLI mode
-        if args.sid is None:
-            a_sid = get_sid(args.target, True)
-            data = {
-                'status': 'running',
-                'report': ''
-            }
-            Running(a_sid).status(data)
-        else:
-            # API call CLI mode
-            a_sid = args.sid
+        a_sid = get_sid(args.target, True)
+        data = {
+            'status': 'running',
+            'report': ''
+        }
+        Running(a_sid).status(data)
+
         cli.start(args.target, args.format, args.output, args.special_rules, a_sid)
 
         t2 = time.time()
