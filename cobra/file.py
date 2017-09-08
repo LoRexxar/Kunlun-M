@@ -52,16 +52,39 @@ def get_line(file_path, line_rule):
     result = []
 
     with open(file_path) as file:
-        line_numer = 0
+        line_number = 0
         for line in file:
-            line_numer += 1
-            if s_line <= line_numer <= e_line:
+            line_number += 1
+            if s_line <= line_number <= e_line:
                 result.append(line)
 
     return result
 
 
-class FileParse:
+def file_grep(file_path, rule_reg):
+    """
+    获取指定文件匹配的行    
+    :param file_path: 
+    :param rule_reg: 
+    :return: 
+    """
+    result = []
+
+    if os.path.isfile(file_path):
+        with open(file_path) as file:
+            line_number = 0
+            for line in file:
+                line_number += 1
+                if re.search(rule_reg, line, re.I):
+                    result.append(file_path + '||' + str(line_number) + '||' + line)
+
+        return result
+    else:
+        logger.warning("[FILE_GREP] Try to open a undefined file")
+        return result
+
+
+class FileParseAll:
     def __init__(self, filelist, target):
         self.filelist = filelist
         self.t_filelist = file_list_parse(filelist)[0]

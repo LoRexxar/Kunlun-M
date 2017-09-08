@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    templates
+    CVI-1000
     ~~~~
 
-    just tamplates for rule
+    Reflected XSS
 
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/cobra
@@ -15,23 +15,22 @@
 from cobra.file import file_grep
 
 
-class temlates():
+class CVI_1000():
     """
     rule class
-    
-    ps: must temlates() for temlates.py
-        just like CVI-1000() for CVI-1000.py
     """
+
     def __init__(self, target_file):
         self.target_file = target_file
 
         self.author = "LoRexxxar"
+        self.svid = 1000
         self.languages = "PHP"
-        self.vulnerability = "XSS"
+        self.vulnerability = "Reflected XSS"
         self.description = "Reflected XSS(description for vulnerabilty)"
         self.regexp = "echo|print|print_r|exit|die|printf|vprintf|trigger_error|user_error|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
 
-    def temlates(self):
+    def CVI_1000(self):
         """
         regular for Sensitivity Function
         :return: 

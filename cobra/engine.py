@@ -24,7 +24,7 @@ from .config import running_path
 from .result import VulnerabilityResult
 from .cast import CAST
 from .parser import scan_parser
-from .file import FileParse
+from .file import FileParseAll
 from prettytable import PrettyTable
 
 

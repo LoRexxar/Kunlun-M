@@ -16,7 +16,7 @@ import re
 from .log import logger
 from .rule import block
 from .file import File
-from .file import FileParse
+from .file import FileParseAll
 
 
 class CAST(object):
