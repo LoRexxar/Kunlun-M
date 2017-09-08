@@ -15,9 +15,8 @@ import os
 import re
 from .log import logger
 from .rule import block
-from .pickup import File
-from .file import File as File_init
-from .pickup import Directory
+from .file import File
+from .file import FileParse
 
 
 class CAST(object):
@@ -81,7 +80,7 @@ class CAST(object):
             logger.info("[AST] Undefined language's functions regex {0}".format(self.language))
             return False
         regex_functions = self.regex[self.language]['functions']
-        f = File_init(self.files, self.target_directory)
+        f = FileParse(self.files, self.target_directory)
         result = f.grep(regex_functions)
         result = "".join(result)
 

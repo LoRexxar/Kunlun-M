@@ -13,7 +13,7 @@
 """
 import os
 from cobra.config import project_directory
-from cobra.pickup import Directory
+from cobra.file import Directory
 
 
 def test_file():

@@ -11,14 +11,13 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-import re
 
 from .detection import Detection
 from .engine import scan, Running
 from .exceptions import PickupException
 from .export import write_to_file
 from .log import logger
-from .pickup import Directory
+from .file import Directory
 from .utils import ParseArgs
 from .utils import md5, random_generator
 
