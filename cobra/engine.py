@@ -25,7 +25,6 @@ from .result import VulnerabilityResult
 from .cast import CAST
 from .parser import scan_parser
 from .file import File
-from .cve import scan_cve
 from prettytable import PrettyTable
 
 
@@ -152,9 +151,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     frameworks = r.frameworks
     rules = r.rules(special_rules)
     find_vulnerabilities = []
-
-    cve_vuls = scan_cve(target_directory)
-    find_vulnerabilities += cve_vuls
 
     def store(result):
         if result is not None and isinstance(result, list) is True:
