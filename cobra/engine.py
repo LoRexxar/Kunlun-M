@@ -24,7 +24,7 @@ from .config import running_path
 from .result import VulnerabilityResult
 from .cast import CAST
 from .parser import scan_parser
-from .file import File
+from .file import FileParse
 from prettytable import PrettyTable
 
 
@@ -293,7 +293,7 @@ class SingleRule(object):
                 filters.append('--exclude-dir={0}'.format(explode_dir))
         try:
             if match:
-                f = File(self.files, self.target_directory)
+                f = FileParse(self.files, self.target_directory)
                 result = f.grep(match)
             else:
                 result = ""
