@@ -4,12 +4,12 @@
     rule
     ~~~~
 
-    Implements rule(languages/frameworks/vulnerabilities/rules)
+    import rule py
 
-    :author:    Feei <feei@feei.cn>
-    :homepage:  https://github.com/wufeifei/cobra
+    :author:    LoRexxar <LoRexxar@gmail.com>
+    :homepage:  https://github.com/LoRexxar/cobra
     :license:   MIT, see LICENSE for more details.
-    :copyright: Copyright (c) 2017 Feei. All rights reserved
+    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
 import os
 from . import const
