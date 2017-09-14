@@ -24,7 +24,7 @@ import requests
 import json
 
 from .__version__ import __version__, __python_version__, __platform__, __url__
-from .config import Config, issue_history_path
+from .config import Config, issue_history_path, rules_path
 from .log import logger
 
 TARGET_MODE_GIT = 'git'
@@ -44,23 +44,29 @@ class ParseArgs(object):
         self.target = target
         self.formatter = formatter
         self.output = output
+
         if special_rules is not None and special_rules is not '':
             self.special_rules = []
-            extension = '.xml'
+            extension = '.py'
+            start_name = 'CVI_'
+
             if ',' in special_rules:
                 # check rule name
                 s_rules = special_rules.split(',')
                 for sr in s_rules:
+                    if extension not in sr:
+                        sr += extension
+                    if start_name not in sr:
+                        sr = start_name + sr
+
                     if self._check_rule_name(sr):
-                        if extension not in sr:
-                            sr += extension
                         self.special_rules.append(sr)
                     else:
-                        logger.critical('[PARSE-ARGS] Exception rule name: {sr}'.format(sr=sr))
+                        logger.critical('[PARSE-ARGS] Rule {sr} not exist'.format(sr=sr))
             else:
+                special_rules = start_name + special_rules + extension
+
                 if self._check_rule_name(special_rules):
-                    if extension not in special_rules:
-                        special_rules += extension
                     self.special_rules = [special_rules]
                 else:
                     logger.critical(
@@ -71,7 +77,17 @@ class ParseArgs(object):
 
     @staticmethod
     def _check_rule_name(name):
-        return re.match(r'^(cvi|CVI)-\d{6}(\.xml)?', name.strip()) is not None
+        paths = os.listdir(rules_path)
+
+        for p in paths:
+            try:
+                if name in os.listdir(rules_path + "/" + p):
+                    return True
+            except:
+                continue
+
+        return False
+
 
     @property
     def target_mode(self):

@@ -148,7 +148,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     r = Rule()
     vulnerabilities = r.vulnerabilities
     languages = r.languages
-    frameworks = r.frameworks
+    # frameworks = r.frameworks
     rules = r.rules(special_rules)
     find_vulnerabilities = []
 
@@ -160,7 +160,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         else:
             logger.debug('[SCAN] [STORE] Not found vulnerabilities on this rule!')
 
-    # pool = multiprocessing.Pool()
     if len(rules) == 0:
         logger.critical('no rules!')
         return False
