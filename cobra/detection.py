@@ -24,7 +24,7 @@ file_type = []
 
 
 class Detection(object):
-    def __init__(self, target_directory, files, language):
+    def __init__(self, target_directory, files):
         """
 
         :param target_directory:
@@ -38,12 +38,31 @@ class Detection(object):
         self.frame_data = {}
         self.language_data = {}
         self.project_data = []
-        self.lan = language
+        self.rules_path = rules_path
 
     @property
     def language(self):
         """Detection main language"""
-        languages = self.lan
+        language_extensions = {}
+        xml_languages = self._read_xml('languages.xml')
+        if xml_languages is None:
+            logger.critical('languages read failed!!!')
+            languages = None
+        for language in xml_languages:
+            l_name = language.get('name').lower()
+            l_chiefly = 'false'
+            if language.get('chiefly') is not None:
+                l_chiefly = language.get('chiefly')
+            language_extensions[l_name] = {
+                'chiefly': l_chiefly,
+                'extensions': []
+            }
+            for lang in language:
+                l_ext = lang.get('value').lower()
+                language_extensions[l_name]['extensions'].append(l_ext)
+
+        languages = language_extensions
+
         tmp_language = None
         for ext, ext_info in self.files:
             logger.debug("[DETECTION] [LANGUAGE] {ext} {count}".format(ext=ext, count=ext_info['count']))
@@ -152,6 +171,20 @@ class Detection(object):
                 return frame_data, language_data
             except KeyError as e:
                 logger.warning(e.message)
+
+    def _read_xml(self, filename):
+        """
+        Read XML
+        :param filename:
+        :return:
+        """
+        path = os.path.join(self.rules_path, filename)
+        try:
+            tree = eT.parse(path)
+            return tree.getroot()
+        except Exception as e:
+            logger.warning('parse xml failed ({file})'.format(file=path))
+            return None
 
     @staticmethod
     def rule():

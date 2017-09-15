@@ -20,8 +20,7 @@ class CVI_1000():
     rule class
     """
 
-    def __init__(self, target_file):
-        self.target_file = target_file
+    def __init__(self):
 
         self.author = "LoRexxxar"
         self.svid = 1000
@@ -30,9 +29,9 @@ class CVI_1000():
         self.description = "Reflected XSS(description for vulnerabilty)"
         self.regexp = "echo|print|print_r|exit|die|printf|vprintf|trigger_error|user_error|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
 
-    def CVI_1000(self):
+    def main(self, target_file):
         """
         regular for Sensitivity Function
         :return: 
         """
-        return file_grep(self.target_file, self.regexp)
+        return file_grep(target_file, self.regexp)

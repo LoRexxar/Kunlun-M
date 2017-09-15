@@ -57,7 +57,22 @@ class Rule(object):
         for rule in self.rule_list:
             rulename = rule.split('.')[0]
             rulefile = "rules." + lan + "." + rulename
-            self.rule_dict[rulename] = __import__(rulefile)
+            self.rule_dict[rulename] = __import__(rulefile, fromlist=rulename)
+
+        self.vulnerabilities = self.vul_init()
+
+    def rules(self, special_rules = None):
+
+        rules = {}
+
+        if special_rules is None:
+            return self.rule_dict
+        else:
+            for rulename in self.rule_dict:
+                if rulename+".py" in special_rules:
+                    rules[rulename] = self.rule_dict[rulename]
+
+            return rules
 
     def list_parse(self):
 
@@ -69,3 +84,15 @@ class Rule(object):
                 result.append(f)
 
         return result
+
+    def vul_init(self):
+
+        vul_list = []
+
+        for rulename in self.rule_dict:
+            p = getattr(self.rule_dict[rulename], rulename)
+
+            ruleclass = p()
+            vul_list.append(ruleclass.vulnerability)
+
+        return vul_list

@@ -35,10 +35,9 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language="php", ast=False):
+def start(target, formatter, output, special_rules, a_sid=None, ast=False):
     """
     Start CLI
-    :param language: 
     :param target: File, FOLDER, GIT
     :param formatter:
     :param output:
@@ -73,7 +72,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language="php", 
         files, file_count, time_consume = Directory(target_directory).collect_files()
 
         # detection main language and framework
-        dt = Detection(target_directory, files, language)
+        dt = Detection(target_directory, files)
         main_language = dt.language
         main_framework = dt.framework
 

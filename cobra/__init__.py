@@ -45,7 +45,6 @@ def main():
         parser_group_scan.add_argument('-f', '--format', dest='format', action='store', default='json', metavar='<format>', choices=['html', 'json', 'csv', 'xml'], help='vulnerability output format (formats: %(choices)s)')
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
-        parser_group_scan.add_argument('-l', '--language', dest='language', action='store', default="php",  metavar='<languages>', help='set vulerability language(default: php)')
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
         parser_group_scan.add_argument('--ast', dest='ast', action='store_true', default=False, help='open ast analysis')
 
@@ -68,7 +67,7 @@ def main():
         }
         Running(a_sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.ast)
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.ast)
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))

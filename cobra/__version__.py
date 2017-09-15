@@ -26,6 +26,5 @@ __epilog__ = """Usage:
   python {m} -t {td}
   python {m} -t {td} -r 1000, 1001
   python {m} -t {td} -f json -o /tmp/report.json 
-  python {m} -t {td} -l php
-  python {m} -t {td} -l php --ast
+  python {m} -t {td} --ast
 """.format(m='cobra.py', td='tests/vulnerabilities')

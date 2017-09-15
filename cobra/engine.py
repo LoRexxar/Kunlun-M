@@ -147,7 +147,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
          extension_count=0, files=None, ast=False):
     r = Rule()
     vulnerabilities = r.vulnerabilities
-    languages = r.languages
+    # languages = r.languages
     # frameworks = r.frameworks
     rules = r.rules(special_rules)
     find_vulnerabilities = []
