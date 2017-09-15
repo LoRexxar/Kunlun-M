@@ -165,36 +165,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         return False
     logger.info('[PUSH] {rc} Rules'.format(rc=len(rules)))
     push_rules = []
+
     for idx, single_rule in enumerate(rules):
-        if single_rule['status'] is False:
-            logger.info('[CVI-{cvi}] [STATUS] OFF, CONTINUE...'.format(cvi=single_rule['id']))
+
+        # init rule class
+        r = getattr(rules[single_rule], single_rule)
+        rule = r()
+
+        if rule.status is False:
+            logger.info('[CVI_{cvi}] [STATUS] OFF, CONTINUE...'.format(cvi=rule.id))
             continue
         # SR(Single Rule)
-        logger.debug("""[PUSH] [CVI-{cvi}] {idx}.{name}({language})""".format(
-            cvi=single_rule['id'],
+        logger.debug("""[PUSH] [CVI_{cvi}] {idx}.{vulnerability}({language})""".format(
+            cvi=rule.svid,
             idx=idx,
-            name=single_rule['name'],
-            language=single_rule['language']
+            vulnerability=rule.vulnerability,
+            language=rule.language
         ))
-        if single_rule['language'] in languages:
-            single_rule['extensions'] = languages[single_rule['language']]['extensions']
-            result = scan_single(target_directory, single_rule, files)
-            store(result)
-        else:
-            logger.critical('unset language, continue...')
-            continue
+        result = scan_single(target_directory, rule, files)
+        store(result)
 
     # print
     data = []
     table = PrettyTable(
-        ['#', 'CVI', 'VUL', 'Rule(ID/Name)', 'Lang/CVE-id', 'Level-Score', 'Target-File:Line-Number/Module:Version',
+        ['#', 'CVI', 'VUL', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number/Module:Version',
          'Commit(Author/Time)', 'Source Code Content', 'Analysis'])
     table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
         trigger = '{fp}:{ln}'.format(fp=x.file_path, ln=x.line_number)
         commit = u'{time}, @{author}'.format(author=x.commit_author, time=x.commit_time)
-        level = score2level(x.level)
         cvi = x.id[0:3]
         if cvi in vulnerabilities:
             cvn = vulnerabilities[cvi]
@@ -204,7 +204,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             code_content = x.code_content[:50].strip()
         except AttributeError as e:
             code_content = x.code_content.decode('utf-8')[:100].strip()
-        row = [idx + 1, x.id, cvn, x.rule_name, x.language, level, trigger, commit, code_content, x.analysis]
+        row = [idx + 1, x.id, cvn, x.rule_name, x.language, trigger, commit, code_content, x.analysis]
         data.append(row)
         table.add_row(row)
         if x.id not in trigger_rules:
@@ -255,44 +255,27 @@ class SingleRule(object):
         """
         self.rule_vulnerabilities = []
 
-        logger.info("[!] Start scan [CVI-{sr_id}]".format(sr_id=self.sr['id']))
+        logger.info("[!] Start scan [CVI-{sr_id}]".format(sr_id=self.sr.svid))
 
     def origin_results(self):
-        logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=self.sr['match-mode']))
-        if self.sr['match-mode'] == const.mm_find_extension:
-            # find
-            filters = []
-            for index, e in enumerate(self.sr['extensions']):
-                if index > 0:
-                    filters.append('-o')
-                filters.append('-iname')
-                filters.append('*{e}'.format(e=e))
-            # Find Special Ext Files -type f (regular file)
-            param = [self.find, self.target_directory, "-type", "f"] + filters
-        else:
-            # grep
-            if self.sr['match-mode'] == const.mm_regex_only_match or self.sr['match-mode'] == const.mm_regex_param_controllable:
-                match = self.sr['match']
-            elif self.sr['match-mode'] == const.mm_function_param_controllable:
-                # param controllable
-                if '|' in self.sr['match']:
-                    match = const.fpc_multi.replace('[f]', self.sr['match'])
-                else:
-                    match = const.fpc_single.replace('[f]', self.sr['match'])
+        logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=self.sr.match_mode))
 
+        # grep
+        if self.sr.match_mode == const.mm_regex_only_match or self.sr.match_mode == const.mm_regex_param_controllable:
+            match = self.sr.match
+        elif self.sr.match_mode == const.mm_function_param_controllable:
+            # param controllable
+            if '|' in self.sr.match:
+                match = const.fpc_multi.replace('[f]', self.sr.match)
             else:
-                logger.warning('Exception match mode: {m}'.format(m=self.sr['match-mode']))
-            filters = []
-            for e in self.sr['extensions']:
-                filters.append('--include=*' + e)
+                match = const.fpc_single.replace('[f]', self.sr.match)
 
-            # explode dirs
-            explode_dirs = ['.svn', '.cvs', '.hg', '.git', '.bzr']
-            for explode_dir in explode_dirs:
-                filters.append('--exclude-dir={0}'.format(explode_dir))
+        else:
+            logger.warning('Exception match mode: {m}'.format(m=self.sr.match_mode))
+
         try:
             if match:
-                f = FileParse(self.files, self.target_directory)
+                f = FileParseAll(self.files, self.target_directory)
                 result = f.grep(match)
             else:
                 result = ""
@@ -321,7 +304,7 @@ class SingleRule(object):
         origin_vulnerabilities = origin_results.strip().split("\n")
         for index, origin_vulnerability in enumerate(origin_vulnerabilities):
             origin_vulnerability = origin_vulnerability.strip()
-            logger.debug('[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=self.sr['id'], line=origin_vulnerability))
+            logger.debug('[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=self.sr.svid, line=origin_vulnerability))
             if origin_vulnerability == '':
                 logger.debug(' > continue...')
                 continue
@@ -332,17 +315,17 @@ class SingleRule(object):
             is_test = False
             try:
                 is_vulnerability, reason = Core(self.target_directory, vulnerability, self.sr, 'project name',
-                                                     ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                                                     files=self.files).scan()
+                                                ['whitelist1', 'whitelist2'], test=is_test, index=index,
+                                                files=self.files).scan()
                 if is_vulnerability:
-                    logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi=self.sr['id'], code=reason))
+                    logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi=self.sr.svid, code=reason))
                     vulnerability.analysis = reason
                     self.rule_vulnerabilities.append(vulnerability)
                 else:
                     logger.debug('Not vulnerability: {code}'.format(code=reason))
             except Exception:
                 raise
-        logger.debug('[CVI-{cvi}] {vn} Vulnerabilities: {count}'.format(cvi=self.sr['id'], vn=self.sr['name'],
+        logger.debug('[CVI-{cvi}] {vn} Vulnerabilities: {count}'.format(cvi=self.sr.svid, vn=self.sr['name'],
                                                                         count=len(self.rule_vulnerabilities)))
         return self.rule_vulnerabilities
 
@@ -373,11 +356,9 @@ class SingleRule(object):
                 mr.code_content = ''
                 mr.line_number = 0
         # vulnerability information
-        mr.rule_name = self.sr['name']
-        mr.id = self.sr['id']
-        mr.language = self.sr['language']
-        mr.solution = self.sr['solution']
-        mr.level = self.sr['level']
+        mr.rule_name = self.sr.vulnerability
+        mr.id = self.sr.svid
+        mr.language = self.sr.language
 
         return mr
 
@@ -575,7 +556,7 @@ class Core(object):
             #
             logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
             if self.rule_match2 is not None:
-                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,self.code_content)
+                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content)
                 is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
                 if is_match:
                     logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
@@ -637,7 +618,9 @@ class Core(object):
 
                                     logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
                                 else:
-                                    logger.debug('[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(r=result))
+                                    logger.debug(
+                                        '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
+                                            r=result))
                         except Exception as e:
                             logger.warning(traceback.format_exc())
                             raise

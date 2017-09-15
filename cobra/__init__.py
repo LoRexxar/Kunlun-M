@@ -21,7 +21,7 @@ from .log import logger
 from . import cli, config
 from .cli import get_sid
 from .engine import Running
-from .utils import unhandled_exception_message, create_github_issue
+# from .utils import unhandled_exception_message, create_github_issue
 
 from .__version__ import __title__, __introduction__, __url__, __version__
 from .__version__ import __author__, __author_email__, __license__
@@ -72,10 +72,10 @@ def main():
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))
     except Exception as e:
-        err_msg = unhandled_exception_message()
+        # err_msg = unhandled_exception_message()
         exc_msg = traceback.format_exc()
         logger.warning(exc_msg)
-        create_github_issue(err_msg, exc_msg)
+        # create_github_issue(err_msg, exc_msg)
 
 
 if __name__ == '__main__':

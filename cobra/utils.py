@@ -453,89 +453,89 @@ def secure_filename(filename):
     return filename
 
 
-def unhandled_exception_message():
-    """
-    Returns detailed message about occurred unhandled exception
-    """
-    err_msg = """Cobra version: {cv}\nPython version: {pv}\nOperating system: {os}\nCommand line: {cl}""".format(
-        cv=__version__,
-        pv=__python_version__,
-        os=__platform__,
-        cl=re.sub(r".+?\bcobra.py\b", "cobra.py", " ".join(sys.argv).encode('utf-8'))
-    )
-    return err_msg
-
-
-def create_github_issue(err_msg, exc_msg):
-    """
-    Automatically create a Github issue with unhandled exception information
-    """
-    issues = []
-    try:
-        with open(issue_history_path, 'r') as f:
-            for line in f.readlines():
-                issues.append(line.strip())
-    except:
-        pass
-    finally:
-        # unique
-        issues = set(issues)
-    _ = re.sub(r"'[^']+'", "''", exc_msg)
-    _ = re.sub(r"\s+line \d+", "", _)
-    _ = re.sub(r'File ".+?/(\w+\.py)', "\g<1>", _)
-    _ = re.sub(r".+\Z", "", _)
-    key = hashlib.md5(_).hexdigest()[:8]
-
-    if key in issues:
-        logger.warning('issue already reported!')
-        return
-
-    ex = None
-
-    try:
-        url = "https://api.github.com/search/issues?q={q}".format(q=urllib.quote("repo:wufeifei/cobra [AUTO] Unhandled exception (#{k})".format(k=key)))
-        logger.debug(url)
-        resp = requests.get(url=url)
-        content = resp.json()
-        _ = content
-        duplicate = _["total_count"] > 0
-        closed = duplicate and _["items"][0]["state"] == "closed"
-        if duplicate:
-            warn_msg = "issue seems to be already reported"
-            if closed:
-                warn_msg += " and resolved. Please update to the latest version from official GitHub repository at '{u}'".format(u=__url__)
-            logger.warning(warn_msg)
-            return
-    except:
-        logger.warning('search github issue failed')
-        pass
-
-    try:
-        url = "https://api.github.com/repos/wufeifei/cobra/issues"
-        data = {
-            "title": "[AUTO] Unhandled exception (#{k})".format(k=key),
-            "body": "## Environment\n```\n{err}\n```\n## Traceback\n```\n{exc}\n```\n".format(err=err_msg, exc=exc_msg)
-        }
-        headers = {"Authorization": "token {t}".format(t='48afbb61693ce187606388842ae1ccaa9a88a10a')}
-        resp = requests.post(url=url, data=json.dumps(data), headers=headers)
-        content = resp.text
-    except Exception as ex:
-        content = None
-
-    issue_url = re.search(r"https://github.com/wufeifei/cobra/issues/\d+", content or "")
-    if issue_url:
-        info_msg = "created Github issue can been found at the address '{u}'".format(u=issue_url.group(0))
-        logger.info(info_msg)
-
-        try:
-            with open(issue_history_path, "a+b") as f:
-                f.write("{k}\n".format(k=key))
-        except:
-            pass
-    else:
-        warn_msg = "something went wrong while creating a Github issue"
-        if ex:
-            warn_msg += " ('{m}')".format(m=get_safe_ex_string(ex))
-        if "Unauthorized" in warn_msg:
-            warn_msg += ". Please update to the latest revision"
-        logger.warning(warn_msg)
+# def unhandled_exception_message():
+#     """
+#     Returns detailed message about occurred unhandled exception
+#     """
+#     err_msg = """Cobra version: {cv}\nPython version: {pv}\nOperating system: {os}\nCommand line: {cl}""".format(
+#         cv=__version__,
+#         pv=__python_version__,
+#         os=__platform__,
+#         cl=re.sub(r".+?\bcobra.py\b", "cobra.py", " ".join(sys.argv).encode('utf-8'))
+#     )
+#     return err_msg
+#
+#
+# def create_github_issue(err_msg, exc_msg):
+#     """
+#     Automatically create a Github issue with unhandled exception information
+#     """
+#     issues = []
+#     try:
+#         with open(issue_history_path, 'r') as f:
+#             for line in f.readlines():
+#                 issues.append(line.strip())
+#     except:
+#         pass
+#     finally:
+#         # unique
+#         issues = set(issues)
+#     _ = re.sub(r"'[^']+'", "''", exc_msg)
+#     _ = re.sub(r"\s+line \d+", "", _)
+#     _ = re.sub(r'File ".+?/(\w+\.py)', "\g<1>", _)
+#     _ = re.sub(r".+\Z", "", _)
+#     key = hashlib.md5(_).hexdigest()[:8]
+#
+#     if key in issues:
+#         logger.warning('issue already reported!')
+#         return
+#
+#     ex = None
+#
+#     try:
+#         url = "https://api.github.com/search/issues?q={q}".format(q=urllib.quote("repo:wufeifei/cobra [AUTO] Unhandled exception (#{k})".format(k=key)))
+#         logger.debug(url)
+#         resp = requests.get(url=url)
+#         content = resp.json()
+#         _ = content
+#         duplicate = _["total_count"] > 0
+#         closed = duplicate and _["items"][0]["state"] == "closed"
+#         if duplicate:
+#             warn_msg = "issue seems to be already reported"
+#             if closed:
+#                 warn_msg += " and resolved. Please update to the latest version from official GitHub repository at '{u}'".format(u=__url__)
+#             logger.warning(warn_msg)
+#             return
+#     except:
+#         logger.warning('search github issue failed')
+#         pass
+#
+#     try:
+#         url = "https://api.github.com/repos/wufeifei/cobra/issues"
+#         data = {
+#             "title": "[AUTO] Unhandled exception (#{k})".format(k=key),
+#             "body": "## Environment\n```\n{err}\n```\n## Traceback\n```\n{exc}\n```\n".format(err=err_msg, exc=exc_msg)
+#         }
+#         headers = {"Authorization": "token {t}".format(t='48afbb61693ce187606388842ae1ccaa9a88a10a')}
+#         resp = requests.post(url=url, data=json.dumps(data), headers=headers)
+#         content = resp.text
+#     except Exception as ex:
+#         content = None
+#
+#     issue_url = re.search(r"https://github.com/wufeifei/cobra/issues/\d+", content or "")
+#     if issue_url:
+#         info_msg = "created Github issue can been found at the address '{u}'".format(u=issue_url.group(0))
+#         logger.info(info_msg)
+#
+#         try:
+#             with open(issue_history_path, "a+b") as f:
+#                 f.write("{k}\n".format(k=key))
+#         except:
+#             pass
+#     else:
+#         warn_msg = "something went wrong while creating a Github issue"
+#         if ex:
+#             warn_msg += " ('{m}')".format(m=get_safe_ex_string(ex))
+#         if "Unauthorized" in warn_msg:
+#             warn_msg += ". Please update to the latest revision"
+#         logger.warning(warn_msg)
