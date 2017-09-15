@@ -24,11 +24,12 @@ file_type = []
 
 
 class Detection(object):
-    def __init__(self, target_directory, files):
+    def __init__(self, target_directory, files, language):
         """
 
         :param target_directory:
         :param files:
+        :param language:
         """
         self.target_directory = target_directory
         self.files = files
@@ -37,11 +38,12 @@ class Detection(object):
         self.frame_data = {}
         self.language_data = {}
         self.project_data = []
+        self.lan = language
 
     @property
     def language(self):
         """Detection main language"""
-        languages = Rule().languages
+        languages = self.lan
         tmp_language = None
         for ext, ext_info in self.files:
             logger.debug("[DETECTION] [LANGUAGE] {ext} {count}".format(ext=ext, count=ext_info['count']))

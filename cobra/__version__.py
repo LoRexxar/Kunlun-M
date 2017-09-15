@@ -26,4 +26,6 @@ __epilog__ = """Usage:
   python {m} -t {td}
   python {m} -t {td} -r 1000, 1001
   python {m} -t {td} -f json -o /tmp/report.json 
-""".format(m='cobra.py', td='tests/vulnerabilities', tg='https://github.com/ethicalhack3r/DVWA')
+  python {m} -t {td} -l php
+  python {m} -t {td} -l php --ast
+""".format(m='cobra.py', td='tests/vulnerabilities')

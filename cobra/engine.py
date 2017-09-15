@@ -144,7 +144,7 @@ def scan_single(target_directory, single_rule, files=None):
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None):
+         extension_count=0, files=None, ast=False):
     r = Rule()
     vulnerabilities = r.vulnerabilities
     languages = r.languages

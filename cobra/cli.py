@@ -35,14 +35,16 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None):
+def start(target, formatter, output, special_rules, a_sid=None, language="php", ast=False):
     """
     Start CLI
+    :param language: 
     :param target: File, FOLDER, GIT
     :param formatter:
     :param output:
     :param special_rules:
     :param a_sid: all scan id
+    :param ast: ast start
     :return:
     """
     # generate single scan id
@@ -71,7 +73,7 @@ def start(target, formatter, output, special_rules, a_sid=None):
         files, file_count, time_consume = Directory(target_directory).collect_files()
 
         # detection main language and framework
-        dt = Detection(target_directory, files)
+        dt = Detection(target_directory, files, language)
         main_language = dt.language
         main_framework = dt.framework
 
@@ -85,7 +87,8 @@ def start(target, formatter, output, special_rules, a_sid=None):
 
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
-             language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files), files=files)
+             language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
+             files=files, ast=ast)
     except KeyboardInterrupt as e:
         logger.critical("[!] KeyboardInterrupt, exit...")
         exit()
