@@ -13,15 +13,13 @@
 """
 
 # Match-Mode
-mm_find_extension = 'find-extension'
-mm_function_param_controllable = 'function-param-controllable'
-mm_regex_param_controllable = 'regex-param-controllable'
+mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配
+mm_regex_param_controllable = 'vustomize-match'  # 自定义匹配
 mm_regex_only_match = 'regex-only-match'
 match_modes = [
     mm_regex_only_match,
     mm_regex_param_controllable,
-    mm_function_param_controllable,
-    mm_find_extension
+    mm_function_param_controllable
 ]
 
 #

@@ -24,7 +24,7 @@ class CVI_1000():
 
         self.svid = 1000
         self.language = "PHP"
-        self.author = "LoRexxxar"
+        self.author = "LoRexxar"
         self.vulnerability = "Reflected XSS"
         self.description = "Reflected XSS(description for vulnerabilty)"
 
@@ -32,7 +32,7 @@ class CVI_1000():
         self.status = True
 
         # 部分配置
-        self.match_mode = "function-param-controllable"
+        self.match_mode = "function-param-regex"
         self.match = "echo|print|print_r|exit|die|printf|vprintf|trigger_error|user_error|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
 
     def main(self, target_file):

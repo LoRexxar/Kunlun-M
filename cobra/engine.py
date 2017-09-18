@@ -188,23 +188,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     # print
     data = []
     table = PrettyTable(
-        ['#', 'CVI', 'VUL', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number/Module:Version',
-         'Commit(Author/Time)', 'Source Code Content', 'Match_Mode'])
+        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number/Module:Version',
+         'Commit(Author)', 'Source Code Content', 'Match_Mode'])
     table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
         trigger = '{fp}:{ln}'.format(fp=x.file_path, ln=x.line_number)
-        commit = u'{time}, @{author}'.format(author=x.commit_author, time=x.commit_time)
-        cvi = x.id
-        if cvi in vulnerabilities:
-            cvn = vulnerabilities[cvi]
-        else:
-            cvn = 'Unknown'
+        commit = u'@{author}'.format(author=x.commit_author)
         try:
             code_content = x.code_content[:50].strip()
         except AttributeError as e:
             code_content = x.code_content.decode('utf-8')[:100].strip()
-        row = [idx + 1, x.id, cvn, x.rule_name, x.language, trigger, commit, code_content, x.analysis]
+        row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit, code_content, x.analysis]
         data.append(row)
         table.add_row(row)
         if x.id not in trigger_rules:
@@ -359,6 +354,7 @@ class SingleRule(object):
         mr.rule_name = self.sr.vulnerability
         mr.id = self.sr.svid
         mr.language = self.sr.language
+        mr.commit_author = self.sr.author
 
         return mr
 
@@ -537,114 +533,77 @@ class Core(object):
             logger.debug("[RET] Annotation")
             return False, 'Annotation(注释)'
 
-        if self.rule_match_mode == const.mm_find_extension:
-            #
-            # Find-Extension
-            # Match(extension) -> Done
-            #
-            return True, 'FIND-EXTENSION(后缀查找)'
-        elif self.rule_match_mode == const.mm_regex_only_match:
-            #
-            # Regex-Only-Match
-            # Match(regex) -> Repair -> Done
-            #
-            logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
-            # if self.rule_match2 is not None:
-            #     ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content)
-            #     is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
-            #     if is_match:
-            #         logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
-            #         return True, 'REGEX-ONLY-MATCH+MATCH2(正则仅匹配+二次匹配)'
-            #     else:
-            #         logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
-            #         return False, 'REGEX-ONLY-MATCH+Not matched2(未匹配到二次规则)'
-            #
-            # if self.rule_repair is not None:
-            #     logger.debug('[VERIFY-REPAIR]')
-            #     ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content,
-            #                files=self.files)
-            #     is_repair, data = ast.match(self.rule_repair, self.repair_block)
-            #     if is_repair:
-            #         # fixed
-            #         logger.debug('[CVI-{cvi}] [RET] Vulnerability Fixed'.format(cvi=self.cvi))
-            #         return False, 'REGEX-ONLY-MATCH+Vulnerability-Fixed(漏洞已修复)'
-            #     else:
-            #         logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-            #         return True, 'REGEX-ONLY-MATCH+NOT FIX(未修复)'
-            # else:
-            #     return True, 'REGEX-ONLY-MATCH(正则仅匹配+无修复规则)'
-        else:
-            #
-            # Function-Param-Controllable
-            # Match(function) -> Match2(regex) -> Param-Controllable -> Repair -> Done
-            #
+        #
+        # function-param-regex
+        # Match(function) -> Param-Controllable -> Repair -> Done
+        #
 
-            #
-            # Regex-Param-Controllable
-            # Match(regex) -> Match2(regex) -> Param-Controllable -> Repair -> Done
-            #
-            logger.debug('[CVI-{cvi}] match-mode {mm}'.format(cvi=self.cvi, mm=self.rule_match_mode))
-            if self.file_path[-3:].lower() == 'php':
-                try:
-                    ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                               self.code_content, files=self.files)
-                    # Match2
-                    if self.rule_match_mode == const.mm_function_param_controllable:
-                        rule_match = self.rule_match.strip('()').split('|')
-                        logger.debug('[RULE_MATCH] {r}'.format(r=rule_match))
-                        try:
-                            with open(self.file_path, 'r') as fi:
-                                code_contents = fi.read()
-                                result = scan_parser(code_contents, rule_match, self.line_number)
-                                logger.debug('[AST] [RET] {c}'.format(c=result))
-                                if len(result) > 0:
-                                    if result[0]['code'] == 1:  # 函数参数可控
-                                        return True, 'FUNCTION-PARAM-CONTROLLABLE(函数入参可控)'
+        #
+        # vustomize-match
+        # vustomize-match() -> Param-Controllable -> Repair -> Done
+        #
+        logger.debug('[CVI-{cvi}] match-mode {mm}'.format(cvi=self.cvi, mm=self.rule_match_mode))
+        if self.file_path[-3:].lower() == 'php':
+            try:
+                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
+                           self.code_content, files=self.files)
+                # Match2
+                if self.rule_match_mode == const.mm_function_param_controllable:
+                    rule_match = self.rule_match.strip('()').split('|')
+                    logger.debug('[RULE_MATCH] {r}'.format(r=rule_match))
+                    try:
+                        with open(self.file_path, 'r') as fi:
+                            code_contents = fi.read()
+                            result = scan_parser(code_contents, rule_match, self.line_number)
+                            logger.debug('[AST] [RET] {c}'.format(c=result))
+                            if len(result) > 0:
+                                if result[0]['code'] == 1:  # 函数参数可控
+                                    return True, 'FUNCTION-PARAM-CONTROLLABLE(函数入参可控)'
 
-                                    if result[0]['code'] == 2:  # 函数为敏感函数
-                                        return False, 'FUNCTION-PARAM-CONTROLLABLE(函数入参来自所在函数)'
+                                if result[0]['code'] == 2:  # 函数为敏感函数
+                                    return False, 'FUNCTION-PARAM-CONTROLLABLE(函数入参来自所在函数)'
 
-                                    if result[0]['code'] == 0:  # 漏洞修复
-                                        return False, 'FUNCTION-PARAM-CONTROLLABLE+Vulnerability-Fixed(漏洞已修复)'
+                                if result[0]['code'] == 0:  # 漏洞修复
+                                    return False, 'FUNCTION-PARAM-CONTROLLABLE+Vulnerability-Fixed(漏洞已修复)'
 
-                                    if result[0]['code'] == -1:  # 函数参数不可控
-                                        return False, 'FUNCTION-PARAM-CONTROLLABLE(入参不可控)'
+                                if result[0]['code'] == -1:  # 函数参数不可控
+                                    return False, 'FUNCTION-PARAM-CONTROLLABLE(入参不可控)'
 
-                                    logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
-                                else:
-                                    logger.debug(
-                                        '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
-                                            r=result))
-                        except Exception as e:
-                            logger.warning(traceback.format_exc())
-                            raise
+                                logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
+                            else:
+                                logger.debug(
+                                    '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
+                                        r=result))
+                    except Exception as e:
+                        logger.warning(traceback.format_exc())
+                        raise
 
-                    # Match2
-                    # if self.rule_match2 is not None:
-                    #     is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
-                    #     if is_match:
-                    #         logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
-                    #         return True, 'FPC+MATCH2(函数入参可控+二次匹配)'
-                    #     else:
-                    #         logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
-                    #         return False, 'FPC+NOT-MATCH2(函数入参可控+二次未匹配)'
+                # Match2
+                # if self.rule_match2 is not None:
+                #     is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
+                #     if is_match:
+                #         logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
+                #         return True, 'FPC+MATCH2(函数入参可控+二次匹配)'
+                #     else:
+                #         logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
+                #         return False, 'FPC+NOT-MATCH2(函数入参可控+二次未匹配)'
 
-                    # Param-Controllable
-                    param_is_controllable, data = ast.is_controllable_param()
-                    if param_is_controllable:
-                        logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
-                        # Repair
-                        # is_repair, data = ast.match(self.rule_repair, self.repair_block)
-                        # if is_repair:
-                        #     # fixed
-                        #     logger.debug('[CVI-{cvi}] [REPAIR] Vulnerability Fixed'.format(cvi=self.cvi))
-                        #     return False, 'Vulnerability-Fixed(漏洞已修复)'
-                        # else:
-                        logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-                        return True, 'MATCH+REPAIR(匹配+未修复)'
-                    else:
-                        logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
-                        return False, 'Param-Not-Controllable(参数不可控)'
-                except Exception as e:
-                    logger.debug(traceback.format_exc())
-                    return False, 'Exception'
+                # Param-Controllable
+                param_is_controllable, data = ast.is_controllable_param()
+                if param_is_controllable:
+                    logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
+                    # Repair
+                    # is_repair, data = ast.match(self.rule_repair, self.repair_block)
+                    # if is_repair:
+                    #     # fixed
+                    #     logger.debug('[CVI-{cvi}] [REPAIR] Vulnerability Fixed'.format(cvi=self.cvi))
+                    #     return False, 'Vulnerability-Fixed(漏洞已修复)'
+                    # else:
+                    logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
+                    return True, 'MATCH+REPAIR(匹配+未修复)'
+                else:
+                    logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
+                    return False, 'Param-Not-Controllable(参数不可控)'
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                return False, 'Exception'

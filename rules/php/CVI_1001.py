@@ -22,9 +22,9 @@ class CVI_1001():
 
     def __init__(self):
 
-        self.svid = 1000
+        self.svid = 1001
         self.language = "PHP"
-        self.author = "LoRexxxar"
+        self.author = "LoRexxar"
         self.vulnerability = "SSRF"
         self.description = "cURL SSRF(description for vulnerabilty)"
 
@@ -32,7 +32,7 @@ class CVI_1001():
         self.status = True
 
         # 部分配置
-        self.match_mode = "regex-param-controllable"
+        self.match_mode = "vustomize-match"
         self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
 
     def main(self, target_file):
@@ -40,4 +40,4 @@ class CVI_1001():
         regular for Sensitivity Function
         :return: 
         """
-        return file_grep(target_file, self.regexp)
+        return file_grep(target_file, self.match)
