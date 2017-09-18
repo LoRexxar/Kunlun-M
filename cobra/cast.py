@@ -80,7 +80,7 @@ class CAST(object):
             logger.info("[AST] Undefined language's functions regex {0}".format(self.language))
             return False
         regex_functions = self.regex[self.language]['functions']
-        f = FileParse(self.files, self.target_directory)
+        f = FileParseAll(self.files, self.target_directory)
         result = f.grep(regex_functions)
         result = "".join(result)
 

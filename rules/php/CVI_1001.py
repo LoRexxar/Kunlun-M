@@ -4,7 +4,7 @@
     CVI-1000
     ~~~~
 
-    Reflected XSS
+    SSRF
 
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/cobra

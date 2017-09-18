@@ -189,13 +189,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     data = []
     table = PrettyTable(
         ['#', 'CVI', 'VUL', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number/Module:Version',
-         'Commit(Author/Time)', 'Source Code Content', 'Analysis'])
+         'Commit(Author/Time)', 'Source Code Content', 'Match_Mode'])
     table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
         trigger = '{fp}:{ln}'.format(fp=x.file_path, ln=x.line_number)
         commit = u'{time}, @{author}'.format(author=x.commit_author, time=x.commit_time)
-        cvi = x.id[0:3]
+        cvi = x.id
         if cvi in vulnerabilities:
             cvn = vulnerabilities[cvi]
         else:
@@ -325,7 +325,7 @@ class SingleRule(object):
                     logger.debug('Not vulnerability: {code}'.format(code=reason))
             except Exception:
                 raise
-        logger.debug('[CVI-{cvi}] {vn} Vulnerabilities: {count}'.format(cvi=self.sr.svid, vn=self.sr['name'],
+        logger.debug('[CVI-{cvi}] {vn} Vulnerabilities: {count}'.format(cvi=self.sr.svid, vn=self.sr.vulnerability,
                                                                         count=len(self.rule_vulnerabilities)))
         return self.rule_vulnerabilities
 
@@ -386,13 +386,13 @@ class Core(object):
         self.code_content = vulnerability_result.code_content.strip()
         self.files = files
 
-        self.rule_match = single_rule['match']
-        self.rule_match_mode = single_rule['match-mode']
-        self.rule_match2 = single_rule['match2']
-        self.rule_match2_block = single_rule['match2-block']
-        self.rule_repair = single_rule['repair']
-        self.repair_block = single_rule['repair-block']
-        self.cvi = single_rule['id']
+        self.rule_match = single_rule.match
+        self.rule_match_mode = single_rule.match_mode
+        # self.rule_match2 = single_rule['match2']
+        # self.rule_match2_block = single_rule['match2-block']
+        # self.rule_repair = single_rule['repair']
+        # self.repair_block = single_rule['repair-block']
+        self.cvi = single_rule.svid
 
         self.project_name = project_name
         self.white_list = white_list
@@ -419,18 +419,12 @@ class Core(object):
         self.method = None
         logger.debug("""[CVI-{cvi}] [VERIFY-VULNERABILITY] ({index})
         > File: `{file}:{line}`
-        > Code: `{code}`
-        > Match2: `{m2}({m2b})`
-        > Repair: `{r}({rb})`""".format(
-            cvi=single_rule['id'],
+        > Code: `{code}`""".format(
+            cvi=single_rule.svid,
             index=index,
             file=self.file_path.replace(self.target_directory, ''),
             line=self.line_number,
-            code=self.code_content,
-            m2=self.rule_match2,
-            m2b=self.rule_match2_block,
-            r=self.rule_repair,
-            rb=self.repair_block))
+            code=self.code_content))
 
     def is_white_list(self):
         """
@@ -555,30 +549,30 @@ class Core(object):
             # Match(regex) -> Repair -> Done
             #
             logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
-            if self.rule_match2 is not None:
-                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content)
-                is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
-                if is_match:
-                    logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
-                    return True, 'REGEX-ONLY-MATCH+MATCH2(正则仅匹配+二次匹配)'
-                else:
-                    logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
-                    return False, 'REGEX-ONLY-MATCH+Not matched2(未匹配到二次规则)'
-
-            if self.rule_repair is not None:
-                logger.debug('[VERIFY-REPAIR]')
-                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content,
-                           files=self.files)
-                is_repair, data = ast.match(self.rule_repair, self.repair_block)
-                if is_repair:
-                    # fixed
-                    logger.debug('[CVI-{cvi}] [RET] Vulnerability Fixed'.format(cvi=self.cvi))
-                    return False, 'REGEX-ONLY-MATCH+Vulnerability-Fixed(漏洞已修复)'
-                else:
-                    logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-                    return True, 'REGEX-ONLY-MATCH+NOT FIX(未修复)'
-            else:
-                return True, 'REGEX-ONLY-MATCH(正则仅匹配+无修复规则)'
+            # if self.rule_match2 is not None:
+            #     ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content)
+            #     is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
+            #     if is_match:
+            #         logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
+            #         return True, 'REGEX-ONLY-MATCH+MATCH2(正则仅匹配+二次匹配)'
+            #     else:
+            #         logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
+            #         return False, 'REGEX-ONLY-MATCH+Not matched2(未匹配到二次规则)'
+            #
+            # if self.rule_repair is not None:
+            #     logger.debug('[VERIFY-REPAIR]')
+            #     ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number, self.code_content,
+            #                files=self.files)
+            #     is_repair, data = ast.match(self.rule_repair, self.repair_block)
+            #     if is_repair:
+            #         # fixed
+            #         logger.debug('[CVI-{cvi}] [RET] Vulnerability Fixed'.format(cvi=self.cvi))
+            #         return False, 'REGEX-ONLY-MATCH+Vulnerability-Fixed(漏洞已修复)'
+            #     else:
+            #         logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
+            #         return True, 'REGEX-ONLY-MATCH+NOT FIX(未修复)'
+            # else:
+            #     return True, 'REGEX-ONLY-MATCH(正则仅匹配+无修复规则)'
         else:
             #
             # Function-Param-Controllable
@@ -626,28 +620,28 @@ class Core(object):
                             raise
 
                     # Match2
-                    if self.rule_match2 is not None:
-                        is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
-                        if is_match:
-                            logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
-                            return True, 'FPC+MATCH2(函数入参可控+二次匹配)'
-                        else:
-                            logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
-                            return False, 'FPC+NOT-MATCH2(函数入参可控+二次未匹配)'
+                    # if self.rule_match2 is not None:
+                    #     is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
+                    #     if is_match:
+                    #         logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
+                    #         return True, 'FPC+MATCH2(函数入参可控+二次匹配)'
+                    #     else:
+                    #         logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
+                    #         return False, 'FPC+NOT-MATCH2(函数入参可控+二次未匹配)'
 
                     # Param-Controllable
                     param_is_controllable, data = ast.is_controllable_param()
                     if param_is_controllable:
                         logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
                         # Repair
-                        is_repair, data = ast.match(self.rule_repair, self.repair_block)
-                        if is_repair:
-                            # fixed
-                            logger.debug('[CVI-{cvi}] [REPAIR] Vulnerability Fixed'.format(cvi=self.cvi))
-                            return False, 'Vulnerability-Fixed(漏洞已修复)'
-                        else:
-                            logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-                            return True, 'MATCH+REPAIR(匹配+未修复)'
+                        # is_repair, data = ast.match(self.rule_repair, self.repair_block)
+                        # if is_repair:
+                        #     # fixed
+                        #     logger.debug('[CVI-{cvi}] [REPAIR] Vulnerability Fixed'.format(cvi=self.cvi))
+                        #     return False, 'Vulnerability-Fixed(漏洞已修复)'
+                        # else:
+                        logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
+                        return True, 'MATCH+REPAIR(匹配+未修复)'
                     else:
                         logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
                         return False, 'Param-Not-Controllable(参数不可控)'
