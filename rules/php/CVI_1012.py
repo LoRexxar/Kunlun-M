@@ -24,7 +24,7 @@ class CVI_1012():
 
         self.svid = 1012
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Information Disclosure"
         self.description = "Information Disclosure"
 

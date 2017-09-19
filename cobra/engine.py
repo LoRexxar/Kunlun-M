@@ -188,7 +188,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     # print
     data = []
     table = PrettyTable(
-        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number/Module:Version',
+        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
          'Commit(Author)', 'Source Code Content', 'Analysis'])
     table.align = 'l'
     trigger_rules = []

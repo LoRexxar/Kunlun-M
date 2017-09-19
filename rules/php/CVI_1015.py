@@ -24,7 +24,7 @@ class CVI_1015():
 
         self.svid = 1015
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "unserialize vulerablity"
         self.description = "unserialize vulerablity"
 

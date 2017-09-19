@@ -24,7 +24,7 @@ class CVI_1008():
 
         self.svid = 1008
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Xml injection"
         self.description = "Xml injection"
 

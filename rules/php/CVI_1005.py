@@ -24,7 +24,7 @@ class CVI_1005():
 
         self.svid = 1005
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "SQLI"
         self.description = "SQL injection"
 

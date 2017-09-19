@@ -24,7 +24,7 @@ class CVI_1003():
 
         self.svid = 1003
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "SSRF"
         self.description = "get_headers SSRF"
 

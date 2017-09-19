@@ -24,7 +24,7 @@ class CVI_1013():
 
         self.svid = 1013
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "URL Redirector Abuse"
         self.description = "URL Redirector Abuse"
 

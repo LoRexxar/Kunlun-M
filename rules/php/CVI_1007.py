@@ -24,7 +24,7 @@ class CVI_1007():
 
         self.svid = 1007
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "RFI"
         self.description = "remote file include"
 

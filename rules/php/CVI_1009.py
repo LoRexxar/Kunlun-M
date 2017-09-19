@@ -24,7 +24,7 @@ class CVI_1009():
 
         self.svid = 1009
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "RCE"
         self.description = "Remote code execute"
 

@@ -24,7 +24,7 @@ class CVI_1014():
 
         self.svid = 1014
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "variable shadowing"
         self.description = "variable shadowing"
 

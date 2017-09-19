@@ -24,7 +24,7 @@ class CVI_1000():
 
         self.svid = 1000
         self.language = "PHP"
-        self.author = "LoRexxar"
+        self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Reflected XSS"
         self.description = "Reflected XSS"
 
