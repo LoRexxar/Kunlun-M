@@ -82,31 +82,28 @@ class CAST(object):
         regex_functions = self.regex[self.language]['functions']
         f = FileParseAll(self.files, self.target_directory)
         result = f.grep(regex_functions)
-        result = "".join(result)
-
         try:
             result = result.decode('utf-8')
         except AttributeError as e:
             pass
         if len(result):
             functions = {}
-            lines = result.strip().split("\n")
+            lines = result
             prev_function_name = ''
             for index, line in enumerate(lines):
-                line = line.strip()
-                if line == '':
+                if line == ():
                     logger.info('[AST] Empty')
                     continue
-                line_arr = line.split('||')
-                if len(line_arr) < 2:
+
+                if len(line) < 2:
                     logger.info("[AST] Not found(:)")
 
                 regex_annotation = self.regex[self.language]['annotation']
-                string = re.findall(regex_annotation, line_arr[1].strip())
+                string = re.findall(regex_annotation, line[1])
                 if len(string) >= 1 and string[0] != '':
                     logger.info("[AST] This function is annotation")
 
-                function_name = re.findall(regex_functions, line_arr[2].strip())
+                function_name = re.findall(regex_functions, line[2])
                 if len(function_name) >= 1:
                     if len(function_name) == 2:
                         if function_name[0] != '':
@@ -116,10 +113,10 @@ class CAST(object):
                     else:
                         function_name = function_name[0]
                     if index > 0 and prev_function_name in functions:
-                        functions[prev_function_name]['end'] = line_arr[1]
+                        functions[prev_function_name]['end'] = line[1]
                     prev_function_name = function_name
                     functions[function_name] = {
-                        'start': line_arr[1],
+                        'start': line[1],
                         'end': None  # next function's start
                     }
                 else:
