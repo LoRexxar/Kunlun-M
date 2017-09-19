@@ -15,7 +15,7 @@
 # Match-Mode
 mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配
 mm_regex_param_controllable = 'vustomize-match'  # 自定义匹配
-mm_regex_only_match = 'regex-only-match'
+mm_regex_only_match = 'only-regex'
 match_modes = [
     mm_regex_only_match,
     mm_regex_param_controllable,

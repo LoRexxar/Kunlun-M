@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1001
+    CVI-1002
     ~~~~
 
     SSRF
@@ -15,29 +15,29 @@
 from cobra.file import file_grep
 
 
-class CVI_1001():
+class CVI_1002():
     """
     rule class
     """
 
     def __init__(self):
 
-        self.svid = 1001
+        self.svid = 1002
         self.language = "PHP"
         self.author = "LoRexxar"
         self.vulnerability = "SSRF"
-        self.description = "cURL SSRF"
+        self.description = "file_get_contents SSRF"
 
         # status
         self.status = True
 
         # 部分配置
-        self.match_mode = "vustomize-match"
-        self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
+        self.match_mode = "function-param-regex"
+        self.match = "file_get_contents"
 
     def main(self, target_file):
         """
         regular for Sensitivity Function
-        :return: 
+        :return:
         """
         return file_grep(target_file, self.match)

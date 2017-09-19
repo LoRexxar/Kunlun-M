@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1001
+    CVI-1004
     ~~~~
 
-    SSRF
+    Sqli
 
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/cobra
@@ -15,25 +15,25 @@
 from cobra.file import file_grep
 
 
-class CVI_1001():
+class CVI_1004():
     """
     rule class
     """
 
     def __init__(self):
 
-        self.svid = 1001
+        self.svid = 1004
         self.language = "PHP"
         self.author = "LoRexxar"
-        self.vulnerability = "SSRF"
-        self.description = "cURL SSRF"
+        self.vulnerability = "SQLI"
+        self.description = "SQL injection"
 
         # status
         self.status = True
 
         # 部分配置
-        self.match_mode = "vustomize-match"
-        self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
+        self.match_mode = "only-regex"
+        self.match = "(\"\s*(select|SELECT|insert|INSERT|update|UPDATE)\s*(([^;]\s*)*)?\$(.+?);?\")"
 
     def main(self, target_file):
         """

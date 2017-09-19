@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1001
+    CVI-1013
     ~~~~
 
-    SSRF
+    URL Redirector Abuse
 
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/cobra
@@ -15,25 +15,25 @@
 from cobra.file import file_grep
 
 
-class CVI_1001():
+class CVI_1013():
     """
     rule class
     """
 
     def __init__(self):
 
-        self.svid = 1001
+        self.svid = 1013
         self.language = "PHP"
         self.author = "LoRexxar"
-        self.vulnerability = "SSRF"
-        self.description = "cURL SSRF"
+        self.vulnerability = "URL Redirector Abuse"
+        self.description = "URL Redirector Abuse"
 
         # status
         self.status = True
 
         # 部分配置
-        self.match_mode = "vustomize-match"
-        self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
+        self.match_mode = "function-param-regex"
+        self.match = "header"
 
     def main(self, target_file):
         """

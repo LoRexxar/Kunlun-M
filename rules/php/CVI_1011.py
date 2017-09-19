@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1001
+    CVI-1011
     ~~~~
 
-    SSRF
+    Remote command execute
 
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/cobra
@@ -15,25 +15,25 @@
 from cobra.file import file_grep
 
 
-class CVI_1001():
+class CVI_1011():
     """
     rule class
     """
 
     def __init__(self):
 
-        self.svid = 1001
+        self.svid = 1011
         self.language = "PHP"
         self.author = "LoRexxar"
-        self.vulnerability = "SSRF"
-        self.description = "cURL SSRF"
+        self.vulnerability = "RCE"
+        self.description = "Remote command execute"
 
         # status
         self.status = True
 
         # 部分配置
-        self.match_mode = "vustomize-match"
-        self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
+        self.match_mode = "function-param-regex"
+        self.match = "(system|passthru|exec|pcntl_exec|shell_exec|popen|proc_open|ob_start|expect_popen|mb_send_mail|w32api_register_function|w32api_invoke_function|ssh2_exec)"
 
     def main(self, target_file):
         """

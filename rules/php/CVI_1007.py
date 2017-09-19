@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1001
+    CVI-1007
     ~~~~
 
-    SSRF
+    remote file include
 
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/cobra
@@ -15,25 +15,25 @@
 from cobra.file import file_grep
 
 
-class CVI_1001():
+class CVI_1007():
     """
     rule class
     """
 
     def __init__(self):
 
-        self.svid = 1001
+        self.svid = 1007
         self.language = "PHP"
         self.author = "LoRexxar"
-        self.vulnerability = "SSRF"
-        self.description = "cURL SSRF"
+        self.vulnerability = "RFI"
+        self.description = "remote file include"
 
         # status
         self.status = True
 
         # 部分配置
-        self.match_mode = "vustomize-match"
-        self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
+        self.match_mode = "function-param-regex"
+        self.match = "include|include_once|require|require_once|parsekit_compile_file|php_check_syntax|runkit_import|virtual"
 
     def main(self, target_file):
         """

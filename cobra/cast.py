@@ -20,7 +20,7 @@ from .file import FileParseAll
 
 
 class CAST(object):
-    languages = ['php', 'java', 'm']
+    languages = ['php', 'java']
 
     def __init__(self, rule, target_directory, file_path, line, code, files=None):
         self.target_directory = target_directory
@@ -62,10 +62,6 @@ class CAST(object):
                 #    $url = $_SERVER
                 #    $url = $testsdf;
                 'assign_out_input': r'({0}\s?=\s?.*\$_[GET|POST|REQUEST|SERVER|COOKIE]+(?:\[))'
-            },
-            'm': {
-                'functions': r'(?:-|\+)\s\([\w|\*|\s]*\)(?:(?:(?:(\w*)(?:\:\([\w|\s|\*]*)\)(?:\w*)\s*){1,}))?(\w*)',
-                'annotation': r'(\/\/)+'
             }
         }
         logger.debug("[AST] [LANGUAGE] {language}".format(language=self.language))

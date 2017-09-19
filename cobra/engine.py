@@ -166,7 +166,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     logger.info('[PUSH] {rc} Rules'.format(rc=len(rules)))
     push_rules = []
 
-    for idx, single_rule in enumerate(rules):
+    for idx, single_rule in enumerate(sorted(rules.keys())):
 
         # init rule class
         r = getattr(rules[single_rule], single_rule)
@@ -533,6 +533,16 @@ class Core(object):
             try:
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
                            self.code_content, files=self.files)
+
+                # only match
+                if self.rule_match_mode == const.mm_regex_only_match:
+                    #
+                    # Regex-Only-Match
+                    # Match(regex) -> Repair -> Done
+                    #
+                    logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
+                    return True, 'Regex-only-match'
+
                 # Match for function-param-regex
                 if self.rule_match_mode == const.mm_function_param_controllable:
                     rule_match = self.rule_match.strip('()').split('|')
