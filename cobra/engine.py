@@ -356,7 +356,7 @@ class Core(object):
         Initialize
         :param: target_directory:
         :param: vulnerability_result:
-        :param single_rule: rule info
+        :param single_rule: rule class
         :param project_name: project name
         :param white_list: white-list
         :param test: is test
@@ -533,7 +533,7 @@ class Core(object):
             try:
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
                            self.code_content, files=self.files)
-                # Match2
+                # Match for function-param-regex
                 if self.rule_match_mode == const.mm_function_param_controllable:
                     rule_match = self.rule_match.strip('()').split('|')
                     logger.debug('[RULE_MATCH] {r}'.format(r=rule_match))
