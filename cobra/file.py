@@ -76,7 +76,7 @@ def file_grep(file_path, rule_reg):
             for line in file:
                 line_number += 1
                 if re.search(rule_reg, line, re.I):
-                    result.append(file_path + '||' + str(line_number) + '||' + line)
+                    result.append((file_path, str(line_number), line))
 
         return result
     else:
@@ -105,19 +105,9 @@ class FileParseAll:
                     line_number += 1
                     # print line, line_number
                     if re.search(reg, line, re.I):
-                        result.append(self.target + ffile + '||' + str(line_number) + '||' + line)
+                        result.append((self.target + ffile, str(line_number), line))
 
         return result
-
-    def find(self, ext):
-        """
-        搜索指定后缀的文件
-        :param ext: 后缀名
-        :return: 
-        """
-        for file in self.filelist:
-            if file[0] == ext:
-                return file[1]['list']
 
 
 class Directory(object):

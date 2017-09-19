@@ -189,7 +189,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     data = []
     table = PrettyTable(
         ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number/Module:Version',
-         'Commit(Author)', 'Source Code Content', 'Match_Mode'])
+         'Commit(Author)', 'Source Code Content', 'Analysis'])
     table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
@@ -273,7 +273,7 @@ class SingleRule(object):
                 f = FileParseAll(self.files, self.target_directory)
                 result = f.grep(match)
             else:
-                result = ""
+                result = None
         except Exception as e:
             traceback.print_exc()
             logger.debug('match exception ({e})'.format(e=e))
@@ -283,7 +283,7 @@ class SingleRule(object):
         except AttributeError as e:
             pass
 
-        return "".join(result)
+        return result
 
     def process(self):
         """
@@ -293,14 +293,13 @@ class SingleRule(object):
         origin_results = self.origin_results()
         # exists result
         if origin_results == '' or origin_results is None:
-            logger.debug('[CVI-{cvi}] [ORIGIN] NOT FOUND!'.format(cvi=self.sr['id']))
+            logger.debug('[CVI-{cvi}] [ORIGIN] NOT FOUND!'.format(cvi=self.sr.svid))
             return None
 
-        origin_vulnerabilities = origin_results.strip().split("\n")
+        origin_vulnerabilities = origin_results
         for index, origin_vulnerability in enumerate(origin_vulnerabilities):
-            origin_vulnerability = origin_vulnerability.strip()
-            logger.debug('[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=self.sr.svid, line=origin_vulnerability))
-            if origin_vulnerability == '':
+            logger.debug('[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=self.sr.svid, line=": ".join(list(origin_vulnerability))))
+            if origin_vulnerability == ():
                 logger.debug(' > continue...')
                 continue
             vulnerability = self.parse_match(origin_vulnerability)
@@ -327,29 +326,20 @@ class SingleRule(object):
     def parse_match(self, single_match):
         mr = VulnerabilityResult()
         # grep result
-        if '||' in single_match:
-            #
-            # Rules
-            #
-            # v.php:2:$password = "C787AFE9D9E86A6A6C78ACE99CA778EE";
-            # v.php:2:$password 2017:01:01
-            # v.exe Binary file
-            try:
-                mr.line_number, mr.code_content = re.findall(r'\|\|(\d+)\|\|(.*)', single_match)[0]
-                mr.file_path = single_match.split(u'||{n}||'.format(n=mr.line_number))[0]
-            except Exception as e:
-                logger.warning('match line parse exception')
-                mr.file_path = ''
-                mr.code_content = ''
-                mr.line_number = 0
-        else:
-            if 'Binary file' in single_match:
-                return None
-            else:
-                # find result
-                mr.file_path = single_match
-                mr.code_content = ''
-                mr.line_number = 0
+        #
+        # Rules
+        #
+        # (u'D:\\program\\cobra-w\\tests\\vulnerabilities/v.php', 10, 'echo($callback . ";");\n')
+        try:
+            mr.line_number = single_match[1]
+            mr.code_content = single_match[2]
+            mr.file_path = single_match[0]
+        except Exception as e:
+            logger.warning('match line parse exception')
+            mr.file_path = ''
+            mr.code_content = ''
+            mr.line_number = 0
+
         # vulnerability information
         mr.rule_name = self.sr.vulnerability
         mr.id = self.sr.svid
@@ -384,10 +374,6 @@ class Core(object):
 
         self.rule_match = single_rule.match
         self.rule_match_mode = single_rule.match_mode
-        # self.rule_match2 = single_rule['match2']
-        # self.rule_match2_block = single_rule['match2-block']
-        # self.rule_repair = single_rule['repair']
-        # self.repair_block = single_rule['repair-block']
         self.cvi = single_rule.svid
 
         self.project_name = project_name
@@ -540,7 +526,7 @@ class Core(object):
 
         #
         # vustomize-match
-        # vustomize-match() -> Param-Controllable -> Repair -> Done
+        # Match(function) -> vustomize-match() -> Param-Controllable -> Repair -> Done
         #
         logger.debug('[CVI-{cvi}] match-mode {mm}'.format(cvi=self.cvi, mm=self.rule_match_mode))
         if self.file_path[-3:].lower() == 'php':
@@ -558,16 +544,16 @@ class Core(object):
                             logger.debug('[AST] [RET] {c}'.format(c=result))
                             if len(result) > 0:
                                 if result[0]['code'] == 1:  # 函数参数可控
-                                    return True, 'FUNCTION-PARAM-CONTROLLABLE(函数入参可控)'
+                                    return True, 'Function-param-controllable'
 
                                 if result[0]['code'] == 2:  # 函数为敏感函数
-                                    return False, 'FUNCTION-PARAM-CONTROLLABLE(函数入参来自所在函数)'
+                                    return False, 'Function-sensitive'
 
                                 if result[0]['code'] == 0:  # 漏洞修复
-                                    return False, 'FUNCTION-PARAM-CONTROLLABLE+Vulnerability-Fixed(漏洞已修复)'
+                                    return False, 'Function-param-controllable but fixed'
 
                                 if result[0]['code'] == -1:  # 函数参数不可控
-                                    return False, 'FUNCTION-PARAM-CONTROLLABLE(入参不可控)'
+                                    return False, 'Function-param-uncon'
 
                                 logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
                             else:
@@ -578,17 +564,7 @@ class Core(object):
                         logger.warning(traceback.format_exc())
                         raise
 
-                # Match2
-                # if self.rule_match2 is not None:
-                #     is_match, data = ast.match(self.rule_match2, self.rule_match2_block)
-                #     if is_match:
-                #         logger.debug('[CVI-{cvi}] [MATCH2] True'.format(cvi=self.cvi))
-                #         return True, 'FPC+MATCH2(函数入参可控+二次匹配)'
-                #     else:
-                #         logger.debug('[CVI-{cvi}] [MATCH2] False'.format(cvi=self.cvi))
-                #         return False, 'FPC+NOT-MATCH2(函数入参可控+二次未匹配)'
-
-                # Param-Controllable
+                # vustomize-match
                 param_is_controllable, data = ast.is_controllable_param()
                 if param_is_controllable:
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
@@ -600,10 +576,10 @@ class Core(object):
                     #     return False, 'Vulnerability-Fixed(漏洞已修复)'
                     # else:
                     logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-                    return True, 'MATCH+REPAIR(匹配+未修复)'
+                    return True, 'Match'
                 else:
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
-                    return False, 'Param-Not-Controllable(参数不可控)'
+                    return False, 'Param-Not-Controllable'
             except Exception as e:
                 logger.debug(traceback.format_exc())
                 return False, 'Exception'
