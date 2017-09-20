@@ -18,7 +18,7 @@ from codecs import open,BOM_UTF8
 
 from prettytable import PrettyTable
 
-from .config import running_path, export_path
+from .config import running_path, export_path, default_result_path
 from .log import logger
 
 try:
@@ -87,11 +87,9 @@ def dict_to_csv(vul_list, filename):
     header.insert(0, 'target')
 
     # 去除列表中的换行符
-    for vul in vul_list:
-        vul['solution'] = vul.get('solution').replace('\n', '')
 
     if not os.path.exists(filename):
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, 'w+', encoding='utf-8') as f:
             # 防止在 Excel 中中文显示乱码
             f.write(BOM_UTF8)
             csv_writer = csv.DictWriter(f, header)
@@ -110,7 +108,7 @@ def dict_to_pretty_table(vul_list):
     :return: Pretty Table Format String
     """
     row_list = PrettyTable()
-    row_list.field_names = ['#', 'CVI', 'Vulnerability', 'File','Commit', 'Code Content']
+    row_list.field_names = ['#', 'CVI', 'Vulnerability', 'File', 'Commit', 'Code Content']
     row_list.align = 'l'
     for _id, vul in enumerate(vul_list):
         row_list.add_row(
@@ -130,8 +128,14 @@ def write_to_file(target, sid, output_format='', filename=None):
     :return:
     """
     if not filename:
-        logger.info('[EXPORT] No filename given, nothing exported.')
-        return False
+        logger.info('[EXPORT] No filename given, save into default path(result/).')
+
+        if target.endswith("/"):
+            filename = target.split("\\")[-2]
+        else:
+            filename = target.split("\\")[-1]
+        filename = default_result_path + filename + "." + output_format
+    #     return False
 
     scan_data_file = os.path.join(running_path, '{sid}_data'.format(sid=sid))
     with open(scan_data_file, 'r') as f:
@@ -145,7 +149,7 @@ def write_to_file(target, sid, output_format='', filename=None):
 
     elif output_format == 'json' or output_format == 'JSON':
         if not os.path.exists(filename):
-            with open(filename, 'w', encoding='utf-8') as f:
+            with open(filename, 'w+', encoding='utf-8') as f:
                 json_data = {
                     sid: scan_data,
                 }
@@ -164,7 +168,7 @@ def write_to_file(target, sid, output_format='', filename=None):
             sid: scan_data,
         }
         if not os.path.exists(filename):
-            with open(filename, 'w', encoding='utf-8') as f:
+            with open(filename, 'w+', encoding='utf-8') as f:
                 f.write("""<?xml version="1.0" encoding="UTF-8"?>\n""")
                 f.write("""<results>\n""")
                 f.write(dict_to_xml(xml_data))
@@ -187,5 +191,5 @@ def write_to_file(target, sid, output_format='', filename=None):
         logger.warning('[EXPORT] Unknown output format.')
         return False
 
-    logger.info('[EXPORT] Scan result exported successfully: {fn}'.format(fn=export_path + '/' + filename))
+    logger.info('[EXPORT] Scan result exported successfully: {fn}'.format(fn=filename))
     return True

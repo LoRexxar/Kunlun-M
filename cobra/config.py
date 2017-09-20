@@ -43,6 +43,10 @@ export_path = os.path.join(project_directory, code_path, 'export')
 if not os.path.exists(export_path):
     os.mkdir(export_path)
 
+if os.path.isdir('./result') is not True:
+    os.mkdir('./result')
+default_result_path = os.path.join(project_directory, 'result/')
+
 issue_history_path = os.path.join(issue_path, 'history')
 cobra_main = os.path.join(project_directory, 'cobra.py')
 core_path = os.path.join(project_directory, 'cobra')

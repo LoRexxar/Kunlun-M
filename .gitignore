@@ -78,3 +78,6 @@ cobra-venv/*
 
 # phply
 parsetab.py
+
+# result
+result/*

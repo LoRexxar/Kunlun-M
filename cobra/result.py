@@ -23,9 +23,6 @@ class VulnerabilityResult:
         self.language = ''
         self.line_number = None
         self.code_content = None
-        self.match_result = None
-        self.level = None
-        self.commit_time = 'Unknown'
         self.commit_author = 'Unknown'
 
     def convert_to_dict(self):
