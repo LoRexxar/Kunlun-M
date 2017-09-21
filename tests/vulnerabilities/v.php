@@ -61,6 +61,11 @@ $query  = "SELECT id, name, inserted, size FROM products WHERE size = '$size' OR
 mysql_query($query);
 mysqli_query($query);
 
+$id = $_GET['id'];
+$name = "test";
+$query2 = "select name from users where name =$name";
+$query2 = "select name from users where id =$id";
+
 
 if(!empty($cmd)){
     require_once($cmd);

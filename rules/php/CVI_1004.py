@@ -32,12 +32,14 @@ class CVI_1004():
         self.status = True
 
         # 部分配置
-        self.match_mode = "only-regex"
+        self.match_mode = "vustomize-match"
         self.match = "(\"\s*(select|SELECT|insert|INSERT|update|UPDATE)\s*(([^;]\s*)*)?\$(.+?);?\")"
 
-    def main(self, target_file):
+    def main(self, regex_string):
         """
-        regular for Sensitivity Function
+        regex string input
+        just for sql statements
         :return: 
         """
-        return file_grep(target_file, self.match)
+        print regex_string
+

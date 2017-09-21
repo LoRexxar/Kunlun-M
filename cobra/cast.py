@@ -22,7 +22,7 @@ from .file import FileParseAll
 class CAST(object):
     languages = ['php', 'java']
 
-    def __init__(self, rule, target_directory, file_path, line, code, files=None):
+    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None):
         self.target_directory = target_directory
         self.data = []
         self.rule = rule
@@ -33,6 +33,7 @@ class CAST(object):
         self.param_name = None
         self.param_value = None
         self.language = None
+        self.sr = rule_class
         for language in self.languages:
             if self.file_path[-len(language):].lower() == language:
                 self.language = language
@@ -185,8 +186,12 @@ class CAST(object):
         :return:
         """
         param_name = re.findall(self.rule, self.code)
+
+        if self.sr is not None:
+            params = self.sr.main(param_name)
+
         if len(param_name) == 1:
-            param_name = param_name[0].strip()
+            param_name = param_name[0]
             self.param_name = param_name
             logger.debug('[AST] Param: `{0}`'.format(param_name))
             # all is string

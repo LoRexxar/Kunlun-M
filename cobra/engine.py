@@ -375,6 +375,7 @@ class Core(object):
         self.rule_match = single_rule.match
         self.rule_match_mode = single_rule.match_mode
         self.cvi = single_rule.svid
+        self.single_rule = single_rule
 
         self.project_name = project_name
         self.white_list = white_list
@@ -532,7 +533,7 @@ class Core(object):
         if self.file_path[-3:].lower() == 'php':
             try:
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                           self.code_content, files=self.files)
+                           self.code_content, files=self.files, rule_class=self.single_rule)
 
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
@@ -586,7 +587,7 @@ class Core(object):
                     #     return False, 'Vulnerability-Fixed(漏洞已修复)'
                     # else:
                     logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-                    return True, 'Match'
+                    return True, 'Vustomize-Match'
                 else:
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
                     return False, 'Param-Not-Controllable'

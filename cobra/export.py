@@ -14,7 +14,7 @@
 import csv
 import json
 import os
-from codecs import open,BOM_UTF8
+from codecs import open, BOM_UTF8
 
 from prettytable import PrettyTable
 
@@ -140,6 +140,10 @@ def write_to_file(target, sid, output_format='', filename=None):
     scan_data_file = os.path.join(running_path, '{sid}_data'.format(sid=sid))
     with open(scan_data_file, 'r') as f:
         scan_data = json.load(f).get('result')
+
+    if len(scan_data.get('vulnerabilities')) == 0:
+        logger.info("[EXPORT] Not found vulnerability, break export...")
+        return False
 
     os.chdir(export_path)
     scan_data['target'] = target
