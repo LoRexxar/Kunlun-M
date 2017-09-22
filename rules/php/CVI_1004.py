@@ -13,7 +13,7 @@
 """
 
 from cobra.file import file_grep
-
+import re
 
 class CVI_1004():
     """
@@ -41,5 +41,12 @@ class CVI_1004():
         just for sql statements
         :return: 
         """
-        print regex_string
+        sql_sen = regex_string[0][0]
+        reg = "\$\w+"
+        if re.search(reg, sql_sen, re.I):
+
+            p = re.compile(reg)
+            match = p.findall(sql_sen)
+            return match
+        return None
 

@@ -162,7 +162,9 @@ class CAST(object):
                         elif block_position == 3:
                             block_start = function_value['start']
                             block_end = function_value['end']
-                        logger.debug("[AST] [FUNCTION] {0} ({1} - {2}) {3}".format(function_name, function_value['start'], function_value['end'], in_this_function))
+                        logger.debug(
+                            "[AST] [FUNCTION] {0} ({1} - {2}) {3}".format(function_name, function_value['start'],
+                                                                          function_value['end'], in_this_function))
             else:
                 if block_position == 0:
                     block_start = 1
@@ -190,100 +192,112 @@ class CAST(object):
         if self.sr is not None:
             params = self.sr.main(param_name)
 
-        if len(param_name) == 1:
-            param_name = param_name[0]
-            self.param_name = param_name
-            logger.debug('[AST] Param: `{0}`'.format(param_name))
-            # all is string
-            regex_string = self.regex[self.language]['string']
-            string = re.findall(regex_string, param_name)
-            if len(string) >= 1 and string[0] != '':
-                regex_get_variable_result = re.findall(self.regex[self.language]['variable'], param_name)
-                len_regex_get_variable_result = len(regex_get_variable_result)
-                if len_regex_get_variable_result >= 1:
-                    # TODO
-                    # 'ping $v1 $v2'
-                    # foreach $vn
-                    param_name = regex_get_variable_result[0]
-                    logger.info("[AST] String's variables: `{variables}`".format(variables=','.join(regex_get_variable_result)))
-                else:
-                    logger.debug("[AST] String have variables: `No`")
-                    return False, self.data
-            logger.debug("[AST] String have variables: `Yes`")
-
-            # variable
-            if param_name[:1] == '$':
-                logger.debug("[AST] Is variable: `Yes`")
-
-                # Get assign code block
-                param_block_code = self.block_code(0)
-                if param_block_code is False:
-                    logger.debug("[AST] Can't get assign code block")
-                    return True, self.data
-                logger.debug('[AST] Code assign code block: ```{language}\r\n{block}```'.format(language=self.language, block=param_block_code))
-
-                # Is assign out input
-                regex_get_param = self.regex[self.language]['assign_out_input'].format(re.escape(param_name))
-                regex_get_param_result = re.findall(regex_get_param, param_block_code)
-                if len(regex_get_param_result) >= 1:
-                    self.param_value = regex_get_param_result[0]
-                    logger.debug("[AST] Is assign out input: `Yes`")
-                    return True, self.data
-                logger.debug("[AST] Is assign out input: `No`")
-
-                # Is function's param
-                regex_function_param = r'(function\s*\w+\s*\(.*{0})'.format(re.escape(param_name))
-                regex_function_param_result = re.findall(regex_function_param, param_block_code)
-                if len(regex_function_param_result) >= 1:
-                    self.param_value = regex_function_param_result[0]
-                    logger.debug("[AST] Is function's param: `Yes`")
-                    return True, self.data
-                logger.debug("[AST] Is function's param: `No`")
-
-                # Is assign CONST
-                uc_rule = r'{0}\s?=\s?([A-Z_]*)'.format(re.escape(param_name))
-                uc_rule_result = re.findall(uc_rule, param_block_code)
-                if len(uc_rule_result) >= 1:
-                    logger.debug("[AST] Is assign CONST: Yes `{0} = {1}`".format(param_name, uc_rule_result[0]))
-                    return False, self.data
-                logger.debug("[AST] Is assign CONST: `No`")
-
-                # Is assign string
-                regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
-                string = re.findall(regex_assign_string, param_block_code)
+        for param_name in params:
+            try:
+                self.param_name = param_name
+                logger.debug('[AST] Param: `{0}`'.format(param_name))
+                # all is string
+                regex_string = self.regex[self.language]['string']
+                string = re.findall(regex_string, param_name)
                 if len(string) >= 1 and string[0] != '':
-                    logger.debug("[AST] Is assign string: `Yes`")
-                    return False, self.data
-                logger.debug("[AST] Is assign string: `No`")
-                return True, self.data
-            else:
-                if self.language == 'java':
-                    # Java variable didn't have `$`
+                    regex_get_variable_result = re.findall(self.regex[self.language]['variable'], param_name)
+                    len_regex_get_variable_result = len(regex_get_variable_result)
+                    if len_regex_get_variable_result >= 1:
+                        # TODO
+                        # 'ping $v1 $v2'
+                        # foreach $vn
+                        param_name = regex_get_variable_result[0]
+                        logger.info("[AST] String's variables: `{variables}`".format(
+                            variables=','.join(regex_get_variable_result)))
+                    else:
+                        logger.debug("[AST] String have variables: `No`")
+                        return False, self.data
+                logger.debug("[AST] String have variables: `Yes`")
+
+                # variable
+                if param_name[:1] == '$':
+                    logger.debug("[AST] Is variable: `Yes`")
+
+                    # Get assign code block
                     param_block_code = self.block_code(0)
                     if param_block_code is False:
-                        logger.debug("Can't get block code")
+                        logger.debug("[AST] Can't get assign code block")
                         return True, self.data
-                    logger.debug("[AST] Block code: ```{language}\r\n{code}```".format(language=self.language, code=param_block_code))
+                    logger.debug(
+                        '[AST] Code assign code block: ```{language}\r\n{block}```'.format(language=self.language,
+                                                                                           block=param_block_code))
+
+                    # Is assign out input
+                    regex_get_param = self.regex[self.language]['assign_out_input'].format(re.escape(param_name))
+                    regex_get_param_result = re.findall(regex_get_param, param_block_code)
+                    if len(regex_get_param_result) >= 1:
+                        self.param_value = regex_get_param_result[0]
+                        logger.debug("[AST] Is assign out input: `Yes`")
+                        return True, self.data
+                    logger.debug("[AST] Is assign out input: `No`")
+
+                    # Is function's param
+                    regex_function_param = r'(function\s*\w+\s*\(.*{0})'.format(re.escape(param_name))
+                    regex_function_param_result = re.findall(regex_function_param, param_block_code)
+                    if len(regex_function_param_result) >= 1:
+                        self.param_value = regex_function_param_result[0]
+                        logger.debug("[AST] Is function's param: `Yes`")
+                        return True, self.data
+                    logger.debug("[AST] Is function's param: `No`")
+
+                    # Is assign CONST
+                    uc_rule = r'{0}\s?=\s?([A-Z_]*)'.format(re.escape(param_name))
+                    uc_rule_result = re.findall(uc_rule, param_block_code)
+                    if len(uc_rule_result) >= 1:
+                        logger.debug("[AST] Is assign CONST: Yes `{0} = {1}`".format(param_name, uc_rule_result[0]))
+                        continue
+                        # return False, self.data
+                    logger.debug("[AST] Is assign CONST: `No`")
+
+                    # Is assign string
                     regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
                     string = re.findall(regex_assign_string, param_block_code)
                     if len(string) >= 1 and string[0] != '':
                         logger.debug("[AST] Is assign string: `Yes`")
-                        return False, self.data
+                        continue
+                        # return False, self.data
                     logger.debug("[AST] Is assign string: `No`")
-
-                    # Is assign out data
-                    regex_get_param = r'String\s{0}\s=\s\w+\.getParameter(.*)'.format(re.escape(param_name))
-                    get_param = re.findall(regex_get_param, param_block_code)
-                    if len(get_param) >= 1 and get_param[0] != '':
-                        logger.debug("[AST] Is assign out data: `Yes`")
-                        return False, self.data
-                    logger.debug("[AST] Is assign out data: `No`")
                     return True, self.data
-                logger.debug("[AST] Not Java/PHP, can't parse ({l})".format(l=self.language))
+                else:
+                    if self.language == 'java':
+                        # Java variable didn't have `$`
+                        param_block_code = self.block_code(0)
+                        if param_block_code is False:
+                            logger.debug("Can't get block code")
+                            return True, self.data
+                        logger.debug("[AST] Block code: ```{language}\r\n{code}```".format(language=self.language,
+                                                                                           code=param_block_code))
+                        regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
+                        string = re.findall(regex_assign_string, param_block_code)
+                        if len(string) >= 1 and string[0] != '':
+                            logger.debug("[AST] Is assign string: `Yes`")
+                            continue
+                            # return False, self.data
+                        logger.debug("[AST] Is assign string: `No`")
+
+                        # Is assign out data
+                        regex_get_param = r'String\s{0}\s=\s\w+\.getParameter(.*)'.format(re.escape(param_name))
+                        get_param = re.findall(regex_get_param, param_block_code)
+                        if len(get_param) >= 1 and get_param[0] != '':
+                            logger.debug("[AST] Is assign out data: `Yes`")
+                            continue
+                            # False, self.data
+                        logger.debug("[AST] Is assign out data: `No`")
+                        return True, self.data
+                    logger.debug("[AST] Not Java/PHP, can't parse ({l})".format(l=self.language))
+                    continue
+                    # return False, self.data
+            except:
+                logger.warning("[AST] Can't get `param`, check built-in rule")
                 return False, self.data
-        else:
-            logger.warning("[AST] Can't get `param`, check built-in rule")
-            return False, self.data
+
+        # if no variable can modify
+        return False, self.data
 
     def match(self, rule, block_id):
         """
