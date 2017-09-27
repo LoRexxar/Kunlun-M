@@ -35,9 +35,10 @@ class CVI_1011():
         self.match_mode = "function-param-regex"
         self.match = "(system|passthru|exec|pcntl_exec|shell_exec|popen|proc_open|ob_start|expect_popen|mb_send_mail|w32api_register_function|w32api_invoke_function|ssh2_exec)"
 
-    def main(self, target_file):
+    def main(self, regex_string):
         """
-        regular for Sensitivity Function
-        :return: 
+        regex string input
+        :regex_string: regex match string
+        :return:
         """
-        return file_grep(target_file, self.match)
+        pass

@@ -35,9 +35,10 @@ class CVI_1012():
         self.match_mode = "function-param-regex"
         self.match = "(print_r|var_dump|show_source|highlight_file)\s*\("
 
-    def main(self, target_file):
+    def main(self, regex_string):
         """
-        regular for Sensitivity Function
-        :return: 
+        regex string input
+        :regex_string: regex match string
+        :return:
         """
-        return file_grep(target_file, self.match)
+        pass

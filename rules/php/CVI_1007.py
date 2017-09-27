@@ -35,9 +35,10 @@ class CVI_1007():
         self.match_mode = "function-param-regex"
         self.match = "include|include_once|require|require_once|parsekit_compile_file|php_check_syntax|runkit_import|virtual"
 
-    def main(self, target_file):
+    def main(self, regex_string):
         """
-        regular for Sensitivity Function
-        :return: 
+        regex string input
+        :regex_string: regex match string
+        :return:
         """
-        return file_grep(target_file, self.match)
+        pass

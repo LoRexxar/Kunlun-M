@@ -12,8 +12,6 @@
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
 
-from cobra.file import file_grep
-
 
 class temlates():
     """
@@ -31,9 +29,11 @@ class temlates():
         self.description = "Reflected XSS(description for vulnerabilty)"
         self.regexp = "echo|print|print_r|exit|die|printf|vprintf|trigger_error|user_error|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
 
-    def temlates(self):
+    def main(self, regex_string):
         """
-        regular for Sensitivity Function
-        :return: 
+        regex string input
+        return all parm by list
+        :regex_string: regex match string
+        :return:
         """
-        return file_grep(self.target_file, self.regexp)
+        pass
