@@ -674,6 +674,8 @@ def scan_parser(code_content, sensitive_func, vul_lineno):
         scan_results = []
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+        for n in all_nodes:
+            print n
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), function_params=None)

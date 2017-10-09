@@ -60,6 +60,9 @@ def main():
 
         logger.debug('[INIT] start scanning...')
 
+        if args.ast:
+            logger.info("[INIT] start AST Analysis...")
+
         a_sid = get_sid(args.target, True)
         data = {
             'status': 'running',
@@ -72,10 +75,8 @@ def main():
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))
     except Exception as e:
-        # err_msg = unhandled_exception_message()
         exc_msg = traceback.format_exc()
         logger.warning(exc_msg)
-        # create_github_issue(err_msg, exc_msg)
 
 
 if __name__ == '__main__':

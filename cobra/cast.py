@@ -22,7 +22,7 @@ from .file import FileParseAll
 class CAST(object):
     languages = ['php', 'java']
 
-    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None):
+    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, ast=False):
         self.target_directory = target_directory
         self.data = []
         self.rule = rule
@@ -34,6 +34,7 @@ class CAST(object):
         self.param_value = None
         self.language = None
         self.sr = rule_class
+        self.ast = ast
         for language in self.languages:
             if self.file_path[-len(language):].lower() == language:
                 self.language = language

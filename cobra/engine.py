@@ -136,9 +136,9 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None):
+def scan_single(target_directory, single_rule, files=None, ast=False):
     try:
-        return SingleRule(target_directory, single_rule, files).process()
+        return SingleRule(target_directory, single_rule, files, ast).process()
     except Exception:
         raise
 
@@ -182,7 +182,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             vulnerability=rule.vulnerability,
             language=rule.language
         ))
-        result = scan_single(target_directory, rule, files)
+        result = scan_single(target_directory, rule, files, ast)
         store(result)
 
     # print
@@ -236,12 +236,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files):
+    def __init__(self, target_directory, single_rule, files, ast=False):
         self.target_directory = target_directory
         self.find = Tool().find
         self.grep = Tool().grep
         self.sr = single_rule
         self.files = files
+        self.ast = ast
         # Single Rule Vulnerabilities
         """
         [
@@ -310,7 +311,7 @@ class SingleRule(object):
             try:
                 is_vulnerability, reason = Core(self.target_directory, vulnerability, self.sr, 'project name',
                                                 ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                                                files=self.files).scan()
+                                                files=self.files, ast=self.ast).scan()
                 if is_vulnerability:
                     logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi=self.sr.svid, code=reason))
                     vulnerability.analysis = reason
@@ -351,7 +352,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=None, files=None):
+                 index=None, files=None, ast=False):
         """
         Initialize
         :param: target_directory:
@@ -362,6 +363,7 @@ class Core(object):
         :param test: is test
         :param index: vulnerability index
         :param files: core file list
+        :param ast: ast start
         """
         self.data = []
 
@@ -376,6 +378,7 @@ class Core(object):
         self.rule_match_mode = single_rule.match_mode
         self.cvi = single_rule.svid
         self.single_rule = single_rule
+        self.ast = ast
 
         self.project_name = project_name
         self.white_list = white_list
@@ -533,7 +536,7 @@ class Core(object):
         if self.file_path[-3:].lower() == 'php':
             try:
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                           self.code_content, files=self.files, rule_class=self.single_rule)
+                           self.code_content, files=self.files, rule_class=self.single_rule, ast=self.ast)
 
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
