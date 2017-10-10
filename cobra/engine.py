@@ -538,6 +538,9 @@ class Core(object):
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
                            self.code_content, files=self.files, rule_class=self.single_rule, ast=self.ast)
 
+                if self.ast:
+                    logger.debug("[CVI-{cvi}] AST analysis start...".format(cvi=self.cvi))
+
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
                     #
@@ -554,7 +557,7 @@ class Core(object):
                     try:
                         with open(self.file_path, 'r') as fi:
                             code_contents = fi.read()
-                            result = scan_parser(code_contents, rule_match, self.line_number)
+                            result = scan_parser(code_contents, rule_match, self.line_number, self.file_path, self.ast)
                             logger.debug('[AST] [RET] {c}'.format(c=result))
                             if len(result) > 0:
                                 if result[0]['code'] == 1:  # 函数参数可控
@@ -574,6 +577,7 @@ class Core(object):
                                 logger.debug(
                                     '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
                                         r=result))
+                                return False, 'Can\'t parser'
                     except Exception as e:
                         logger.warning(traceback.format_exc())
                         raise

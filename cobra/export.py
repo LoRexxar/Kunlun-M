@@ -130,7 +130,7 @@ def write_to_file(target, sid, output_format='', filename=None):
     if not filename:
         logger.info('[EXPORT] No filename given, save into default path(result/).')
 
-        if target.endswith("/"):
+        if target.endswith("/") or target.endswith("\\"):
             filename = target.split("\\")[-2]
         else:
             filename = target.split("\\")[-1]

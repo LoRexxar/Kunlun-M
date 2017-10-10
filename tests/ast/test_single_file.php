@@ -1,13 +1,18 @@
 <?php
+include("test1.php");
+include "test2.php";
+
+
 # 不可控
-$url = "http://blog.feei.cn/ssrf"
-curl_setopt($curl, CURLOPT_URL, $url);
+$url = "phpinfo()";
+eval($url);
 
 # 可控
-$url = $_GET['url'];
-curl_setopt($curl, CURLOPT_URL, $url);
+$url = $_GET['a'];
+eval($url);
 
-# 可控,且修复
-$url = $_GET['url'];
-curl_setopt($curl, CURLOPT_URL, $url);
-curl_setopt($curl, CURLOPT_PROTOCOLS, CURLOPT_HTTP);
+# 可控
+eval($url2);
+
+# 不可控
+eval($url3);

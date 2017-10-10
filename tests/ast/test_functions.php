@@ -22,9 +22,3 @@ function request4(){
     curl_setopt($curl, CURLOPT_URL, $url);
 }
 
-# 外部取参,可控,已修复
-function request5(){
-    $url = $_POST['url'];
-    curl_setopt($curl, CURLOPT_URL, $url);
-    curl_setopt($curl, CURLOPT_PROTOCOLS, CURLOPT_HTTP);
-}

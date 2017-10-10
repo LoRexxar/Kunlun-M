@@ -15,6 +15,7 @@ from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 from .log import logger
+from .deepast import DeepAst
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -661,12 +662,14 @@ def analysis(nodes, vul_function, back_node, vul_lineo, function_params=None):
         back_node.append(node)
 
 
-def scan_parser(code_content, sensitive_func, vul_lineno):
+def scan_parser(code_content, sensitive_func, vul_lineno, file_path, ast=False):
     """
     开始检测函数
     :param code_content: 要检测的文件内容
     :param sensitive_func: 要检测的敏感函数,传入的为函数列表
     :param vul_lineno: 漏洞函数所在行号
+    :param file_path: 文件名
+    :param ast: 深度ast分析
     :return:
     """
     try:
@@ -674,12 +677,12 @@ def scan_parser(code_content, sensitive_func, vul_lineno):
         scan_results = []
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
-        for n in all_nodes:
-            print n
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), function_params=None)
     except SyntaxError as e:
         logger.warning('[AST] [ERROR]:{e}'.format(e=e))
 
+    if ast:
+        scan_results = DeepAst(file_path, scan_results).main()
     return scan_results
