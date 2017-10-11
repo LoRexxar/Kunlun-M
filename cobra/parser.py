@@ -257,13 +257,17 @@ def is_controllable(expr):  # 获取表达式中的变量，看是否在用户�
         '$HTTP_RAW_POST_DATA',
         '$HTTP_GET_VARS'
     ]
-    if expr in controlled_params:
+    if expr in controlled_params:  # 当为可控变量时 返回1
         logger.debug('[AST] is_controllable --> {expr}'.format(expr=expr))
         return 1, expr
+
+    if expr.startswith("$"):
+        return 3, expr
+
     return -1, None
 
 
-def parameters_back(param, nodes, function_params=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
+def parameters_back(param, nodes, function_params=None, file_path=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
     :param param:
@@ -274,17 +278,17 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
     expr_lineno = 0  # source所在行号
     is_co, cp = is_controllable(param)
 
-    if len(nodes) != 0 and is_co == -1:
+    if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
 
         if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
             param_expr, expr_lineno, is_re = get_expr_name(node.expr)  # param_expr为赋值表达式,param_expr为变量或者列表
 
-            if param == param_node and is_re is True:
-                is_co = 0
-                cp = None
-                return is_co, cp, expr_lineno
+            # if param == param_node and is_re is True: # 已经修复
+            #     is_co = 0
+            #     cp = None
+            #     return is_co, cp, expr_lineno
 
             if param == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
@@ -308,10 +312,10 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                         is_co = _is_co
                         cp = _cp
 
-        if is_co == -1:  # 当is_co为True时找到可控，停止递归
+        if is_co != 1:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params)  # 找到可控的输入时，停止递归
 
-    elif len(nodes) == 0 and function_params is not None:
+    elif len(nodes) == 0 and function_params is not None: # 考虑函数参数情况
         for function_param in function_params:
             if function_param == param:
                 is_co = 2
@@ -335,7 +339,7 @@ def get_function_params(nodes):
     return params
 
 
-def anlysis_function(node, back_node, vul_function, function_params, vul_lineno):
+def anlysis_function(node, back_node, vul_function, function_params, vul_lineno, file_path=None):
     """
     对用户自定义的函数进行分析-->获取函数入参-->入参用经过赋值流程，进入sink函数-->此自定义函数为危险函数
     :param node:
@@ -350,7 +354,7 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno)
         if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 函数体中存在敏感函数，开始对敏感函数前的代码进行检测
             for param in node.params:
                 if isinstance(param.node, php.Variable):
-                    analysis_variable_node(param.node, back_node, vul_function, vul_lineno, function_params)
+                    analysis_variable_node(param.node, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
 
                 if isinstance(param.node, php.FunctionCall):
                     analysis_functioncall_node(param.node, back_node, vul_function, vul_lineno, function_params)
@@ -446,9 +450,10 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
         set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
 
-def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_params=None):
+def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
     处理Variable类型节点-->取出参数-->回溯判断参数是否可控-->输出结果
+    :param file_path: 
     :param node:
     :param back_node:
     :param vul_function:
@@ -458,7 +463,12 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     """
     logger.debug('[AST] vul_function:{v}'.format(v=vul_function))
     params = get_node_name(node)
-    is_co, cp, expr_lineno = parameters_back(params, back_node, function_params)
+    is_co, cp, expr_lineno = parameters_back(params, back_node, function_params, file_path=file_path)
+
+    if is_co == 3:
+        logger.debug("[Deep AST] try to find include, start deep AST")
+        print is_co, cp, expr_lineno
+
     set_scan_results(is_co, cp, expr_lineno, vul_function, params, vul_lineno)
 
 
@@ -482,9 +492,10 @@ def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=
                     analysis(nodes, vul_function, back_node, vul_lineno, function_params)
 
 
-def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_params=None):
+def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
     处理echo/print类型节点-->判断节点类型-->不同If分支回溯判断参数是否可控-->输出结果
+    :param file_path: 
     :param node:
     :param back_node:
     :param vul_function:
@@ -523,9 +534,10 @@ def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_para
                     analysis_arrayoffset_node(k_node, vul_function, vul_lineno)
 
 
-def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=None):
+def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=None, file_path=None):
     """
     处理eval类型节点-->判断节点类型-->不同If分支回溯判断参数是否可控-->输出结果
+    :param file_path: 
     :param node:
     :param vul_function:
     :param back_node:
@@ -537,7 +549,7 @@ def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=Non
 
     if vul_function == 'eval' and int(node.lineno) == int(vul_lineno):
         if isinstance(node.expr, php.Variable):
-            analysis_variable_node(node.expr, back_node, vul_function, vul_lineno, function_params)
+            analysis_variable_node(node.expr, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
 
         if isinstance(node.expr, php.FunctionCall):
             analysis_functioncall_node(node.expr, back_node, vul_function, vul_lineno, function_params)
@@ -600,12 +612,12 @@ def set_scan_results(is_co, cp, expr_lineno, sink, param, vul_lineno):
         'sink_param:': param,
         'sink_lineno': vul_lineno
     }
-    if result['code'] != -1:  # 查出来漏洞结果添加到结果信息中
+    if result['code'] > 0:  # 查出来漏洞结果添加到结果信息中
         results.append(result)
         scan_results += results
 
 
-def analysis(nodes, vul_function, back_node, vul_lineo, function_params=None):
+def analysis(nodes, vul_function, back_node, vul_lineo, function_params=None, file_path=None):
     """
     调用FunctionCall-->analysis_functioncall分析调用函数是否敏感
     :param nodes: 所有节点
@@ -613,6 +625,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, function_params=None):
     :param back_node: 各种语法结构里面的语句
     :param vul_lineo: 漏洞函数所在行号
     :param function_params: 自定义函数的所有参数列表
+    :param file_path: 当前分析文件的地址
     :return:
     """
     buffer_ = []
@@ -679,10 +692,9 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path, ast=False):
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
-            analysis(all_nodes, func, back_node, int(vul_lineno), function_params=None)
+            analysis(all_nodes, func, back_node, int(vul_lineno), function_params=None, file_path=file_path)
+            print scan_results
     except SyntaxError as e:
         logger.warning('[AST] [ERROR]:{e}'.format(e=e))
 
-    if ast:
-        scan_results = DeepAst(file_path, scan_results).main()
     return scan_results

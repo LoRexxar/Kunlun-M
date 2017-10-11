@@ -16,3 +16,11 @@ eval($url2);
 
 # 不可控
 eval($url3);
+
+# 经过一次
+$url4 = $test;
+eval($url4);
+
+# 函数
+$url5 = test();
+eval($url5);

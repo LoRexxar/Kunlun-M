@@ -193,6 +193,10 @@ class CAST(object):
         if self.sr is not None:
             params = self.sr.main(param_name)
 
+        if params is None:
+            logger.debug("[AST] Not matching variables...")
+            return False, self.data
+
         for param_name in params:
             try:
                 self.param_name = param_name
