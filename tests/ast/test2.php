@@ -3,5 +3,5 @@
 $url3 = "echo 1";
 
 function test(){
-    return $_GET['s']
+    return $_GET['s'];
 }
