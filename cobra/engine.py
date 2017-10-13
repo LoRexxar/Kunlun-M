@@ -557,7 +557,7 @@ class Core(object):
                     try:
                         with open(self.file_path, 'r') as fi:
                             code_contents = fi.read()
-                            result = scan_parser(code_contents, rule_match, self.line_number, self.file_path, self.ast)
+                            result = scan_parser(code_contents, rule_match, self.line_number, self.file_path)
                             logger.debug('[AST] [RET] {c}'.format(c=result))
                             if len(result) > 0:
                                 if result[0]['code'] == 1:  # 函数参数可控

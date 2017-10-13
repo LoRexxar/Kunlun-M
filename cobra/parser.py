@@ -15,6 +15,7 @@ from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 from .log import logger
+from .file import get_line
 import re
 
 with_line = True
@@ -285,11 +286,6 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
             param_expr, expr_lineno, is_re = get_expr_name(node.expr)  # param_expr为赋值表达式,param_expr为变量或者列表
 
-            # if param == param_node and is_re is True: # 已经修复
-            #     is_co = 0
-            #     cp = None
-            #     return is_co, cp, expr_lineno
-
             if param == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
 
@@ -297,6 +293,23 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                     is_co, cp = is_sink_function(param_expr, function_params)
 
                 param = param_expr  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+
+            if param == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
+                function_name = node.expr.name
+
+                for node in nodes[::-1]:
+                    if isinstance(node, php.Function):
+                        if node.name == function_name:
+                            function_lineno = node.lineno
+                            function_nodes = node.nodes
+
+                            # 进入递归函数内语句
+                            for function_node in function_nodes:
+                                if isinstance(function_node, php.Return):
+                                    return_node = function_node.node
+                                    return_param = return_node.node
+                                    return_param_name = return_param.name
+                                    is_co, cp, expr_lineno = parameters_back(return_param_name, function_nodes, function_params,)
 
             if param == param_node and isinstance(param_expr, list):
                 for expr in param_expr:
@@ -371,6 +384,25 @@ def deep_parameters_back(node, back_node, function_params, count, file_path):
                     break
 
     return is_co, cp, expr_lineno
+
+
+def get_function_node(nodes, s_lineno, e_lineno):
+    """
+    获取node列表中的指定行的node
+    :param nodes: 
+    :param s_lineno: 
+    :param e_lineno: 
+    :return: 
+    """
+    result = []
+
+    for node in nodes:
+        if node.lineno == e_lineno:
+            result.append(node)
+            break
+        if node.lineno == s_lineno:
+            result.append(node)
+    return result
 
 
 def get_function_params(nodes):
@@ -669,7 +701,7 @@ def set_scan_results(is_co, cp, expr_lineno, sink, param, vul_lineno):
         scan_results += results
 
 
-def analysis(nodes, vul_function, back_node, vul_lineo, function_params=None, file_path=None):
+def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_params=None):
     """
     调用FunctionCall-->analysis_functioncall分析调用函数是否敏感
     :param nodes: 所有节点
@@ -727,7 +759,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, function_params=None, fi
         back_node.append(node)
 
 
-def scan_parser(code_content, sensitive_func, vul_lineno, file_path, ast=False):
+def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
     """
     开始检测函数
     :param code_content: 要检测的文件内容
@@ -742,9 +774,10 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path, ast=False):
         scan_results = []
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+        print all_nodes
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
-            analysis(all_nodes, func, back_node, int(vul_lineno), function_params=None, file_path=file_path)
+            analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)
     except SyntaxError as e:
         logger.warning('[AST] [ERROR]:{e}'.format(e=e))
 
