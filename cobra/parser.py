@@ -300,7 +300,6 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                 for node in nodes[::-1]:
                     if isinstance(node, php.Function):
                         if node.name == function_name:
-                            function_lineno = node.lineno
                             function_nodes = node.nodes
 
                             # 进入递归函数内语句
@@ -726,7 +725,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
 
             if isinstance(node.expr, php.Silence):
                 buffer_.append(node.expr)
-                analysis(buffer_, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
+                analysis(buffer_, vul_function, back_node, vul_lineo, function_params)
 
         elif isinstance(node, php.Print) or isinstance(node, php.Echo):
             analysis_echo_print(node, back_node, vul_function, vul_lineo, function_params, file_path=file_path)
@@ -746,7 +745,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
 
         elif isinstance(node, php.While) or isinstance(node, php.For):  # 函数调用在循环中
             if isinstance(node.node, php.Block):
-                analysis(node.node.nodes, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
+                analysis(node.node.nodes, vul_function, back_node, vul_lineo, function_params)
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_body = []
@@ -754,7 +753,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
             analysis(node.nodes, vul_function, function_body, vul_lineo, function_params=function_params, file_path=file_path)
 
         elif isinstance(node, php.Class):
-            analysis(node.nodes, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
+            analysis(node.nodes, vul_function, back_node, vul_lineo, function_params)
 
         back_node.append(node)
 
@@ -774,7 +773,6 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
         scan_results = []
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
-        print all_nodes
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)
