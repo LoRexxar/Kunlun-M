@@ -15,7 +15,6 @@ from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 from .log import logger
-from .file import get_line
 import re
 
 with_line = True
@@ -220,7 +219,7 @@ def is_repair(expr):
     return is_re
 
 
-def is_sink_function(param_expr, function_params, file_path=None):
+def is_sink_function(param_expr, function_params):
     """
     判断自定义函数的入参-->判断此函数是否是危险函数
     :param param_expr:
@@ -260,12 +259,40 @@ def is_controllable(expr):  # 获取表达式中的变量，看是否在用户�
     ]
     if expr in controlled_params:  # 当为可控变量时 返回1
         logger.debug('[AST] is_controllable --> {expr}'.format(expr=expr))
-        return 1, expr
+        return 1, php.Variable(expr)
 
     if expr.startswith("$"):
-        return 3, expr
+        return 3, php.Variable(expr)
 
     return -1, None
+
+
+def function_back(param, nodes, function_params): # 回溯函数定义位置
+    """
+    递归回溯函数定义位置，传入param类型不同
+    :param param: 
+    :param nodes: 
+    :return: 
+    """
+    function_name = param.name
+
+    is_co = 3
+    cp = param
+    expr_lineno = 0
+
+    for node in nodes[::-1]:
+        if isinstance(node, php.Function):
+            if node.name == function_name:
+                function_nodes = node.nodes
+
+                # 进入递归函数内语句
+                for function_node in function_nodes:
+                    if isinstance(function_node, php.Return):
+                        return_node = function_node.node
+                        return_param = return_node.node
+                        is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params)
+
+    return is_co, cp, expr_lineno
 
 
 def parameters_back(param, nodes, function_params=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
@@ -276,8 +303,13 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
     :param function_params:
     :return:
     """
+    if isinstance(param, php.FunctionCall):  # 当污点为寻找函数时，递归进入寻找函数
+        is_co, cp, expr_lineno = function_back(param, nodes, function_params)
+        return is_co, cp, expr_lineno
+
     expr_lineno = 0  # source所在行号
-    is_co, cp = is_controllable(param)
+    param_name = param.name
+    is_co, cp = is_controllable(param_name)
 
     if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
@@ -286,16 +318,17 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
             param_expr, expr_lineno, is_re = get_expr_name(node.expr)  # param_expr为赋值表达式,param_expr为变量或者列表
 
-            if param == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
+            if param_name == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
 
                 if is_co != 1:
                     is_co, cp = is_sink_function(param_expr, function_params)
 
-                param = param_expr  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
 
-            if param == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
+            if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
+                param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
 
                 for node in nodes[::-1]:
                     if isinstance(node, php.Function):
@@ -307,10 +340,9 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                                 if isinstance(function_node, php.Return):
                                     return_node = function_node.node
                                     return_param = return_node.node
-                                    return_param_name = return_param.name
-                                    is_co, cp, expr_lineno = parameters_back(return_param_name, function_nodes, function_params,)
+                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params,)
 
-            if param == param_node and isinstance(param_expr, list):
+            if param_name == param_node and isinstance(param_expr, list):
                 for expr in param_expr:
                     param = expr
                     is_co, cp = is_controllable(expr)
@@ -347,7 +379,8 @@ def deep_parameters_back(node, back_node, function_params, count, file_path):
     """
     count += 1
 
-    params = get_node_name(node)
+    # params = get_node_name(node)
+    params = node
     is_co, cp, expr_lineno = parameters_back(params, back_node, function_params)
 
     if count > 20:
@@ -375,7 +408,8 @@ def deep_parameters_back(node, back_node, function_params, count, file_path):
 
                 parser = make_parser()
                 all_nodes = parser.parse(file_content, debug=False, lexer=lexer.clone(), tracking=with_line)
-                node = php.Variable(cp)
+                node = cp
+                # node = php.Variable(cp)
 
                 is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path)
 
@@ -554,24 +588,24 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     set_scan_results(is_co, cp, expr_lineno, vul_function, params, vul_lineno)
 
 
-def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
+def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=None):
     nodes = []
     if isinstance(node.node, php.Block):  # if语句中的sink点以及变量
-        analysis(node.node.nodes, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+        analysis(node.node.nodes, vul_function, back_node, vul_lineno, function_params)
 
     if node.else_ is not None:  # else语句中的sink点以及变量
         if isinstance(node.else_.node, php.Block):
-            analysis(node.else_.node.nodes, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+            analysis(node.else_.node.nodes, vul_function, back_node, vul_lineno, function_params)
 
     if len(node.elseifs) != 0:  # elseif语句中的sink点以及变量
         for i_node in node.elseifs:
             if i_node.node is not None:
                 if isinstance(i_node.node, php.Block):
-                    analysis(i_node.node.nodes, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+                    analysis(i_node.node.nodes, vul_function, back_node, vul_lineno, function_params)
 
                 else:
                     nodes.append(i_node.node)
-                    analysis(nodes, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+                    analysis(nodes, vul_function, back_node, vul_lineno, function_params)
 
 
 def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
@@ -741,7 +775,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
             analysis_file_inclusion(node, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
 
         elif isinstance(node, php.If):  # 函数调用在if-else语句中时
-            analysis_if_else(node, back_node, vul_function, vul_lineo, function_params, file_path=file_path)
+            analysis_if_else(node, back_node, vul_function, vul_lineo, function_params)
 
         elif isinstance(node, php.While) or isinstance(node, php.For):  # 函数调用在循环中
             if isinstance(node.node, php.Block):

@@ -22,9 +22,9 @@ $url4 = $test;
 eval($url4);
 
 # 函数
-function test(){
-    return $_GET['a'];
-}
+ function test(){
+     return $_GET['a'];
+ }
 
 $url5 = test();
 eval($url5);
