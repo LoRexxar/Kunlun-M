@@ -60,9 +60,6 @@ def main():
 
         logger.debug('[INIT] start scanning...')
 
-        if args.ast:
-            logger.info("[INIT] start AST Analysis...")
-
         a_sid = get_sid(args.target, True)
         data = {
             'status': 'running',
@@ -70,7 +67,7 @@ def main():
         }
         Running(a_sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.ast)
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid)
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))

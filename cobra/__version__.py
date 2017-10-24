@@ -7,7 +7,7 @@ __url__ = 'https://github.com/LoRexxar/Cobra-W'
 __issue_page__ = 'https://github.com/LoRexxar/Cobra-W/issues/new'
 __python_version__ = sys.version.split()[0]
 __platform__ = platform.platform()
-__version__ = '0.3.0'
+__version__ = '0.3.2'
 __author__ = 'LoRexxar'
 __author_email__ = 'LoRexxar@gmail.com'
 __license__ = 'MIT License'
@@ -26,5 +26,5 @@ __epilog__ = """Usage:
   python {m} -t {td}
   python {m} -t {td} -r 1000, 1001
   python {m} -t {td} -f json -o /tmp/report.json 
-  python {m} -t {td} --ast
+  python {m} -t {td} --debug
 """.format(m='cobra.py', td='tests/vulnerabilities')

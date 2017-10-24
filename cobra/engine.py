@@ -311,7 +311,7 @@ class SingleRule(object):
             try:
                 is_vulnerability, reason = Core(self.target_directory, vulnerability, self.sr, 'project name',
                                                 ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                                                files=self.files, ast=self.ast).scan()
+                                                files=self.files).scan()
                 if is_vulnerability:
                     logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi=self.sr.svid, code=reason))
                     vulnerability.analysis = reason
@@ -352,7 +352,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=None, files=None, ast=False):
+                 index=None, files=None):
         """
         Initialize
         :param: target_directory:
@@ -363,7 +363,6 @@ class Core(object):
         :param test: is test
         :param index: vulnerability index
         :param files: core file list
-        :param ast: ast start
         """
         self.data = []
 
@@ -378,7 +377,6 @@ class Core(object):
         self.rule_match_mode = single_rule.match_mode
         self.cvi = single_rule.svid
         self.single_rule = single_rule
-        self.ast = ast
 
         self.project_name = project_name
         self.white_list = white_list
@@ -536,10 +534,7 @@ class Core(object):
         if self.file_path[-3:].lower() == 'php':
             try:
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                           self.code_content, files=self.files, rule_class=self.single_rule, ast=self.ast)
-
-                if self.ast:
-                    logger.debug("[CVI-{cvi}] AST analysis start...".format(cvi=self.cvi))
+                           self.code_content, files=self.files, rule_class=self.single_rule)
 
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
