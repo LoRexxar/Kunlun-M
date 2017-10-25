@@ -43,7 +43,6 @@ def start(target, formatter, output, special_rules, a_sid=None):
     :param output:
     :param special_rules:
     :param a_sid: all scan id
-    :param ast: ast start
     :return:
     """
     # generate single scan id

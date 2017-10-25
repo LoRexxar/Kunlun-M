@@ -28,3 +28,9 @@ eval($url4);
 
 $url5 = test();
 eval($url5);
+
+
+$a = 1;
+if(a == 1){
+    eval($url4);
+}

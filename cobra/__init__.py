@@ -46,7 +46,6 @@ def main():
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
-        parser_group_scan.add_argument('--ast', dest='ast', action='store_true', default=False, help='open ast analysis')
 
         args = parser.parse_args()
 

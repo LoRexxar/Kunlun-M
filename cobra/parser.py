@@ -588,24 +588,24 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     set_scan_results(is_co, cp, expr_lineno, vul_function, params, vul_lineno)
 
 
-def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=None):
+def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     nodes = []
     if isinstance(node.node, php.Block):  # if语句中的sink点以及变量
-        analysis(node.node.nodes, vul_function, back_node, vul_lineno, function_params)
+        analysis(node.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
     if node.else_ is not None:  # else语句中的sink点以及变量
         if isinstance(node.else_.node, php.Block):
-            analysis(node.else_.node.nodes, vul_function, back_node, vul_lineno, function_params)
+            analysis(node.else_.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
     if len(node.elseifs) != 0:  # elseif语句中的sink点以及变量
         for i_node in node.elseifs:
             if i_node.node is not None:
                 if isinstance(i_node.node, php.Block):
-                    analysis(i_node.node.nodes, vul_function, back_node, vul_lineno, function_params)
+                    analysis(i_node.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
                 else:
                     nodes.append(i_node.node)
-                    analysis(nodes, vul_function, back_node, vul_lineno, function_params)
+                    analysis(nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
 
 def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
@@ -734,7 +734,7 @@ def set_scan_results(is_co, cp, expr_lineno, sink, param, vul_lineno):
         scan_results += results
 
 
-def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_params=None):
+def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function_params=None):
     """
     调用FunctionCall-->analysis_functioncall分析调用函数是否敏感
     :param nodes: 所有节点
@@ -748,25 +748,25 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
     buffer_ = []
     for node in nodes:
         if isinstance(node, php.FunctionCall):  # 函数直接调用，不进行赋值
-            anlysis_function(node, back_node, vul_function, function_params, vul_lineo)
+            anlysis_function(node, back_node, vul_function, function_params, vul_lineo, file_path=file_path)
 
         elif isinstance(node, php.Assignment):  # 函数调用在赋值表达式中
             if isinstance(node.expr, php.FunctionCall):
-                anlysis_function(node.expr, back_node, vul_function, function_params, vul_lineo)
+                anlysis_function(node.expr, back_node, vul_function, function_params, vul_lineo, file_path=file_path)
 
             if isinstance(node.expr, php.Eval):
                 analysis_eval(node.expr, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
 
             if isinstance(node.expr, php.Silence):
                 buffer_.append(node.expr)
-                analysis(buffer_, vul_function, back_node, vul_lineo, function_params)
+                analysis(buffer_, vul_function, back_node, vul_lineo, file_path, function_params)
 
         elif isinstance(node, php.Print) or isinstance(node, php.Echo):
             analysis_echo_print(node, back_node, vul_function, vul_lineo, function_params, file_path=file_path)
 
         elif isinstance(node, php.Silence):
             nodes = get_silence_params(node)
-            analysis(nodes, vul_function, back_node, vul_lineo)
+            analysis(nodes, vul_function, back_node, vul_lineo, file_path)
 
         elif isinstance(node, php.Eval):
             analysis_eval(node, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
@@ -775,11 +775,11 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
             analysis_file_inclusion(node, vul_function, back_node, vul_lineo, function_params, file_path=file_path)
 
         elif isinstance(node, php.If):  # 函数调用在if-else语句中时
-            analysis_if_else(node, back_node, vul_function, vul_lineo, function_params)
+            analysis_if_else(node, back_node, vul_function, vul_lineo, function_params, file_path=file_path)
 
         elif isinstance(node, php.While) or isinstance(node, php.For):  # 函数调用在循环中
             if isinstance(node.node, php.Block):
-                analysis(node.node.nodes, vul_function, back_node, vul_lineo, function_params)
+                analysis(node.node.nodes, vul_function, back_node, vul_lineo, file_path, function_params)
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_body = []
@@ -787,7 +787,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path, function_para
             analysis(node.nodes, vul_function, function_body, vul_lineo, function_params=function_params, file_path=file_path)
 
         elif isinstance(node, php.Class):
-            analysis(node.nodes, vul_function, back_node, vul_lineo, function_params)
+            analysis(node.nodes, vul_function, back_node, vul_lineo, file_path, function_params)
 
         back_node.append(node)
 
