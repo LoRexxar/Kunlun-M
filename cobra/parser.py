@@ -578,10 +578,6 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     """
     logger.debug('[AST] vul_function:{v}'.format(v=vul_function))
     params = get_node_name(node)
-    # is_co, cp, expr_lineno = parameters_back(params, back_node, function_params)
-
-    # for node2 in back_node:
-    #     print node2.expr
     count = 0
     is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path)
 

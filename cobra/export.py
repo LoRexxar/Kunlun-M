@@ -14,6 +14,7 @@
 import csv
 import json
 import os
+import re
 from codecs import open, BOM_UTF8
 
 from prettytable import PrettyTable
@@ -130,10 +131,11 @@ def write_to_file(target, sid, output_format='', filename=None):
     if not filename:
         logger.info('[EXPORT] No filename given, save into default path(result/).')
 
+        targetlist = re.split("[\\\/]", target)
         if target.endswith("/") or target.endswith("\\"):
-            filename = target.split("\\")[-2]
+            filename = targetlist[-2]
         else:
-            filename = target.split("\\")[-1]
+            filename = targetlist[-1]
         filename = default_result_path + filename + "." + output_format
     #     return False
 
