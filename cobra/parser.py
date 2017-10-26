@@ -798,8 +798,7 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
     :param code_content: 要检测的文件内容
     :param sensitive_func: 要检测的敏感函数,传入的为函数列表
     :param vul_lineno: 漏洞函数所在行号
-    :param file_path: 文件名
-    :param ast: 深度ast分析
+    :param file_path: 文件路径
     :return:
     """
     try:

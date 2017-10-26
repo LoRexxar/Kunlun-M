@@ -1,6 +1,6 @@
 <?php
 include("test1.php");
-include "test2.php";
+require "test2.php";
 
 
 # 不可控
