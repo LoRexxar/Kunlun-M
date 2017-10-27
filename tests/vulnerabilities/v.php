@@ -57,6 +57,16 @@ if (!empty($url)){
 
 print("Hello " . $cmd);
 
+
+$query = "select id, xxx from users where name = $_SESSION[a]";
+
+$test = "test";
+$query = "select id, xxx from users where name = $test";
+
+$test = $_GET['a'];
+$query = "select id, xxx from users where name = $test";
+
+
 $query  = "SELECT id, name, inserted, size FROM products WHERE size = '$size' ORDER BY $order LIMIT $limit, $offset;";
 mysql_query($query);
 mysqli_query($query);

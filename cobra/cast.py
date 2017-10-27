@@ -13,10 +13,13 @@
 """
 import os
 import re
+import traceback
 from .log import logger
 from .rule import block
 from .file import File
 from .file import FileParseAll
+from .parser import is_controllable
+from .parser import anlysis_params
 
 
 class CAST(object):
@@ -224,50 +227,28 @@ class CAST(object):
                     logger.debug("[AST] Is variable: `Yes`")
 
                     # Get assign code block
-                    param_block_code = self.block_code(0)
-                    if param_block_code is False:
+                    # param_block_code = self.block_code(0)
+                    with open(self.file_path, 'r') as fi:
+                        param_content = fi.read()
+
+                    if param_content is False:
                         logger.debug("[AST] Can't get assign code block")
                         return True, self.data
-                    logger.debug(
-                        '[AST] Code assign code block: ```{language}\r\n{block}```'.format(language=self.language,
-                                                                                           block=param_block_code))
 
-                    # Is assign out input
-                    regex_get_param = self.regex[self.language]['assign_out_input'].format(re.escape(param_name))
-                    regex_get_param_result = re.findall(regex_get_param, param_block_code)
-                    if len(regex_get_param_result) >= 1:
-                        self.param_value = regex_get_param_result[0]
-                        logger.debug("[AST] Is assign out input: `Yes`")
-                        return True, self.data
-                    logger.debug("[AST] Is assign out input: `No`")
+                    logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    # Is function's param
-                    regex_function_param = r'(function\s*\w+\s*\(.*{0})'.format(re.escape(param_name))
-                    regex_function_param_result = re.findall(regex_function_param, param_block_code)
-                    if len(regex_function_param_result) >= 1:
-                        self.param_value = regex_function_param_result[0]
-                        logger.debug("[AST] Is function's param: `Yes`")
-                        return True, self.data
-                    logger.debug("[AST] Is function's param: `No`")
+                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line)
 
-                    # Is assign CONST
-                    uc_rule = r'{0}\s?=\s?([A-Z_]*)'.format(re.escape(param_name))
-                    uc_rule_result = re.findall(uc_rule, param_block_code)
-                    if len(uc_rule_result) >= 1:
-                        logger.debug("[AST] Is assign CONST: Yes `{0} = {1}`".format(param_name, uc_rule_result[0]))
-                        continue
-                        # return False, self.data
-                    logger.debug("[AST] Is assign CONST: `No`")
-
-                    # Is assign string
-                    regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
-                    string = re.findall(regex_assign_string, param_block_code)
-                    if len(string) >= 1 and string[0] != '':
+                    if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")
+                        return True, _cp
+                    elif _is_co == 3:
+                        logger.info("[AST] can't find this param, something error..")
                         continue
-                        # return False, self.data
-                    logger.debug("[AST] Is assign string: `No`")
-                    return True, self.data
+                    else:
+                        continue
+
+
                 else:
                     if self.language == 'java':
                         # Java variable didn't have `$`
@@ -299,6 +280,8 @@ class CAST(object):
                     # return False, self.data
             except:
                 logger.warning("[AST] Can't get `param`, check built-in rule")
+                # print param_content
+                # traceback.print_exc()
                 return False, self.data
 
         # if no variable can modify

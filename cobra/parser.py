@@ -237,7 +237,7 @@ def is_sink_function(param_expr, function_params):
     return is_co, cp
 
 
-def is_controllable(expr):  # 获取表达式中的变量，看是否在用户可控变量列表中
+def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否在用户可控变量列表中
     """
     判断赋值表达式是否是用户可控的
     :param expr:
@@ -257,11 +257,16 @@ def is_controllable(expr):  # 获取表达式中的变量，看是否在用户�
         '$HTTP_RAW_POST_DATA',
         '$HTTP_GET_VARS'
     ]
+
     if expr in controlled_params:  # 当为可控变量时 返回1
         logger.debug('[AST] is_controllable --> {expr}'.format(expr=expr))
+        if flag:
+            return 1, expr
         return 1, php.Variable(expr)
 
     if expr.startswith("$"):
+        if flag:
+            return 3, expr
         return 3, php.Variable(expr)
 
     return -1, None
@@ -368,10 +373,10 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
     return is_co, cp, expr_lineno
 
 
-def deep_parameters_back(node, back_node, function_params, count, file_path):
+def deep_parameters_back(param, back_node, function_params, count, file_path):
     """
     深度递归遍历
-    :param node: 
+    :param param: 
     :param back_node: 
     :param function_params: 
     :param file_path: 
@@ -379,9 +384,9 @@ def deep_parameters_back(node, back_node, function_params, count, file_path):
     """
     count += 1
 
-    # params = get_node_name(node)
-    params = node
-    is_co, cp, expr_lineno = parameters_back(params, back_node, function_params)
+    # param = get_node_name(node)
+    # param = node
+    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params)
 
     if count > 20:
         logger.warning("[Deep AST] depth too big to auto exit...")
@@ -451,6 +456,31 @@ def get_function_params(nodes):
             params.append(node.name)
 
     return params
+
+
+def anlysis_params(param, code_content, file_path, lineno):
+    """
+    在cast调用时做中转数据预处理
+    :param lineno: 
+    :param param: 
+    :param code_content: 
+    :param file_path: 
+    :return: 
+    """
+    count = 0
+    function_params = None
+    param = php.Variable(param)
+    parser = make_parser()
+    all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+
+    vul_nodes = []
+    for node in all_nodes:
+        if node.lineno < lineno:
+            vul_nodes.append(node)
+
+    is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path)
+
+    return is_co, cp, expr_lineno
 
 
 def anlysis_function(node, back_node, vul_function, function_params, vul_lineno, file_path=None):

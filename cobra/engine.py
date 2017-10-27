@@ -588,7 +588,7 @@ class Core(object):
                     #     logger.debug('[CVI-{cvi}] [REPAIR] Vulnerability Fixed'.format(cvi=self.cvi))
                     #     return False, 'Vulnerability-Fixed(漏洞已修复)'
                     # else:
-                    logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
+                    # logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
                     return True, 'Vustomize-Match'
                 else:
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))

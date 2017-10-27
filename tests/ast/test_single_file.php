@@ -34,3 +34,13 @@ $a = 1;
 if(a == 1){
     eval($url4);
 }
+
+
+if(a == 1){
+    $test = $_GET['a'];
+
+    $query = "select id, xxx from users where name = $test";
+    eval($test);
+}else{
+    $query = "select id, xxx from users";
+}
