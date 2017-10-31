@@ -558,6 +558,7 @@ def analysis_binaryop_node(node, back_node, vul_function, vul_lineno, function_p
     params = export_list(params, export_params=[])
 
     for param in params:
+        param = php.Variable(param)
         is_co, cp, expr_lineno = parameters_back(param, back_node, function_params)
         set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
@@ -591,6 +592,7 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
     logger.debug('[AST] vul_function:{v}'.format(v=vul_function))
     params = get_all_params(node.params)
     for param in params:
+        param = php.Variable(param)
         is_co, cp, expr_lineno = parameters_back(param, back_node, function_params)
         set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 

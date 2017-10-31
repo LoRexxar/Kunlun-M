@@ -115,3 +115,7 @@ if (!empty($file)){
     unlink($file);
 }
 
+
+
+$a = $_GET['a'];
+echo "a".$a;
