@@ -119,3 +119,11 @@ if (!empty($file)){
 
 $a = $_GET['a'];
 echo "a".$a;
+
+
+$show = array ('ip'=> '1', 'country' => $_GET['a']);
+
+$ip = $show['ip'];
+$country = $show['country'];
+$date = date("m-d-Y, h:i:s a" ,$show['date']);
+echo '<tr><td><strong>'.htmlentities($ip).'</strong></td><td>'.htmlentities($country).'</td><td>'.htmlentities($date).'</td></tr>';

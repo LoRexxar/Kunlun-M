@@ -300,6 +300,39 @@ def function_back(param, nodes, function_params): # 回溯函数定义位置
     return is_co, cp, expr_lineno
 
 
+def array_back(param, nodes): # 回溯数组定义赋值
+    """
+    递归回溯数组赋值定义
+    :param param: 
+    :param nodes: 
+    :return: 
+    """
+    param_name = param.node.name
+    param_expr = param.expr
+
+    is_co = 3
+    cp = param
+    expr_lineno = 0
+
+    for node in nodes[::-1]:
+        if isinstance(node, php.Assignment):
+            param_node = get_node_name(node.node)
+            if param_node == param_name:
+                for p_node in node.expr.nodes:
+                    if p_node.key == param_expr:
+                        if isinstance(p_node.value, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
+                            is_co, cp = is_controllable(p_node.value.node.name)
+
+                            if is_co != 1:
+                                is_co, cp, expr_lineno = array_back(param, nodes)
+
+                        else:
+                            n_node = php.Variable(p_node.value)
+                            is_co, cp, expr_lineno = parameters_back(n_node, nodes)
+
+    return is_co, cp, expr_lineno
+
+
 def parameters_back(param, nodes, function_params=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
@@ -310,6 +343,10 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
     """
     if isinstance(param, php.FunctionCall):  # 当污点为寻找函数时，递归进入寻找函数
         is_co, cp, expr_lineno = function_back(param, nodes, function_params)
+        return is_co, cp, expr_lineno
+
+    if isinstance(param, php.ArrayOffset): # 当污点为数组时，递归进入寻找数组声明或赋值
+        is_co, cp, expr_lineno = array_back(param, nodes)
         return is_co, cp, expr_lineno
 
     expr_lineno = 0  # source所在行号
@@ -329,7 +366,10 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                 if is_co != 1:
                     is_co, cp = is_sink_function(param_expr, function_params)
 
-                param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                if isinstance(node.expr, php.ArrayOffset):
+                    param = node.expr
+                else:
+                    param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
 
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
@@ -377,7 +417,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path):
     """
     深度递归遍历
     :param param: 
-    :param back_node: 
+    :param back_node:
     :param function_params: 
     :param file_path: 
     :return: 
@@ -398,14 +438,14 @@ def deep_parameters_back(param, back_node, function_params, count, file_path):
         for node in back_node[::-1]:
             if isinstance(node, php.Include):
                 filename = node.expr
-                file_path = re.split(r"[\/\\]", file_path)
-                file_path.pop()
-                file_path.append(filename)
-                file_path = "/".join(file_path)
+                file_path_list = re.split(r"[\/\\]", file_path)
+                file_path_list.pop()
+                file_path_list.append(filename)
+                file_path_name = "/".join(file_path_list)
 
                 try:
-                    logger.debug("[Deep AST] open new file {file_path}".format(file_path=file_path))
-                    f = open(file_path, 'r')
+                    logger.debug("[Deep AST] open new file {file_path}".format(file_path=file_path_name))
+                    f = open(file_path_name, 'r')
                     file_content = f.read()
                 except:
                     logger.warning("[Deep AST] error to open new file...continue")
@@ -416,7 +456,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path):
                 node = cp
                 # node = php.Variable(cp)
 
-                is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path)
+                is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path_name)
 
                 if is_co == -1:
                     break
@@ -834,6 +874,7 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
         scan_results = []
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+        print all_nodes
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)

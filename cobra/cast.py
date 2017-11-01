@@ -278,10 +278,13 @@ class CAST(object):
                     logger.debug("[AST] Not Java/PHP, can't parse ({l})".format(l=self.language))
                     continue
                     # return False, self.data
+
+            except KeyboardInterrupt as e:
+                raise
+
             except:
                 logger.warning("[AST] Can't get `param`, check built-in rule")
-                # print param_content
-                # traceback.print_exc()
+                traceback.print_exc()
                 return False, self.data
 
         # if no variable can modify
