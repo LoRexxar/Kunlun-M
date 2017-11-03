@@ -61,7 +61,11 @@ Cobra-W是从Cobra2.0发展而来的分支，着眼于白帽子使用的白盒�
     - Cobra-W 0.4
     - 修复了CVI-1004的一部分致命bug
     - 更新了vustomize-match的多文件支持
-
+- 2017-11-3
+    - Cobra-W 0.5
+    - 修复了issue#
+    - 更新了在递归变量时对数组的回溯
+  
 
 # README(开发文档)
 
