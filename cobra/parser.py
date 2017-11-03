@@ -314,21 +314,40 @@ def array_back(param, nodes): # 回溯数组定义赋值
     cp = param
     expr_lineno = 0
 
+    # print nodes
     for node in nodes[::-1]:
         if isinstance(node, php.Assignment):
-            param_node = get_node_name(node.node)
-            if param_node == param_name:
-                for p_node in node.expr.nodes:
-                    if p_node.key == param_expr:
-                        if isinstance(p_node.value, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
-                            is_co, cp = is_controllable(p_node.value.node.name)
+            param_node_name = get_node_name(node.node)
+            param_node = node.node
+            param_node_expr = node.expr
 
-                            if is_co != 1:
-                                is_co, cp, expr_lineno = array_back(param, nodes)
+            if param_node_name == param_name:  # 处理数组中值被改变的问题
+                if isinstance(node.expr, php.Array):
+                    for p_node in node.expr.nodes:
+                        if p_node.key == param_expr:
+                            if isinstance(p_node.value, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
+                                is_co, cp = is_controllable(p_node.value.node.name)
 
-                        else:
-                            n_node = php.Variable(p_node.value)
-                            is_co, cp, expr_lineno = parameters_back(n_node, nodes)
+                                if is_co != 1:
+                                    is_co, cp, expr_lineno = array_back(param, nodes)
+
+                            else:
+                                n_node = php.Variable(p_node.value)
+                                is_co, cp, expr_lineno = parameters_back(n_node, nodes)
+
+            if param == param_node:  # 处理数组一次性赋值，左值为数组
+                if isinstance(param_node_expr, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
+                    is_co, cp = is_controllable(param_node_expr.node.name)
+
+                    if is_co != 1:
+                        is_co, cp, expr_lineno = array_back(param, nodes)
+                else:
+                    is_co, cp = is_controllable(param_node_expr)
+
+                    print is_co
+                    if is_co != 1 and is_co != -1:
+                        n_node = php.Variable(param_node_expr.node.value)
+                        is_co, cp, expr_lineno = parameters_back(n_node, nodes)
 
     return is_co, cp, expr_lineno
 
@@ -345,7 +364,7 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
         is_co, cp, expr_lineno = function_back(param, nodes, function_params)
         return is_co, cp, expr_lineno
 
-    if isinstance(param, php.ArrayOffset): # 当污点为数组时，递归进入寻找数组声明或赋值
+    if isinstance(param, php.ArrayOffset):  # 当污点为数组时，递归进入寻找数组声明或赋值
         is_co, cp, expr_lineno = array_back(param, nodes)
         return is_co, cp, expr_lineno
 
@@ -395,6 +414,7 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                     if is_co == 1:
                         return is_co, cp, expr_lineno
 
+                    param = php.Variable(param)
                     _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params)
 
                     if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
@@ -424,8 +444,6 @@ def deep_parameters_back(param, back_node, function_params, count, file_path):
     """
     count += 1
 
-    # param = get_node_name(node)
-    # param = node
     is_co, cp, expr_lineno = parameters_back(param, back_node, function_params)
 
     if count > 20:
@@ -874,7 +892,6 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
         scan_results = []
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
-        print all_nodes
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)

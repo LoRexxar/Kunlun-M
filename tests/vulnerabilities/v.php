@@ -121,7 +121,8 @@ $a = $_GET['a'];
 echo "a".$a;
 
 
-$show = array ('ip'=> '1', 'country' => $_GET['a']);
+# $show = array ('ip'=> '1', 'country' => $_GET['a']);
+$show['country'] = "4321";
 
 $ip = $show['ip'];
 $country = $show['country'];
