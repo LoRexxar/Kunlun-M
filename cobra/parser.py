@@ -459,11 +459,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得�
             vul_nodes = []
 
             for function_node in function_nodes:
-                if function_lineno <= function_node.lineno < lineno:
+                if int(function_lineno) <= function_node.lineno < int(lineno):
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
-                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, lineno)
+                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno)
 
         if is_co != 1:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno)  # 找到可控的输入时，停止递归
@@ -578,7 +578,7 @@ def anlysis_params(param, code_content, file_path, lineno):
 
     vul_nodes = []
     for node in all_nodes:
-        if node.lineno < lineno:
+        if node.lineno < int(lineno):
             vul_nodes.append(node)
 
     is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path, lineno)

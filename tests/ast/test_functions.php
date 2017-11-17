@@ -16,3 +16,9 @@ function request4(){
     curl_setopt($curl, CURLOPT_URL, $url);
 }
 
+$b=$_GET['d'];
+request5($b);
+
+function request5($url){
+    curl_setopt($curl, CURLOPT_URL, $url);
+}
