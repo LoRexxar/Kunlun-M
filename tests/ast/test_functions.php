@@ -4,12 +4,6 @@ function request1(){
     curl_setopt($curl, CURLOPT_URL, "http://blog.feei.cn/ssrf");
 }
 
-# 常量,不可控
-function request2(){
-    const URL = 'http://blog.feei.cn/ssrf';
-    curl_setopt($curl, CURLOPT_URL, URL);
-}
-
 # 变量,不可控
 function request3(){
     $url = 'http://blog.feei.cn/ssrf';

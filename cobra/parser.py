@@ -272,6 +272,36 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
     return -1, None
 
 
+def function_deep_back(param, nodes, function_params): # 回溯函数定义位置
+    """
+    递归回溯函数定义位置，传入param类型不同
+    :param param: 
+    :param nodes: 
+    :return: 
+    """
+    function_name = param.name
+
+    is_co = 3
+    cp = param
+    expr_lineno = 0
+
+    print nodes
+
+    # for node in nodes[::-1]:
+    #     if isinstance(node, php.Function):
+    #         if node.name == function_name:
+    #             function_nodes = node.nodes
+    #
+    #             # 进入递归函数内语句
+    #             for function_node in function_nodes:
+    #                 if isinstance(function_node, php.Return):
+    #                     return_node = function_node.node
+    #                     return_param = return_node.node
+    #                     is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params)
+    #
+    # return is_co, cp, expr_lineno
+
+
 def function_back(param, nodes, function_params): # 回溯函数定义位置
     """
     递归回溯函数定义位置，传入param类型不同
@@ -352,14 +382,16 @@ def array_back(param, nodes): # 回溯数组定义赋值
     return is_co, cp, expr_lineno
 
 
-def parameters_back(param, nodes, function_params=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
+def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
     :param param:
     :param nodes:
     :param function_params:
+    :param lineno
     :return:
     """
+
     if isinstance(param, php.FunctionCall):  # 当污点为寻找函数时，递归进入寻找函数
         is_co, cp, expr_lineno = function_back(param, nodes, function_params)
         return is_co, cp, expr_lineno
@@ -404,7 +436,7 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                                 if isinstance(function_node, php.Return):
                                     return_node = function_node.node
                                     return_param = return_node.node
-                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params,)
+                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params, lineno)
 
             if param_name == param_node and isinstance(param_expr, list):
                 for expr in param_expr:
@@ -415,14 +447,26 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
                         return is_co, cp, expr_lineno
 
                     param = php.Variable(param)
-                    _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params)
+                    _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno)
 
                     if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
                         is_co = _is_co
                         cp = _cp
 
+        elif isinstance(node, php.Function):
+            function_nodes = node.nodes
+            function_lineno = node.lineno
+            vul_nodes = []
+
+            for function_node in function_nodes:
+                if function_lineno <= function_node.lineno < lineno:
+                    vul_nodes.append(function_node)
+
+            if len(vul_nodes) > 0:
+                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, lineno)
+
         if is_co != 1:  # 当is_co为True时找到可控，停止递归
-            is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params)  # 找到可控的输入时，停止递归
+            is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None: # 考虑函数参数情况
         for function_param in function_params:
@@ -433,9 +477,10 @@ def parameters_back(param, nodes, function_params=None):  # 用来得到回溯�
     return is_co, cp, expr_lineno
 
 
-def deep_parameters_back(param, back_node, function_params, count, file_path):
+def deep_parameters_back(param, back_node, function_params, count, file_path, lineno=0):
     """
     深度递归遍历
+    :param lineno: 
     :param param: 
     :param back_node:
     :param function_params: 
@@ -444,7 +489,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path):
     """
     count += 1
 
-    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params)
+    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno)
 
     if count > 20:
         logger.warning("[Deep AST] depth too big to auto exit...")
@@ -474,7 +519,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path):
                 node = cp
                 # node = php.Variable(cp)
 
-                is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path_name)
+                is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path_name, lineno)
 
                 if is_co == -1:
                     break
@@ -536,7 +581,7 @@ def anlysis_params(param, code_content, file_path, lineno):
         if node.lineno < lineno:
             vul_nodes.append(node)
 
-    is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path)
+    is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path, lineno)
 
     return is_co, cp, expr_lineno
 
@@ -572,33 +617,33 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
         logger.debug(e)
 
 
-# def analysis_functioncall(node, back_node, vul_function, vul_lineno):
-#     """
-#     调用FunctionCall-->判断调用Function是否敏感-->get params获取所有参数-->开始递归判断
-#     :param node:
-#     :param back_node:
-#     :param vul_function:
-#     :param vul_lineno
-#     :return:
-#     """
-#     global scan_results
-#     try:
-#         if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 定位到敏感函数
-#             for param in node.params:
-#                 if isinstance(param.node, php.Variable):
-#                     analysis_variable_node(param.node, back_node, vul_function, vul_lineno)
-#
-#                 if isinstance(param.node, php.FunctionCall):
-#                     analysis_functioncall_node(param.node, back_node, vul_function, vul_lineno)
-#
-#                 if isinstance(param.node, php.BinaryOp):
-#                     analysis_binaryop_node(param.node, back_node, vul_function, vul_lineno)
-#
-#                 if isinstance(param.node, php.ArrayOffset):
-#                     analysis_arrayoffset_node(param.node, vul_function, vul_lineno)
-#
-#     except Exception as e:
-#         logger.debug(e)
+def analysis_functioncall(node, back_node, vul_function, vul_lineno):
+    """
+    调用FunctionCall-->判断调用Function是否敏感-->get params获取所有参数-->开始递归判断
+    :param node:
+    :param back_node:
+    :param vul_function:
+    :param vul_lineno
+    :return:
+    """
+    global scan_results
+    try:
+        if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 定位到敏感函数
+            for param in node.params:
+                if isinstance(param.node, php.Variable):
+                    analysis_variable_node(param.node, back_node, vul_function, vul_lineno)
+
+                if isinstance(param.node, php.FunctionCall):
+                    analysis_functioncall_node(param.node, back_node, vul_function, vul_lineno)
+
+                if isinstance(param.node, php.BinaryOp):
+                    analysis_binaryop_node(param.node, back_node, vul_function, vul_lineno)
+
+                if isinstance(param.node, php.ArrayOffset):
+                    analysis_arrayoffset_node(param.node, vul_function, vul_lineno)
+
+    except Exception as e:
+        logger.debug(e)
 
 
 def analysis_binaryop_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
