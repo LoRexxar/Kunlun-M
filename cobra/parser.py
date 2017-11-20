@@ -382,13 +382,14 @@ def array_back(param, nodes): # 回溯数组定义赋值
     return is_co, cp, expr_lineno
 
 
-def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
+def parameters_back(param, nodes, function_params=None, lineno=0, function_flag=0):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
     :param param:
     :param nodes:
     :param function_params:
     :param lineno
+    :param flineno: 已经分析过的行数，用于解决已经分析完成函数内容问题
     :return:
     """
 
@@ -406,6 +407,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得�
 
     if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
+        node_lineno = node.lineno
 
         if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
@@ -436,7 +438,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得�
                                 if isinstance(function_node, php.Return):
                                     return_node = function_node.node
                                     return_param = return_node.node
-                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params, lineno)
+                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params, lineno, function_flag=1)
 
             if param_name == param_node and isinstance(param_expr, list):
                 for expr in param_expr:
@@ -447,13 +449,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得�
                         return is_co, cp, expr_lineno
 
                     param = php.Variable(param)
-                    _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno)
+                    _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,  function_flag=1)
 
                     if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
                         is_co = _is_co
                         cp = _cp
 
-        elif isinstance(node, php.Function):
+        elif isinstance(node, php.Function) and function_flag == 0:
             function_nodes = node.nodes
             function_lineno = node.lineno
             vul_nodes = []
@@ -463,10 +465,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0):  # 用来得�
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
-                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno)
+                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno,  function_flag=1)
 
         if is_co != 1:  # 当is_co为True时找到可控，停止递归
-            is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno)  # 找到可控的输入时，停止递归
+            is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,  function_flag=1)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None: # 考虑函数参数情况
         for function_param in function_params:
