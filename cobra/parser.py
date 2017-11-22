@@ -269,7 +269,7 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
             return 3, expr
         return 3, php.Variable(expr)
 
-    return -1, None
+    return -1, php.Variable(expr)
 
 
 def function_deep_back(param, nodes, function_params): # 回溯函数定义位置
@@ -407,7 +407,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0, function_flag=
 
     if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
-        node_lineno = node.lineno
 
         if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
@@ -458,6 +457,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0, function_flag=
         elif isinstance(node, php.Function) and function_flag == 0:
             function_nodes = node.nodes
             function_lineno = node.lineno
+            function_params = node.params
             vul_nodes = []
 
             for function_node in function_nodes:
@@ -467,10 +467,18 @@ def parameters_back(param, nodes, function_params=None, lineno=0, function_flag=
             if len(vul_nodes) > 0:
                 is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno,  function_flag=1)
 
-        if is_co != 1:  # 当is_co为True时找到可控，停止递归
+            if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
+                logger.info("[Deep AST] Now vulnerability param become to function {}() param {}".format(node.name, cp.name))
+
+                is_co = 4
+                cp = tuple([node, param])
+
+                return is_co, cp, 0
+
+        if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,  function_flag=1)  # 找到可控的输入时，停止递归
 
-    elif len(nodes) == 0 and function_params is not None: # 考虑函数参数情况
+    elif len(nodes) == 0 and function_params is not None:  # 考虑函数参数情况
         for function_param in function_params:
             if function_param == param:
                 is_co = 2

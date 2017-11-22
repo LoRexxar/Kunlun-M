@@ -13,7 +13,7 @@
 """
 
 
-class temlates():
+class templates():
     """
     rule class
     
@@ -24,7 +24,7 @@ class temlates():
 
         self.svid = 1000
         self.language = "PHP"
-        self.author = "LoRexxar/wufeifei"
+        self.author = "LoRexxar"
         self.vulnerability = "Reflected XSS"
         self.description = "Reflected XSS"
 

@@ -61,7 +61,7 @@ class Rule(object):
 
         self.vulnerabilities = self.vul_init()
 
-    def rules(self, special_rules = None):
+    def rules(self, special_rules=None):
 
         rules = {}
 

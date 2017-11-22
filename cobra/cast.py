@@ -245,9 +245,11 @@ class CAST(object):
                     elif _is_co == 3:
                         logger.info("[AST] can't find this param, something error..")
                         continue
+                    elif _is_co == 4:
+                        logger.info("[AST] New vul function {}()".format(_cp[0].name))
+                        return False, tuple([_is_co, _cp])
                     else:
                         continue
-
 
                 else:
                     if self.language == 'java':

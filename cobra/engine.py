@@ -25,6 +25,7 @@ from .result import VulnerabilityResult
 from .cast import CAST
 from .parser import scan_parser
 from .file import FileParseAll
+from rules.autorule import autorule
 from prettytable import PrettyTable
 
 
@@ -144,11 +145,9 @@ def scan_single(target_directory, single_rule, files=None, ast=False):
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None, ast=False):
+         extension_count=0, files=None):
     r = Rule()
     vulnerabilities = r.vulnerabilities
-    # languages = r.languages
-    # frameworks = r.frameworks
     rules = r.rules(special_rules)
     find_vulnerabilities = []
 
@@ -182,7 +181,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             vulnerability=rule.vulnerability,
             language=rule.language
         ))
-        result = scan_single(target_directory, rule, files, ast)
+        result = scan_single(target_directory, rule, files)
         store(result)
 
     # print
@@ -299,7 +298,8 @@ class SingleRule(object):
 
         origin_vulnerabilities = origin_results
         for index, origin_vulnerability in enumerate(origin_vulnerabilities):
-            logger.debug('[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=self.sr.svid, line=": ".join(list(origin_vulnerability))))
+            logger.debug(
+                '[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=self.sr.svid, line=": ".join(list(origin_vulnerability))))
             if origin_vulnerability == ():
                 logger.debug(' > continue...')
                 continue
@@ -309,15 +309,31 @@ class SingleRule(object):
                 continue
             is_test = False
             try:
-                is_vulnerability, reason = Core(self.target_directory, vulnerability, self.sr, 'project name',
-                                                ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                                                files=self.files).scan()
+                datas = Core(self.target_directory, vulnerability, self.sr, 'project name',
+                             ['whitelist1', 'whitelist2'], test=is_test, index=index,
+                             files=self.files).scan()
+
+                if len(datas) == 3:
+                    is_vulnerability, reason, data = datas
+                elif len(datas) == 2:
+                    is_vulnerability, reason = datas
+                else:
+                    is_vulnerability, reason = False, "Unpack error"
+
                 if is_vulnerability:
                     logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi=self.sr.svid, code=reason))
                     vulnerability.analysis = reason
                     self.rule_vulnerabilities.append(vulnerability)
                 else:
-                    logger.debug('Not vulnerability: {code}'.format(code=reason))
+                    if reason == 'New Core':  # 新的规则
+                        logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
+                        new_rule_vulnerabilities = NewCore(self.target_directory, data, self.files)
+
+                        if len(new_rule_vulnerabilities) > 0:
+                            self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
+
+                    else:
+                        logger.debug('Not vulnerability: {code}'.format(code=reason))
             except Exception:
                 raise
         logger.debug('[CVI-{cvi}] {vn} Vulnerabilities: {count}'.format(cvi=self.sr.svid, vn=self.sr.vulnerability,
@@ -335,8 +351,8 @@ class SingleRule(object):
             mr.line_number = single_match[1]
             mr.code_content = single_match[2]
             mr.file_path = single_match[0]
-        except Exception as e:
-            logger.warning('match line parse exception')
+        except Exception:
+            logger.warning('[ENGINE] match line parse exception')
             mr.file_path = ''
             mr.code_content = ''
             mr.line_number = 0
@@ -591,8 +607,156 @@ class Core(object):
                     # logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
                     return True, 'Vustomize-Match'
                 else:
+                    if type(data) is tuple:
+                        if int(data[0]) == 4:
+                            return False, 'New Core', data[1]
+
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
                     return False, 'Param-Not-Controllable'
             except Exception as e:
                 logger.debug(traceback.format_exc())
                 return False, 'Exception'
+
+
+def init_match_rule(data):
+    """
+    处理新生成规则初始化正则匹配
+    :param data: 
+    :return: 
+    """
+
+    try:
+        function = data[0]
+        function_params = function.params
+        function_name = function.name
+        param = data[1]
+        index = 0
+        for function_param in function_params:
+            if function_param.name == param.name:
+                break
+            index += 1
+
+        # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
+        match = function_name + "\s*\("
+        for i in xrange(len(function_params)):
+            if i != 0:
+                match += ","
+
+            if function_params[i].default is not None:
+                match += "?"
+
+            if i == index:
+                match += "(.*)"
+            else:
+                match += ".*"
+
+        match += "\)"
+
+        # 去除定义函数
+        match2 = "function\s+"+function_name
+
+    except:
+        logger.error('[New Rule] Error to unpack function param, Something error')
+        traceback.print_exc()
+        match = None
+        match2 = None
+        index = 0
+
+    return match, match2, index
+
+
+def auto_parse_match(single_match):
+    mr = VulnerabilityResult()
+    # grep result
+    #
+    # Rules
+    #
+    # (u'D:\\program\\cobra-w\\tests\\vulnerabilities/v.php', 10, 'echo($callback . ";");\n')
+    try:
+        mr.line_number = single_match[1]
+        mr.code_content = single_match[2]
+        mr.file_path = single_match[0]
+    except Exception:
+        logger.warning('match line parse exception')
+        mr.file_path = ''
+        mr.code_content = ''
+        mr.line_number = 0
+
+    # vulnerability information
+    mr.rule_name = 'auto rule'
+    mr.id = '00000'
+    mr.language = 'None'
+    mr.commit_author = 'Cobra-W'
+
+    return mr
+
+
+def NewCore(target_directory, new_rules, files):
+    """
+    处理新的规则生成
+    :param target_directory: 
+    :param new_rules: 
+    :param files: 
+    :return: 
+    """
+
+    # init
+    match_mode = "New rule to Vustomize-Match"
+    logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=match_mode))
+
+    match, match2, index = init_match_rule(new_rules)
+    logger.debug('[ENGINE] [New Rule] new match_rule: {}'.format(match))
+
+    sr = autorule()
+    sr.match = match
+
+    # grep
+
+    try:
+        if match:
+            f = FileParseAll(files, target_directory)
+            result = f.grep(match)
+        else:
+            result = None
+    except Exception as e:
+        traceback.print_exc()
+        logger.debug('match exception ({e})'.format(e=e))
+        return None
+    try:
+        result = result.decode('utf-8')
+    except AttributeError as e:
+        pass
+
+    # 进入分析
+    origin_vulnerabilities = result
+    rule_vulnerabilities = []
+
+    for index, origin_vulnerability in enumerate(origin_vulnerabilities):
+
+        code =  origin_vulnerability[2]
+        if match2 is not None:
+            if re.search(match2, code, re.I):
+                continue
+
+        logger.debug(
+            '[CVI-{cvi}] [ORIGIN] {line}'.format(cvi="00000", line=": ".join(list(origin_vulnerability))))
+        if origin_vulnerability == ():
+            logger.debug(' > continue...')
+            continue
+        vulnerability = auto_parse_match(origin_vulnerability)
+        if vulnerability is None:
+            logger.debug('Not vulnerability, continue...')
+            continue
+
+        try:
+            is_vulnerability, reason = Core(target_directory, vulnerability, sr, 'project name',
+                                            ['whitelist1', 'whitelist2'], files=files).scan()
+            if is_vulnerability:
+                logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi="00000", code=reason))
+                vulnerability.analysis = reason
+                rule_vulnerabilities.append(vulnerability)
+
+        except Exception:
+            raise
+
+    return rule_vulnerabilities
