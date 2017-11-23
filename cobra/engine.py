@@ -583,6 +583,9 @@ class Core(object):
                                 if result[0]['code'] == -1:  # 函数参数不可控
                                     return False, 'Function-param-uncon'
 
+                                if result[0]['code'] == 4: # 新规则生成
+                                    return False,  'New Core', result[0]['source']
+
                                 logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
                             else:
                                 logger.debug(
