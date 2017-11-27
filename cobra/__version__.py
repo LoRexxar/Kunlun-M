@@ -7,7 +7,11 @@ __url__ = 'https://github.com/LoRexxar/Cobra-W'
 __issue_page__ = 'https://github.com/LoRexxar/Cobra-W/issues/new'
 __python_version__ = sys.version.split()[0]
 __platform__ = platform.platform()
+<<<<<<< HEAD
 __version__ = '0.6.1'
+=======
+__version__ = '0.7'
+>>>>>>> master
 __author__ = 'LoRexxar'
 __author_email__ = 'LoRexxar@gmail.com'
 __license__ = 'MIT License'
