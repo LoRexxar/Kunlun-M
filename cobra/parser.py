@@ -461,6 +461,7 @@ def new_class_back(param, nodes):
                         if isinstance(tostring_node, php.Return):
                             return_param = tostring_node.node
                             is_co, cp, expr_lineno = parameters_back(return_param, tostring_nodes)
+                            return is_co, cp, expr_lineno
 
         else:
             is_co = 3
