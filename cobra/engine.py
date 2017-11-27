@@ -27,6 +27,7 @@ from .parser import scan_parser
 from .file import FileParseAll
 from rules.autorule import autorule
 from prettytable import PrettyTable
+from phply import phpast as php
 
 
 class Running:
@@ -583,7 +584,7 @@ class Core(object):
                                 if result[0]['code'] == -1:  # 函数参数不可控
                                     return False, 'Function-param-uncon'
 
-                                if result[0]['code'] == 4: # 新规则生成
+                                if result[0]['code'] == 4:  # 新规则生成
                                     return False,  'New Core', result[0]['source']
 
                                 logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
@@ -629,34 +630,68 @@ def init_match_rule(data):
     """
 
     try:
-        function = data[0]
-        function_params = function.params
-        function_name = function.name
-        param = data[1]
-        index = 0
-        for function_param in function_params:
-            if function_param.name == param.name:
-                break
-            index += 1
+        object = data[0]
+        match = ""
 
-        # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
-        match = function_name + "\s*\("
-        for i in xrange(len(function_params)):
-            if i != 0:
-                match += ","
+        if isinstance(object, php.Method) or isinstance(object, php.Function):
+            function_params = object.params
+            function_name = object.name
+            param = data[1]
+            index = 0
+            for function_param in function_params:
+                if function_param.name == param.name:
+                    break
+                index += 1
 
-            if function_params[i].default is not None:
-                match += "?"
+            # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
+            match = function_name + "\s*\("
+            for i in xrange(len(function_params)):
+                if i != 0:
+                    match += ","
 
-            if i == index:
-                match += "(.*)"
-            else:
-                match += ".*"
+                if function_params[i].default is not None:
+                    match += "?"
 
-        match += "\)"
+                if i == index:
+                    match += "(.*)"
+                else:
+                    match += ".*"
 
-        # 去除定义函数
-        match2 = "function\s+"+function_name
+            match += "\)"
+
+            # 去除定义函数
+            match2 = "function\s+" + function_name
+
+        elif isinstance(object, php.Class):
+            class_params = data[2]
+            class_name = object.name
+            param = data[1]
+            index = 0
+
+            for class_param in class_params:
+                if class_param.name == param.name:
+                    break
+                index += 1
+
+            # $A = new a($x, $y);
+            match = "new\s*" + class_name + "\s*\("
+
+            for i in xrange(len(class_params)):
+                if i != 0:
+                    match += ","
+
+                    if class_params[i].default is not None:
+                        match += "?"
+
+                if i == index:
+                    match += "(.*)"
+                else:
+                    match += ".*"
+
+            match += "\)"
+
+            # 去除定义类，类定义和调用方式不一样，但是为了不影响结构，依然赋值
+            match2 = "class\s+" + class_name + "\s*{"
 
     except:
         logger.error('[New Rule] Error to unpack function param, Something error')
@@ -736,7 +771,7 @@ def NewCore(target_directory, new_rules, files):
 
     for index, origin_vulnerability in enumerate(origin_vulnerabilities):
 
-        code =  origin_vulnerability[2]
+        code = origin_vulnerability[2]
         if match2 is not None:
             if re.search(match2, code, re.I):
                 continue
