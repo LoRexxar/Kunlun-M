@@ -263,7 +263,7 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
     if isinstance(expr, php.ObjectProperty):
         return 3, php.Variable(expr)
 
-    if isinstance(expr, php.New):
+    if isinstance(expr, php.New) or isinstance(expr, php.MethodCall) or isinstance(expr, php.FunctionCall):
         return 3, php.Variable(expr)
 
     if expr in controlled_params:  # 当为可控变量时 返回1
@@ -482,7 +482,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     :return:
     """
 
-    if isinstance(param, php.FunctionCall):  # 当污点为寻找函数时，递归进入寻找函数
+    if isinstance(param, php.FunctionCall) or isinstance(param, php.MethodCall):  # 当污点为寻找函数时，递归进入寻找函数
         is_co, cp, expr_lineno = function_back(param, nodes, function_params)
         return is_co, cp, expr_lineno
 
@@ -572,6 +572,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                         is_co = 4
                         cp = tuple([node, param])
+                        return is_co, cp, 0
 
                 return is_co, cp, 0
 
