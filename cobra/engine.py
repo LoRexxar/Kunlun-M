@@ -787,8 +787,15 @@ def NewCore(target_directory, new_rules, files):
             continue
 
         try:
-            is_vulnerability, reason = Core(target_directory, vulnerability, sr, 'project name',
+            datas = Core(target_directory, vulnerability, sr, 'project name',
                                             ['whitelist1', 'whitelist2'], files=files).scan()
+            if len(datas) == 3:
+                is_vulnerability, reason, data = datas
+            elif len(datas) == 2:
+                is_vulnerability, reason = datas
+            else:
+                is_vulnerability, reason = False, "Unpack error"
+
             if is_vulnerability:
                 logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi="00000", code=reason))
                 vulnerability.analysis = reason
