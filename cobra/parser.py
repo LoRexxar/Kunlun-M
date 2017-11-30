@@ -266,16 +266,22 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
     if isinstance(expr, php.New) or isinstance(expr, php.MethodCall) or isinstance(expr, php.FunctionCall):
         return 3, php.Variable(expr)
 
+    if isinstance(expr, php.Variable):
+        expr = expr.name
+
     if expr in controlled_params:  # 当为可控变量时 返回1
         logger.debug('[AST] is_controllable --> {expr}'.format(expr=expr))
         if flag:
             return 1, expr
         return 1, php.Variable(expr)
 
-    if expr.startswith("$"):
-        if flag:
-            return 3, expr
-        return 3, php.Variable(expr)
+    try:
+        if expr.startswith("$"):
+            if flag:
+                return 3, expr
+            return 3, php.Variable(expr)
+    except:
+        raise
 
     return -1, php.Variable(expr)
 

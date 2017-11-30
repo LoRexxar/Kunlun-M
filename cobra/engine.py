@@ -328,7 +328,7 @@ class SingleRule(object):
                 else:
                     if reason == 'New Core':  # 新的规则
                         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                        new_rule_vulnerabilities = NewCore(self.target_directory, data, self.files)
+                        new_rule_vulnerabilities = NewCore(self.target_directory, data, self.files, 0)
 
                         if len(new_rule_vulnerabilities) > 0:
                             self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
@@ -369,7 +369,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=None, files=None):
+                 index=None, files=None, count=0):
         """
         Initialize
         :param: target_directory:
@@ -380,6 +380,7 @@ class Core(object):
         :param test: is test
         :param index: vulnerability index
         :param files: core file list
+        :param count:
         """
         self.data = []
 
@@ -729,14 +730,20 @@ def auto_parse_match(single_match):
     return mr
 
 
-def NewCore(target_directory, new_rules, files):
+def NewCore(target_directory, new_rules, files, count=0):
     """
     处理新的规则生成
     :param target_directory: 
     :param new_rules: 
     :param files: 
+    :param count:
     :return: 
     """
+    count += 1
+
+    if count > 20:
+        logger.warning("[New Rule] depth too big to auto exit...")
+        return False
 
     # init
     match_mode = "New rule to Vustomize-Match"
@@ -800,6 +807,19 @@ def NewCore(target_directory, new_rules, files):
                 logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi="00000", code=reason))
                 vulnerability.analysis = reason
                 rule_vulnerabilities.append(vulnerability)
+            else:
+                if reason == 'New Core':  # 新的规则
+                    logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
+                    new_rule_vulnerabilities = NewCore(target_directory, data, files, count)
+
+                    if not new_rule_vulnerabilities:
+                        return rule_vulnerabilities
+
+                    if len(new_rule_vulnerabilities) > 0:
+                        rule_vulnerabilities.extend(new_rule_vulnerabilities)
+
+                else:
+                    logger.debug('Not vulnerability: {code}'.format(code=reason))
 
         except Exception:
             raise
