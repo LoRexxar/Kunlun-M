@@ -41,7 +41,7 @@ class CVI_1001():
         :return: 
         """
         sql_sen = regex_string[0]
-        reg = "\$\w+"
+        reg = "\$[\w+\->]*"
         if re.search(reg, sql_sen, re.I):
 
             p = re.compile(reg)
