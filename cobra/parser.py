@@ -695,6 +695,11 @@ def anlysis_params(param, code_content, file_path, lineno):
     """
     count = 0
     function_params = None
+    if type(param) is str and "->" in param:
+        param_left = php.Variable(param.split("->")[0])
+        param_right = param.split("->")[1]
+        param = php.ObjectProperty(param_left, param_right)
+
     param = php.Variable(param)
     parser = make_parser()
     all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
