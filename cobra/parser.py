@@ -602,7 +602,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=1)  # 找到可控的输入时，停止递归
 
-            if is_co is not 1 and node.elseifs is not []:
+            if is_co is not 1 and node.elseifs != []:
                 elif_nodes = node.elseifs.node.nodes
                 elif_node_lineno = node.elseifs.node.lineno
 
@@ -613,8 +613,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=1)  # 找到可控的输入时，停止递归
 
-            if is_co is not 1 and node.else_ is not []:
 
+            if is_co is not 1 and node.else_ != []:
                 else_nodes = node.else_.node.nodes
                 else_node_lineno = node.else_.node.lineno
 

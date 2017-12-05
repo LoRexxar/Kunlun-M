@@ -3,9 +3,10 @@
     echo ($param == 1? 90: $a);
 
     if($a = 1){
-        $b = $_GET['b'];
+        $b = 'test';
     }else{
-        $b = "test";
+        $cc = "1";
+        $b = $_GET['b'];
     }
 
     function c($c){
