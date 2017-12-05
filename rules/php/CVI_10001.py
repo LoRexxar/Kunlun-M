@@ -21,7 +21,7 @@ class CVI_10001():
 
     def __init__(self):
 
-        self.svid = 1000
+        self.svid = 10001
         self.language = "PHP"
         self.author = "LoRexxar"
         self.vulnerability = "Reflected XSS"
@@ -32,7 +32,7 @@ class CVI_10001():
 
         # 部分配置
         self.match_mode = "vustomize-match"
-        self.match = "(echo\s+['\"](.+?)?\$(.+?)?['\"]?(.+?)?;)"
+        self.match = "(echo\s?['\"]?(.+?)?\$(.+?)?['\"]?(.+?)?;)"
 
     def main(self, regex_string):
         """
