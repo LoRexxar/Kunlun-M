@@ -509,7 +509,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
-        print node
 
         if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
