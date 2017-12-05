@@ -131,15 +131,13 @@ def get_binaryop_params(node):  # 当为BinaryOp类型时，分别对left和righ
     if isinstance(node.left, php.Variable) or isinstance(node.right, php.Variable):  # left, right都为变量直接取值
         if isinstance(node.left, php.Variable):
             params.append(node.left.name)
+        else:
+            params + get_binaryop_deep_params(node.left, params)
 
         if isinstance(node.right, php.Variable):
             params.append(node.right.name)
-
-    elif not isinstance(node.right, php.Variable) or not isinstance(node.left, php.Variable):  # right不为变量时
-        params_right = get_binaryop_deep_params(node.right, params)
-        params_left = get_binaryop_deep_params(node.left, params)
-
-        params = params_left + params_right
+        else:
+            params + get_binaryop_deep_params(node.right, params)
 
     params = export_list(params, buffer_)
     return params
@@ -511,6 +509,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
+        print node
 
         if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
@@ -613,7 +612,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=1)  # 找到可控的输入时，停止递归
 
-
             if is_co is not 1 and node.else_ != []:
                 else_nodes = node.else_.node.nodes
                 else_node_lineno = node.else_.node.lineno
@@ -624,6 +622,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=1)  # 找到可控的输入时，停止递归
+
+        elif isinstance(node, php.For):
+            for_nodes = node.node.nodes
+            for_node_lineno = node.node.lineno
+
+            is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
+                                                     function_flag=1)
 
         if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,

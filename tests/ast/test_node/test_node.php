@@ -14,4 +14,10 @@
         echo 'location.replace("'.$c.'");';
     }
 
+    for($i=0; $i<=2; $i++){
+        $d = $_GET['c'].$i;
+    }
+
     c("test".$b."ccc");
+    c($d);
+
