@@ -4,6 +4,8 @@
 
     if($a = 1){
         $b = 'test';
+    }elseif($c = 1){
+        $b = 'dddd';
     }else{
         $cc = "1";
         $b = $_GET['b'];

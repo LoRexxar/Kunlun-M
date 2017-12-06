@@ -82,3 +82,5 @@ parsetab.py
 # result
 result/*
 
+# real_test
+tests/real_test/*

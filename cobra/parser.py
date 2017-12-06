@@ -124,20 +124,19 @@ def get_binaryop_params(node):  # 当为BinaryOp类型时，分别对left和righ
     :param node:
     :return:
     """
-    logger.debug('[AST] Binaryop --> {node}'.format(node=node))
+    # logger.debug('[AST] Binaryop --> {node}'.format(node=node))
     params = []
     buffer_ = []
 
-    if isinstance(node.left, php.Variable) or isinstance(node.right, php.Variable):  # left, right都为变量直接取值
-        if isinstance(node.left, php.Variable):
-            params.append(node.left.name)
-        else:
-            params + get_binaryop_deep_params(node.left, params)
+    if isinstance(node.left, php.Variable):
+        params.append(node.left.name)
+    else:
+        params = get_binaryop_deep_params(node.left, params)
 
-        if isinstance(node.right, php.Variable):
-            params.append(node.right.name)
-        else:
-            params + get_binaryop_deep_params(node.right, params)
+    if isinstance(node.right, php.Variable):
+        params.append(node.right.name)
+    else:
+        params = get_binaryop_deep_params(node.right, params)
 
     params = export_list(params, buffer_)
     return params
@@ -388,7 +387,6 @@ def array_back(param, nodes):  # 回溯数组定义赋值
                 else:
                     is_co, cp = is_controllable(param_node_expr)
 
-                    print is_co
                     if is_co != 1 and is_co != -1:
                         n_node = php.Variable(param_node_expr.node.value)
                         is_co, cp, expr_lineno = parameters_back(n_node, nodes)
@@ -479,9 +477,10 @@ def new_class_back(param, nodes):
 
 
 def parameters_back(param, nodes, function_params=None, lineno=0,
-                    function_flag=0):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
+                    function_flag=0, vul_function=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
+    :param vul_function: 
     :param param:
     :param nodes:
     :param function_params:
@@ -540,7 +539,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                     return_node = function_node.node
                                     return_param = return_node.node
                                     is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
-                                                                             function_params, lineno, function_flag=1)
+                                                                             function_params, lineno, function_flag=1, vul_function=vul_function)
 
             if param_name == param_node and isinstance(param_expr, list):
                 for expr in param_expr:
@@ -552,7 +551,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     param = php.Variable(param)
                     _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                               function_flag=1)
+                                                               function_flag=1, vul_function=vul_function)
 
                     if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
                         is_co = _is_co
@@ -570,7 +569,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if len(vul_nodes) > 0:
                 is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno,
-                                                         function_flag=1)
+                                                         function_flag=1, vul_function=vul_function)
 
             if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
                 for node_param in node.params:
@@ -590,37 +589,54 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
-            if_nodes = node.node.nodes
-            if_node_lineno = node.node.lineno
+
+            if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句
+                if_nodes = node.node.nodes
+                if_node_lineno = node.node.lineno
+            else:
+                if_nodes = [node.node]
+                if_node_lineno = node.node.lineno
 
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
-                                                     function_flag=1)
+                                                     function_flag=1, vul_function=vul_function)
 
             if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                         function_flag=1)  # 找到可控的输入时，停止递归
+                                                         function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
 
-            if is_co is not 1 and node.elseifs != []:
-                elif_nodes = node.elseifs.node.nodes
-                elif_node_lineno = node.elseifs.node.lineno
+            if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
-                is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
-                                                         function_flag=1)
+                for node_elseifs_node in node.elseifs:
+                    if isinstance(node_elseifs_node.node, php.Block):
+                        elif_nodes = node_elseifs_node.node.nodes
+                        elif_node_lineno = node_elseifs_node.node.lineno
+                    else:
+                        elif_nodes = [node_elseifs_node.node]
+                        elif_node_lineno = node_elseifs_node.node.lineno
 
-                if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
-                    is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                             function_flag=1)  # 找到可控的输入时，停止递归
+                    is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
+                                                             function_flag=1, vul_function=vul_function)
 
-            if is_co is not 1 and node.else_ != []:
-                else_nodes = node.else_.node.nodes
-                else_node_lineno = node.else_.node.lineno
+                    if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
+                        is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                                 function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
+                    else:
+                        break
+
+            if is_co is not 1 and node.else_ != [] and node.else_ is not None:
+                if isinstance(node.else_.node, php.Block):
+                    else_nodes = node.else_.node.nodes
+                    else_node_lineno = node.else_.node.lineno
+                else:
+                    else_nodes = [node.else_.node]
+                    else_node_lineno = node.else_.node.lineno
 
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
-                                                         function_flag=1)
+                                                         function_flag=1, vul_function=vul_function)
 
                 if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                             function_flag=1)  # 找到可控的输入时，停止递归
+                                                             function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
 
         elif isinstance(node, php.For):
             for_nodes = node.node.nodes
@@ -642,9 +658,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     return is_co, cp, expr_lineno
 
 
-def deep_parameters_back(param, back_node, function_params, count, file_path, lineno=0):
+def deep_parameters_back(param, back_node, function_params, count, file_path, lineno=0, vul_function=None):
     """
     深度递归遍历
+    :param vul_function: 
     :param lineno: 
     :param param: 
     :param back_node:
@@ -654,7 +671,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
     """
     count += 1
 
-    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno)
+    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno, vul_function=vul_function)
 
     if count > 20:
         logger.warning("[Deep AST] depth too big to auto exit...")
@@ -727,9 +744,10 @@ def get_function_params(nodes):
     return params
 
 
-def anlysis_params(param, code_content, file_path, lineno):
+def anlysis_params(param, code_content, file_path, lineno, vul_function=None):
     """
     在cast调用时做中转数据预处理
+    :param vul_function: 
     :param lineno: 
     :param param: 
     :param code_content: 
@@ -752,7 +770,7 @@ def anlysis_params(param, code_content, file_path, lineno):
         if node.lineno < int(lineno):
             vul_nodes.append(node)
 
-    is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path, lineno)
+    is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path, lineno, vul_function=vul_function)
 
     return is_co, cp, expr_lineno
 
@@ -842,10 +860,10 @@ def analysis_binaryop_node(node, back_node, vul_function, vul_lineno, function_p
         if file_path is not None:
             with open(file_path, 'r') as fi:
                 code_content = fi.read()
-            is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno)
+            is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno, vul_function=vul_function)
         else:
             count = 0
-            is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path)
+            is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path, vul_function=vul_function)
 
         set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
@@ -869,10 +887,10 @@ def analysis_objectproperry_node(node, back_node, vul_function, vul_lineno, func
     if file_path is not None:
         with open(file_path, 'r') as fi:
             code_content = fi.read()
-        is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno)
+        is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno, vul_function=vul_function)
     else:
         count = 0
-        is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path)
+        is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, vul_function=vul_function)
 
     set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
@@ -913,10 +931,10 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
         if file_path is not None:
             with open(file_path, 'r') as fi:
                 code_content = fi.read()
-            is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno)
+            is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno, vul_function=vul_function)
         else:
             count = 0
-            is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path)
+            is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path, vul_function=vul_function)
 
         set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
@@ -939,10 +957,10 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     if file_path is not None:
         with open(file_path, 'r') as fi:
             code_content = fi.read()
-        is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno)
+        is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno, vul_function=vul_function)
     else:
         count = 0
-        is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path)
+        is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path, vul_function=vul_function)
 
     set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
