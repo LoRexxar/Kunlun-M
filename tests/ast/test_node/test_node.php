@@ -23,3 +23,7 @@
     c("test".$b."ccc");
     c($d);
 
+    define("TEST", "test");
+    include(TEST."test.php");
+
+    eval($dddd);

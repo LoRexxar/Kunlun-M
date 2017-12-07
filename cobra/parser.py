@@ -160,6 +160,12 @@ def get_binaryop_deep_params(node, params):  # 取出right，left不为变量时
     if isinstance(node, php.FunctionCall):  # node为FunctionCall，递归取出其中变量名
         params = get_all_params(node.params)
 
+    if isinstance(node, php.Constant):
+        params.append(node)
+
+    if type(node) is str:
+        params.append(node)
+
     return params
 
 
@@ -205,6 +211,41 @@ def get_node_name(node):  # node为'node'中的元组
 
     if isinstance(node, php.ObjectProperty):
         return node
+
+
+def get_filename(node, file_path):  # 获取filename
+    """
+    获取
+    :param node: 
+    :param file_path: 
+    :return: 
+    """
+    filename = node.expr
+    filenames = []
+    if isinstance(filename, php.BinaryOp):
+        filenames = get_binaryop_params(filename)
+
+    elif type(filename) is str:
+        filenames = [filename]
+
+    for i in xrange(len(filenames)):
+        if isinstance(filenames[i], php.Constant):
+            constant_node = filenames[i]
+            constant_node_name = constant_node.name
+
+            f = open(file_path, 'r')
+            file_content = f.read()
+            parser = make_parser()
+            all_nodes = parser.parse(file_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+
+            for node in all_nodes:
+                if isinstance(node, php.FunctionCall) and node.name == "define":
+                    define_params = node.params
+
+                    if len(define_params) == 2 and define_params[0].node == constant_node_name:
+                        filenames[i] = define_params[1].node
+
+    return filenames
 
 
 def is_repair(expr):
@@ -574,15 +615,17 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
                 for node_param in node.params:
                     if node_param.name == cp.name:
-                        logger.info(
-                            "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
-                                                                                                       cp.name))
 
-                        is_co = 4
-                        cp = tuple([node, param])
-                        return is_co, cp, 0
+                        if node.name != vul_function:
+                            logger.info(
+                                "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
+                                                                                                           cp.name))
 
-                # return is_co, cp, 0
+                            is_co = 4
+                            cp = tuple([node, param])
+                            return is_co, cp, 0
+                        else:
+                            return is_co, cp, 0
 
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno)
@@ -682,10 +725,10 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
 
         for node in back_node[::-1]:
             if isinstance(node, php.Include):
-                filename = node.expr
+                filename = get_filename(node, file_path)
                 file_path_list = re.split(r"[\/\\]", file_path)
                 file_path_list.pop()
-                file_path_list.append(filename)
+                file_path_list += filename
                 file_path_name = "/".join(file_path_list)
 
                 try:
