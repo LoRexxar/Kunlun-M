@@ -34,6 +34,7 @@ class CVI_1009():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "(array_map|create_function|call_user_func|call_user_func_array|assert|eval|dl|register_tick_function|register_shutdown_function|preg_replace)"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

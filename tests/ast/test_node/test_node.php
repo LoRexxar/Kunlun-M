@@ -23,7 +23,13 @@
     c("test".$b."ccc");
     c($d);
 
-    define("TEST", "test");
-    include(TEST."test.php");
 
-    eval($dddd);
+    # 解析递归导致的死循环
+
+    function e($a){
+        if(1>0){
+            eval($a);
+        }else{
+            e($a);
+        }
+    }

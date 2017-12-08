@@ -33,6 +33,7 @@ class CVI_1001():
         # 部分配置
         self.match_mode = "vustomize-match"
         self.match = "curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

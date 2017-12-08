@@ -237,7 +237,7 @@ class CAST(object):
 
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line)
+                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line, self.sr.vul_function)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")

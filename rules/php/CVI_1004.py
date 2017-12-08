@@ -34,6 +34,7 @@ class CVI_1004():
         # 部分配置
         self.match_mode = "vustomize-match"
         self.match = "([\"\']+\s*(select|SELECT|insert|INSERT|update|UPDATE)\s+([^;]\s*)(.*)\$(.+?)[\'\"]+(.+?)?;)"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

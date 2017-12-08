@@ -388,11 +388,13 @@ class Core(object):
 
         self.file_path = vulnerability_result.file_path.strip()
         self.line_number = vulnerability_result.line_number
-        self.code_content = vulnerability_result.code_content.strip()
+        # self.code_content = vulnerability_result.code_content.strip()
+        self.code_content = vulnerability_result.code_content
         self.files = files
 
         self.rule_match = single_rule.match
         self.rule_match_mode = single_rule.match_mode
+        self.vul_function = single_rule.vul_function
         self.cvi = single_rule.svid
         self.single_rule = single_rule
 
@@ -662,6 +664,7 @@ def init_match_rule(data):
 
             # 去除定义函数
             match2 = "function\s+" + function_name
+            vul_function = function_name
 
         elif isinstance(object, php.Class):
             class_params = data[2]
@@ -693,6 +696,7 @@ def init_match_rule(data):
 
             # 去除定义类，类定义和调用方式不一样，但是为了不影响结构，依然赋值
             match2 = "class\s+" + class_name + "\s*{"
+            vul_function = class_name
 
     except:
         logger.error('[New Rule] Error to unpack function param, Something error')
@@ -701,7 +705,7 @@ def init_match_rule(data):
         match2 = None
         index = 0
 
-    return match, match2, index
+    return match, match2, vul_function, index
 
 
 def auto_parse_match(single_match):
@@ -749,11 +753,12 @@ def NewCore(target_directory, new_rules, files, count=0):
     match_mode = "New rule to Vustomize-Match"
     logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=match_mode))
 
-    match, match2, index = init_match_rule(new_rules)
+    match, match2, vul_function, index = init_match_rule(new_rules)
     logger.debug('[ENGINE] [New Rule] new match_rule: {}'.format(match))
 
     sr = autorule()
     sr.match = match
+    sr.vul_function = vul_function
 
     # grep
 

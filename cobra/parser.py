@@ -245,6 +245,10 @@ def get_filename(node, file_path):  # 获取filename
                     if len(define_params) == 2 and define_params[0].node == constant_node_name:
                         filenames[i] = define_params[1].node
 
+            if isinstance(filenames[i], php.Constant):  # 如果还没找到该常量，暂时退出
+                logger.warning("[AST] [INCLUDE FOUND] Can't found this constart {}, pass it ".format(filenames[i]))
+                filenames[i] = "not_found"
+
     return filenames
 
 
@@ -290,7 +294,7 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
         '$_REQUEST',
         '$_COOKIE',
         '$_FILES',
-        '$_SERVER',
+        # '$_SERVER', # 暂时去掉了，误报率太高了
         '$HTTP_POST_FILES',
         '$HTTP_COOKIE_VARS',
         '$HTTP_REQUEST_VARS',
@@ -616,7 +620,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 for node_param in node.params:
                     if node_param.name == cp.name:
 
-                        if node.name != vul_function:
+                        if vul_function is None or node.name != vul_function:
                             logger.info(
                                 "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
                                                                                                            cp.name))
@@ -625,6 +629,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             cp = tuple([node, param])
                             return is_co, cp, 0
                         else:
+                            logger.info(
+                                "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
+                            )
                             return is_co, cp, 0
 
         elif isinstance(node, php.Class):
@@ -640,12 +647,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if_nodes = [node.node]
                 if_node_lineno = node.node.lineno
 
+            # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
                                                      function_flag=1, vul_function=vul_function)
 
-            if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
+            if is_co == 3 and cp != param:  # 理由如上
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
+                return is_co, cp, expr_lineno
 
             if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
@@ -660,9 +669,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
                                                              function_flag=1, vul_function=vul_function)
 
-                    if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
+                    if is_co == 3 and cp != param:  # 理由如上
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                  function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
+                        return is_co, cp, expr_lineno
                     else:
                         break
 
@@ -677,9 +687,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
                                                          function_flag=1, vul_function=vul_function)
 
-                if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
+                if is_co == 3 and cp != param:  # 理由如上
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
+                    return is_co, cp, expr_lineno
 
         elif isinstance(node, php.For):
             for_nodes = node.node.nodes
@@ -729,6 +740,8 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                 file_path_list = re.split(r"[\/\\]", file_path)
                 file_path_list.pop()
                 file_path_list += filename
+                if "not_found" in filename:
+                    continue
                 file_path_name = "/".join(file_path_list)
 
                 try:
@@ -746,7 +759,6 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
 
                 is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path_name,
                                                               lineno)
-
                 if is_co == -1:
                     break
 

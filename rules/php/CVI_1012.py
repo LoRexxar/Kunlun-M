@@ -34,6 +34,7 @@ class CVI_1012():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "(print_r|var_dump|show_source|highlight_file)\s*\("
+        self.vul_function = None
 
     def main(self, regex_string):
         """
