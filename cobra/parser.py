@@ -1056,6 +1056,8 @@ def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=
     nodes = []
     if isinstance(node.node, php.Block):  # if语句中的sink点以及变量
         analysis(node.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
+    else:
+        analysis([node.node], vul_function, back_node, vul_lineno, file_path, function_params)
 
     if node.else_ is not None:  # else语句中的sink点以及变量
         if isinstance(node.else_.node, php.Block):
