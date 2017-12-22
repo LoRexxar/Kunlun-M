@@ -34,6 +34,7 @@ class CVI_1003():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "get_headers"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

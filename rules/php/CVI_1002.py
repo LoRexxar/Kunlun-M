@@ -34,6 +34,7 @@ class CVI_1002():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "file_get_contents"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

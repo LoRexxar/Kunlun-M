@@ -85,7 +85,10 @@ Cobra-W是从Cobra2.0发展而来的分支，着眼于白帽子使用的白盒�
     - 修复处理BinaryOp节点时无法正确处理的bug
     - 部分修复了issue#9
     - 修复了对for节点以及if\else节点的支持
-
+- 2017-12-22
+    - Cobra-W 0.7.3
+    - 修复了部分处理ast的bug
+    - 完善了cvi-1009
 
 # README(开发文档)
 

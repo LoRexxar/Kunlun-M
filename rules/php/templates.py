@@ -34,6 +34,7 @@ class templates():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "echo|print|print_r|exit|die|printf|vprintf|trigger_error|user_error|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

@@ -34,6 +34,7 @@ class CVI_1008():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "simplexml_load_file|simplexml_load_string"
+        self.vul_function = None
 
     def main(self, regex_string):
         """

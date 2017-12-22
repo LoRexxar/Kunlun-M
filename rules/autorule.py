@@ -32,6 +32,7 @@ class autorule():
         # 部分配置
         self.match_mode = "vustomize-match"
         self.match = ""
+        self.vul_function = None
 
     def main(self, regex_string):
         """

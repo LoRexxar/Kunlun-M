@@ -34,6 +34,7 @@ class CVI_1005():
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = "(mysql_query|mysql_db_query)"
+        self.vul_function = None
 
     def main(self, regex_string):
         """
