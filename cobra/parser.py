@@ -822,6 +822,8 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None):
 
     vul_nodes = []
     for node in all_nodes:
+        if not node:
+            continue
         if node.lineno < int(lineno):
             vul_nodes.append(node)
 
