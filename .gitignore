@@ -84,3 +84,8 @@ result/*
 
 # real_test
 tests/real_test/*
+
+# new rule for test
+rules/secret/*
+!rules/secret/demo.py
+!rules/secret/__init.py

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-    templates
+    demo
     ~~~~
 
     just tamplates for rule
@@ -13,7 +13,7 @@
 """
 
 
-class templates():
+class demo():
     """
     rule class
     

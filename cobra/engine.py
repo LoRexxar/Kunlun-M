@@ -138,15 +138,15 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None, ast=False):
+def scan_single(target_directory, single_rule, files=None, secret_name=None):
     try:
-        return SingleRule(target_directory, single_rule, files, ast).process()
+        return SingleRule(target_directory, single_rule, files, secret_name).process()
     except Exception:
         raise
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None):
+         extension_count=0, files=None, secret_name=None):
     r = Rule()
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
@@ -182,7 +182,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             vulnerability=rule.vulnerability,
             language=rule.language
         ))
-        result = scan_single(target_directory, rule, files)
+        result = scan_single(target_directory, rule, files, secret_name)
         store(result)
 
     # print
@@ -236,13 +236,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files, ast=False):
+    def __init__(self, target_directory, single_rule, files, secret_name=None):
         self.target_directory = target_directory
         self.find = Tool().find
         self.grep = Tool().grep
         self.sr = single_rule
         self.files = files
-        self.ast = ast
+        self.secret_name = secret_name
         # Single Rule Vulnerabilities
         """
         [
@@ -312,7 +312,7 @@ class SingleRule(object):
             try:
                 datas = Core(self.target_directory, vulnerability, self.sr, 'project name',
                              ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                             files=self.files).scan()
+                             files=self.files, secret_name=self.secret_name).scan()
 
                 if len(datas) == 3:
                     is_vulnerability, reason, data = datas
@@ -369,7 +369,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=None, files=None, count=0):
+                 index=None, files=None, secret_name=None):
         """
         Initialize
         :param: target_directory:
@@ -380,9 +380,11 @@ class Core(object):
         :param test: is test
         :param index: vulnerability index
         :param files: core file list
-        :param count:
+        :param secret_name: secret name
         """
         self.data = []
+        self.repair_dict = {}
+        self.repair_functions = []
 
         self.target_directory = target_directory
 
@@ -391,11 +393,13 @@ class Core(object):
         # self.code_content = vulnerability_result.code_content.strip()
         self.code_content = vulnerability_result.code_content
         self.files = files
+        self.secret_name = secret_name
 
         self.rule_match = single_rule.match
         self.rule_match_mode = single_rule.match_mode
         self.vul_function = single_rule.vul_function
         self.cvi = single_rule.svid
+        self.lan = single_rule.language
         self.single_rule = single_rule
 
         self.project_name = project_name
@@ -509,6 +513,27 @@ class Core(object):
                 return True
         return False
 
+    def init_repair(self):
+        """
+        初始化修复函数规则
+        :return: 
+        """
+        # self.single_rule.svid
+        a = __import__('rules.secret.demo', fromlist=['IS_REPAIR_DEFAULT'])
+        self.repair_dict = getattr(a, 'IS_REPAIR_DEFAULT')
+
+        if self.secret_name is not None:
+            try:
+                a = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name])
+                self.repair_dict = dict(self.repair_dict.items() + a.items())
+            except ImportError:
+                logger.warning('[AST][INIT] Secret_name init error... No nodule named {}'.format(self.secret_name))
+
+        # init
+        for key in self.repair_dict:
+            if self.single_rule.svid in self.repair_dict[key]:
+                self.repair_functions.append(key)
+
     def scan(self):
         """
         Scan vulnerabilities
@@ -553,8 +578,9 @@ class Core(object):
         logger.debug('[CVI-{cvi}] match-mode {mm}'.format(cvi=self.cvi, mm=self.rule_match_mode))
         if self.file_path[-3:].lower() == 'php':
             try:
+                self.init_repair()
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                           self.code_content, files=self.files, rule_class=self.single_rule)
+                           self.code_content, files=self.files, rule_class=self.single_rule, repair_functions=self.repair_functions)
 
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
@@ -572,23 +598,20 @@ class Core(object):
                     try:
                         with open(self.file_path, 'r') as fi:
                             code_contents = fi.read()
-                            result = scan_parser(code_contents, rule_match, self.line_number, self.file_path)
+                            result = scan_parser(code_contents, rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions)
                             logger.debug('[AST] [RET] {c}'.format(c=result))
                             if len(result) > 0:
                                 if result[0]['code'] == 1:  # 函数参数可控
                                     return True, 'Function-param-controllable'
 
-                                if result[0]['code'] == 2:  # 函数为敏感函数
-                                    return False, 'Function-sensitive'
-
-                                if result[0]['code'] == 0:  # 漏洞修复
+                                if result[0]['code'] == 2:  # 漏洞修复
                                     return False, 'Function-param-controllable but fixed'
 
                                 if result[0]['code'] == -1:  # 函数参数不可控
                                     return False, 'Function-param-uncon'
 
                                 if result[0]['code'] == 4:  # 新规则生成
-                                    return False,  'New Core', result[0]['source']
+                                    return False, 'New Core', result[0]['source']
 
                                 logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
                             else:
@@ -726,7 +749,7 @@ def auto_parse_match(single_match):
         mr.line_number = 0
 
     # vulnerability information
-    mr.rule_name = 'auto rule'
+    mr.rule_name = 'Auto rule'
     mr.id = '00000'
     mr.language = 'None'
     mr.commit_author = 'Cobra-W'
@@ -800,7 +823,7 @@ def NewCore(target_directory, new_rules, files, count=0):
 
         try:
             datas = Core(target_directory, vulnerability, sr, 'project name',
-                                            ['whitelist1', 'whitelist2'], files=files).scan()
+                         ['whitelist1', 'whitelist2'], files=files).scan()
             if len(datas) == 3:
                 is_vulnerability, reason, data = datas
             elif len(datas) == 2:

@@ -45,6 +45,7 @@ def main():
         parser_group_scan.add_argument('-f', '--format', dest='format', action='store', default='csv', metavar='<format>', choices=['html', 'json', 'csv', 'xml'], help='vulnerability output format (formats: %(choices)s)')
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
+        parser_group_scan.add_argument('-s', '--secret', dest='secret_name', action='store', default=None, metavar='<secret_name>', help='secret repair function e.g: wordpress')
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
 
         args = parser.parse_args()
@@ -53,7 +54,7 @@ def main():
             logger.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
 
-        if  args.target is '' and args.output is '':
+        if args.target is '' and args.output is '':
             parser.print_help()
             exit()
 
@@ -66,7 +67,7 @@ def main():
         }
         Running(a_sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid)
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.secret_name)
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))

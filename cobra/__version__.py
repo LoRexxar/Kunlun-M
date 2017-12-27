@@ -25,6 +25,7 @@ Cobra is a static code analysis system that automates the detecting vulnerabilit
 __epilog__ = """Usage:
   python {m} -t {td}
   python {m} -t {td} -r 1000, 1001
+  python {m} -t {td} -s wordpress
   python {m} -t {td} -f json -o /tmp/report.json 
   python {m} -t {td} --debug
 """.format(m='cobra.py', td='tests/vulnerabilities')
