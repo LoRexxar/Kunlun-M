@@ -19,6 +19,7 @@ import re
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
+is_repair_functions = []  # 修复函数初始化
 
 
 def export(items):
@@ -259,7 +260,8 @@ def is_repair(expr):
     :return:
     """
     is_re = False  # 是否修复，默认值是未修复
-    if expr == 'escapeshellcmd':
+    global is_repair_functions
+    if expr in is_repair_functions:
         is_re = True
     return is_re
 
@@ -558,6 +560,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
             param_expr, expr_lineno, is_re = get_expr_name(node.expr)  # param_expr为赋值表达式,param_expr为变量或者列表
 
+            if param_name == param_node and is_re is True:
+                is_co = 2
+                cp = None
+                return is_co, cp, expr_lineno
+
             if param_name == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
 
@@ -609,7 +616,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             vul_nodes = []
 
             for function_node in function_nodes:
-                if int(function_lineno) <= function_node.lineno < int(lineno):
+                if function_node is not None and int(function_lineno) <= function_node.lineno < int(lineno):
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
@@ -799,9 +806,10 @@ def get_function_params(nodes):
     return params
 
 
-def anlysis_params(param, code_content, file_path, lineno, vul_function=None):
+def anlysis_params(param, code_content, file_path, lineno, vul_function=None, repair_functions=None):
     """
     在cast调用时做中转数据预处理
+    :param repair_functions: 
     :param vul_function: 
     :param lineno: 
     :param param: 
@@ -809,8 +817,12 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None):
     :param file_path: 
     :return: 
     """
+    global is_repair_functions
     count = 0
     function_params = None
+    if repair_functions is not None:
+        is_repair_functions = repair_functions
+
     if type(param) is str and "->" in param:
         param_left = php.Variable(param.split("->")[0])
         param_right = param.split("->")[1]
@@ -822,9 +834,7 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None):
 
     vul_nodes = []
     for node in all_nodes:
-        if not node:
-            continue
-        if node.lineno < int(lineno):
+        if node is not None and node.lineno < int(lineno):
             vul_nodes.append(node)
 
     is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path, lineno, vul_function=vul_function)
@@ -898,6 +908,7 @@ def analysis_functioncall(node, back_node, vul_function, vul_lineno):
 def analysis_binaryop_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
     处理BinaryOp类型节点-->取出参数-->回溯判断参数是否可控-->输出结果
+    :param file_path: 
     :param node:
     :param back_node:
     :param vul_function:
@@ -928,6 +939,7 @@ def analysis_binaryop_node(node, back_node, vul_function, vul_lineno, function_p
 def analysis_objectproperry_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
     处理_objectproperry类型节点-->取出参数-->回溯判断参数是否可控-->输出结果
+    :param file_path: 
     :param node:
     :param back_node:
     :param vul_function:
@@ -971,6 +983,7 @@ def analysis_arrayoffset_node(node, vul_function, vul_lineno):
 def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
     处理FunctionCall类型节点-->取出参数-->回溯判断参数是否可控-->输出结果
+    :param file_path: 
     :param node:
     :param back_node:
     :param vul_function:
@@ -1022,7 +1035,7 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
 
 
-def analysis_ternaryop_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
+def analysis_ternaryop_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None, repair_functions=[]):
     """
     处理三元提交判断语句，回溯双变量
     :param node: 
@@ -1288,7 +1301,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function
         back_node.append(node)
 
 
-def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
+def scan_parser(code_content, sensitive_func, vul_lineno, file_path, repair_functions=[]):
     """
     开始检测函数
     :param code_content: 要检测的文件内容
@@ -1298,8 +1311,9 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path):
     :return:
     """
     try:
-        global scan_results
+        global scan_results, is_repair_functions
         scan_results = []
+        is_repair_functions = repair_functions
         parser = make_parser()
         all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
 

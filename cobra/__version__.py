@@ -7,7 +7,7 @@ __url__ = 'https://github.com/LoRexxar/Cobra-W'
 __issue_page__ = 'https://github.com/LoRexxar/Cobra-W/issues/new'
 __python_version__ = sys.version.split()[0]
 __platform__ = platform.platform()
-__version__ = '0.7.3'
+__version__ = '0.8'
 __author__ = 'LoRexxar'
 __author_email__ = 'LoRexxar@gmail.com'
 __license__ = 'MIT License'
@@ -25,6 +25,7 @@ Cobra is a static code analysis system that automates the detecting vulnerabilit
 __epilog__ = """Usage:
   python {m} -t {td}
   python {m} -t {td} -r 1000, 1001
+  python {m} -t {td} -s wordpress
   python {m} -t {td} -f json -o /tmp/report.json 
   python {m} -t {td} --debug
 """.format(m='cobra.py', td='tests/vulnerabilities')

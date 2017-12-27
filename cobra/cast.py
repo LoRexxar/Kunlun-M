@@ -25,7 +25,7 @@ from .parser import anlysis_params
 class CAST(object):
     languages = ['php', 'java']
 
-    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, ast=False):
+    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[]):
         self.target_directory = target_directory
         self.data = []
         self.rule = rule
@@ -37,7 +37,7 @@ class CAST(object):
         self.param_value = None
         self.language = None
         self.sr = rule_class
-        self.ast = ast
+        self.repair_functions = repair_functions
         for language in self.languages:
             if self.file_path[-len(language):].lower() == language:
                 self.language = language
@@ -237,7 +237,7 @@ class CAST(object):
 
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line, self.sr.vul_function)
+                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line, self.sr.vul_function, self.repair_functions)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")
