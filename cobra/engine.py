@@ -525,6 +525,7 @@ class Core(object):
         if self.secret_name is not None:
             try:
                 a = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name])
+                a = getattr(a, self.secret_name)
                 self.repair_dict = dict(self.repair_dict.items() + a.items())
             except ImportError:
                 logger.warning('[AST][INIT] Secret_name init error... No nodule named {}'.format(self.secret_name))
