@@ -544,12 +544,15 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         is_co, cp, expr_lineno = array_back(param, nodes)
         return is_co, cp, expr_lineno
 
-    if isinstance(param, php.New) or isinstance(param.name, php.New):  # 当污点为新建类事，进入类中tostring函数分析
+    if isinstance(param, php.New) or (hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
         is_co, cp, expr_lineno = new_class_back(param, nodes)
         return is_co, cp, expr_lineno
 
     expr_lineno = 0  # source所在行号
-    param_name = param.name
+    if hasattr(param, "name"):
+        param_name = param.name
+    else:
+        param_name = param
 
     is_co, cp = is_controllable(param_name)
 
