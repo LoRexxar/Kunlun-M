@@ -328,7 +328,7 @@ class SingleRule(object):
                 else:
                     if reason == 'New Core':  # 新的规则
                         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                        new_rule_vulnerabilities = NewCore(self.target_directory, data, self.files, 0)
+                        new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0, secret_name=self.secret_name)
 
                         if len(new_rule_vulnerabilities) > 0:
                             self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
@@ -732,7 +732,7 @@ def init_match_rule(data):
     return match, match2, vul_function, index
 
 
-def auto_parse_match(single_match):
+def auto_parse_match(single_match, svid, language):
     mr = VulnerabilityResult()
     # grep result
     #
@@ -751,14 +751,14 @@ def auto_parse_match(single_match):
 
     # vulnerability information
     mr.rule_name = 'Auto rule'
-    mr.id = '00000'
-    mr.language = 'None'
+    mr.id = svid
+    mr.language = language
     mr.commit_author = 'Cobra-W'
 
     return mr
 
 
-def NewCore(target_directory, new_rules, files, count=0):
+def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret_name=None):
     """
     处理新的规则生成
     :param target_directory: 
@@ -783,6 +783,12 @@ def NewCore(target_directory, new_rules, files, count=0):
     sr = autorule()
     sr.match = match
     sr.vul_function = vul_function
+
+    # 从旧的规则类中读取部分数据
+    svid = old_single_rule.svid
+    language = old_single_rule.language
+    sr.svid = svid
+    sr.language = language
 
     # grep
 
@@ -813,18 +819,18 @@ def NewCore(target_directory, new_rules, files, count=0):
                 continue
 
         logger.debug(
-            '[CVI-{cvi}] [ORIGIN] {line}'.format(cvi="00000", line=": ".join(list(origin_vulnerability))))
+            '[CVI-{cvi}] [ORIGIN] {line}'.format(cvi=svid, line=": ".join(list(origin_vulnerability))))
         if origin_vulnerability == ():
             logger.debug(' > continue...')
             continue
-        vulnerability = auto_parse_match(origin_vulnerability)
+        vulnerability = auto_parse_match(origin_vulnerability, svid, language)
         if vulnerability is None:
             logger.debug('Not vulnerability, continue...')
             continue
 
         try:
             datas = Core(target_directory, vulnerability, sr, 'project name',
-                         ['whitelist1', 'whitelist2'], files=files).scan()
+                         ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name).scan()
             if len(datas) == 3:
                 is_vulnerability, reason, data = datas
             elif len(datas) == 2:
