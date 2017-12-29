@@ -362,9 +362,11 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
 # return is_co, cp, expr_lineno
 
 
-def function_back(param, nodes, function_params):  # 回溯函数定义位置
+def function_back(param, nodes, function_params, vul_function=None):  # 回溯函数定义位置
     """
     递归回溯函数定义位置，传入param类型不同
+    :param function_params: 
+    :param vul_function: 
     :param param: 
     :param nodes: 
     :return: 
@@ -385,14 +387,15 @@ def function_back(param, nodes, function_params):  # 回溯函数定义位置
                     if isinstance(function_node, php.Return):
                         return_node = function_node.node
                         return_param = return_node.node
-                        is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params)
+                        is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params, vul_function=vul_function)
 
     return is_co, cp, expr_lineno
 
 
-def array_back(param, nodes):  # 回溯数组定义赋值
+def array_back(param, nodes, vul_function=None):  # 回溯数组定义赋值
     """
     递归回溯数组赋值定义
+    :param vul_function: 
     :param param: 
     :param nodes: 
     :return: 
@@ -423,7 +426,7 @@ def array_back(param, nodes):  # 回溯数组定义赋值
 
                             else:
                                 n_node = php.Variable(p_node.value)
-                                is_co, cp, expr_lineno = parameters_back(n_node, nodes)
+                                is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function)
 
             if param == param_node:  # 处理数组一次性赋值，左值为数组
                 if isinstance(param_node_expr, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
@@ -436,14 +439,15 @@ def array_back(param, nodes):  # 回溯数组定义赋值
 
                     if is_co != 1 and is_co != -1:
                         n_node = php.Variable(param_node_expr.node.value)
-                        is_co, cp, expr_lineno = parameters_back(n_node, nodes)
+                        is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function)
 
     return is_co, cp, expr_lineno
 
 
-def class_back(param, node, lineno):
+def class_back(param, node, lineno, vul_function=None):
     """
     回溯类中变量
+    :param vul_function: 
     :param param: 
     :param node: 
     :param lineno: 
@@ -457,7 +461,7 @@ def class_back(param, node, lineno):
         if class_node.lineno < int(lineno):
             vul_nodes.append(class_node)
 
-    is_co, cp, expr_lineno = parameters_back(param, vul_nodes, lineno=lineno)
+    is_co, cp, expr_lineno = parameters_back(param, vul_nodes, lineno=lineno, vul_function=vul_function)
 
     if is_co == 1 or is_co == -1:  # 可控或者不可控，直接返回
         return is_co, cp, expr_lineno
@@ -469,7 +473,7 @@ def class_back(param, node, lineno):
 
                 # 递归析构函数
                 is_co, cp, expr_lineno = parameters_back(param, constructs_nodes, function_params=class_node_params,
-                                                         lineno=lineno)
+                                                         lineno=lineno, vul_function=vul_function)
 
                 if is_co == 3:
                     # 回溯输入参数
@@ -486,9 +490,10 @@ def class_back(param, node, lineno):
     return is_co, cp, expr_lineno
 
 
-def new_class_back(param, nodes):
+def new_class_back(param, nodes, vul_function=None):
     """
     分析新建的class，自动进入tostring函数
+    :param vul_function: 
     :param param: 
     :param nodes: 
     :return: 
@@ -513,7 +518,7 @@ def new_class_back(param, nodes):
                     for tostring_node in tostring_nodes:
                         if isinstance(tostring_node, php.Return):
                             return_param = tostring_node.node
-                            is_co, cp, expr_lineno = parameters_back(return_param, tostring_nodes)
+                            is_co, cp, expr_lineno = parameters_back(return_param, tostring_nodes, vul_function=vul_function)
                             return is_co, cp, expr_lineno
 
         else:
@@ -544,12 +549,15 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         is_co, cp, expr_lineno = array_back(param, nodes)
         return is_co, cp, expr_lineno
 
-    if isinstance(param, php.New) or isinstance(param.name, php.New):  # 当污点为新建类事，进入类中tostring函数分析
+    if isinstance(param, php.New) or (hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
         is_co, cp, expr_lineno = new_class_back(param, nodes)
         return is_co, cp, expr_lineno
 
     expr_lineno = 0  # source所在行号
-    param_name = param.name
+    if hasattr(param, "name"):
+        param_name = param.name
+    else:
+        param_name = param
 
     is_co, cp = is_controllable(param_name)
 
@@ -562,7 +570,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if param_name == param_node and is_re is True:
                 is_co = 2
-                cp = None
+                cp = param
                 return is_co, cp, expr_lineno
 
             if param_name == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
@@ -642,17 +650,19 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             return is_co, cp, 0
 
         elif isinstance(node, php.Class):
-            is_co, cp, expr_lineno = class_back(param, node, lineno)
+            is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function)
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
-
             if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句
                 if_nodes = node.node.nodes
                 if_node_lineno = node.node.lineno
-            else:
+            elif node.node is not None:
                 if_nodes = [node.node]
                 if_node_lineno = node.node.lineno
+            else:
+                if_nodes = []
+                if_node_lineno = 0
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
@@ -669,9 +679,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     if isinstance(node_elseifs_node.node, php.Block):
                         elif_nodes = node_elseifs_node.node.nodes
                         elif_node_lineno = node_elseifs_node.node.lineno
-                    else:
+                    elif node_elseifs_node.node is not None:
                         elif_nodes = [node_elseifs_node.node]
                         elif_node_lineno = node_elseifs_node.node.lineno
+                    else:
+                        elif_nodes = []
+                        elif_node_lineno = 0
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
                                                              function_flag=1, vul_function=vul_function)
@@ -687,9 +700,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if isinstance(node.else_.node, php.Block):
                     else_nodes = node.else_.node.nodes
                     else_node_lineno = node.else_.node.lineno
-                else:
+                elif node.else_.node is not None:
                     else_nodes = [node.else_.node]
                     else_node_lineno = node.else_.node.lineno
+                else:
+                    else_nodes = []
+                    else_node_lineno = 0
 
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
                                                          function_flag=1, vul_function=vul_function)
@@ -706,7 +722,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
                                                      function_flag=1)
 
-        if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
+        if is_co == 3:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=1)  # 找到可控的输入时，停止递归
 
@@ -765,7 +781,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                 # node = php.Variable(cp)
 
                 is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path_name,
-                                                              lineno)
+                                                              lineno, vul_function=vul_function)
                 if is_co == -1:
                     break
 

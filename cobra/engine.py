@@ -313,6 +313,7 @@ class SingleRule(object):
                 datas = Core(self.target_directory, vulnerability, self.sr, 'project name',
                              ['whitelist1', 'whitelist2'], test=is_test, index=index,
                              files=self.files, secret_name=self.secret_name).scan()
+                data = ""
 
                 if len(datas) == 3:
                     is_vulnerability, reason, data = datas
@@ -671,7 +672,7 @@ def init_match_rule(data):
                 index += 1
 
             # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
-            match = "\s+" + function_name + "\s*\("
+            match = "\\b" + function_name + "\s*\("
             for i in xrange(len(function_params)):
                 if i != 0:
                     match += ","
@@ -831,6 +832,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
         try:
             datas = Core(target_directory, vulnerability, sr, 'project name',
                          ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name).scan()
+            data = ""
             if len(datas) == 3:
                 is_vulnerability, reason, data = datas
             elif len(datas) == 2:
@@ -845,7 +847,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
             else:
                 if reason == 'New Core':  # 新的规则
                     logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                    new_rule_vulnerabilities = NewCore(target_directory, data, files, count)
+                    new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, 0, secret_name=secret_name)
 
                     if not new_rule_vulnerabilities:
                         return rule_vulnerabilities

