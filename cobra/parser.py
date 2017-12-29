@@ -565,7 +565,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if param_name == param_node and is_re is True:
                 is_co = 2
-                cp = None
+                cp = param
                 return is_co, cp, expr_lineno
 
             if param_name == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
@@ -649,13 +649,15 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
-
             if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句
                 if_nodes = node.node.nodes
                 if_node_lineno = node.node.lineno
-            else:
+            elif node.node is not None:
                 if_nodes = [node.node]
                 if_node_lineno = node.node.lineno
+            else:
+                if_nodes = []
+                if_node_lineno = 0
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
@@ -672,9 +674,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     if isinstance(node_elseifs_node.node, php.Block):
                         elif_nodes = node_elseifs_node.node.nodes
                         elif_node_lineno = node_elseifs_node.node.lineno
-                    else:
+                    elif node_elseifs_node.node is not None:
                         elif_nodes = [node_elseifs_node.node]
                         elif_node_lineno = node_elseifs_node.node.lineno
+                    else:
+                        elif_nodes = []
+                        elif_node_lineno = 0
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
                                                              function_flag=1, vul_function=vul_function)
@@ -690,9 +695,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if isinstance(node.else_.node, php.Block):
                     else_nodes = node.else_.node.nodes
                     else_node_lineno = node.else_.node.lineno
-                else:
+                elif node.else_.node is not None:
                     else_nodes = [node.else_.node]
                     else_node_lineno = node.else_.node.lineno
+                else:
+                    else_nodes = []
+                    else_node_lineno = 0
 
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
                                                          function_flag=1, vul_function=vul_function)
@@ -709,7 +717,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
                                                      function_flag=1)
 
-        if is_co != 1 and is_co != -1:  # 当is_co为True时找到可控，停止递归
+        if is_co == 3:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=1)  # 找到可控的输入时，停止递归
 
