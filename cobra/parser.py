@@ -555,13 +555,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     expr_lineno = 0  # source所在行号
     if hasattr(param, "name"):
-        param_name = param.name
+        # param_name = param.name
+        param_name = get_node_name(param)
     else:
         param_name = param
 
     is_co, cp = is_controllable(param_name)
 
-    if len(nodes) != 0 and is_co != 1:
+    if len(nodes) != 0:
         node = nodes[len(nodes) - 1]
 
         if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
@@ -722,7 +723,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
                                                      function_flag=1)
 
-        if is_co == 3:  # 当is_co为True时找到可控，停止递归
+        if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=1)  # 找到可控的输入时，停止递归
 
@@ -759,6 +760,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
 
         for node in back_node[::-1]:
             if isinstance(node, php.Include):
+                #  拼接路径需要专门处理，暂时先这样
                 filename = get_filename(node, file_path)
                 file_path_list = re.split(r"[\/\\]", file_path)
                 file_path_list.pop()
@@ -850,7 +852,7 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None, re
 
     vul_nodes = []
     for node in all_nodes:
-        if node is not None and node.lineno < int(lineno):
+        if node is not None and node.lineno <= int(lineno):
             vul_nodes.append(node)
 
     is_co, cp, expr_lineno = deep_parameters_back(param, vul_nodes, function_params, count, file_path, lineno, vul_function=vul_function)
