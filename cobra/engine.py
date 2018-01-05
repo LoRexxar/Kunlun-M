@@ -762,6 +762,7 @@ def auto_parse_match(single_match, svid, language):
 def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret_name=None):
     """
     处理新的规则生成
+    :param secret_name: 
     :param target_directory: 
     :param new_rules: 
     :param files: 
