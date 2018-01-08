@@ -370,7 +370,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=None, files=None, secret_name=None):
+                 index=0, files=None, secret_name=None):
         """
         Initialize
         :param: target_directory:
@@ -672,13 +672,13 @@ def init_match_rule(data):
                 index += 1
 
             # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
-            match = "\\b" + function_name + "\s*\("
+            match = "(?:\A|\s)" + function_name + "\s*\("
             for i in xrange(len(function_params)):
                 if i != 0:
                     match += ","
 
-                if function_params[i].default is not None:
-                    match += "?"
+                    if function_params[i].default is not None:
+                        match += "?"
 
                 if i == index:
                     match += "(.*)"
@@ -762,6 +762,7 @@ def auto_parse_match(single_match, svid, language):
 def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret_name=None):
     """
     处理新的规则生成
+    :param old_single_rule: 
     :param secret_name: 
     :param target_directory: 
     :param new_rules: 
