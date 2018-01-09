@@ -98,6 +98,10 @@ Cobra-W是从Cobra2.0发展而来的分支，着眼于白帽子使用的白盒�
 - 2017-12-28
     - Cobra-W 0.8.1
     - 修复了secret机制对auto rule的支持
+- 2018-01-09
+    - Cobra-W 0.8.2
+    - 修复了部分bug
+    - 添加部分debug log用于调试
 
 # README(开发文档)
 
