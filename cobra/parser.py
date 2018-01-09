@@ -262,6 +262,7 @@ def is_repair(expr):
     is_re = False  # 是否修复，默认值是未修复
     global is_repair_functions
     if expr in is_repair_functions:
+        logger.debug("[AST] function {} in is_repair_functions, The vulnerability does not exist ")
         is_re = True
     return is_re
 
@@ -542,14 +543,17 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     """
 
     if isinstance(param, php.FunctionCall) or isinstance(param, php.MethodCall):  # 当污点为寻找函数时，递归进入寻找函数
+        logger.debug("[AST] AST analysis for FunctionCall or MethodCall {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = function_back(param, nodes, function_params)
         return is_co, cp, expr_lineno
 
     if isinstance(param, php.ArrayOffset):  # 当污点为数组时，递归进入寻找数组声明或赋值
+        logger.debug("[AST] AST analysis for ArrayOffset {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = array_back(param, nodes)
         return is_co, cp, expr_lineno
 
     if isinstance(param, php.New) or (hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
+        logger.debug("[AST] AST analysis for New Class {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = new_class_back(param, nodes)
         return is_co, cp, expr_lineno
 
@@ -575,6 +579,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 return is_co, cp, expr_lineno
 
             if param_name == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
+                logger.debug(
+                    "[AST] Find {}={} in line {}, start ast for param {}".format(param_name, param_expr, expr_lineno,
+                                                                                 param_expr))
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
 
                 if is_co != 1 and is_co != 3:
@@ -588,6 +595,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
                 param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
+
+                logger.debug(
+                    "[AST] Find {} from FunctionCall for {} in line {}, start ast for function {}".format(param_name,
+                                                                                                          function_name,
+                                                                                                          lineno,
+                                                                                                          function_name))
 
                 for node in nodes[::-1]:
                     if isinstance(node, php.Function):
@@ -603,6 +616,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                              function_params, lineno, function_flag=1, vul_function=vul_function)
 
             if param_name == param_node and isinstance(param_expr, list):
+                logger.debug(
+                    "[AST] Find {} from list for {} in line {}, start ast for list {}".format(param_name,
+                                                                                              param_expr,
+                                                                                              lineno,
+                                                                                              param_expr))
                 for expr in param_expr:
                     param = expr
                     is_co, cp = is_controllable(expr)
@@ -624,6 +642,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             function_params = node.params
             vul_nodes = []
 
+            logger.debug(
+                "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
+                                                                                              lineno,
+                                                                                              node.name,
+                                                                                              function_lineno))
+
             for function_node in function_nodes:
                 if function_node is not None and int(function_lineno) <= function_node.lineno < int(lineno):
                     vul_nodes.append(function_node)
@@ -635,8 +659,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
                 for node_param in node.params:
                     if node_param.name == cp.name:
+                        logger.debug(
+                            "[AST] param {} line {} in function_params, start new rule for function {}".format(param_name, node.lineno, node.name))
 
                         if vul_function is None or node.name != vul_function:
+                            print vul_function
                             logger.info(
                                 "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
                                                                                                            cp.name))
@@ -648,6 +675,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             logger.info(
                                 "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
                             )
+                            # 无法解决递归，直接退出
+                            is_co = -1
                             return is_co, cp, 0
 
         elif isinstance(node, php.Class):
@@ -655,6 +684,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
+            logger.debug(
+                "[AST] param {} line {} in if/else, start ast in if/else".format(param_name, node.lineno))
+
             if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句
                 if_nodes = node.node.nodes
                 if_node_lineno = node.node.lineno
@@ -720,16 +752,21 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             for_nodes = node.node.nodes
             for_node_lineno = node.node.lineno
 
+            logger.debug(
+                "[AST] param {} line {} in for, start ast in for".format(param_name, for_node_lineno))
+
             is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
-                                                     function_flag=1)
+                                                     function_flag=1, vul_function=vul_function)
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                     function_flag=1)  # 找到可控的输入时，停止递归
+                                                     function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None:  # 当敏感函数在函数中时，function_params不为空，这时应进入自定义敏感函数逻辑
         for function_param in function_params:
             if function_param == param:
+                logger.debug(
+                    "[AST] param {} in function_params, start new rule".format(param_name))
                 is_co = 2
                 cp = function_param
 
@@ -752,7 +789,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
     is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno, vul_function=vul_function)
 
     if count > 20:
-        logger.warning("[Deep AST] depth too big to auto exit...")
+        logger.warning("[Deep AST] depth too big, auto exit...")
         return is_co, cp, expr_lineno
 
     if is_co == 3:
@@ -849,6 +886,7 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None, re
     param = php.Variable(param)
     parser = make_parser()
     all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+    logger.debug("[AST] AST to find param {}".format(param))
 
     vul_nodes = []
     for node in all_nodes:
