@@ -15,6 +15,7 @@
 import re
 import os
 import time
+import codecs
 from .log import logger
 
 try:
@@ -51,12 +52,13 @@ def get_line(file_path, line_rule):
     e_line = int(line_rule.split(',')[1][:-1])
     result = []
 
-    with open(file_path) as file:
-        line_number = 0
-        for line in file:
-            line_number += 1
-            if s_line <= line_number <= e_line:
-                result.append(line)
+    # with open(file_path) as file:
+    file = codecs.open(file_path, "r", encoding='utf-8', errors='ignore')
+    line_number = 0
+    for line in file:
+        line_number += 1
+        if s_line <= line_number <= e_line:
+            result.append(line)
 
     return result
 
@@ -71,12 +73,13 @@ def file_grep(file_path, rule_reg):
     result = []
 
     if os.path.isfile(file_path):
-        with open(file_path) as file:
-            line_number = 0
-            for line in file:
-                line_number += 1
-                if re.search(rule_reg, line, re.I):
-                    result.append((file_path, str(line_number), line))
+        # with open(file_path) as file:
+        file = codecs.open(file_path, "r", encoding='utf-8', errors='ignore')
+        line_number = 0
+        for line in file:
+            line_number += 1
+            if re.search(rule_reg, line, re.I):
+                result.append((file_path, str(line_number), line))
 
         return result
     else:
@@ -99,13 +102,14 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            with open(self.target+ffile) as file:
-                line_number = 0
-                for line in file:
-                    line_number += 1
-                    # print line, line_number
-                    if re.search(reg, line, re.I):
-                        result.append((self.target + ffile, str(line_number), line))
+            # with open(self.target+ffile, "r") as file:
+            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            line_number = 0
+            for line in file:
+                line_number += 1
+                # print line, line_number
+                if re.search(reg, line, re.I):
+                    result.append((self.target + ffile, str(line_number), line))
 
         return result
 
@@ -190,7 +194,8 @@ class File(object):
         读取文件内容
         :return:
         """
-        f = open(self.file_path, 'r').read()
+        file = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
+        f = file.read()
         return f
 
     def lines(self, line_rule):

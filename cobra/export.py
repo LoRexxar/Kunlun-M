@@ -90,14 +90,14 @@ def dict_to_csv(vul_list, filename):
     # 去除列表中的换行符
 
     if not os.path.exists(filename):
-        with open(filename, 'w+', encoding='utf-8') as f:
+        with open(filename, 'w+', encoding='utf-8', errors='ignore') as f:
             # 防止在 Excel 中中文显示乱码
             f.write(BOM_UTF8)
             csv_writer = csv.DictWriter(f, header)
             csv_writer.writeheader()
             csv_writer.writerows(vul_list)
     else:
-        with open(filename, 'a', encoding='utf-8') as f:
+        with open(filename, 'a', encoding='utf-8', errors='ignore') as f:
             csv_writer = csv.DictWriter(f, header)
             csv_writer.writerows(vul_list)
 
@@ -155,13 +155,13 @@ def write_to_file(target, sid, output_format='', filename=None):
 
     elif output_format == 'json' or output_format == 'JSON':
         if not os.path.exists(filename):
-            with open(filename, 'w+', encoding='utf-8') as f:
+            with open(filename, 'w+', encoding='utf-8', errors='ignore') as f:
                 json_data = {
                     sid: scan_data,
                 }
                 f.write(dict_to_json(json_data))
         else:
-            with open(filename, 'r+', encoding='utf-8') as f:
+            with open(filename, 'r+', encoding='utf-8', errors='ignore') as f:
                 json_data = json.load(f)
                 json_data.update({sid: scan_data})
                 # 使用 r+ 模式不会覆盖，调整文件指针到开头
@@ -174,14 +174,14 @@ def write_to_file(target, sid, output_format='', filename=None):
             sid: scan_data,
         }
         if not os.path.exists(filename):
-            with open(filename, 'w+', encoding='utf-8') as f:
+            with open(filename, 'w+', encoding='utf-8', errors='ignore') as f:
                 f.write("""<?xml version="1.0" encoding="UTF-8"?>\n""")
                 f.write("""<results>\n""")
                 f.write(dict_to_xml(xml_data))
                 f.write("""\n</results>\n""")
         else:
             # 在倒数第二行插入
-            with open(filename, 'r+', encoding='utf-8') as f:
+            with open(filename, 'r+', encoding='utf-8', errors='ignore') as f:
                 results = f.readlines()
                 results.insert(len(results) - 1, '\n' + dict_to_xml(xml_data) + '\n')
                 f.seek(0)

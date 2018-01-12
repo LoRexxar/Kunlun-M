@@ -14,6 +14,7 @@
 import os
 import re
 import traceback
+import codecs
 from .log import logger
 from .rule import block
 from .file import File
@@ -228,8 +229,8 @@ class CAST(object):
 
                     # Get assign code block
                     # param_block_code = self.block_code(0)
-                    with open(self.file_path, 'r') as fi:
-                        param_content = fi.read()
+                    fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
+                    param_content = fi.read()
 
                     if param_content is False:
                         logger.debug("[AST] Can't get assign code block")

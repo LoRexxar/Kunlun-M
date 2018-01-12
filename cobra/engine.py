@@ -16,6 +16,7 @@ import re
 import json
 import portalocker
 import traceback
+import codecs
 from . import const
 from .rule import Rule
 from .utils import Tool
@@ -598,29 +599,30 @@ class Core(object):
                     rule_match = self.rule_match.strip('()').split('|')
                     logger.debug('[RULE_MATCH] {r}'.format(r=rule_match))
                     try:
-                        with open(self.file_path, 'r') as fi:
-                            code_contents = fi.read()
-                            result = scan_parser(code_contents, rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions)
-                            logger.debug('[AST] [RET] {c}'.format(c=result))
-                            if len(result) > 0:
-                                if result[0]['code'] == 1:  # 函数参数可控
-                                    return True, 'Function-param-controllable'
+                        # with open(self.file_path, 'r') as fi:
+                        fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
+                        code_contents = fi.read()
+                        result = scan_parser(code_contents, rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions)
+                        logger.debug('[AST] [RET] {c}'.format(c=result))
+                        if len(result) > 0:
+                            if result[0]['code'] == 1:  # 函数参数可控
+                                return True, 'Function-param-controllable'
 
-                                if result[0]['code'] == 2:  # 漏洞修复
-                                    return False, 'Function-param-controllable but fixed'
+                            if result[0]['code'] == 2:  # 漏洞修复
+                                return False, 'Function-param-controllable but fixed'
 
-                                if result[0]['code'] == -1:  # 函数参数不可控
-                                    return False, 'Function-param-uncon'
+                            if result[0]['code'] == -1:  # 函数参数不可控
+                                return False, 'Function-param-uncon'
 
-                                if result[0]['code'] == 4:  # 新规则生成
-                                    return False, 'New Core', result[0]['source']
+                            if result[0]['code'] == 4:  # 新规则生成
+                                return False, 'New Core', result[0]['source']
 
-                                logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
-                            else:
-                                logger.debug(
-                                    '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
-                                        r=result))
-                                return False, 'Can\'t parser'
+                            logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
+                        else:
+                            logger.debug(
+                                '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
+                                    r=result))
+                            return False, 'Can\'t parser'
                     except Exception as e:
                         logger.warning(traceback.format_exc())
                         raise
@@ -673,7 +675,7 @@ def init_match_rule(data):
 
             # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
             match = "(?:\A|\s)" + function_name + "\s*\("
-            for i in xrange(len(function_params)):
+            for i in range(len(function_params)):
                 if i != 0:
                     match += ","
 
@@ -705,7 +707,7 @@ def init_match_rule(data):
             # $A = new a($x, $y);
             match = "new\s*" + class_name + "\s*\("
 
-            for i in xrange(len(class_params)):
+            for i in range(len(class_params)):
                 if i != 0:
                     match += ","
 
