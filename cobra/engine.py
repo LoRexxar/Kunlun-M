@@ -623,8 +623,9 @@ class Core(object):
                                 '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
                                     r=result))
                             return False, 'Can\'t parser'
-                    except Exception as e:
-                        logger.warning(traceback.format_exc())
+                    except Exception:
+                        exc_msg = traceback.format_exc()
+                        logger.warning(exc_msg)
                         raise
 
                 # vustomize-match

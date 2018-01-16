@@ -555,8 +555,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         is_co, cp, expr_lineno = array_back(param, nodes)
         return is_co, cp, expr_lineno
 
-    if isinstance(param, php.New) or (
-        hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
+    if isinstance(param, php.New) or (hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
         logger.debug("[AST] AST analysis for New Class {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = new_class_back(param, nodes)
         return is_co, cp, expr_lineno
