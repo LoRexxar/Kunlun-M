@@ -102,7 +102,6 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            # with open(self.target+ffile, "r") as file:
             file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
             line_number = 0
             for line in file:

@@ -12,19 +12,14 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 import hashlib
-import json
 import os
 import random
 import re
 import string
 import sys
 import time
-import urllib
-import requests
-import json
 
-from .__version__ import __version__, __python_version__, __platform__, __url__
-from .config import Config, issue_history_path, rules_path
+from .config import rules_path
 from .log import logger
 
 TARGET_MODE_GIT = 'git'
@@ -103,8 +98,6 @@ class ParseArgs(object):
 
         if os.path.isfile(self.target):
             target_mode = TARGET_MODE_FILE
-            if self.target.split('.')[-1] in Config('upload', 'extensions').value.split('|'):
-                target_mode = TARGET_MODE_COMPRESS
         if os.path.isdir(self.target):
             target_mode = TARGET_MODE_FOLDER
         if target_mode is None:
@@ -213,19 +206,19 @@ def md5(content):
     return hashlib.md5(content).hexdigest()
 
 
-def allowed_file(filename):
-    """
-    Allowed upload file
-    Config Path: ./config [upload]
-    :param filename:
-    :return:
-    """
-    config_extension = Config('upload', 'extensions').value
-    if config_extension == '':
-        logger.critical('Please set config file upload->directory')
-        sys.exit(0)
-    allowed_extensions = config_extension.split('|')
-    return '.' in filename and filename.rsplit('.', 1)[1] in allowed_extensions
+# def allowed_file(filename):
+#     """
+#     Allowed upload file
+#     Config Path: ./config [upload]
+#     :param filename:
+#     :return:
+#     """
+#     config_extension = Config('upload', 'extensions').value
+#     if config_extension == '':
+#         logger.critical('Please set config file upload->directory')
+#         sys.exit(0)
+#     allowed_extensions = config_extension.split('|')
+#     return '.' in filename and filename.rsplit('.', 1)[1] in allowed_extensions
 
 
 def path_to_short(path, max_length=36):
