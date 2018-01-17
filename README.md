@@ -3,6 +3,7 @@
 # Cobra-W
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
+[![Build Status](https://travis-ci.org/LoRexxar/Cobra-W.svg?branch=develop)](https://travis-ci.org/LoRexxar/Cobra-W)
 
 
 ## Introduction
