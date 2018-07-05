@@ -17,8 +17,12 @@ import xml.etree.ElementTree as eT
 from .rule import Rule
 from .dependencies import Dependencies
 from .log import logger
-from pip.req import parse_requirements
 from .config import rules_path
+
+try:  # for pip >= 10
+    from pip._internal.req import parse_requirements
+except ImportError: # for pip <= 9.0.3
+    from pip.req import parse_requirements
 
 file_type = []
 

@@ -174,7 +174,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         rule = r()
 
         if rule.status is False:
-            logger.info('[CVI_{cvi}] [STATUS] OFF, CONTINUE...'.format(cvi=rule.id))
+            logger.info('[CVI_{cvi}] [STATUS] OFF, CONTINUE...'.format(cvi=rule.svid))
             continue
         # SR(Single Rule)
         logger.debug("""[PUSH] [CVI_{cvi}] {idx}.{vulnerability}({language})""".format(
