@@ -28,7 +28,7 @@ class CVI_10001():
         self.description = "Reflected XSS for echo"
 
         # status
-        self.status = False
+        self.status = True
 
         # 部分配置
         self.match_mode = "vustomize-match"

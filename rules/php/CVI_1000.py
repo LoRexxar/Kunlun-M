@@ -25,7 +25,7 @@ class CVI_1000():
         self.description = "Reflected XSS"
 
         # status
-        self.status = False
+        self.status = True
 
         # 部分配置
         self.match_mode = "function-param-regex"
