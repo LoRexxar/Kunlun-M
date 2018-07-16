@@ -54,4 +54,4 @@ if os.path.isdir(log_path) is not True:
 logfile = os.path.join(log_path, str(time.time())+'.log')
 
 # log
-log(logging.INFO, logfile)
+log(logging.DEBUG, logfile)
