@@ -21,6 +21,7 @@ import time
 # Copyright (C) 2010-2012 Vinay Sajip. All rights reserved. Licensed under the new BSD license.
 #
 logger = logging.getLogger('CobraLog')
+logger2 = logging.getLogger('CobraLog_file')
 log_path = 'logs'
 
 
@@ -44,9 +45,11 @@ def log(loglevel, log_name):
     formatter = logging.Formatter(
         "[%(levelname)s] [%(threadName)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s")
     handler2.setFormatter(formatter)
-    logger.addHandler(handler2)
+    logger2.addHandler(handler2)
     logger.addHandler(handler)
+
     logger.setLevel(loglevel)
+    logger2.setLevel(logging.DEBUG)
 
 if os.path.isdir(log_path) is not True:
     os.mkdir(log_path, 0o755)
@@ -54,4 +57,32 @@ if os.path.isdir(log_path) is not True:
 logfile = os.path.join(log_path, str(time.time())+'.log')
 
 # log
-log(logging.DEBUG, logfile)
+log(logging.INFO, logfile)
+
+
+class DLogger:
+    def __init__(self, logger, logger2):
+        self.logger = logger
+        self.logger2 = logger2
+
+    def info(self, message):
+        self.logger.info(message)
+        self.logger2.info(message)
+
+    def debug(self, message):
+        self.logger.debug(message)
+        self.logger2.debug(message)
+
+    def warn(self, message):
+        self.logger.warn(message)
+        self.logger2.warn(message)
+
+    def error(self, message):
+        self.logger.error(message)
+        self.logger2.error(message)
+
+    def critical(self, message):
+        self.logger.critical(message)
+        self.logger2.critical(message)
+
+logger = DLogger(logger, logger2)
