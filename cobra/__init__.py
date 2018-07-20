@@ -46,6 +46,7 @@ def main():
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
         parser_group_scan.add_argument('-s', '--secret', dest='secret_name', action='store', default=None, metavar='<secret_name>', help='secret repair function e.g: wordpress')
+        parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None,metavar='<sid>', help='sid for cobra-wa')
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
 
         args = parser.parse_args()
@@ -60,8 +61,11 @@ def main():
 
         logger.debug('[INIT] start scanning...')
 
-        print(args.target)
-        a_sid = get_sid(args.target, True)
+        if args.sid:
+            a_sid = args.sid
+        else:
+            a_sid = get_sid(args.target, True)
+
         data = {
             'status': 'running',
             'report': ''
