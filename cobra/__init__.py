@@ -17,7 +17,7 @@ import time
 import argparse
 import logging
 import traceback
-from .log import logger
+from .log import logger, logger1
 from . import cli, config
 from .cli import get_sid
 from .engine import Running
@@ -52,7 +52,7 @@ def main():
         args = parser.parse_args()
 
         if args.debug:
-            logger.setLevel(logging.DEBUG)
+            logger1.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
 
         if args.target is '' and args.output is '':

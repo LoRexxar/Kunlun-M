@@ -20,7 +20,7 @@ import time
 #
 # Copyright (C) 2010-2012 Vinay Sajip. All rights reserved. Licensed under the new BSD license.
 #
-logger = logging.getLogger('CobraLog')
+logger1 = logging.getLogger('CobraLog')
 logger2 = logging.getLogger('CobraLog_file')
 log_path = 'logs'
 
@@ -46,9 +46,9 @@ def log(loglevel, log_name):
         "[%(levelname)s] [%(threadName)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s")
     handler2.setFormatter(formatter)
     logger2.addHandler(handler2)
-    logger.addHandler(handler)
+    logger1.addHandler(handler)
 
-    logger.setLevel(loglevel)
+    logger1.setLevel(loglevel)
     logger2.setLevel(logging.DEBUG)
 
 if os.path.isdir(log_path) is not True:
@@ -77,6 +77,10 @@ class DLogger:
         self.logger.warn(message)
         self.logger2.warn(message)
 
+    def warning(self, message):
+        self.logger.warn(message)
+        self.logger2.warn(message)
+
     def error(self, message):
         self.logger.error(message)
         self.logger2.error(message)
@@ -85,4 +89,4 @@ class DLogger:
         self.logger.critical(message)
         self.logger2.critical(message)
 
-logger = DLogger(logger, logger2)
+logger = DLogger(logger1, logger2)
