@@ -60,6 +60,7 @@ def main():
 
         logger.debug('[INIT] start scanning...')
 
+        print(args.target)
         a_sid = get_sid(args.target, True)
         data = {
             'status': 'running',
