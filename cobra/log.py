@@ -26,6 +26,11 @@ log_path = 'logs'
 
 
 def log(loglevel, log_name):
+    if os.path.isdir(log_path) is not True:
+        os.mkdir(log_path, 0o755)
+
+    logfile = os.path.join(log_path, log_name + '.log')
+
     handler = colorlog.StreamHandler()
     handler.setFormatter(
         colorlog.ColoredFormatter(
@@ -40,7 +45,7 @@ def log(loglevel, log_name):
             },
         )
     )
-    f = open(log_name, 'a+')
+    f = open(logfile, 'a+')
     handler2 = logging.StreamHandler(f)
     formatter = logging.Formatter(
         "[%(levelname)s] [%(threadName)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s")
@@ -50,14 +55,6 @@ def log(loglevel, log_name):
 
     logger1.setLevel(loglevel)
     logger2.setLevel(logging.DEBUG)
-
-if os.path.isdir(log_path) is not True:
-    os.mkdir(log_path, 0o755)
-
-logfile = os.path.join(log_path, str(time.time())+'.log')
-
-# log
-log(logging.INFO, logfile)
 
 
 class DLogger:
