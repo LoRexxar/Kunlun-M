@@ -259,12 +259,39 @@ class SingleRule(object):
 
         # grep
         if self.sr.match_mode == const.mm_regex_only_match or self.sr.match_mode == const.mm_regex_param_controllable:
-            match = self.sr.match
+            # 当所有match都满足时成立，当单一unmatch满足时，不成立
+            matchs = self.sr.match
+            unmatchs = self.sr.unmatch
+            result = []
+            new_result = []
 
             try:
-                if match:
+                if matchs:
                     f = FileParseAll(self.files, self.target_directory)
-                    result = f.multi_grep(match)
+
+                    for match in matchs:
+                        old_result = new_result
+                        new_result = f.multi_grep(match)
+
+                        if not old_result:
+                            result = new_result
+                            break
+
+                        for old_vul in old_result:
+                            for new_vul in new_result:
+                                if new_vul[0] == old_vul[0]:
+                                    result.append(old_vul)
+
+                        new_result = result
+
+                    for unmatch in unmatchs:
+                        uresults = f.multi_grep(unmatch)
+
+                        for uresult in uresults:
+                            for vul in result:
+                                if vul[0] == uresult[0]:
+                                    result.remove(vul)
+
                 else:
                     result = None
             except Exception as e:

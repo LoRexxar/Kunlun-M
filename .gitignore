@@ -84,6 +84,7 @@ result/*
 
 # real_test
 tests/real_test/*
+tests/*
 
 # new rule for test
 rules/secret/*
@@ -92,4 +93,4 @@ rules/secret/*
 !rules/secret/__init.py
 
 rules/*
-!rules/php/*
+!reles/*/demo.py
