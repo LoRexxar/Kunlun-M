@@ -148,7 +148,7 @@ def scan_single(target_directory, single_rule, files=None, secret_name=None):
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
          extension_count=0, files=None, secret_name=None):
-    r = Rule()
+    r = Rule(language)
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
     find_vulnerabilities = []
@@ -260,6 +260,18 @@ class SingleRule(object):
         # grep
         if self.sr.match_mode == const.mm_regex_only_match or self.sr.match_mode == const.mm_regex_param_controllable:
             match = self.sr.match
+
+            try:
+                if match:
+                    f = FileParseAll(self.files, self.target_directory)
+                    result = f.multi_grep(match)
+                else:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
         elif self.sr.match_mode == const.mm_function_param_controllable:
             # param controllable
             if '|' in self.sr.match:
@@ -267,19 +279,21 @@ class SingleRule(object):
             else:
                 match = const.fpc_single.replace('[f]', self.sr.match)
 
+            try:
+                if match:
+                    f = FileParseAll(self.files, self.target_directory)
+                    result = f.grep(match)
+                else:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
         else:
             logger.warning('Exception match mode: {m}'.format(m=self.sr.match_mode))
+            result = None
 
-        try:
-            if match:
-                f = FileParseAll(self.files, self.target_directory)
-                result = f.grep(match)
-            else:
-                result = None
-        except Exception as e:
-            traceback.print_exc()
-            logger.debug('match exception ({e})'.format(e=e))
-            return None
         try:
             result = result.decode('utf-8')
         except AttributeError as e:
@@ -515,7 +529,7 @@ class Core(object):
                 return True
         return False
 
-    def init_repair(self):
+    def init_php_repair(self):
         """
         初始化修复函数规则
         :return: 
@@ -582,7 +596,7 @@ class Core(object):
         logger.debug('[CVI-{cvi}] match-mode {mm}'.format(cvi=self.cvi, mm=self.rule_match_mode))
         if self.file_path[-3:].lower() == 'php':
             try:
-                self.init_repair()
+                self.init_php_repair()
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
                            self.code_content, files=self.files, rule_class=self.single_rule, repair_functions=self.repair_functions)
 
@@ -652,6 +666,29 @@ class Core(object):
             except Exception as e:
                 logger.debug(traceback.format_exc())
                 return False, 'Exception'
+
+        elif self.file_path[-3:].lower() == 'sol':
+            try:
+                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
+                           self.code_content, files=self.files, rule_class=self.single_rule,
+                           repair_functions=self.repair_functions)
+
+                # only match
+                if self.rule_match_mode == const.mm_regex_only_match:
+                    #
+                    # Regex-Only-Match
+                    # Match(regex) -> Repair -> Done
+                    #
+                    logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
+                    return True, 'Regex-only-match'
+                else:
+                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match...".format(cvi=self.cvi))
+                    return False, 'Unsupport Match'
+
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                return False, 'Exception'
+
 
 
 def init_match_rule(data):

@@ -357,24 +357,25 @@ class Detection(object):
         fi.close()
         return count
 
-    # 统计HTML,CSS数据的函数
+    # 统计solidity数据的函数
     @staticmethod
-    def count_html_line(filename):
+    def count_sol_line(filename):
         count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
         fi = open(filename, 'r')
         file_line = fi.readline()
-
         while fi.tell() != os.path.getsize(filename):
             file_line = file_line.lstrip()
             if len(file_line) == 0:
                 count['count_blank'] += 1
-            elif file_line.count('<!--') == 1 and file_line.count('-->') == 1:
-                if file_line.startswith('<!--'):
+            elif file_line.startswith('//'):
+                count['count_pound'] += 1
+            elif file_line.count('/*') == 1 and file_line.count('*/') == 1:
+                if file_line.startswith('/*'):
                     count['count_pound'] += 1
                 else:
                     count['count_code'] += 1
-            elif file_line.count('<!--') == 1 and file_line.count('-->') == 0:
-                if file_line.startswith('<!--'):
+            elif file_line.count('/*') == 1 and file_line.count('*/') == 0:
+                if file_line.startswith('/*'):
                     count['count_pound'] += 1
                     while True:
                         file_line = fi.readline()
@@ -382,7 +383,7 @@ class Detection(object):
                             count['count_blank'] += 1
                         else:
                             count['count_pound'] += 1
-                        if file_line.endswith('-->\n'):
+                        if file_line.endswith('*/\n'):
                             break
                 else:
                     count['count_code'] += 1
@@ -392,7 +393,28 @@ class Detection(object):
                             count['count_blank'] += 1
                         else:
                             count['count_code'] += 1
-                        if file_line.find('-->'):
+                        if file_line.find('*/'):
+                            break
+            elif file_line.count('/**') == 1 and file_line.count('*/') == 0:
+                if file_line.startswith('/**'):
+                    count['count_pound'] += 1
+                    while True:
+                        file_line = fi.readline()
+                        if len(file_line) == 0 or file_line == "\n":
+                            count['count_blank'] += 1
+                        else:
+                            count['count_pound'] += 1
+                        if file_line.endswith('*/\n'):
+                            break
+                else:
+                    count['count_code'] += 1
+                    while True:
+                        file_line = fi.readline()
+                        if len(file_line) == 0 or file_line == "\n":
+                            count['count_blank'] += 1
+                        else:
+                            count['count_code'] += 1
+                        if file_line.find('*/'):
                             break
             else:
                 count['count_code'] += 1
@@ -445,7 +467,7 @@ class Detection(object):
     """
 
     def cloc(self):
-        extension = ['js', 'py', 'php', 'java', 'xml', 'css', 'html', 'md', 'm']
+        extension = ['js', 'py', 'php', 'java', 'xml', 'md', 'm', 'sol']
         type_num = {}
         total_code_line = 0
         total_pound_line = 0
@@ -470,8 +492,8 @@ class Detection(object):
                 if fileext == 'md' or fileext == 'xml':
                     count = self.count_data_line(filelist)
                     type_num = self.countnum(count, type_num, fileext)
-                if fileext == 'html':
-                    count = self.count_html_line(filelist)
+                if fileext == 'sol':
+                    count = self.count_sol_line(filelist)
                     type_num = self.countnum(count, type_num, fileext)
             except:
                 logger.info('Part of the annotation rule does not match, press CTRL + C to continue the program')

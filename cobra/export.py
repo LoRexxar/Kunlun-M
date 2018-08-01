@@ -140,6 +140,11 @@ def write_to_file(target, sid, output_format='', filename=None):
     #     return False
 
     scan_data_file = os.path.join(running_path, '{sid}_data'.format(sid=sid))
+
+    if not os.path.exists(scan_data_file):
+        logger.warn("[EXPORT] {} not found".format(scan_data_file))
+        return False
+
     with open(scan_data_file, 'r') as f:
         scan_data = json.load(f).get('result')
 

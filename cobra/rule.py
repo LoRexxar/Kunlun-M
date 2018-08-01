@@ -50,6 +50,10 @@ def block(index):
 class Rule(object):
     def __init__(self, lan="php"):
         self.rules_path = rules_path + "/" + lan
+        if not os.path.exists(self.rules_path):
+            logger.error("[INIT][RULE] language {} can't found rules".format(self.rules_path))
+            os.mkdir(self.rules_path)
+
         self.rule_list = self.list_parse()
 
         # import function from rule

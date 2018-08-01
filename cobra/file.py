@@ -24,7 +24,7 @@ except ImportError:
     from urllib.parse import quote
 
 
-ext_list = ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml']
+ext_list = ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml', '.sol']
 
 
 def file_list_parse(filelist):
@@ -90,7 +90,10 @@ def file_grep(file_path, rule_reg):
 class FileParseAll:
     def __init__(self, filelist, target):
         self.filelist = filelist
-        self.t_filelist = file_list_parse(filelist)[0]
+        if file_list_parse(filelist) is not []:
+            self.t_filelist = file_list_parse(filelist)[0]
+        else:
+            self.t_filelist = []
         self.target = target
 
     def grep(self, reg):
@@ -109,6 +112,26 @@ class FileParseAll:
                 # print line, line_number
                 if re.search(reg, line, re.I):
                     result.append((self.target + ffile, str(line_number), line))
+
+        return result
+
+    def multi_grep(self, reg):
+        """
+        多行匹配，对全文做匹配
+        :param reg: 
+        :return: 
+        """
+        result = []
+
+        for ffile in self.t_filelist:
+            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            content = file.read()
+            file.close()
+
+            r_con_obj = re.search(reg, content, re.I)
+
+            if r_con_obj:
+                result.append((self.target + ffile, str(0), r_con_obj.group(0)))
 
         return result
 

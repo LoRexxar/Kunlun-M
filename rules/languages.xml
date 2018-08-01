@@ -16,6 +16,9 @@
     <language name="Python" chiefly="true">
         <extension value=".py"/>
     </language>
+    <language name="Solidity" chiefly="True">
+        <extension value=".sol"/>
+    </language>
     <language name="JSP">
         <extension value=".jsp"/>
     </language>

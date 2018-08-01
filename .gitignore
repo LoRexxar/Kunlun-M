@@ -90,3 +90,6 @@ rules/secret/*
 !rules/secret/demo.py
 !rules/secret/wordpress.py
 !rules/secret/__init.py
+
+rules/*
+!rules/php/*

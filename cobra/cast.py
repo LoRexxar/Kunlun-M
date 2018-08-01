@@ -24,7 +24,7 @@ from .parser import anlysis_params
 
 
 class CAST(object):
-    languages = ['php', 'java']
+    languages = ['php', 'java', 'sol']
 
     def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[]):
         self.target_directory = target_directory
