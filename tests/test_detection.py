@@ -78,12 +78,6 @@ def test_count_java_line():
     assert count['count_code'] == 1
 
 
-def test_count_html_line():
-    count = Detection.count_html_line(examples_path+'/cloc.html')
-    type_count = ['count_blank', 'count_code', 'count_pound']
-    assert count['count_code'] == 9
-
-
 def test_count_data_line():
     count = Detection.count_data_line(examples_path+'/param_xml.xml')
     type_count = ['count_blank', 'count_code', 'count_pound']
