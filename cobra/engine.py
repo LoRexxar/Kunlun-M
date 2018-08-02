@@ -258,7 +258,7 @@ class SingleRule(object):
         logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=self.sr.match_mode))
 
         # grep
-        if self.sr.match_mode == const.mm_regex_only_match or self.sr.match_mode == const.mm_regex_param_controllable:
+        if self.sr.match_mode == const.mm_regex_only_match:
             # 当所有match都满足时成立，当单一unmatch满足时，不成立
             matchs = self.sr.match
             unmatchs = self.sr.unmatch
@@ -292,6 +292,20 @@ class SingleRule(object):
                                 if vul[0] == uresult[0]:
                                     result.remove(vul)
 
+                else:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
+        elif self.sr.match_mode == const.mm_regex_param_controllable:
+            match = self.sr.match
+
+            try:
+                if match:
+                    f = FileParseAll(self.files, self.target_directory)
+                    result = f.grep(match)
                 else:
                     result = None
             except Exception as e:
