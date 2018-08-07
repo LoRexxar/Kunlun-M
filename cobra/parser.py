@@ -1225,6 +1225,44 @@ def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_para
                                             file_path=file_path)
 
 
+def analysis_return(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
+    """
+    处理return节点
+    :param file_path: 
+    :param node:
+    :param back_node:
+    :param vul_function:
+    :param vul_lineno:
+    :param function_params:
+    :return:
+    """
+    global scan_results
+
+    if int(vul_lineno) == int(node.lineno) and isinstance(node, php.Return):
+        if isinstance(node.node, php.FunctionCall):
+            analysis_functioncall_node(node.node, back_node, vul_function, vul_lineno, function_params,
+                                       file_path=file_path)
+
+        if isinstance(node.node, php.Variable):  # 直接输出变量信息
+            analysis_variable_node(node.node, back_node, vul_function, vul_lineno, function_params,
+                                   file_path=file_path)
+
+        if isinstance(node.node, php.BinaryOp):
+            analysis_binaryop_node(node.node, back_node, vul_function, vul_lineno, function_params,
+                                   file_path=file_path)
+
+        if isinstance(node.node, php.ArrayOffset):
+            analysis_arrayoffset_node(node.node, vul_function, vul_lineno)
+
+        if isinstance(node.node, php.TernaryOp):
+            analysis_ternaryop_node(node.node, back_node, vul_function, vul_lineno, function_params,
+                                    file_path=file_path)
+
+        if isinstance(node.node, php.Silence):
+            nodes = get_silence_params(node.node)
+            analysis(nodes, vul_function, back_node, vul_lineno, file_path)
+
+
 def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=None, file_path=None):
     """
     处理eval类型节点-->判断节点类型-->不同If分支回溯判断参数是否可控-->输出结果
@@ -1255,6 +1293,10 @@ def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=Non
         if isinstance(node.expr, php.ObjectProperty):
             analysis_objectproperry_node(node.expr, back_node, vul_function, vul_lineno, function_params,
                                          file_path=file_path)
+
+        if isinstance(node.expr, php.Silence):
+            nodes = get_silence_params(node.expr)
+            analysis(nodes, vul_function, back_node, vul_lineno, file_path)
 
 
 def analysis_file_inclusion(node, vul_function, back_node, vul_lineno, function_params=None, file_path=None):
@@ -1345,6 +1387,9 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function
             if isinstance(node.expr, php.Silence):
                 buffer_.append(node.expr)
                 analysis(buffer_, vul_function, back_node, vul_lineo, file_path, function_params)
+
+        elif isinstance(node, php.Return):
+            analysis_return(node, back_node, vul_function, vul_lineo, function_params, file_path=file_path)
 
         elif isinstance(node, php.Print) or isinstance(node, php.Echo):
             analysis_echo_print(node, back_node, vul_function, vul_lineo, function_params, file_path=file_path)
