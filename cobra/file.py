@@ -134,6 +134,73 @@ class FileParseAll:
                 result.append((self.target + ffile, str(0), r_con_obj.group(0)))
 
         return result
+    
+    def multi_grep_content(self, reg, content):
+        r_con_obj = re.search(reg, content, re.I)
+
+        if r_con_obj:
+            result = (str(0), r_con_obj.group(0))
+        return result
+
+
+    def multi_grep_name(self, matchs, unmatchs, matchs_name, black_list):
+        """
+        匹配变量/函数名
+        :param reg: 匹配的变量名/函数名
+        :param black_list: 黑名单，根据reg中选择的组，过滤整个匹配结果或只过滤匹配的name
+        :return: 返回匹配结果的list
+        """
+        result = []
+
+        for ffile in self.t_filelist:
+            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            content = file.read()
+            file.close()
+            
+            # 变量名
+            name = []
+            re_result_list = re.findall(reg_name,content)
+
+            for re_result in re_result_list:
+                re_flag = True
+                # 正确使用，即reg = '(function aloha (_to) aloha)'，re_result形如 ("function balanceOf(address owner);","_to")
+                if len(re_result) == 2:
+                    for black in black_list:
+                        if black in re_result[0] or black in re_result[1]:
+                            re_flag = False
+                    if re_flag:
+                        name.append(re_result[1])
+                # 不对整个结果进行黑名单，只对变量黑名单过滤
+                elif len(re_result) == 1:
+                    for black in black_list:
+                        if black in re_result[0]:
+                            re_flag = False
+                    if re_flag:
+                        name.append(re_result[0])
+                else:
+                    print 'function "multi_grep_name" error'
+
+            name = list(set(name))
+
+            for n in name:
+                matchs_tmp = [match.replace("=padding=", n) for match in matchs]
+                unmatchs_tmp = [unmatch.replace("=padding=", n) for unmatch in unmatchs]
+
+                for unmatch in unmatchs_tmp:
+                    result_tmp = f.multi_grep_content(unmatch, content)
+
+                    if result_tmp != None:
+                        continue
+                    
+                    for match in matchs_tmp:
+                        result_tmp = f.multi_grep_content(match, content)
+
+                        if result_tmp != None:
+                            result.append(tuple([self.target+ffile]+list(result_tmp)))
+            print result
+            exit()
+        return result
+        
 
 
 class Directory(object):
