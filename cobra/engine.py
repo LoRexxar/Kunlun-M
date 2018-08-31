@@ -334,6 +334,28 @@ class SingleRule(object):
                 logger.debug('match exception ({e})'.format(e=e))
                 return None
 
+        elif self.sr.match_mode == const.mm_regex_return_regex:
+
+            matchs = self.sr.match
+            unmatchs = self.sr.unmatch
+            matchs_name = self.sr.match_name
+            black_list = self.sr.black_list
+
+            result = []
+
+            try:
+                
+                f = FileParseAll(self.files, self.target_directory)
+
+                result = f.multi_grep_name(matchs, unmatchs, matchs_name, black_list)
+                if not result:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
+
         else:
             logger.warning('Exception match mode: {m}'.format(m=self.sr.match_mode))
             result = None
@@ -725,6 +747,9 @@ class Core(object):
                     #
                     logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
                     return True, 'Regex-only-match'
+                elif self.rule_match_mode == const.mm_regex_return_regex:
+                    logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
+                    return True, 'Regex-return-regex'
                 else:
                     logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match...".format(cvi=self.cvi))
                     return False, 'Unsupport Match'

@@ -16,10 +16,12 @@
 mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配
 mm_regex_param_controllable = 'vustomize-match'  # 自定义匹配
 mm_regex_only_match = 'only-regex'
+mm_regex_return_regex = 'regex-return-regex'
 match_modes = [
     mm_regex_only_match,
     mm_regex_param_controllable,
-    mm_function_param_controllable
+    mm_function_param_controllable,
+    mm_regex_return_regex,
 ]
 
 #
