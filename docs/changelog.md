@@ -74,3 +74,10 @@
     - Cobra-W 1.0.0-beta.1
     - 添加单元测试
     - 添加更完善的开发文档
+- 2018-08-01
+    - Cobra-W 1.0.1
+    - 更新了solidity中only-regex-match模式的支持
+- 2018-08-31
+    - Cobra-W 1.1.0
+    - 更新了新的regex-return-regex模式
+    
