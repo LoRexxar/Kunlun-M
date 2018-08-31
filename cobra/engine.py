@@ -751,7 +751,7 @@ class Core(object):
                     logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
                     return True, 'Regex-return-regex'
                 else:
-                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match...".format(cvi=self.cvi))
+                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
                     return False, 'Unsupport Match'
 
             except Exception as e:

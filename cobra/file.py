@@ -186,7 +186,7 @@ class FileParseAll:
                     if re_flag:
                         name.append(re_result[0])
                 else:
-                    print 'function "multi_grep_name" error'
+                    logger.warning('[WARING] [GREP_NAME_ERROR] {0}'.format(re_result))
 
             name = list(set(name))
 
