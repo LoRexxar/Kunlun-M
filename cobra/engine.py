@@ -348,7 +348,6 @@ class SingleRule(object):
                 f = FileParseAll(self.files, self.target_directory)
 
                 result = f.multi_grep_name(matchs, unmatchs, matchs_name, black_list)
-                
                 if not result:
                     result = None
             except Exception as e:
@@ -748,6 +747,9 @@ class Core(object):
                     #
                     logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
                     return True, 'Regex-only-match'
+                elif self.rule_match_mode == const.mm_regex_return_regex:
+                    logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
+                    return True, 'Regex-return-regex'
                 else:
                     logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match...".format(cvi=self.cvi))
                     return False, 'Unsupport Match'
