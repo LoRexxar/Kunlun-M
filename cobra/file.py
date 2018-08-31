@@ -216,7 +216,6 @@ class FileParseAll:
                 if re_flag:
                     result.append(tuple([self.target+ffile, str(line_number), 'name:'+n]))
         return result
-        
 
 
 class Directory(object):
