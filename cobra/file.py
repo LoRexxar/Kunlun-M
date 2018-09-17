@@ -180,29 +180,29 @@ class FileParseAll:
                     for black in black_list:
                         if black in re_result[0] or black in re_result[1]:
                             re_flag = False
-                            logger.debug('[DEBUG] [GREP_NAME_BLACK_LIST] {0}'.format(re_result[0]))
+                            logger.debug('[DEBUG] [GREP_NAME_BLACK_LIST] match varname {0} in black list {1}'.format(re_result[0], black))
                     if re_flag:
                         name.append(re_result[1])
-                        logger.debug('[DEBUG] [GREP_NAME_WITH_GROUP(0)_BLACK_CHECK] {0}'.format(re_result[0]))
+                        logger.debug('[DEBUG] [GREP_NAME_WITH_GROUP(0)_BLACK_CHECK] success match varname:{0}'.format(re_result[0]))
                 elif len(re_result) == 1: # ['owner']
                     for black in black_list:
                         if black in re_result[0]:
                             re_flag = False
-                            logger.debug('[DEBUG] [GREP_NAME_BLACK_LIST] {0}'.format(re_result[0]))
+                            logger.debug('[DEBUG] [GREP_NAME_BLACK_LIST] match varname {0} in black list {1}'.format(re_result[0], black))
                     if re_flag:
                         name.append(re_result[0])
-                        logger.debug('[DEBUG] [GREP_NAME_SINGLE_VARNAME] {0}'.format(re_result[0]))
+                        logger.debug('[DEBUG] [GREP_NAME_SINGLE_VARNAME] success match varname:{0}'.format(re_result[0]))
                 elif isinstance(re_result,str): #字符串'owner'
                     for black in black_list:
                         if black in re_result:
                             re_flag = False
-                            logger.debug('[DEBUG] [GREP_NAME_BLACK_LIST] {0}'.format(re_result))
+                            logger.debug('[DEBUG] [GREP_NAME_BLACK_LIST] match varname {0} in black list {1}'.format(re_result, black))
                     if re_flag:
                         name.append(re_result)
-                        logger.debug('[DEBUG] [GREP_NAME_STR] {0}'.format(re_result))
+                        logger.debug('[DEBUG] [GREP_NAME_STR] success match varname:{0}'.format(re_result))
                 else:
                     name.append(re_result)
-                    logger.warning('[WARING] [GREP_NAME_ERROR] {0}'.format(re_result))
+                    logger.warning('[WARING] [GREP_NAME_ERROR] match unknown-type varname {0}'.format(re_result))
 
             name = list(set(name))
             for n in name:
@@ -227,6 +227,7 @@ class FileParseAll:
                     # 例如CVI2100中，没有match，只要不含unmatch即为漏洞的，没有行数
                     if matchs_tmp == []:
                         result.append(tuple([self.target+ffile, str(line_number), 'name:<'+n+'>']))
+                        logger.debug('[DEBUG] [MATCH_REGEX_RETURN_REGEX] success match:{0} in line {1}'.format(n, str(line_number)))
                         continue
 
                     # 正常的match，但条件为或
@@ -236,6 +237,7 @@ class FileParseAll:
                         if result_list_tmp is not None and result_list_tmp != []:
                             for result_tmp in result_list_tmp:
                                 result.append(tuple([self.target+ffile, str(line_number), 'name:<'+result_tmp[0]+'>, point:<'+result_tmp[1]+'>']))
+                                logger.debug('[DEBUG] [MATCH_REGEX_RETURN_REGEX] success match:{0} in line {1}'.format(n, str(line_number)))
                         else:
                             re_flag = False
 
