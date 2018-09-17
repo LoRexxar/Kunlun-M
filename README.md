@@ -87,3 +87,9 @@ python cobra.py -t ./tests/vulnerabilities/
 ## 开发文档
 
 [dev.md](./docs/dev.md)
+
+## Contributors
+
+感谢如下贡献者对本工具发展过程中的贡献：
+- 404 Team [LoRexxar](https://github.com/LoRexxar)
+- 北邮天枢 [Sissel](https://github.com/boke1208)
