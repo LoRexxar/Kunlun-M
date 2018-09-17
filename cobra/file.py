@@ -221,6 +221,7 @@ class FileParseAll:
                     result_tmp = self.multi_grep_content(unmatch, content)
                     if result_tmp is not None and result_tmp != []:
                         re_flag = False
+                        logger.debug('[DEBUG] [UNMATCH_REGEX_RETURN_REGEX] unmatch grep:{0} by rule {1}'.format(n, unmatch))
                         continue
 
                 if re_flag:
