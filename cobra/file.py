@@ -148,7 +148,6 @@ class FileParseAll:
             result = (str(line_number), r_con_obj.group(0))
         return result
 
-
     def multi_grep_name(self, matchs, unmatchs, matchs_name, black_list):
         """
         匹配变量/函数名
@@ -186,7 +185,8 @@ class FileParseAll:
                     if re_flag:
                         name.append(re_result[0])
                 else:
-                    logger.warning('[WARING] [GREP_NAME_ERROR] {0}'.format(re_result))
+                    name.append(re_result)
+                    # logger.warning('[WARING] [GREP_NAME_ERROR] {0}'.format(re_result))
 
             name = list(set(name))
 
@@ -200,23 +200,21 @@ class FileParseAll:
                 for unmatch in unmatchs_tmp:
                     result_tmp = self.multi_grep_content(unmatch, content)
 
-                    if result_tmp != None:
+                    if result_tmp is not None:
                         re_flag = False
                         continue
                     
                 for match in matchs_tmp:
                     result_tmp = self.multi_grep_content(match, content)
 
-                    if result_tmp != None:
-                        start_pos = result_tmp.regs[0][0]
-                        line_number = len(content[:start_pos].split('\n'))
+                    if result_tmp is not None:
+                        line_number = result_tmp[0]
                     else:
                         re_flag = False
 
                 if re_flag:
                     result.append(tuple([self.target+ffile, str(line_number), 'name:'+n]))
         return result
-        
 
 
 class Directory(object):
