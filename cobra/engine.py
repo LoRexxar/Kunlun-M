@@ -355,7 +355,6 @@ class SingleRule(object):
                 logger.debug('match exception ({e})'.format(e=e))
                 return None
 
-
         else:
             logger.warning('Exception match mode: {m}'.format(m=self.sr.match_mode))
             result = None
