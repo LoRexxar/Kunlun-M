@@ -344,7 +344,6 @@ class SingleRule(object):
             result = []
 
             try:
-                
                 f = FileParseAll(self.files, self.target_directory)
 
                 result = f.multi_grep_name(matchs, unmatchs, matchs_name, black_list)
