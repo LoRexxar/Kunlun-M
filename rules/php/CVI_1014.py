@@ -33,7 +33,7 @@ class CVI_1014():
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = "import_request_variables|parse_str|mb_parse_str"
+        self.match = "import_request_variables|parse_str|mb_parse_str|extract"
         self.vul_function = None
 
     def main(self, regex_string):
