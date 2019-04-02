@@ -1,5 +1,7 @@
 <big>**写在最前，Cobra-W仍然处于测试开发阶段，未发布正式版本，谨慎应用...**</big>
 
+**严重不推荐使用python2.7运行该工具，将于近期停止维护python2.7环境**
+
 # Cobra-W
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
@@ -20,7 +22,7 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
 - 语义分析，对漏洞有效性判断程度更深。
 - 多种语言支持。
 - 开源python实现，更易于二次开发。
-
+g'i't
 
 与Cobra相比：
 - 深度重写AST，大幅度减少漏洞误报率。
