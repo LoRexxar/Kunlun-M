@@ -893,6 +893,11 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None, re
     param = php.Variable(param)
     parser = make_parser()
     all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+
+    # 做一次处理，解决Variable(Variable('$id'))的问题
+    while isinstance(param.name, php.Variable):
+        param = param.name
+
     logger.debug("[AST] AST to find param {}".format(param))
 
     vul_nodes = []
