@@ -52,7 +52,7 @@ def log(loglevel, log_name):
     logger.addHandler(handler2)
     logger.addHandler(handler)
 
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
 
 class DLogger:

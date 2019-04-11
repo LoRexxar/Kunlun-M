@@ -891,7 +891,13 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None, re
         param = php.ObjectProperty(param_left, param_right)
 
     param = php.Variable(param)
-    parser = make_parser()
+    try:
+        # 目标可能语法错误
+        parser = make_parser()
+    except SyntaxError:
+        logger.warning('[AST] target php file exist SyntaxError...')
+        return -1, "", ""
+
     all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
 
     # 做一次处理，解决Variable(Variable('$id'))的问题
