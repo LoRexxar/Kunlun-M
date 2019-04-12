@@ -17,6 +17,7 @@ from phply import phpast as php
 from .log import logger
 import re
 import codecs
+import traceback
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -120,33 +121,41 @@ def get_cast_params(node):
     return param
 
 
-def get_binaryop_params(node):  # 当为BinaryOp类型时，分别对left和right进行处理，取出需要的变量
+def get_binaryop_params(node, real_back=False):  # 当为BinaryOp类型时，分别对left和right进行处理，取出需要的变量
     """
     用来提取Binaryop中的参数
+    :param real_back: 
     :param node:
-    :return:
+    :return:           
     """
     # logger.debug('[AST] Binaryop --> {node}'.format(node=node))
     params = []
     buffer_ = []
 
     if isinstance(node.left, php.Variable):
-        params.append(node.left.name)
+        if real_back:
+            params.append(node.left)
+        else:
+            params.append(node.left.name)
     else:
-        params = get_binaryop_deep_params(node.left, params)
+        params = get_binaryop_deep_params(node.left, params, real_back)
 
     if isinstance(node.right, php.Variable):
-        params.append(node.right.name)
+        if real_back:
+            params.append(node.right)
+        else:
+            params.append(node.right.name)
     else:
-        params = get_binaryop_deep_params(node.right, params)
+        params = get_binaryop_deep_params(node.right, params, real_back)
 
     params = export_list(params, buffer_)
     return params
 
 
-def get_binaryop_deep_params(node, params):  # 取出right，left不为变量时，对象结构中的变量
+def get_binaryop_deep_params(node, params, real_back=False):  # 取出right，left不为变量时，对象结构中的变量
     """
     取出深层的变量名
+    :param real_back: 
     :param node: node为上一步中的node.left或者node.right节点
     :param params:
     :return:
@@ -156,7 +165,7 @@ def get_binaryop_deep_params(node, params):  # 取出right，left不为变量时
         params.append(param)
 
     if isinstance(node, php.BinaryOp):  # node为BinaryOp，递归取出其中变量
-        param = get_binaryop_params(node)
+        param = get_binaryop_params(node, real_back=real_back)
         params.append(param)
 
     if isinstance(node, php.FunctionCall):  # node为FunctionCall，递归取出其中变量名
@@ -533,7 +542,7 @@ def new_class_back(param, nodes, vul_function=None):
 
 
 def parameters_back(param, nodes, function_params=None, lineno=0,
-                    function_flag=0, vul_function=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
+                    function_flag=0, vul_function=None, isback=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
     :param vul_function: 
@@ -542,6 +551,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     :param function_params:
     :param lineno
     :param function_flag: 是否在函数、方法内的标志位
+    :param isback: 是否需要返回该值
     :return:
     """
 
@@ -587,6 +597,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                                  param_expr))
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
 
+                if is_co == -1 and isback is True:
+                    cp = param_expr
+                    return is_co, cp, expr_lineno
+
                 if is_co != 1 and is_co != 3:
                     is_co, cp = is_sink_function(param_expr, function_params)
 
@@ -617,7 +631,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                     return_param = return_node.node
                                     is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
                                                                              function_params, lineno, function_flag=1,
-                                                                             vul_function=vul_function)
+                                                                             vul_function=vul_function, isback=isback)
 
             if param_name == param_node and isinstance(param_expr, list):
                 logger.debug(
@@ -634,7 +648,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     param = php.Variable(param)
                     _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                               function_flag=1, vul_function=vul_function)
+                                                               function_flag=1, vul_function=vul_function, isback=isback)
 
                     if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
                         is_co = _is_co
@@ -658,7 +672,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if len(vul_nodes) > 0:
                 is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno,
-                                                         function_flag=1, vul_function=vul_function)
+                                                         function_flag=1, vul_function=vul_function, isback=isback)
 
             if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
                 for node_param in node.params:
@@ -703,11 +717,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
-                                                     function_flag=1, vul_function=vul_function)
+                                                     function_flag=1, vul_function=vul_function, isback=isback)
 
             if is_co == 3 and cp != param:  # 理由如上
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                         function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
+                                                         function_flag=1, vul_function=vul_function, isback=isback)  # 找到可控的输入时，停止递归
                 return is_co, cp, expr_lineno
 
             if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
@@ -724,12 +738,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                         elif_node_lineno = 0
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
-                                                             function_flag=1, vul_function=vul_function)
+                                                             function_flag=1, vul_function=vul_function, isback=isback)
 
                     if is_co == 3 and cp != param:  # 理由如上
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                  function_flag=1,
-                                                                 vul_function=vul_function)  # 找到可控的输入时，停止递归
+                                                                 vul_function=vul_function, isback=isback)  # 找到可控的输入时，停止递归
                         return is_co, cp, expr_lineno
                     else:
                         break
@@ -746,12 +760,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     else_node_lineno = 0
 
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
-                                                         function_flag=1, vul_function=vul_function)
+                                                         function_flag=1, vul_function=vul_function, isback=isback)
 
                 if is_co == 3 and cp != param:  # 理由如上
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=1,
-                                                             vul_function=vul_function)  # 找到可控的输入时，停止递归
+                                                             vul_function=vul_function, isback=isback)  # 找到可控的输入时，停止递归
                     return is_co, cp, expr_lineno
 
         elif isinstance(node, php.For):
@@ -762,11 +776,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 "[AST] param {} line {} in for, start ast in for".format(param_name, for_node_lineno))
 
             is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
-                                                     function_flag=1, vul_function=vul_function)
+                                                     function_flag=1, vul_function=vul_function, isback=isback)
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                     function_flag=1, vul_function=vul_function)  # 找到可控的输入时，停止递归
+                                                     function_flag=1, vul_function=vul_function, isback=isback)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None:  # 当敏感函数在函数中时，function_params不为空，这时应进入自定义敏感函数逻辑
         for function_param in function_params:
@@ -779,9 +793,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     return is_co, cp, expr_lineno
 
 
-def deep_parameters_back(param, back_node, function_params, count, file_path, lineno=0, vul_function=None):
+def deep_parameters_back(param, back_node, function_params, count, file_path, lineno=0, vul_function=None, isback=False):
     """
     深度递归遍历
+    :param isback: 是否返回
     :param vul_function: 
     :param lineno: 
     :param param: 
@@ -791,8 +806,9 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
     :return: 
     """
     count += 1
+    padding = {}
 
-    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno, vul_function=vul_function)
+    is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno, vul_function=vul_function, isback=isback)
 
     if count > 20:
         logger.warning("[Deep AST] depth too big, auto exit...")
@@ -803,11 +819,38 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
 
         for node in back_node[::-1]:
             if isinstance(node, php.Include):
-                #  拼接路径需要专门处理，暂时先这样
+                # 拼接路径需要专门处理，暂时先这样
+                # 针对全局变量采用搜索的办法，首先拼接变量
+                if isinstance(node.expr, php.BinaryOp):
+                    # 遍历下来然后逐个处理
+                    params = get_binaryop_params(node.expr, real_back=True)
+                    # params = export_list(params, export_params=[])
+
+                    for param in params:
+                        # 主要解决两个问题，一个是全局define，一个是变量
+                        if isinstance(param, php.Variable):
+                            logger.debug("[AST][INCLUDE] The include file name has an unknown parameter {}.".format(param))
+                            # print(back_node[:back_node.index(node)])
+                            is_co, ccp, expr_lineno = deep_parameters_back(param, back_node[:back_node.index(node)], function_params, count,
+                                                                          file_path, lineno, vul_function=vul_function, isback=True)
+
+                            if is_co == -1:
+                                padding[param.name] = ccp
+
+                # 拼接路径
                 filename = get_filename(node, file_path)
+
+                # 替换处理
+                if isinstance(filename, list):
+                    for i in filename:
+                        if i in padding:
+                            filename[filename.index(i)] = padding[i]
+
+                    filename = "".join(filename)
+
                 file_path_list = re.split(r"[\/\\]", file_path)
                 file_path_list.pop()
-                file_path_list += filename
+                file_path_list.append(filename)
                 if "not_found" in filename:
                     continue
                 file_path_name = "/".join(file_path_list)
@@ -821,13 +864,19 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                     logger.warning("[Deep AST] error to open new file...continue")
                     continue
 
-                parser = make_parser()
+                try:
+                    # 目标可能语法错误
+                    parser = make_parser()
+                except SyntaxError:
+                    logger.warning('[AST] target php file exist SyntaxError...')
+                    logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
+
                 all_nodes = parser.parse(file_content, debug=False, lexer=lexer.clone(), tracking=with_line)
                 node = cp
                 # node = php.Variable(cp)
 
                 is_co, cp, expr_lineno = deep_parameters_back(node, all_nodes, function_params, count, file_path_name,
-                                                              lineno, vul_function=vul_function)
+                                                              lineno, vul_function=vul_function, isback=isback)
                 if is_co == -1:
                     break
 
@@ -896,6 +945,7 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None, re
         parser = make_parser()
     except SyntaxError:
         logger.warning('[AST] target php file exist SyntaxError...')
+        logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
         return -1, "", ""
 
     all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
@@ -1456,6 +1506,6 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path, repair_func
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)
     except SyntaxError as e:
-        logger.warning('[AST] [ERROR]:{e}'.format(e=e))
+        logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
 
     return scan_results
