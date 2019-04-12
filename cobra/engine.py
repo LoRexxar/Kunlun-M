@@ -303,6 +303,7 @@ class SingleRule(object):
                 return None
 
         elif self.sr.match_mode == const.mm_regex_param_controllable:
+            # 自定义匹配，调用脚本中的匹配函数匹配参数
             match = self.sr.match
 
             try:
@@ -317,6 +318,7 @@ class SingleRule(object):
                 return None
 
         elif self.sr.match_mode == const.mm_function_param_controllable:
+            # 函数匹配，直接匹配敏感函数，然后处理敏感函数的参数即可
             # param controllable
             if '|' in self.sr.match:
                 match = const.fpc_multi.replace('[f]', self.sr.match)
@@ -335,6 +337,7 @@ class SingleRule(object):
                 return None
 
         elif self.sr.match_mode == const.mm_regex_return_regex:
+            # 回馈式正则匹配，将匹配到的内容返回，然后合入正则表达式
 
             matchs = self.sr.match
             unmatchs = self.sr.unmatch
