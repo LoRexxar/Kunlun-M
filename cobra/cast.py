@@ -21,6 +21,7 @@ from .file import File
 from .file import FileParseAll
 from .parser import is_controllable
 from .parser import anlysis_params
+from .pretreatment import ast_object
 
 
 class CAST(object):
@@ -229,16 +230,18 @@ class CAST(object):
 
                     # Get assign code block
                     # param_block_code = self.block_code(0)
-                    fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
-                    param_content = fi.read()
+                    # fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
+                    # param_content = fi.read()
 
-                    if param_content is False:
-                        logger.debug("[AST] Can't get assign code block")
-                        return True, self.data
+                    # param_content = ast_object.get_nodes(self.file_path)
+                    #
+                    # if param_content is False:
+                    #     logger.debug("[AST] Can't get assign code block")
+                    #     return True, self.data
 
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line, self.sr.vul_function, self.repair_functions)
+                    _is_co, _cp, expr_lineno = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")
