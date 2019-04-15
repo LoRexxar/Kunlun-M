@@ -33,8 +33,8 @@ lineno2 = 10
 
 
 def test_scan_parser():
-    assert scan_parser(code_contents, sensitive_func, lineno, target_projects)
+    assert scan_parser(sensitive_func, lineno, target_projects)
 
 
 def test_anlysis_params():
-    assert anlysis_params(param, code_contents2, target_projects2, lineno2)
+    assert anlysis_params(param, target_projects2, lineno2)
