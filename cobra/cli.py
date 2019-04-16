@@ -20,6 +20,7 @@ from .log import logger
 from .file import Directory
 from .utils import ParseArgs
 from .utils import md5, random_generator
+from .pretreatment import ast_object
 
 
 def get_sid(target, is_a_sid=False):
@@ -46,6 +47,7 @@ def start(target, formatter, output, special_rules, a_sid=None, secret_name=None
     :param a_sid: all scan id
     :return:
     """
+    global ast_object
     # generate single scan id
     s_sid = get_sid(target)
     r = Running(a_sid)
@@ -83,6 +85,10 @@ def start(target, formatter, output, special_rules, a_sid=None, secret_name=None
 
         if pa.special_rules is not None:
             logger.info('[CLI] [SPECIAL-RULE] only scan used by {r}'.format(r=','.join(pa.special_rules)))
+
+        # Pretreatment ast object
+        ast_object.init_pre(target_directory, files)
+        ast_object.pre_ast()
 
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,

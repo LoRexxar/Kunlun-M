@@ -15,6 +15,7 @@ from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 from .log import logger
+from .pretreatment import ast_object
 import re
 import codecs
 import traceback
@@ -244,21 +245,7 @@ def get_filename(node, file_path):  # 获取filename
             constant_node = filenames[i]
             constant_node_name = constant_node.name
 
-            f = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
-            file_content = f.read()
-            parser = make_parser()
-            all_nodes = parser.parse(file_content, debug=False, lexer=lexer.clone(), tracking=with_line)
-
-            for node in all_nodes:
-                if isinstance(node, php.FunctionCall) and node.name == "define":
-                    define_params = node.params
-
-                    if len(define_params) == 2 and define_params[0].node == constant_node_name:
-                        filenames[i] = define_params[1].node
-
-            if isinstance(filenames[i], php.Constant):  # 如果还没找到该常量，暂时退出
-                logger.warning("[AST] [INCLUDE FOUND] Can't found this constart {}, pass it ".format(filenames[i]))
-                filenames[i] = "not_found"
+            filenames[i] = ast_object.get_define(constant_node_name)
 
     return filenames
 
@@ -858,20 +845,22 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                 try:
                     logger.debug("[Deep AST] open new file {file_path}".format(file_path=file_path_name))
                     # f = open(file_path_name, 'r')
-                    f = codecs.open(file_path_name, "r", encoding='utf-8', errors='ignore')
-                    file_content = f.read()
+                    # f = codecs.open(file_path_name, "r", encoding='utf-8', errors='ignore')
+                    # file_content = f.read()
+                    all_nodes = ast_object.get_nodes(file_path_name)
+
                 except:
                     logger.warning("[Deep AST] error to open new file...continue")
                     continue
 
-                try:
-                    # 目标可能语法错误
-                    parser = make_parser()
-                except SyntaxError:
-                    logger.warning('[AST] target php file exist SyntaxError...')
-                    logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
+                # try:
+                #     # 目标可能语法错误
+                #     parser = make_parser()
+                # except SyntaxError:
+                #     logger.warning('[AST] target php file exist SyntaxError...')
+                #     logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
 
-                all_nodes = parser.parse(file_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+                # all_nodes = parser.parse(file_content, debug=False, lexer=lexer.clone(), tracking=with_line)
                 node = cp
                 # node = php.Variable(cp)
 
@@ -917,7 +906,7 @@ def get_function_params(nodes):
     return params
 
 
-def anlysis_params(param, code_content, file_path, lineno, vul_function=None, repair_functions=None):
+def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions=None):
     """
     在cast调用时做中转数据预处理
     :param repair_functions: 
@@ -940,15 +929,16 @@ def anlysis_params(param, code_content, file_path, lineno, vul_function=None, re
         param = php.ObjectProperty(param_left, param_right)
 
     param = php.Variable(param)
-    try:
-        # 目标可能语法错误
-        parser = make_parser()
-    except SyntaxError:
-        logger.warning('[AST] target php file exist SyntaxError...')
-        logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
-        return -1, "", ""
-
-    all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+    # try:
+    #     # 目标可能语法错误
+    #     parser = make_parser()
+    # except SyntaxError:
+    #     logger.warning('[AST] target php file exist SyntaxError...')
+    #     logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
+    #     return -1, "", ""
+    #
+    # all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+    all_nodes = ast_object.get_nodes(file_path)
 
     # 做一次处理，解决Variable(Variable('$id'))的问题
     while isinstance(param.name, php.Variable):
@@ -1052,9 +1042,9 @@ def analysis_binaryop_node(node, back_node, vul_function, vul_lineno, function_p
 
         if file_path is not None:
             # with open(file_path, 'r') as fi:
-            fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
-            code_content = fi.read()
-            is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno,
+            # fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
+            # code_content = fi.read()
+            is_co, cp, expr_lineno = anlysis_params(param, file_path, param_lineno,
                                                     vul_function=vul_function)
         else:
             count = 0
@@ -1083,10 +1073,10 @@ def analysis_objectproperry_node(node, back_node, vul_function, vul_lineno, func
     # is_co, cp, expr_lineno = parameters_back(param, back_node, function_params)
     if file_path is not None:
         # with open(file_path, 'r') as fi:
-        fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
-        code_content = fi.read()
+        # fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
+        # code_content = fi.read()
 
-        is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno, vul_function=vul_function)
+        is_co, cp, expr_lineno = anlysis_params(param, file_path, param_lineno, vul_function=vul_function)
     else:
         count = 0
         is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count,
@@ -1131,10 +1121,10 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
 
         if file_path is not None:
             # with open(file_path, 'r') as fi:
-            fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
-            code_content = fi.read()
+            # fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
+            # code_content = fi.read()
 
-            is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno,
+            is_co, cp, expr_lineno = anlysis_params(param, file_path, param_lineno,
                                                     vul_function=vul_function)
         else:
             count = 0
@@ -1161,10 +1151,10 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
 
     if file_path is not None:
         # with open(file_path, 'r') as fi:
-        fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
-        code_content = fi.read()
+        # fi = codecs.open(file_path, 'r', encoding='utf-8', errors='ignore')
+        # code_content = fi.read()
 
-        is_co, cp, expr_lineno = anlysis_params(param, code_content, file_path, param_lineno, vul_function=vul_function)
+        is_co, cp, expr_lineno = anlysis_params(param, file_path, param_lineno, vul_function=vul_function)
     else:
         count = 0
         is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path,
@@ -1485,7 +1475,7 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function
         back_node.append(node)
 
 
-def scan_parser(code_content, sensitive_func, vul_lineno, file_path, repair_functions=[]):
+def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[]):
     """
     开始检测函数
     :param repair_functions: 
@@ -1499,8 +1489,7 @@ def scan_parser(code_content, sensitive_func, vul_lineno, file_path, repair_func
         global scan_results, is_repair_functions
         scan_results = []
         is_repair_functions = repair_functions
-        parser = make_parser()
-        all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=with_line)
+        all_nodes = ast_object.get_nodes(file_path)
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
