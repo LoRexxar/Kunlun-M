@@ -31,7 +31,7 @@ class Pretreatment:
         self.file_list = files
         self.target_directory = target_directory
 
-        self.target_directory = self.target_directory.replace('/', '\\')
+        self.target_directory = os.path.normpath(self.target_directory)
 
     def pre_ast(self):
 
@@ -41,7 +41,7 @@ class Pretreatment:
                 # 下面是对于php文件的处理逻辑
                 for filepath in fileext[1]['list']:
 
-                    filepath = self.target_directory + filepath.replace('/', '\\')
+                    filepath = os.path.normpath(self.target_directory + filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'php'
 
