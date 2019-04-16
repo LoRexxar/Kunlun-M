@@ -41,7 +41,7 @@ class Pretreatment:
                 # 下面是对于php文件的处理逻辑
                 for filepath in fileext[1]['list']:
 
-                    filepath = os.path.normpath(self.target_directory + filepath)
+                    filepath =  os.path.join(self.target_directory, filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'php'
 
