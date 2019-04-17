@@ -241,17 +241,17 @@ class CAST(object):
 
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions)
+                    _is_co, _cp, expr_lineno, chain = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, isexternal=True)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")
-                        return True, _cp
+                        return True, _is_co, _cp, chain
                     elif _is_co == 3:
-                        logger.info("[AST] can't find this param, something error..")
-                        continue
+                        logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+                        return True, _is_co, _cp, chain
                     elif _is_co == 4:
                         logger.info("[AST] New vul function {}()".format(_cp[0].name))
-                        return False, tuple([_is_co, _cp])
+                        return False, _is_co, tuple([_is_co, _cp]), chain
                     else:
                         continue
 
