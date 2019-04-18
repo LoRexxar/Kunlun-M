@@ -424,6 +424,7 @@ class SingleRule(object):
 
                     if "New Core" not in reason:
                         code = "Code: {}".format(origin_vulnerability[2].strip(" "))
+                        file_path = os.path.normpath(origin_vulnerability[0])
                         data.insert(1, ("NewScan", code, origin_vulnerability[0], origin_vulnerability[1]))
 
                 elif len(datas) == 2:

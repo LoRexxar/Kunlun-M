@@ -261,7 +261,7 @@ def is_repair(expr):
     is_re = False  # 是否修复，默认值是未修复
     global is_repair_functions
     if expr in is_repair_functions:
-        logger.debug("[AST] function {} in is_repair_functions, The vulnerability does not exist ")
+        logger.debug("[AST] function {} in is_repair_functions, The vulnerability does not exist ".format(expr))
         is_re = True
     return is_re
 
@@ -684,11 +684,21 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             function_params = node.params
             vul_nodes = []
 
+            # 如果仅仅是函数定义，如果上一次赋值语句不在函数内，那么不应进去函数里分析，应该直接跳过这部分
+            # test1 尝试使用行数叠加的方式
+            if len(function_nodes) + function_lineno < int(lineno):
+                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                         function_flag=0, vul_function=vul_function,
+                                                         file_path=file_path,
+                                                         isback=isback)
+                return is_co, cp, expr_lineno
+
             logger.debug(
                 "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
                                                                                               node.lineno,
                                                                                               node.name,
                                                                                               function_lineno))
+
             file_path = os.path.normpath(file_path)
             code = "param {} in function {}".format(param_name, node.name)
             scan_chain.append(('Function', code, file_path, node.lineno))
