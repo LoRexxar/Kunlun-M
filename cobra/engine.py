@@ -421,6 +421,11 @@ class SingleRule(object):
 
                 if len(datas) == 3:
                     is_vulnerability, reason, data = datas
+
+                    if "New Core" not in reason:
+                        code = "Code: {}".format(origin_vulnerability[2].strip(" "))
+                        data.insert(1, ("NewScan", code, origin_vulnerability[0], origin_vulnerability[1]))
+
                 elif len(datas) == 2:
                     is_vulnerability, reason = datas
                 else:
@@ -968,8 +973,14 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
             datas = Core(target_directory, vulnerability, sr, 'project name',
                          ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name).scan()
             data = ""
+
             if len(datas) == 3:
                 is_vulnerability, reason, data = datas
+
+                if "New Core" not in reason:
+                    code = "Code: {}".format(origin_vulnerability[2])
+                    data.insert(1, ("NewScan", code, origin_vulnerability[0], origin_vulnerability[1]))
+
             elif len(datas) == 2:
                 is_vulnerability, reason = datas
             else:
@@ -978,6 +989,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
             if is_vulnerability:
                 logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi="00000", code=reason))
                 vulnerability.analysis = reason
+                vulnerability.chain = data
                 rule_vulnerabilities.append(vulnerability)
             else:
                 if reason == 'New Core':  # 新的规则
