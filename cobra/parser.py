@@ -590,7 +590,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     if len(nodes) != 0 and is_co != 1:
         node = nodes[len(nodes) - 1]
 
-        if isinstance(node, php.Assignment):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
+        if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
             param_expr, expr_lineno, is_re = get_expr_name(node.expr)  # param_expr为赋值表达式,param_expr为变量或者列表
 
