@@ -17,6 +17,7 @@ from phply import phpast as php
 from .log import logger
 from .pretreatment import ast_object
 import re
+import os
 import codecs
 import traceback
 
@@ -603,6 +604,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     "[AST] Find {}={} in line {}, start ast for param {}".format(param_name, param_expr, expr_lineno,
                                                                                  param_expr))
 
+                file_path = os.path.normpath(file_path)
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('Assignment', code, file_path, node.lineno))
 
@@ -631,6 +633,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                                                          function_name,
                                                                                                          node.lineno,
                                                                                                          function_name))
+                file_path = os.path.normpath(file_path)
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('FunctionCall', code, file_path, node.lineno))
 
@@ -655,6 +658,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                                               param_expr,
                                                                                               node.lineno,
                                                                                               param_expr))
+                file_path = os.path.normpath(file_path)
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('ListAssignment', code, file_path, node.lineno))
 
@@ -685,6 +689,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                                               node.lineno,
                                                                                               node.name,
                                                                                               function_lineno))
+            file_path = os.path.normpath(file_path)
             code = "param {} in function {}".format(param_name, node.name)
             scan_chain.append(('Function', code, file_path, node.lineno))
 
@@ -704,6 +709,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             "[AST] param {} line {} in function_params, start new rule for function {}".format(
                                 param_name, node.lineno, node.name))
 
+                        file_path = os.path.normpath(file_path)
                         code = "param {} from NewFunction {}".format(param_name, node.name)
                         scan_chain.append(('NewFunction', code, file_path, node.lineno))
 
@@ -863,6 +869,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                         if isinstance(param, php.Variable):
                             logger.debug("[AST][INCLUDE] The include file name has an unknown parameter {}.".format(param))
 
+                            file_path = os.path.normpath(file_path)
                             code = "find {} in Include path".format(param, file_path)
                             scan_chain.append(('IncludePath', code, file_path, node.lineno))
 
@@ -901,6 +908,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
 
                 node = cp
 
+                file_path = os.path.normpath(file_path)
                 code = "find {} in Include {}".format(node, file_path_name)
                 scan_chain.append(('Include', code, file_path, node.lineno))
 

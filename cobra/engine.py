@@ -239,7 +239,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.info(
                 '[SCAN] Not Trigger Rules ({l}): {r}'.format(l=len(diff_rules), r=','.join(diff_rules)))
 
-
     # completed running data
     if s_sid is not None:
         Running(s_sid).data({
