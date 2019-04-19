@@ -1537,6 +1537,12 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[]):
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
             analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)
+
+            # 如果检测到一次，那么就可以退出了
+            if len(scan_results) > 0:
+                logger.debug("[AST] Scan parser end for {}".format(scan_results))
+                break
+
     except SyntaxError as e:
         logger.warning('[AST] [ERROR]:{e}'.format(e=traceback.format_exc()))
 
