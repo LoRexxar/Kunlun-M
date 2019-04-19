@@ -18,6 +18,7 @@ class VulnerabilityResult:
         self.id = ''
         self.file_path = None
         self.analysis = ''
+        self.chain = ""
 
         self.rule_name = ''
         self.language = ''

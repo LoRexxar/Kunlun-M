@@ -188,9 +188,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     # print
     data = []
+    data2 = []
     table = PrettyTable(
         ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
          'Commit(Author)', 'Source Code Content', 'Analysis'])
+
     table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
@@ -201,11 +203,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         except AttributeError as e:
             code_content = x.code_content.decode('utf-8')[:100].strip()
         row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit, code_content, x.analysis]
+        row2 = [idx+1, x.chain]
+
         data.append(row)
+        data2.append(row2)
+
         table.add_row(row)
+
         if x.id not in trigger_rules:
             logger.debug(' > trigger rule (CVI-{cvi})'.format(cvi=x.id))
             trigger_rules.append(x.id)
+
+        # clear
+        x.chain = ""
+
     diff_rules = list(set(push_rules) - set(trigger_rules))
     vn = len(find_vulnerabilities)
     if vn == 0:
@@ -214,9 +225,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         logger.info("[SCAN] Trigger Rules: {tr} Vulnerabilities ({vn})\r\n{table}".format(tr=len(trigger_rules),
                                                                                           vn=len(find_vulnerabilities),
                                                                                           table=table))
+
+        # 输出chain for all
+        logger.info("[SCAN] Vulnerabilities Chain list: ")
+        for d in data2:
+            logger.info("[SCAN] Vul {}".format(d[0]))
+            for c in d[1]:
+                logger.info("[Chain] {}".format(c))
+
+            logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
+
         if len(diff_rules) > 0:
             logger.info(
                 '[SCAN] Not Trigger Rules ({l}): {r}'.format(l=len(diff_rules), r=','.join(diff_rules)))
+
     # completed running data
     if s_sid is not None:
         Running(s_sid).data({
@@ -399,6 +421,12 @@ class SingleRule(object):
 
                 if len(datas) == 3:
                     is_vulnerability, reason, data = datas
+
+                    if "New Core" not in reason:
+                        code = "Code: {}".format(origin_vulnerability[2].strip(" "))
+                        file_path = os.path.normpath(origin_vulnerability[0])
+                        data.insert(1, ("NewScan", code, origin_vulnerability[0], origin_vulnerability[1]))
+
                 elif len(datas) == 2:
                     is_vulnerability, reason = datas
                 else:
@@ -407,6 +435,7 @@ class SingleRule(object):
                 if is_vulnerability:
                     logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi=self.sr.svid, code=reason))
                     vulnerability.analysis = reason
+                    vulnerability.chain = data
                     self.rule_vulnerabilities.append(vulnerability)
                 else:
                     if reason == 'New Core':  # 新的规则
@@ -688,15 +717,18 @@ class Core(object):
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
                             if result[0]['code'] == 1:  # 函数参数可控
-                                return True, 'Function-param-controllable'
+                                return True, 'Function-param-controllable', result[0]['chain']
 
-                            if result[0]['code'] == 2:  # 漏洞修复
-                                return False, 'Function-param-controllable but fixed'
+                            elif result[0]['code'] == 2:  # 漏洞修复
+                                return False, 'Function-param-controllable but fixed', result[0]['chain']
 
-                            if result[0]['code'] == -1:  # 函数参数不可控
-                                return False, 'Function-param-uncon'
+                            elif result[0]['code'] == 3:  # 疑似漏洞
+                                return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
 
-                            if result[0]['code'] == 4:  # 新规则生成
+                            elif result[0]['code'] == -1:  # 函数参数不可控
+                                return False, 'Function-param-uncon', result[0]['chain']
+
+                            elif result[0]['code'] == 4:  # 新规则生成
                                 return False, 'New Core', result[0]['source']
 
                             logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
@@ -711,18 +743,15 @@ class Core(object):
                         raise
 
                 # vustomize-match
-                param_is_controllable, data = ast.is_controllable_param()
+                param_is_controllable, code, data, chain = ast.is_controllable_param()
                 if param_is_controllable:
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
-                    # Repair
-                    # is_repair, data = ast.match(self.rule_repair, self.repair_block)
-                    # if is_repair:
-                    #     # fixed
-                    #     logger.debug('[CVI-{cvi}] [REPAIR] Vulnerability Fixed'.format(cvi=self.cvi))
-                    #     return False, 'Vulnerability-Fixed(漏洞已修复)'
-                    # else:
-                    # logger.debug('[CVI-{cvi}] [REPAIR] [RET] Not fixed'.format(cvi=self.cvi))
-                    return True, 'Vustomize-Match'
+
+                    if code == 1:
+                        return True, 'Vustomize-Match', chain
+                    elif code ==3:
+                        return False, 'Unconfirmed Vustomize-Match', chain
+
                 else:
                     if type(data) is tuple:
                         if int(data[0]) == 4:
@@ -758,7 +787,6 @@ class Core(object):
             except Exception as e:
                 logger.debug(traceback.format_exc())
                 return False, 'Exception'
-
 
 
 def init_match_rule(data):
@@ -946,8 +974,14 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
             datas = Core(target_directory, vulnerability, sr, 'project name',
                          ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name).scan()
             data = ""
+
             if len(datas) == 3:
                 is_vulnerability, reason, data = datas
+
+                if "New Core" not in reason:
+                    code = "Code: {}".format(origin_vulnerability[2])
+                    data.insert(1, ("NewScan", code, origin_vulnerability[0], origin_vulnerability[1]))
+
             elif len(datas) == 2:
                 is_vulnerability, reason = datas
             else:
@@ -956,6 +990,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
             if is_vulnerability:
                 logger.debug('[CVI-{cvi}] [RET] Found {code}'.format(cvi="00000", code=reason))
                 vulnerability.analysis = reason
+                vulnerability.chain = data
                 rule_vulnerabilities.append(vulnerability)
             else:
                 if reason == 'New Core':  # 新的规则
