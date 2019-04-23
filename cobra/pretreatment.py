@@ -66,6 +66,7 @@ class Pretreatment:
                         if isinstance(node, php.FunctionCall) and node.name == "define":
                             define_params = node.params
                             logger.debug("[AST][Pretreatment] new define {}={}".format(define_params[0].node, define_params[1].node))
+
                             self.define_dict[define_params[0].node] = define_params[1].node
 
     def get_nodes(self, filepath):
