@@ -24,6 +24,7 @@ import traceback
 with_line = True
 scan_results = []  # 结果存放列表初始化
 is_repair_functions = []  # 修复函数初始化
+is_controlled_params = []
 scan_chain = []  # 回溯链变量
 
 
@@ -306,6 +307,10 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
         '$HTTP_RAW_POST_DATA',
         '$HTTP_GET_VARS'
     ]
+
+    # 传入合并
+    controlled_params += is_controlled_params
+
     if isinstance(expr, php.ObjectProperty):
         return 3, php.Variable(expr)
 
@@ -364,7 +369,8 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
 # return is_co, cp, expr_lineno
 
 
-def function_back(param, nodes, function_params, vul_function=None, file_path=None, isback=None, parent_node=None):  # 回溯函数定义位置
+def function_back(param, nodes, function_params, vul_function=None, file_path=None, isback=None,
+                  parent_node=None):  # 回溯函数定义位置
     """
     递归回溯函数定义位置，传入param类型不同
     :param isback: 
@@ -492,7 +498,8 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
 
                 # 递归析构函数
                 is_co, cp, expr_lineno = parameters_back(param, constructs_nodes, function_params=class_node_params,
-                                                         lineno=lineno, function_flag=1, vul_function=vul_function, file_path=file_path,
+                                                         lineno=lineno, function_flag=1, vul_function=vul_function,
+                                                         file_path=file_path,
                                                          isback=isback)
 
                 if is_co == 3:
@@ -581,7 +588,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         return is_co, cp, expr_lineno
 
     if isinstance(param, php.New) or (
-        hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
+                hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
         logger.debug("[AST] AST analysis for New Class {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = new_class_back(param, nodes, file_path=file_path,
                                                 isback=isback)
@@ -788,7 +795,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if is_co == 3 and cp != param:  # 理由如上
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
-                                                         file_path=file_path, isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
+                                                         file_path=file_path, isback=isback,
+                                                         parent_node=node)  # 找到可控的输入时，停止递归
                 return is_co, cp, expr_lineno
 
             if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
@@ -856,7 +864,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                     function_flag=function_flag, vul_function=vul_function, file_path=file_path,
+                                                     function_flag=function_flag, vul_function=vul_function,
+                                                     file_path=file_path,
                                                      isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None:  # 当敏感函数在函数中时，function_params不为空，这时应进入自定义敏感函数逻辑
@@ -998,7 +1007,8 @@ def get_function_params(nodes):
     return params
 
 
-def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions=None, isexternal=False):
+def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions=None, controlled_params=None,
+                   isexternal=False):
     """
     在cast调用时做中转数据预处理
     :param repair_functions: 
@@ -1009,11 +1019,14 @@ def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions
     :param file_path: 
     :return: 
     """
-    global is_repair_functions, scan_chain
+    global is_repair_functions, is_controlled_params, scan_chain
     count = 0
     function_params = None
     if repair_functions is not None:
         is_repair_functions = repair_functions
+
+    if controlled_params is not None:
+        is_controlled_params = controlled_params
 
     if type(param) is str and "->" in param:
         param_left = php.Variable(param.split("->")[0])
@@ -1551,9 +1564,10 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function
         back_node.append(node)
 
 
-def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[]):
+def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], controlled_params=[]):
     """
     开始检测函数
+    :param controlled_params: 
     :param repair_functions: 
     :param sensitive_func: 要检测的敏感函数,传入的为函数列表
     :param vul_lineno: 漏洞函数所在行号
@@ -1561,11 +1575,12 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[]):
     :return:
     """
     try:
-        global scan_results, is_repair_functions, scan_chain
+        global scan_results, is_repair_functions, is_controlled_params, scan_chain
 
         scan_chain = ['start']
         scan_results = []
         is_repair_functions = repair_functions
+        is_controlled_params = controlled_params
         all_nodes = ast_object.get_nodes(file_path)
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次

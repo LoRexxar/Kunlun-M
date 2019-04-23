@@ -23,3 +23,7 @@ IS_REPAIR_DEFAULT = {
     "escapeshellcmd": [1009, 1011],
     "escapeshellarg": [1009, 1011],
 }
+
+IS_CONTROLLED_DEFAULT = [
+    "$_GET",
+]

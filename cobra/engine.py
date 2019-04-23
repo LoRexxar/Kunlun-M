@@ -497,6 +497,7 @@ class Core(object):
         self.data = []
         self.repair_dict = {}
         self.repair_functions = []
+        self.controlled_list = {}
 
         self.target_directory = target_directory
 
@@ -634,12 +635,22 @@ class Core(object):
         a = __import__('rules.secret.demo', fromlist=['IS_REPAIR_DEFAULT'])
         self.repair_dict = getattr(a, 'IS_REPAIR_DEFAULT')
 
+        b = __import__('rules.secret.demo', fromlist=['IS_CONTROLLED_DEFAULT'])
+        self.controlled_list = getattr(b, 'IS_CONTROLLED_DEFAULT')
+
         if self.secret_name is not None:
             try:
+                # 首先加载修复函数指定
                 a = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name])
                 a = getattr(a, self.secret_name)
                 self.repair_dict = self.repair_dict.copy()
                 self.repair_dict.update(a.items())
+
+                # 然后加载输入函数
+                b = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name])
+                b = getattr(b, self.secret_name + "_controlled")
+                self.controlled_list += b
+
             except ImportError:
                 logger.warning('[AST][INIT] Secret_name init error... No nodule named {}'.format(self.secret_name))
 
@@ -694,7 +705,7 @@ class Core(object):
             try:
                 self.init_php_repair()
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                           self.code_content, files=self.files, rule_class=self.single_rule, repair_functions=self.repair_functions)
+                           self.code_content, files=self.files, rule_class=self.single_rule, repair_functions=self.repair_functions, controlled_params=self.controlled_list)
 
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
@@ -713,7 +724,7 @@ class Core(object):
                         # with open(self.file_path, 'r') as fi:
                         # fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
                         # code_contents = fi.read()
-                        result = scan_parser(rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions)
+                        result = scan_parser(rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions, controlled_params=self.controlled_list)
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
                             if result[0]['code'] == 1:  # 函数参数可控

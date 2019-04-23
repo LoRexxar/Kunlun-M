@@ -27,7 +27,7 @@ from .pretreatment import ast_object
 class CAST(object):
     languages = ['php', 'java', 'sol']
 
-    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[]):
+    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[], controlled_params=[]):
         self.target_directory = target_directory
         self.data = []
         self.rule = rule
@@ -40,6 +40,8 @@ class CAST(object):
         self.language = None
         self.sr = rule_class
         self.repair_functions = repair_functions
+        self.controlled_list = controlled_params
+
         for language in self.languages:
             if self.file_path[-len(language):].lower() == language:
                 self.language = language
@@ -241,7 +243,7 @@ class CAST(object):
 
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno, chain = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, isexternal=True)
+                    _is_co, _cp, expr_lineno, chain = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, self.controlled_list, isexternal=True)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")
