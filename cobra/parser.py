@@ -247,6 +247,8 @@ def get_filename(node, file_path):  # 获取filename
             constant_node = filenames[i]
             constant_node_name = constant_node.name
 
+            # 尝试做一些处理针对右值非常量的问题
+
             filenames[i] = ast_object.get_define(constant_node_name)
 
     return filenames
@@ -723,6 +725,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=None)
+                function_flag = 0
 
             if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
                 for node_param in node.params:
@@ -754,6 +757,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
                                                 isback=isback, parent_node=node)
+            function_flag = 0
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
@@ -774,10 +778,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
                                                      function_flag=1, vul_function=vul_function,
                                                      file_path=file_path, isback=isback, parent_node=node)
+            function_flag = 0
 
             if is_co == 3 and cp != param:  # 理由如上
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                         function_flag=1, vul_function=vul_function,
+                                                         function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
                 return is_co, cp, expr_lineno
 
@@ -798,10 +803,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                              function_flag=1, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
+                    function_flag = 0
 
                     if is_co == 3 and cp != param:  # 理由如上
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                                 function_flag=1, vul_function=vul_function,
+                                                                 function_flag=function_flag, vul_function=vul_function,
                                                                  file_path=file_path,
                                                                  isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
                         return is_co, cp, expr_lineno
@@ -822,10 +828,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)
+                function_flag = 0
 
                 if is_co == 3 and cp != param:  # 理由如上
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                             function_flag=1, vul_function=vul_function,
+                                                             function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
                     return is_co, cp, expr_lineno
@@ -840,10 +847,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
                                                      function_flag=1, vul_function=vul_function, file_path=file_path,
                                                      isback=isback, parent_node=node)
+            function_flag = 0
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                     function_flag=1, vul_function=vul_function, file_path=file_path,
+                                                     function_flag=function_flag, vul_function=vul_function, file_path=file_path,
                                                      isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None:  # 当敏感函数在函数中时，function_params不为空，这时应进入自定义敏感函数逻辑
