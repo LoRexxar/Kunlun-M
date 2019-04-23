@@ -995,7 +995,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret
             else:
                 if reason == 'New Core':  # 新的规则
                     logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                    new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, 0, secret_name=secret_name)
+                    new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count, secret_name=secret_name)
 
                     if not new_rule_vulnerabilities:
                         return rule_vulnerabilities
