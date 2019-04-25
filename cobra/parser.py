@@ -565,7 +565,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     isback=None, parent_node=None):  # 用来得到回溯过程中的被赋值的变量是否与敏感函数变量相等,param是当前需要跟踪的污点
     """
     递归回溯敏感函数的赋值流程，param为跟踪的污点，当找到param来源时-->分析复制表达式-->获取新污点；否则递归下一个节点
-    :param parent_node: 父节点 ，为了处理无法确定当前节点位置的问题
+    :param parent_node: 父节点 ，为了处理无法确定当前节点位置的问题, 如果是0则是最基础列表
     :param file_path: 
     :param vul_function: 
     :param param:
@@ -712,12 +712,22 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             # 如果仅仅是函数定义，如果上一次赋值语句不在函数内，那么不应进去函数里分析，应该直接跳过这部分
             # test1 尝试使用行数叠加的方式
             # 目前测试结果中，这里会出现严重的bug
-            if function_flag == 0 and parent_node is None:
+            if function_flag == 0 and not isinstance(parent_node, php.Function):
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=0, vul_function=vul_function,
                                                          file_path=file_path,
-                                                         isback=isback, parent_node=node)
+                                                         isback=isback, parent_node=parent_node)
                 return is_co, cp, expr_lineno
+
+            # 在这里想一个解决办法，如果当前父节点为0
+            # 然后最后一个为函数节点，那么如果其中的最后一行代码行数小于目标行数，则不进入
+            if parent_node == 0:
+                if node.lineno < int(lineno):
+                    is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                             function_flag=0, vul_function=vul_function,
+                                                             file_path=file_path,
+                                                             isback=isback, parent_node=0)
+                    return is_co, cp, expr_lineno
 
             logger.debug(
                 "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
@@ -788,15 +798,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
-                                                     function_flag=1, vul_function=vul_function,
+                                                     function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path, isback=isback, parent_node=node)
-            function_flag = 0
 
             if is_co == 3 and cp != param:  # 理由如上
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback,
-                                                         parent_node=node)  # 找到可控的输入时，停止递归
+                                                         parent_node=parent_node)  # 找到可控的输入时，停止递归
                 return is_co, cp, expr_lineno
 
             if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
@@ -813,16 +822,15 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                         elif_node_lineno = 0
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
-                                                             function_flag=1, vul_function=vul_function,
+                                                             function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
-                    function_flag = 0
 
                     if is_co == 3 and cp != param:  # 理由如上
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                  function_flag=function_flag, vul_function=vul_function,
                                                                  file_path=file_path,
-                                                                 isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
+                                                                 isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
                         return is_co, cp, expr_lineno
                     else:
                         break
@@ -839,15 +847,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     else_node_lineno = 0
 
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
-                                                         function_flag=1, vul_function=vul_function,
+                                                         function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)
-                function_flag = 0
 
                 if is_co == 3 and cp != param:  # 理由如上
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
-                                                             isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
+                                                             isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
                     return is_co, cp, expr_lineno
 
         elif isinstance(node, php.For):
@@ -866,7 +873,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path,
-                                                     isback=isback, parent_node=node)  # 找到可控的输入时，停止递归
+                                                     isback=isback, parent_node=0)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None:  # 当敏感函数在函数中时，function_params不为空，这时应进入自定义敏感函数逻辑
         for function_param in function_params:
@@ -896,7 +903,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
     padding = {}
 
     is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno, vul_function=vul_function,
-                                             file_path=file_path, isback=isback)
+                                             file_path=file_path, isback=isback, parent_node=0)
 
     if count > 20:
         logger.warning("[Deep AST] depth too big, auto exit...")
