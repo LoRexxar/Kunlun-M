@@ -604,7 +604,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     is_co, cp = is_controllable(param_name)
 
-    if len(nodes) != 0 and is_co != 1:
+    if len(nodes) != 0 and is_co != 1 and is_co != -1:
         node = nodes[len(nodes) - 1]
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
@@ -1036,12 +1036,21 @@ def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions
     if isexternal:
         scan_chain = ['start']
 
-    param = php.Variable(param)
     all_nodes = ast_object.get_nodes(file_path)
 
     # 做一次处理，解决Variable(Variable('$id'))的问题
-    while isinstance(param.name, php.Variable):
+    while isinstance(param, php.Variable):
         param = param.name
+
+    # 这里需要重新梳理参数的判断问题
+    if type(param) is str:
+        if not param.startswith("$"):
+            is_co = -1
+            cp = param
+            expr_lineno = lineno
+            return is_co, cp, expr_lineno
+    
+        param = php.Variable(param)
 
     logger.debug("[AST] AST to find param {}".format(param))
     code = "find param {}".format(param)
