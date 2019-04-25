@@ -712,22 +712,22 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             # 如果仅仅是函数定义，如果上一次赋值语句不在函数内，那么不应进去函数里分析，应该直接跳过这部分
             # test1 尝试使用行数叠加的方式
             # 目前测试结果中，这里会出现严重的bug
-            if function_flag == 0 and not isinstance(parent_node, php.Function):
-                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                         function_flag=0, vul_function=vul_function,
-                                                         file_path=file_path,
-                                                         isback=isback, parent_node=parent_node)
-                return is_co, cp, expr_lineno
+            # print(parent_node)
+            # if function_flag == 0 and not isinstance(parent_node, php.Function):
+            #     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+            #                                              function_flag=0, vul_function=vul_function,
+            #                                              file_path=file_path,
+            #                                              isback=isback, parent_node=parent_node)
+            #     return is_co, cp, expr_lineno
 
             # 在这里想一个解决办法，如果当前父节点为0
             # 然后最后一个为函数节点，那么如果其中的最后一行代码行数小于目标行数，则不进入
-            if parent_node == 0:
-                if node.lineno < int(lineno):
-                    is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                             function_flag=0, vul_function=vul_function,
-                                                             file_path=file_path,
-                                                             isback=isback, parent_node=0)
-                    return is_co, cp, expr_lineno
+            if function_nodes[-1].lineno < int(lineno):
+                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                         function_flag=0, vul_function=vul_function,
+                                                         file_path=file_path,
+                                                         isback=isback, parent_node=0)
+                return is_co, cp, expr_lineno
 
             logger.debug(
                 "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
@@ -740,7 +740,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             scan_chain.append(('Function', code, file_path, node.lineno))
 
             for function_node in function_nodes:
-                if function_node is not None and int(function_lineno) <= function_node.lineno < int(lineno):
+                if function_node is not None and int(function_lineno) <= function_node.lineno <= int(lineno):
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
@@ -776,6 +776,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             # 无法解决递归，直接退出
                             is_co = -1
                             return is_co, cp, 0
+
+                # 从函数中出来的变量，如果参数列表中没有，也不能继续递归
+                is_co = -1
+                return is_co, cp, expr_lineno
 
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,

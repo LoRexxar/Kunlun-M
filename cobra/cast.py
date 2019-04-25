@@ -296,7 +296,7 @@ class CAST(object):
                 return False, self.data
 
         # if no variable can modify
-        return False, self.data
+        return False, self.data, None, None
 
     def match(self, rule, block_id):
         """
