@@ -1048,7 +1048,7 @@ def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions
             is_co = -1
             cp = param
             expr_lineno = lineno
-            return is_co, cp, expr_lineno
+            return is_co, cp, expr_lineno, scan_chain
     
         param = php.Variable(param)
 
@@ -1098,7 +1098,7 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
                     analysis_arrayoffset_node(param.node, vul_function, vul_lineno)
 
     except Exception as e:
-        logger.debug(e)
+        logger.debug(traceback.format_exc())
 
 
 def analysis_functioncall(node, back_node, vul_function, vul_lineno):
