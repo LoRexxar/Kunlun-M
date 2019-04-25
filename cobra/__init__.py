@@ -49,6 +49,7 @@ def main():
         parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None, metavar='<sid>', help='sid for cobra-wa')
         parser_group_scan.add_argument('-l', '--log', dest='log', action='store', default=None, metavar='<log>', help='log name for cobra-wa')
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
+        parser_group_scan.add_argument('-lan', '--language', dest='language', action='store', default=None, help='set target language')
 
         args = parser.parse_args()
 
@@ -79,7 +80,7 @@ def main():
         }
         Running(a_sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.secret_name)
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.secret_name)
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))

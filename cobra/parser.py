@@ -373,6 +373,7 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
                   parent_node=None):  # 回溯函数定义位置
     """
     递归回溯函数定义位置，传入param类型不同
+    :param parent_node: 
     :param isback: 
     :param file_path: 
     :param function_params: 
@@ -769,7 +770,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
                                                 isback=isback, parent_node=node)
-            function_flag = 0
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
