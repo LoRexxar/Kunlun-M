@@ -681,7 +681,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('ListAssignment', code, file_path, node.lineno))
 
-                if param_expr is []:
+                if len(param_expr) <= 0:
                     _is_co = -1
                     cp = param
                     return is_co, cp, 0
