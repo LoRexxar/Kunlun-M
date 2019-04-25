@@ -831,9 +831,9 @@ def init_match_rule(data):
                         match += "?"
 
                 if i == index:
-                    match += "(.*)"
+                    match += "([^,\)]*?)"
                 else:
-                    match += ".*"
+                    match += "[^,\)]*?"
 
             match += "\)"
 
@@ -863,9 +863,9 @@ def init_match_rule(data):
                         match += "?"
 
                 if i == index:
-                    match += "(.*)"
+                    match += "([^,\)]*?)"
                 else:
-                    match += ".*"
+                    match += "[^,\)]*?"
 
             match += "\)"
 
