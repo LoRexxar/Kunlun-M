@@ -233,7 +233,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             for c in d[1]:
                 logger.info("[Chain] {}".format(c))
 
-            logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
+            if hasattr(os, 'get_terminal_size'):
+                logger.info("[SCAN] ending\r\n" + '-'*(os.get_terminal_size().columns-16))
+            else:
+                logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
 
         if len(diff_rules) > 0:
             logger.info(
@@ -831,9 +834,9 @@ def init_match_rule(data):
                         match += "?"
 
                 if i == index:
-                    match += "(.*)"
+                    match += "([^,\)]*)"
                 else:
-                    match += ".*"
+                    match += "[^,\)]*"
 
             match += "\)"
 
@@ -863,9 +866,9 @@ def init_match_rule(data):
                         match += "?"
 
                 if i == index:
-                    match += "(.*)"
+                    match += "([^,\)]*)"
                 else:
-                    match += ".*"
+                    match += "[^,\)]*"
 
             match += "\)"
 

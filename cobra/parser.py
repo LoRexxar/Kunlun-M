@@ -373,6 +373,7 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
                   parent_node=None):  # 回溯函数定义位置
     """
     递归回溯函数定义位置，传入param类型不同
+    :param parent_node: 
     :param isback: 
     :param file_path: 
     :param function_params: 
@@ -603,7 +604,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     is_co, cp = is_controllable(param_name)
 
-    if len(nodes) != 0 and is_co != 1:
+    if len(nodes) != 0 and is_co != 1 and is_co != -1:
         node = nodes[len(nodes) - 1]
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
@@ -680,7 +681,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('ListAssignment', code, file_path, node.lineno))
 
-                if param_expr is []:
+                if len(param_expr) <= 0:
                     _is_co = -1
                     cp = param
                     return is_co, cp, 0
@@ -769,7 +770,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
                                                 isback=isback, parent_node=node)
-            function_flag = 0
             return is_co, cp, expr_lineno
 
         elif isinstance(node, php.If):
@@ -1036,12 +1036,21 @@ def anlysis_params(param, file_path, lineno, vul_function=None, repair_functions
     if isexternal:
         scan_chain = ['start']
 
-    param = php.Variable(param)
     all_nodes = ast_object.get_nodes(file_path)
 
     # 做一次处理，解决Variable(Variable('$id'))的问题
-    while isinstance(param.name, php.Variable):
+    while isinstance(param, php.Variable):
         param = param.name
+
+    # 这里需要重新梳理参数的判断问题
+    if type(param) is str:
+        if not param.startswith("$"):
+            is_co = -1
+            cp = param
+            expr_lineno = lineno
+            return is_co, cp, expr_lineno, scan_chain
+    
+        param = php.Variable(param)
 
     logger.debug("[AST] AST to find param {}".format(param))
     code = "find param {}".format(param)
@@ -1089,7 +1098,7 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
                     analysis_arrayoffset_node(param.node, vul_function, vul_lineno)
 
     except Exception as e:
-        logger.debug(e)
+        logger.debug(traceback.format_exc())
 
 
 def analysis_functioncall(node, back_node, vul_function, vul_lineno):

@@ -36,7 +36,7 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None, secret_name=None):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None):
     """
     Start CLI
     :param secret_id: secret id or name?
@@ -74,9 +74,14 @@ def start(target, formatter, output, special_rules, a_sid=None, secret_name=None
         files, file_count, time_consume = Directory(target_directory).collect_files()
 
         # detection main language and framework
-        dt = Detection(target_directory, files)
-        main_language = dt.language
-        main_framework = dt.framework
+
+        if not language:
+            dt = Detection(target_directory, files)
+            main_language = dt.language
+            main_framework = dt.framework
+        else:
+            main_language = language
+            main_framework = language
 
         logger.info('[CLI] [STATISTIC] Language: {l} Framework: {f}'.format(l=main_language, f=main_framework))
         logger.info('[CLI] [STATISTIC] Files: {fc}, Extensions:{ec}, Consume: {tc}'.format(fc=file_count,
