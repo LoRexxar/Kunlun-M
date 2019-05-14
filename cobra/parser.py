@@ -731,7 +731,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             logger.debug(
                 "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
-                                                                                              node.lineno,
+                                                                                              lineno,
                                                                                               node.name,
                                                                                               function_lineno))
 
@@ -744,7 +744,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
-                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno,
+                is_co, cp, expr_lineno = parameters_back(param, vul_nodes, function_params, function_lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=None)
