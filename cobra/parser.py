@@ -14,12 +14,14 @@
 from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
-from .log import logger
-from .pretreatment import ast_object
 import re
 import os
 import codecs
 import traceback
+
+from .log import logger
+from .pretreatment import ast_object
+from .internal_defines.php.functions import function_dict as php_function_dict
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -200,7 +202,7 @@ def get_expr_name(node):  # expr为'expr'中的值
         param_expr = node.name  # 返回变量名
         param_lineno = node.lineno
 
-    elif isinstance(node, php.FunctionCall):  # 当赋值表达式为函数
+    elif isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall):  # 当赋值表达式为函数
         param_expr = get_all_params(node.params)  # 返回函数参数列表
         param_lineno = node.lineno
         is_re = is_repair(node.name)  # 调用了函数，判断调用的函数是否为修复函数
@@ -643,7 +645,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
-                param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
 
                 logger.debug(
                     "[AST] Find {} from FunctionCall for {} in line {}, start ast in function {}".format(param_name,
@@ -654,22 +655,30 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('FunctionCall', code, file_path, node.lineno))
 
-                for node in nodes[::-1]:
-                    if isinstance(node, php.Function):
-                        if node.name == function_name:
-                            function_nodes = node.nodes
+                # 因为没办法解决内置函数的问题，所以尝试引入内置函数列表，如果在其中，则先跳过
+                if function_name in php_function_dict:
+                    logger.debug("[AST] function {} in php defined function list, continue...".format(function_name))
 
-                            # 进入递归函数内语句
-                            for function_node in function_nodes:
-                                if isinstance(function_node, php.Return):
-                                    return_node = function_node.node
-                                    return_param = return_node.node
-                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
-                                                                             function_params, lineno, function_flag=1,
-                                                                             vul_function=vul_function,
-                                                                             file_path=file_path,
-                                                                             isback=isback,
-                                                                             parent_node=node)
+                else:
+                    param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
+
+                    # 尝试寻找函数定义， 看上去应该是冗余代码，因为function call本身就会有处理
+                    # for node in nodes[::-1]:
+                    #     if isinstance(node, php.Function):
+                    #         if node.name == function_name:
+                    #             function_nodes = node.nodes
+                    #
+                    #             # 进入递归函数内语句
+                    #             for function_node in function_nodes:
+                    #                 if isinstance(function_node, php.Return):
+                    #                     return_node = function_node.node
+                    #                     return_param = return_node.node
+                    #                     is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
+                    #                                                              function_params, lineno, function_flag=1,
+                    #                                                              vul_function=vul_function,
+                    #                                                              file_path=file_path,
+                    #                                                              isback=isback,
+                    #                                                              parent_node=node)
 
             if param_name == param_node and isinstance(param_expr, list):
                 logger.debug(
