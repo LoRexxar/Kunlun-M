@@ -202,7 +202,7 @@ def get_expr_name(node):  # expr为'expr'中的值
         param_expr = node.name  # 返回变量名
         param_lineno = node.lineno
 
-    elif isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall):  # 当赋值表达式为函数
+    elif isinstance(node, php.FunctionCall):  # 当赋值表达式为函数
         param_expr = get_all_params(node.params)  # 返回函数参数列表
         param_lineno = node.lineno
         is_re = is_repair(node.name)  # 调用了函数，判断调用的函数是否为修复函数
@@ -210,6 +210,11 @@ def get_expr_name(node):  # expr为'expr'中的值
     elif isinstance(node, php.BinaryOp):  # 当赋值表达式为BinaryOp
         param_expr = get_binaryop_params(node)
         param_lineno = node.lineno
+
+    elif isinstance(node, php.MethodCall): # 当赋值表达式为类方法时
+        param_expr = get_all_params(node.params)  # 返回该方法参数列表
+        param_lineno = node.lineno
+
 
     else:
         param_expr = node
@@ -680,6 +685,22 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     #                                                              isback=isback,
                     #                                                              parent_node=node)
 
+            if param_name == param_node and isinstance(node.expr, php.MethodCall):
+                # 当右值为方法调用时，暂时按照和function类似的分析方式
+
+                class_node = node.expr.node.name
+                class_method_name = node.expr.name
+                class_method_params = node.expr.params
+
+                logger.debug("[AST] Find {} from MethodCall from {}->{} in line {}.".format(param_name, class_node, class_method_name, node.lineno))
+
+                file_path = os.path.normpath(file_path)
+                code = "{}={}->{}".format(param_name, class_node, class_method_name)
+                scan_chain.append(('MethodCall', code, file_path, node.lineno))
+
+                # 将右值置为methodcall
+                param = node.expr
+
             if param_name == param_node and isinstance(param_expr, list):
                 logger.debug(
                     "[AST] Find {} from list for {} in line {}, start ast for list {}".format(param_name,
@@ -695,22 +716,28 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     cp = param
                     return is_co, cp, 0
 
-                for expr in param_expr:
-                    param = expr
-                    is_co, cp = is_controllable(expr)
+                # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
+                if param_name in param_expr:
+                    logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
 
-                    if is_co == 1:
-                        return is_co, cp, expr_lineno
 
-                    param = php.Variable(param)
-                    _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                               function_flag=1, vul_function=vul_function,
-                                                               file_path=file_path,
-                                                               isback=isback)
+                else:
+                    for expr in param_expr:
+                        param = expr
+                        is_co, cp = is_controllable(expr)
 
-                    if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
-                        is_co = _is_co
-                        cp = _cp
+                        if is_co == 1:
+                            return is_co, cp, expr_lineno
+
+                        param = php.Variable(param)
+                        _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                                   function_flag=1, vul_function=vul_function,
+                                                                   file_path=file_path,
+                                                                   isback=isback)
+
+                        if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
+                            is_co = _is_co
+                            cp = _cp
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_nodes = node.nodes
@@ -749,7 +776,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             scan_chain.append(('Function', code, file_path, node.lineno))
 
             for function_node in function_nodes:
-                if function_node is not None and int(function_lineno) <= function_node.lineno <= int(lineno):
+                if function_node is not None and int(function_lineno) < function_node.lineno < int(lineno):
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
