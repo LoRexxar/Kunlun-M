@@ -825,7 +825,7 @@ def init_match_rule(data):
                 index += 1
 
             # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
-            match = "(?:\A|\s)" + function_name + "\s*\("
+            match = "(?:\A|\s|\\b)" + function_name + "\s*\("
             for i in range(len(function_params)):
                 if i != 0:
                     match += ","

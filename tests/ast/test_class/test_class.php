@@ -33,7 +33,7 @@ $x = $_GET['a'];
 $y = "echo 233;";
 
 $A = new a($x, $y);
-$A->eval_function($y);
+$A->eval_function($x);
 $A->eval_function2();
 $A->eval_function3();
 $A->eval_function4();

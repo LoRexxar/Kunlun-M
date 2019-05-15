@@ -487,6 +487,8 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
     class_name = node.name
     class_nodes = node.nodes
 
+    logger.debug("[AST] param {} in class {}, start into class...".format(param, class_name))
+
     vul_nodes = []
     for class_node in class_nodes:
         if class_node.lineno < int(lineno):
@@ -498,6 +500,7 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
 
     if is_co == 1 or is_co == -1:  # 可控或者不可控，直接返回
         return is_co, cp, expr_lineno
+
     elif is_co == 3:
         for class_node in class_nodes:
             if isinstance(class_node, php.Method) and class_node.name == '__construct':
@@ -720,7 +723,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if param_name in param_expr:
                     logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
 
-
                 else:
                     for expr in param_expr:
                         param = expr
@@ -794,7 +796,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                 param_name, node.lineno, node.name))
 
                         file_path = os.path.normpath(file_path)
-                        code = "param {} from NewFunction {}".format(param_name, node.name)
+                        code = "param {} in NewFunction {}".format(param_name, node.name)
                         scan_chain.append(('NewFunction', code, file_path, node.lineno))
 
                         if vul_function is None or node.name != vul_function:
