@@ -40,10 +40,12 @@ class Pretreatment:
             if ".php" == fileext[0]:
                 # 下面是对于php文件的处理逻辑
                 for filepath in fileext[1]['list']:
+                    all_nodes = []
 
                     filepath =  os.path.join(self.target_directory, filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'php'
+                    self.pre_result[filepath]['ast_nodes'] = []
 
                     fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
                     code_content = fi.read()
@@ -61,7 +63,6 @@ class Pretreatment:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
 
                     # 搜索所有的常量
-
                     for node in all_nodes:
                         if isinstance(node, php.FunctionCall) and node.name == "define":
                             define_params = node.params

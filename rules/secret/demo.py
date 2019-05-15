@@ -14,6 +14,7 @@
 
 IS_REPAIR_DEFAULT = {
     "urlencode": [1000, 10001],
+    "rawurlencode": [1000, 10001],
     "htmlspecialchars": [1000, 10001],
     "htmlentities": [1000, 10001],
     "ldap_escape": [1010],

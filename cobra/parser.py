@@ -14,12 +14,14 @@
 from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
-from .log import logger
-from .pretreatment import ast_object
 import re
 import os
 import codecs
 import traceback
+
+from .log import logger
+from .pretreatment import ast_object
+from .internal_defines.php.functions import function_dict as php_function_dict
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -208,6 +210,11 @@ def get_expr_name(node):  # expr为'expr'中的值
     elif isinstance(node, php.BinaryOp):  # 当赋值表达式为BinaryOp
         param_expr = get_binaryop_params(node)
         param_lineno = node.lineno
+
+    elif isinstance(node, php.MethodCall): # 当赋值表达式为类方法时
+        param_expr = get_all_params(node.params)  # 返回该方法参数列表
+        param_lineno = node.lineno
+
 
     else:
         param_expr = node
@@ -643,7 +650,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
-                param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
 
                 logger.debug(
                     "[AST] Find {} from FunctionCall for {} in line {}, start ast in function {}".format(param_name,
@@ -654,22 +660,46 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('FunctionCall', code, file_path, node.lineno))
 
-                for node in nodes[::-1]:
-                    if isinstance(node, php.Function):
-                        if node.name == function_name:
-                            function_nodes = node.nodes
+                # 因为没办法解决内置函数的问题，所以尝试引入内置函数列表，如果在其中，则先跳过
+                if function_name in php_function_dict:
+                    logger.debug("[AST] function {} in php defined function list, continue...".format(function_name))
 
-                            # 进入递归函数内语句
-                            for function_node in function_nodes:
-                                if isinstance(function_node, php.Return):
-                                    return_node = function_node.node
-                                    return_param = return_node.node
-                                    is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
-                                                                             function_params, lineno, function_flag=1,
-                                                                             vul_function=vul_function,
-                                                                             file_path=file_path,
-                                                                             isback=isback,
-                                                                             parent_node=node)
+                else:
+                    param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
+
+                    # 尝试寻找函数定义， 看上去应该是冗余代码，因为function call本身就会有处理
+                    # for node in nodes[::-1]:
+                    #     if isinstance(node, php.Function):
+                    #         if node.name == function_name:
+                    #             function_nodes = node.nodes
+                    #
+                    #             # 进入递归函数内语句
+                    #             for function_node in function_nodes:
+                    #                 if isinstance(function_node, php.Return):
+                    #                     return_node = function_node.node
+                    #                     return_param = return_node.node
+                    #                     is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
+                    #                                                              function_params, lineno, function_flag=1,
+                    #                                                              vul_function=vul_function,
+                    #                                                              file_path=file_path,
+                    #                                                              isback=isback,
+                    #                                                              parent_node=node)
+
+            if param_name == param_node and isinstance(node.expr, php.MethodCall):
+                # 当右值为方法调用时，暂时按照和function类似的分析方式
+
+                class_node = node.expr.node.name
+                class_method_name = node.expr.name
+                class_method_params = node.expr.params
+
+                logger.debug("[AST] Find {} from MethodCall from {}->{} in line {}.".format(param_name, class_node, class_method_name, node.lineno))
+
+                file_path = os.path.normpath(file_path)
+                code = "{}={}->{}".format(param_name, class_node, class_method_name)
+                scan_chain.append(('MethodCall', code, file_path, node.lineno))
+
+                # 将右值置为methodcall
+                param = node.expr
 
             if param_name == param_node and isinstance(param_expr, list):
                 logger.debug(
@@ -686,22 +716,28 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     cp = param
                     return is_co, cp, 0
 
-                for expr in param_expr:
-                    param = expr
-                    is_co, cp = is_controllable(expr)
+                # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
+                if param_name in param_expr:
+                    logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
 
-                    if is_co == 1:
-                        return is_co, cp, expr_lineno
 
-                    param = php.Variable(param)
-                    _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                               function_flag=1, vul_function=vul_function,
-                                                               file_path=file_path,
-                                                               isback=isback)
+                else:
+                    for expr in param_expr:
+                        param = expr
+                        is_co, cp = is_controllable(expr)
 
-                    if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
-                        is_co = _is_co
-                        cp = _cp
+                        if is_co == 1:
+                            return is_co, cp, expr_lineno
+
+                        param = php.Variable(param)
+                        _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                                   function_flag=1, vul_function=vul_function,
+                                                                   file_path=file_path,
+                                                                   isback=isback)
+
+                        if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
+                            is_co = _is_co
+                            cp = _cp
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_nodes = node.nodes
@@ -712,26 +748,26 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             # 如果仅仅是函数定义，如果上一次赋值语句不在函数内，那么不应进去函数里分析，应该直接跳过这部分
             # test1 尝试使用行数叠加的方式
             # 目前测试结果中，这里会出现严重的bug
-            if function_flag == 0 and not isinstance(parent_node, php.Function):
-                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                         function_flag=0, vul_function=vul_function,
-                                                         file_path=file_path,
-                                                         isback=isback, parent_node=parent_node)
-                return is_co, cp, expr_lineno
+            # print(parent_node)
+            # if function_flag == 0 and not isinstance(parent_node, php.Function):
+            #     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+            #                                              function_flag=0, vul_function=vul_function,
+            #                                              file_path=file_path,
+            #                                              isback=isback, parent_node=parent_node)
+            #     return is_co, cp, expr_lineno
 
             # 在这里想一个解决办法，如果当前父节点为0
             # 然后最后一个为函数节点，那么如果其中的最后一行代码行数小于目标行数，则不进入
-            if parent_node == 0:
-                if node.lineno < int(lineno):
-                    is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                             function_flag=0, vul_function=vul_function,
-                                                             file_path=file_path,
-                                                             isback=isback, parent_node=0)
-                    return is_co, cp, expr_lineno
+            if function_nodes[-1].lineno < int(lineno):
+                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                         function_flag=0, vul_function=vul_function,
+                                                         file_path=file_path,
+                                                         isback=isback, parent_node=0)
+                return is_co, cp, expr_lineno
 
             logger.debug(
                 "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
-                                                                                              node.lineno,
+                                                                                              lineno,
                                                                                               node.name,
                                                                                               function_lineno))
 
@@ -740,11 +776,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             scan_chain.append(('Function', code, file_path, node.lineno))
 
             for function_node in function_nodes:
-                if function_node is not None and int(function_lineno) <= function_node.lineno < int(lineno):
+                if function_node is not None and int(function_lineno) < function_node.lineno < int(lineno):
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
-                is_co, cp, expr_lineno = parameters_back(param, function_nodes, function_params, function_lineno,
+                is_co, cp, expr_lineno = parameters_back(param, vul_nodes, function_params, function_lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=None)
@@ -776,6 +812,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             # 无法解决递归，直接退出
                             is_co = -1
                             return is_co, cp, 0
+
+                # 从函数中出来的变量，如果参数列表中没有，也不能继续递归
+                is_co = -1
+                return is_co, cp, expr_lineno
 
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
