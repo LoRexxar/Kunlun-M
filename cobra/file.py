@@ -298,8 +298,11 @@ class Directory(object):
                     directory = os.path.join(absolute_path, filename)
 
                     # check black path list
-                    for black_path in self.black_path_list:
-                        if black_path in directory:
+                    if self.black_path_list:
+                        for black_path in self.black_path_list:
+                            if black_path in directory:
+                                break
+                        else:
                             continue
 
                     # Directory Structure
