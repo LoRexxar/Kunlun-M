@@ -246,8 +246,9 @@ class FileParseAll:
 
 
 class Directory(object):
-    def __init__(self, absolute_path):
+    def __init__(self, absolute_path, black_path_list=None):
         self.absolute_path = absolute_path
+        self.black_path_list = black_path_list
 
     file_sum = 0
     type_nums = {}
@@ -295,6 +296,11 @@ class Directory(object):
             else:
                 for filename in os.listdir(absolute_path):
                     directory = os.path.join(absolute_path, filename)
+
+                    # check black path list
+                    for black_path in self.black_path_list:
+                        if black_path in directory:
+                            continue
 
                     # Directory Structure
                     logger.debug('[PICKUP] [FILES] ' + '|  ' * (level - 1) + '|--' + filename)

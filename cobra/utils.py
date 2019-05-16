@@ -35,7 +35,7 @@ PY2 = sys.version_info[0] == 2
 
 
 class ParseArgs(object):
-    def __init__(self, target, formatter, output, special_rules=None, a_sid=None):
+    def __init__(self, target, formatter, output, special_rules=None, black_path=None, a_sid=None):
         self.target = target
         self.formatter = formatter
         self.output = output
@@ -68,6 +68,21 @@ class ParseArgs(object):
                         '[PARSE-ARGS] Exception special rule name(e.g: CVI-110001): {sr}'.format(sr=special_rules))
         else:
             self.special_rules = None
+
+        # check black pth list
+        if black_path is not None and black_path is not "":
+            self.black_path_list = []
+
+            if ',' in black_path:
+                self.black_path_list = [x for x in black_path.split(',') if x != " "]
+                logger.info("[INIT][PARSE_ARGS] Black Path list is {}".format(self.black_path_list))
+            else:
+                self.black_path_list = None
+                logger.warning("[INIT][PARSE_ARGS] Black Path parse error.")
+
+        else:
+            self.black_path_list = None
+
         self.sid = a_sid
 
     @staticmethod

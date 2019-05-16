@@ -322,6 +322,11 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
         return 3, php.Variable(expr)
 
     if isinstance(expr, php.New) or isinstance(expr, php.MethodCall) or isinstance(expr, php.FunctionCall):
+        # 一个新的问题，输入可能不来自全局变量，可能来自函数，加入一次check
+
+        if expr.name in is_controlled_params:
+            return 1, expr
+
         return 3, php.Variable(expr)
 
     if isinstance(expr, php.Variable):
