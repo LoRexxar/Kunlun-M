@@ -36,7 +36,7 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None):
     """
     Start CLI
     :param secret_id: secret id or name?
@@ -61,9 +61,10 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
     r.status(d)
 
     # parse target mode and output mode
-    pa = ParseArgs(target, formatter, output, special_rules, a_sid=None)
+    pa = ParseArgs(target, formatter, output, special_rules, black_path, a_sid=None)
     target_mode = pa.target_mode
     output_mode = pa.output_mode
+    black_path_list = pa.black_path_list
 
     # target directory
     try:
@@ -71,7 +72,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
         logger.info('[CLI] Target directory: {d}'.format(d=target_directory))
 
         # static analyse files info
-        files, file_count, time_consume = Directory(target_directory).collect_files()
+        files, file_count, time_consume = Directory(target_directory, black_path_list).collect_files()
 
         # detection main language and framework
 

@@ -231,6 +231,9 @@ def get_node_name(node):  # node为'node'中的元组
     if isinstance(node, php.Variable):
         return node.name  # 返回此节点中的变量名
 
+    if isinstance(node, php.MethodCall) or isinstance(node, php.FunctionCall):
+        return node.name
+
     if isinstance(node, php.ObjectProperty):
         return node
 
@@ -322,6 +325,11 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
         return 3, php.Variable(expr)
 
     if isinstance(expr, php.New) or isinstance(expr, php.MethodCall) or isinstance(expr, php.FunctionCall):
+        # 一个新的问题，输入可能不来自全局变量，可能来自函数，加入一次check
+
+        if expr.name in is_controlled_params:
+            return 1, expr
+
         return 3, php.Variable(expr)
 
     if isinstance(expr, php.Variable):
@@ -487,6 +495,8 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
     class_name = node.name
     class_nodes = node.nodes
 
+    logger.debug("[AST] param {} in class {}, start into class...".format(param, class_name))
+
     vul_nodes = []
     for class_node in class_nodes:
         if class_node.lineno < int(lineno):
@@ -498,6 +508,7 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
 
     if is_co == 1 or is_co == -1:  # 可控或者不可控，直接返回
         return is_co, cp, expr_lineno
+
     elif is_co == 3:
         for class_node in class_nodes:
             if isinstance(class_node, php.Method) and class_node.name == '__construct':
@@ -585,7 +596,16 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     """
     global scan_chain
 
-    if isinstance(param, php.FunctionCall) or isinstance(param, php.MethodCall):  # 当污点为寻找函数时，递归进入寻找函数
+    expr_lineno = 0  # source所在行号
+    if hasattr(param, "name"):
+        # param_name = param.name
+        param_name = get_node_name(param)
+    else:
+        param_name = param
+
+    is_co, cp = is_controllable(param_name)
+
+    if (isinstance(param, php.FunctionCall) or isinstance(param, php.MethodCall)) and is_co != 1:  # 当污点为寻找函数时，递归进入寻找函数
         logger.debug("[AST] AST analysis for FunctionCall or MethodCall {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = function_back(param, nodes, function_params, file_path=file_path, isback=isback)
         return is_co, cp, expr_lineno
@@ -601,15 +621,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         is_co, cp, expr_lineno = new_class_back(param, nodes, file_path=file_path,
                                                 isback=isback)
         return is_co, cp, expr_lineno
-
-    expr_lineno = 0  # source所在行号
-    if hasattr(param, "name"):
-        # param_name = param.name
-        param_name = get_node_name(param)
-    else:
-        param_name = param
-
-    is_co, cp = is_controllable(param_name)
 
     if len(nodes) != 0 and is_co != 1 and is_co != -1:
         node = nodes[len(nodes) - 1]
@@ -657,7 +668,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                                                          node.lineno,
                                                                                                          function_name))
                 file_path = os.path.normpath(file_path)
-                code = "{}={}".format(param_name, param_expr)
+                code = "{}={}".format(param_name, node.expr)
                 scan_chain.append(('FunctionCall', code, file_path, node.lineno))
 
                 # 因为没办法解决内置函数的问题，所以尝试引入内置函数列表，如果在其中，则先跳过
@@ -666,6 +677,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 else:
                     param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
+                    is_co = 3
 
                     # 尝试寻找函数定义， 看上去应该是冗余代码，因为function call本身就会有处理
                     # for node in nodes[::-1]:
@@ -700,6 +712,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 # 将右值置为methodcall
                 param = node.expr
+                is_co = 3
 
             if param_name == param_node and isinstance(param_expr, list):
                 logger.debug(
@@ -711,7 +724,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('ListAssignment', code, file_path, node.lineno))
 
-                if len(param_expr) <= 0:
+                # 这里检测的是函数参数列表...如果为空不一定不可控？
+                if len(param_expr) <= 0 and not (isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall)):
                     _is_co = -1
                     cp = param
                     return is_co, cp, 0
@@ -719,7 +733,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
                 if param_name in param_expr:
                     logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
-
 
                 else:
                     for expr in param_expr:
@@ -794,7 +807,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                 param_name, node.lineno, node.name))
 
                         file_path = os.path.normpath(file_path)
-                        code = "param {} from NewFunction {}".format(param_name, node.name)
+                        code = "param {} in NewFunction {}".format(param_name, node.name)
                         scan_chain.append(('NewFunction', code, file_path, node.lineno))
 
                         if vul_function is None or node.name != vul_function:
