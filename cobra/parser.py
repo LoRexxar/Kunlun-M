@@ -622,7 +622,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                 isback=isback)
         return is_co, cp, expr_lineno
 
-    if len(nodes) != 0 and is_co != 1 and is_co != -1:
+    if len(nodes) != 0 and is_co not in [-1, 1, 2]:
         node = nodes[len(nodes) - 1]
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
