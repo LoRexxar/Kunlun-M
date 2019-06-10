@@ -35,7 +35,7 @@ PY2 = sys.version_info[0] == 2
 
 
 class ParseArgs(object):
-    def __init__(self, target, formatter, output, special_rules=None, black_path=None, a_sid=None):
+    def __init__(self, target, formatter, output, special_rules=None, language=None, black_path=None, a_sid=None):
         self.target = target
         self.formatter = formatter
         self.output = output
@@ -74,7 +74,7 @@ class ParseArgs(object):
             self.black_path_list = []
 
             if ',' in black_path:
-                self.black_path_list = [x for x in black_path.split(',') if x != " "]
+                self.black_path_list = [x.strip() for x in black_path.split(',') if x != ""]
                 logger.info("[INIT][PARSE_ARGS] Black Path list is {}".format(self.black_path_list))
             else:
                 self.black_path_list = None
@@ -82,6 +82,17 @@ class ParseArgs(object):
 
         else:
             self.black_path_list = None
+
+        # check and deal language
+        if language is not None and language is not "":
+            self.language = []
+
+            if ',' in language:
+                self.language = [x.strip() for x in language.split(',') if x != ""]
+                logger.info("[INIT][PARSE_ARGS] Language is {}".format(self.language))
+            else:
+                self.language = [language.strip()]
+                logger.warning("[INIT][PARSE_ARGS] Language parse error.")
 
         self.sid = a_sid
 

@@ -9,6 +9,9 @@
         <extension value=".php3"/>
         <extension value=".php4"/>
         <extension value=".php5"/>
+        <extension value=".pht"/>
+        <extension value=".phs"/>
+        <extension value=".phtml"/>
     </language>
     <language name="Java" chiefly="True">
         <extension value=".java"/>
@@ -18,6 +21,9 @@
     </language>
     <language name="Solidity" chiefly="True">
         <extension value=".sol"/>
+    </language>
+    <language name="Javascript" chiefly="True">
+        <extension value=".js"/>
     </language>
     <language name="JSP">
         <extension value=".jsp"/>
@@ -69,9 +75,6 @@
     </language>
     <language name="Bat">
         <extension value=".bat"/>
-    </language>
-    <language name="JavaScript">
-        <extension value=".js"/>
     </language>
     <language name="HTML">
         <extension value=".html"/>

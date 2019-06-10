@@ -26,6 +26,7 @@ from .result import VulnerabilityResult
 from .cast import CAST
 from .parser import scan_parser
 from .file import FileParseAll
+from .file import ext_dict
 from rules.autorule import autorule
 from prettytable import PrettyTable
 from phply import phpast as php
@@ -139,9 +140,9 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None, secret_name=None):
+def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None):
     try:
-        return SingleRule(target_directory, single_rule, files, secret_name).process()
+        return SingleRule(target_directory, single_rule, files, language, secret_name).process()
     except Exception:
         raise
 
@@ -183,7 +184,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             vulnerability=rule.vulnerability,
             language=rule.language
         ))
-        result = scan_single(target_directory, rule, files, secret_name)
+        result = scan_single(target_directory, rule, files, language, secret_name)
         store(result)
 
     # print
@@ -249,7 +250,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             'msg': 'scan finished',
             'result': {
                 'vulnerabilities': [x.__dict__ for x in find_vulnerabilities],
-                'language': language,
+                'language': ",".join(language),
                 'framework': framework,
                 'extension': extension_count,
                 'file': file_count,
@@ -262,12 +263,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files, secret_name=None):
+    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None):
         self.target_directory = target_directory
         self.find = Tool().find
         self.grep = Tool().grep
         self.sr = single_rule
         self.files = files
+        self.languages = language
         self.secret_name = secret_name
         # Single Rule Vulnerabilities
         """
@@ -419,7 +421,7 @@ class SingleRule(object):
             try:
                 datas = Core(self.target_directory, vulnerability, self.sr, 'project name',
                              ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                             files=self.files, secret_name=self.secret_name).scan()
+                             files=self.files, languages=self.languages, secret_name=self.secret_name).scan()
                 data = ""
 
                 if len(datas) == 3:
@@ -443,7 +445,7 @@ class SingleRule(object):
                 else:
                     if reason == 'New Core':  # 新的规则
                         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                        new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0, secret_name=self.secret_name)
+                        new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0, languages=self.languages, secret_name=self.secret_name)
 
                         if len(new_rule_vulnerabilities) > 0:
                             self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
@@ -484,7 +486,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=0, files=None, secret_name=None):
+                 index=0, files=None, languages=None, secret_name=None):
         """
         Initialize
         :param: target_directory:
@@ -509,13 +511,14 @@ class Core(object):
         # self.code_content = vulnerability_result.code_content.strip()
         self.code_content = vulnerability_result.code_content
         self.files = files
+        self.languages = languages
         self.secret_name = secret_name
 
         self.rule_match = single_rule.match
         self.rule_match_mode = single_rule.match_mode
         self.vul_function = single_rule.vul_function
         self.cvi = single_rule.svid
-        self.lan = single_rule.language
+        self.lan = single_rule.language.lower()
         self.single_rule = single_rule
 
         self.project_name = project_name
@@ -629,6 +632,20 @@ class Core(object):
                 return True
         return False
 
+    def is_target(self):
+        """
+        try to find ext for target file and check it wheater target or not 
+        :return: 
+        """
+        # get ext for file
+        fileext = self.file_path.split(".")[-1]
+
+        if self.lan in ext_dict and fileext is not None:
+            if fileext not in ext_dict[self.lan]:
+                return True
+
+        return False
+
     def init_php_repair(self):
         """
         初始化修复函数规则
@@ -655,7 +672,7 @@ class Core(object):
                 self.controlled_list += b
 
             except ImportError:
-                logger.warning('[AST][INIT] Secret_name init error... No nodule named {}'.format(self.secret_name))
+                logger.warning('[AST][INIT] Secret_name init error... No module named {}'.format(self.secret_name))
 
         # init
         for key in self.repair_dict:
@@ -694,6 +711,10 @@ class Core(object):
             logger.debug("[RET] Annotation")
             return False, 'Annotation(注释)'
 
+        if not self.is_target():
+            logger.error("[SCAN] file {} ext is not support, something error...".format(self.file_path))
+            return False, 'Unsupport File'
+
         #
         # function-param-regex
         # Match(function) -> Param-Controllable -> Repair -> Done
@@ -704,7 +725,8 @@ class Core(object):
         # Match(function) -> vustomize-match() -> Param-Controllable -> Repair -> Done
         #
         logger.debug('[CVI-{cvi}] match-mode {mm}'.format(cvi=self.cvi, mm=self.rule_match_mode))
-        if self.file_path[-3:].lower() == 'php':
+        # if self.file_path[-3:].lower() == 'php':
+        if self.lan == "php":
             try:
                 self.init_php_repair()
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
@@ -777,7 +799,34 @@ class Core(object):
                 logger.debug(traceback.format_exc())
                 return False, 'Exception'
 
-        elif self.file_path[-3:].lower() == 'sol':
+        # elif self.file_path[-3:].lower() == 'sol':
+        elif self.lan == "solidity":
+            try:
+                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
+                           self.code_content, files=self.files, rule_class=self.single_rule,
+                           repair_functions=self.repair_functions)
+
+                # only match
+                if self.rule_match_mode == const.mm_regex_only_match:
+                    #
+                    # Regex-Only-Match
+                    # Match(regex) -> Repair -> Done
+                    #
+                    logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
+                    return True, 'Regex-only-match'
+                elif self.rule_match_mode == const.mm_regex_return_regex:
+                    logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
+                    return True, 'Regex-return-regex'
+                else:
+                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
+                    return False, 'Unsupport Match'
+
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                return False, 'Exception'
+
+        # elif self.file_path[-3:].lower() == '.js':
+        elif self.lan == "javascript":
             try:
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
                            self.code_content, files=self.files, rule_class=self.single_rule,
@@ -912,9 +961,10 @@ def auto_parse_match(single_match, svid, language):
     return mr
 
 
-def NewCore(old_single_rule, target_directory, new_rules, files, count=0, secret_name=None):
+def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None):
     """
     处理新的规则生成
+    :param languages: 
     :param old_single_rule: 
     :param secret_name: 
     :param target_directory: 

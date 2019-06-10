@@ -39,7 +39,9 @@ def get_sid(target, is_a_sid=False):
 def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None):
     """
     Start CLI
-    :param secret_id: secret id or name?
+    :param black_path: 
+    :param secret_name: 
+    :param language: 
     :param target: File, FOLDER, GIT
     :param formatter:
     :param output:
@@ -61,7 +63,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
     r.status(d)
 
     # parse target mode and output mode
-    pa = ParseArgs(target, formatter, output, special_rules, black_path, a_sid=None)
+    pa = ParseArgs(target, formatter, output, special_rules, language, black_path, a_sid=None)
     target_mode = pa.target_mode
     output_mode = pa.output_mode
     black_path_list = pa.black_path_list
@@ -81,10 +83,10 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
             main_language = dt.language
             main_framework = dt.framework
         else:
-            main_language = language
-            main_framework = language
+            main_language = pa.language
+            main_framework = pa.language
 
-        logger.info('[CLI] [STATISTIC] Language: {l} Framework: {f}'.format(l=main_language, f=main_framework))
+        logger.info('[CLI] [STATISTIC] Language: {l} Framework: {f}'.format(l=",".join(main_language), f=main_framework))
         logger.info('[CLI] [STATISTIC] Files: {fc}, Extensions:{ec}, Consume: {tc}'.format(fc=file_count,
                                                                                            ec=len(files),
                                                                                            tc=time_consume))

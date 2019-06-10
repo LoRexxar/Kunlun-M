@@ -42,7 +42,7 @@ class Pretreatment:
                 for filepath in fileext[1]['list']:
                     all_nodes = []
 
-                    filepath =  os.path.join(self.target_directory, filepath)
+                    filepath = os.path.join(self.target_directory, filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'php'
                     self.pre_result[filepath]['ast_nodes'] = []
