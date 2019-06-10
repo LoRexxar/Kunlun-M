@@ -21,7 +21,7 @@ from .config import rules_path
 
 try:  # for pip >= 10
     from pip._internal.req import parse_requirements
-except ImportError: # for pip <= 9.0.3
+except ImportError:  # for pip <= 9.0.3
     from pip.req import parse_requirements
 
 file_type = []
@@ -37,7 +37,7 @@ class Detection(object):
         """
         self.target_directory = target_directory
         self.files = files
-        self.lang = None
+        self.lang = []
         self.requirements = None
         self.frame_data = {}
         self.language_data = {}
@@ -57,6 +57,7 @@ class Detection(object):
             l_chiefly = 'false'
             if language.get('chiefly') is not None:
                 l_chiefly = language.get('chiefly')
+
             language_extensions[l_name] = {
                 'chiefly': l_chiefly,
                 'extensions': []
@@ -73,18 +74,21 @@ class Detection(object):
             for language, language_info in languages.items():
                 if ext in language_info['extensions']:
                     if 'chiefly' in language_info and language_info['chiefly'].lower() == 'true':
-                        logger.debug('[DETECTION] [LANGUAGE] found the chiefly language({language}), maybe have largest, continue...'.format(
-                            language=language))
-                        self.lang = language
+                        logger.debug(
+                            '[DETECTION] [LANGUAGE] found the chiefly language({language}), maybe have largest, continue...'.format(
+                                language=language))
+                        self.lang.append(language)
                     else:
                         logger.debug('[DETECTION] [LANGUAGE] not chiefly, continue...'.format(language=language))
                         tmp_language = language
-            if self.lang is None:
-                logger.debug('[DETECTION] [LANGUAGE] not found chiefly language, use the largest language(language) replace'.format(
-                    language=tmp_language))
-                self.lang = tmp_language
-        logger.debug('[DETECTION] [LANGUAGE] main language({main_language}), tmp language({tmp_language})'.format(tmp_language=tmp_language,
-                                                                                                                  main_language=self.lang))
+            if self.lang is []:
+                logger.debug(
+                    '[DETECTION] [LANGUAGE] not found chiefly language, use the largest language(language) replace'.format(
+                        language=tmp_language))
+                self.lang.append(tmp_language)
+        logger.debug('[DETECTION] [LANGUAGE] main languages ({main_language}), tmp language({tmp_language})'.format(
+            tmp_language=tmp_language,
+            main_language=",".join(self.lang)))
         return self.lang
 
     @property

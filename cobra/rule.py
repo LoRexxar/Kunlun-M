@@ -48,22 +48,26 @@ def block(index):
 
 
 class Rule(object):
-    def __init__(self, lan="php"):
-        if not lan:
-            lan = "php"
-        self.rules_path = rules_path + "/" + lan
-        if not os.path.exists(self.rules_path):
-            logger.error("[INIT][RULE] language {} can't found rules".format(self.rules_path))
-            os.mkdir(self.rules_path)
+    def __init__(self, lans=["php"]):
+        if not lans:
+            lans = ["php"]
 
-        self.rule_list = self.list_parse()
-
-        # import function from rule
         self.rule_dict = {}
-        for rule in self.rule_list:
-            rulename = rule.split('.')[0]
-            rulefile = "rules." + lan + "." + rulename
-            self.rule_dict[rulename] = __import__(rulefile, fromlist=rulename)
+
+        # 逐个处理每一种lan
+        for lan in lans:
+            self.rules_path = rules_path + "/" + lan
+            if not os.path.exists(self.rules_path):
+                logger.error("[INIT][RULE] language {} can't found rules".format(self.rules_path))
+                os.mkdir(self.rules_path)
+
+            self.rule_list = self.list_parse()
+
+            # import function from rule
+            for rule in self.rule_list:
+                rulename = rule.split('.')[0]
+                rulefile = "rules." + lan + "." + rulename
+                self.rule_dict[rulename] = __import__(rulefile, fromlist=rulename)
 
         self.vulnerabilities = self.vul_init()
 

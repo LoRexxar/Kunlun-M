@@ -23,8 +23,15 @@ try:
 except ImportError:
     from urllib.parse import quote
 
+ext_dict = {
+    "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml'],
+    "solidity": ['.sol'],
+    "javascript": ['.js'],
+}
 
-ext_list = ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml', '.sol']
+ext_list = []
+for e in ext_dict:
+    ext_list += ext_dict[e]
 
 
 def file_list_parse(filelist):
@@ -33,10 +40,9 @@ def file_list_parse(filelist):
     if not filelist:
         return result
 
-    for ext in ext_list:
-        for file in filelist:
-            if file[0] == ext:
-                result.append(file[1]['list'])
+    for file in filelist:
+        if file[0] in ext_list:
+            result.append(file[1]['list'])
 
     return result
 

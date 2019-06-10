@@ -25,7 +25,10 @@ from .pretreatment import ast_object
 
 
 class CAST(object):
-    languages = ['php', 'java', 'sol']
+    languages = {'php': "php",
+                 'java': "java",
+                 'sol': "sol",
+                 'js': "javascript"}
 
     def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[], controlled_params=[]):
         self.target_directory = target_directory
@@ -44,7 +47,7 @@ class CAST(object):
 
         for language in self.languages:
             if self.file_path[-len(language):].lower() == language:
-                self.language = language
+                self.language = self.languages[language]
 
         os.chdir(self.target_directory)
         # Parse rule
@@ -227,20 +230,8 @@ class CAST(object):
                 logger.debug("[AST] String have variables: `Yes`")
 
                 # variable
-                if param_name[:1] == '$':
+                if self.language == 'php':
                     logger.debug("[AST] Is variable: `Yes`")
-
-                    # Get assign code block
-                    # param_block_code = self.block_code(0)
-                    # fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
-                    # param_content = fi.read()
-
-                    # param_content = ast_object.get_nodes(self.file_path)
-                    #
-                    # if param_content is False:
-                    #     logger.debug("[AST] Can't get assign code block")
-                    #     return True, self.data
-
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
                     _is_co, _cp, expr_lineno, chain = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, self.controlled_list, isexternal=True)
@@ -257,32 +248,34 @@ class CAST(object):
                     else:
                         continue
 
-                else:
-                    if self.language == 'java':
-                        # Java variable didn't have `$`
-                        param_block_code = self.block_code(0)
-                        if param_block_code is False:
-                            logger.debug("Can't get block code")
-                            return True, self.data
-                        logger.debug("[AST] Block code: ```{language}\r\n{code}```".format(language=self.language,
-                                                                                           code=param_block_code))
-                        regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
-                        string = re.findall(regex_assign_string, param_block_code)
-                        if len(string) >= 1 and string[0] != '':
-                            logger.debug("[AST] Is assign string: `Yes`")
-                            continue
-                            # return False, self.data
-                        logger.debug("[AST] Is assign string: `No`")
-
-                        # Is assign out data
-                        regex_get_param = r'String\s{0}\s=\s\w+\.getParameter(.*)'.format(re.escape(param_name))
-                        get_param = re.findall(regex_get_param, param_block_code)
-                        if len(get_param) >= 1 and get_param[0] != '':
-                            logger.debug("[AST] Is assign out data: `Yes`")
-                            continue
-                            # False, self.data
-                        logger.debug("[AST] Is assign out data: `No`")
+                # else:
+                elif self.language == 'java':
+                    # Java variable didn't have `$`
+                    param_block_code = self.block_code(0)
+                    if param_block_code is False:
+                        logger.debug("Can't get block code")
                         return True, self.data
+                    logger.debug("[AST] Block code: ```{language}\r\n{code}```".format(language=self.language,
+                                                                                       code=param_block_code))
+                    regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
+                    string = re.findall(regex_assign_string, param_block_code)
+                    if len(string) >= 1 and string[0] != '':
+                        logger.debug("[AST] Is assign string: `Yes`")
+                        continue
+                        # return False, self.data
+                    logger.debug("[AST] Is assign string: `No`")
+
+                    # Is assign out data
+                    regex_get_param = r'String\s{0}\s=\s\w+\.getParameter(.*)'.format(re.escape(param_name))
+                    get_param = re.findall(regex_get_param, param_block_code)
+                    if len(get_param) >= 1 and get_param[0] != '':
+                        logger.debug("[AST] Is assign out data: `Yes`")
+                        continue
+                        # False, self.data
+                    logger.debug("[AST] Is assign out data: `No`")
+                    return True, self.data
+
+                else:
                     logger.debug("[AST] Not Java/PHP, can't parse ({l})".format(l=self.language))
                     continue
                     # return False, self.data
