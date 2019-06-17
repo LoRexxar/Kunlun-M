@@ -27,6 +27,7 @@ ext_dict = {
     "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml'],
     "solidity": ['.sol'],
     "javascript": ['.js'],
+    "chromeext": ['.crx'],
 }
 
 ext_list = []
@@ -34,15 +35,19 @@ for e in ext_dict:
     ext_list += ext_dict[e]
 
 
-def file_list_parse(filelist):
+def file_list_parse(filelist, language=None):
     result = []
+    self_ext_list = ext_list
 
     if not filelist:
         return result
 
+    if language is not None and language in ext_dict:
+        self_ext_list = ext_dict[language]
+
     for file in filelist:
-        if file[0] in ext_list:
-            result.append(file[1]['list'])
+        if file[0] in self_ext_list:
+            result += file[1]['list']
 
     return result
 
@@ -94,12 +99,9 @@ def file_grep(file_path, rule_reg):
 
 
 class FileParseAll:
-    def __init__(self, filelist, target):
+    def __init__(self, filelist, target, language=None):
         self.filelist = filelist
-        if file_list_parse(filelist) is not []:
-            self.t_filelist = file_list_parse(filelist)[0]
-        else:
-            self.t_filelist = []
+        self.t_filelist = file_list_parse(filelist, language)
         self.target = target
 
     def grep(self, reg):

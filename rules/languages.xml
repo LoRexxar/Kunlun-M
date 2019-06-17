@@ -25,6 +25,9 @@
     <language name="Javascript" chiefly="True">
         <extension value=".js"/>
     </language>
+    <language name="ChromeExt" chiefly="True">
+        <extension value=".crx"/>
+    </language>
     <language name="JSP">
         <extension value=".jsp"/>
     </language>
