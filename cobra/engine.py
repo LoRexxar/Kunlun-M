@@ -270,6 +270,7 @@ class SingleRule(object):
         self.sr = single_rule
         self.files = files
         self.languages = language
+        self.lan = self.sr.language.lower()
         self.secret_name = secret_name
         # Single Rule Vulnerabilities
         """
@@ -295,7 +296,7 @@ class SingleRule(object):
 
             try:
                 if matchs:
-                    f = FileParseAll(self.files, self.target_directory)
+                    f = FileParseAll(self.files, self.target_directory, language=self.lan)
 
                     for match in matchs:
 
@@ -335,7 +336,7 @@ class SingleRule(object):
 
             try:
                 if match:
-                    f = FileParseAll(self.files, self.target_directory)
+                    f = FileParseAll(self.files, self.target_directory, language=self.lan)
                     result = f.grep(match)
                 else:
                     result = None
@@ -354,7 +355,7 @@ class SingleRule(object):
 
             try:
                 if match:
-                    f = FileParseAll(self.files, self.target_directory)
+                    f = FileParseAll(self.files, self.target_directory, language=self.lan)
                     result = f.grep(match)
                 else:
                     result = None
@@ -374,7 +375,7 @@ class SingleRule(object):
             result = []
 
             try:
-                f = FileParseAll(self.files, self.target_directory)
+                f = FileParseAll(self.files, self.target_directory, language=self.lan)
 
                 result = f.multi_grep_name(matchs, unmatchs, matchs_name, black_list)
                 if not result:
@@ -638,10 +639,10 @@ class Core(object):
         :return: 
         """
         # get ext for file
-        fileext = self.file_path.split(".")[-1]
+        fileext = "." + self.file_path.split(".")[-1]
 
         if self.lan in ext_dict and fileext is not None:
-            if fileext not in ext_dict[self.lan]:
+            if fileext in ext_dict[self.lan]:
                 return True
 
         return False

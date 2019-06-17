@@ -16,6 +16,9 @@ import codecs
 import traceback
 
 
+could_ast_pase_lans = ["php"]
+
+
 class Pretreatment:
 
     def __init__(self):
@@ -33,7 +36,14 @@ class Pretreatment:
 
         self.target_directory = os.path.normpath(self.target_directory)
 
-    def pre_ast(self):
+    def pre_ast(self, lan=None):
+
+        if lan is not None:
+            # 检查是否在可ast pasre列表中
+            if not list(set(lan).intersection(set(could_ast_pase_lans))):
+
+                logger.info("[AST][Pretreatment] Current scan target language does not require ast pretreatment...")
+                return True
 
         for fileext in self.file_list:
 
