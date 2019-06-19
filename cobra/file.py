@@ -16,19 +16,16 @@ import re
 import os
 import time
 import codecs
+import zipfile
 from .log import logger
+from .pretreatment import ast_object
+from .const import ext_dict
 
 try:
     from urllib import quote
 except ImportError:
     from urllib.parse import quote
 
-ext_dict = {
-    "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml'],
-    "solidity": ['.sol'],
-    "javascript": ['.js'],
-    "chromeext": ['.crx'],
-}
 
 ext_list = []
 for e in ext_dict:
@@ -45,9 +42,17 @@ def file_list_parse(filelist, language=None):
     if language is not None and language in ext_dict:
         self_ext_list = ext_dict[language]
 
+        # special in chrome ext
+        if language == "javascript":
+            self_ext_list.extend(ext_dict['chromeext'])
+
     for file in filelist:
         if file[0] in self_ext_list:
-            result += file[1]['list']
+            if file[0] in ['.crx'] and language == "javascript":
+                for filepath in file[1]['list']:
+                    result.extend(ast_object.get_child_files(filepath))
+            else:
+                result.extend(file[1]['list'])
 
     return result
 
@@ -113,7 +118,7 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            file = codecs.open(os.path.join(self.target, ffile), "r", encoding='utf-8', errors='ignore')
             line_number = 0
             for line in file:
                 line_number += 1
@@ -133,7 +138,7 @@ class FileParseAll:
         line_number = 0
 
         for ffile in self.t_filelist:
-            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            file = codecs.open(os.path.join(self.target, ffile), "r", encoding='utf-8', errors='ignore')
             content = file.read()
             file.close()
 
@@ -173,7 +178,7 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            file = codecs.open(os.path.join(self.target, ffile), "r", encoding='utf-8', errors='ignore')
             content = file.read()
             file.close()
             
@@ -252,6 +257,82 @@ class FileParseAll:
 
         return result
 
+    def special_crx_keyword_match(self, keyword, match, unmatch):
+        """
+        针对crx的特殊匹配
+        :param keyword: 
+        :param match: 
+        :param unmatch: 
+        :return: 
+        """
+        result = []
+
+        for ffile in self.t_filelist:
+            ffile_path = os.path.join(self.target, ffile)
+
+            ffile_object = ast_object.get_object(ffile_path)
+
+            if not ffile_object:
+                continue
+
+            manifest = ffile_object['manifest']
+            target_files_path = ffile_object['target_files_path']
+            keywords = keyword.split('.')
+            value_list = self.keyword_object_parse(keywords, manifest)
+
+            print(value_list)
+            # 逐个检查匹配
+            for value in value_list:
+                flag = False
+
+                for m in match:
+                    r_con_obj = re.search(m, value, re.I)
+
+                    if r_con_obj:
+                        flag = True
+                        break
+
+                for um in unmatch:
+                    r_con_obj2 = re.search(um, value, re.I)
+
+                    if r_con_obj2:
+                        flag = False
+                        break
+
+                if flag:
+                    result.append((ffile_path, str(0), keyword + r_con_obj.group(0)))
+
+        return result
+
+    def keyword_object_parse(self, keywords, object, index=0):
+        tmp_manifest = object
+        value_list = []
+
+        for key in keywords[index:]:
+
+            if index+1 == len(keywords):
+
+                if key not in tmp_manifest:
+                    break
+
+                value_list.extend([str(tmp_manifest[key])])
+                break
+
+            if key is not "*":
+                if key in tmp_manifest:
+                    tmp_manifest = tmp_manifest[key]
+                    index += 1
+                else:
+                    logger.warning("[REGEX][FILE] Special keyword {} Not found in object {}".format(key, object))
+                    break
+            else:
+                for i in tmp_manifest:
+                    value_list.extend(self.keyword_object_parse(keywords=keywords, object=i, index=index+1))
+
+                break
+
+        return value_list
+
 
 class Directory(object):
     def __init__(self, absolute_path, black_path_list=None):
@@ -268,7 +349,7 @@ class Directory(object):
     """
 
     def collect_files(self):
-        t1 = time.clock()
+        t1 = time.time()
         self.files(self.absolute_path)
         self.result['no_extension'] = {'count': 0, 'list': []}
         for extension, values in self.type_nums.items():
@@ -289,7 +370,7 @@ class Directory(object):
                     self.result['no_extension']['list'].append(f)
         if self.result['no_extension']['count'] == 0:
             del self.result['no_extension']
-        t2 = time.clock()
+        t2 = time.time()
         # reverse list count
         self.result = sorted(self.result.items(), key=lambda t: t[0], reverse=False)
         return self.result, self.file_sum, t2 - t1
@@ -365,3 +446,4 @@ class File(object):
         else:
             content = False
         return content
+

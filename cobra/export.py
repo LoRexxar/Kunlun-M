@@ -22,10 +22,7 @@ from prettytable import PrettyTable
 from .config import running_path, export_path, default_result_path
 from .log import logger
 
-try:
-    import cgi as html
-except ImportError:
-    import html
+import html
 
 try:
     # Python 2

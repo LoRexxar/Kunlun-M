@@ -26,7 +26,7 @@ from .result import VulnerabilityResult
 from .cast import CAST
 from .parser import scan_parser
 from .file import FileParseAll
-from .file import ext_dict
+from .const import ext_dict
 from rules.autorule import autorule
 from prettytable import PrettyTable
 from phply import phpast as php
@@ -378,6 +378,26 @@ class SingleRule(object):
                 f = FileParseAll(self.files, self.target_directory, language=self.lan)
 
                 result = f.multi_grep_name(matchs, unmatchs, matchs_name, black_list)
+                if not result:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
+        elif self.sr.match_mode == const.sp_crx_keyword_match:
+            # 针对crx研究的keyword匹配，先以sp crx作为入口，逐渐思考普适性
+
+            keyword = self.sr.keyword
+            match = self.sr.match
+            unmatch = self.sr.unmatch
+
+            result = []
+
+            try:
+                f = FileParseAll(self.files, self.target_directory, language=self.lan)
+
+                result = f.special_crx_keyword_match(keyword, match, unmatch)
                 if not result:
                     result = None
             except Exception as e:
@@ -844,6 +864,34 @@ class Core(object):
                 elif self.rule_match_mode == const.mm_regex_return_regex:
                     logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
                     return True, 'Regex-return-regex'
+                else:
+                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
+                    return False, 'Unsupport Match'
+
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                return False, 'Exception'
+
+        elif self.lan == "chromeext":
+            try:
+                ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
+                           self.code_content, files=self.files, rule_class=self.single_rule,
+                           repair_functions=self.repair_functions)
+
+                # only match
+                if self.rule_match_mode == const.mm_regex_only_match:
+                    #
+                    # Regex-Only-Match
+                    # Match(regex) -> Repair -> Done
+                    #
+                    logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
+                    return True, 'Regex-only-match'
+                elif self.rule_match_mode == const.mm_regex_return_regex:
+                    logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
+                    return True, 'Regex-return-regex'
+                elif self.rule_match_mode == const.sp_crx_keyword_match:
+                    logger.debug("[CVI-{cvi}] [SPECIAL-CRX-KEYWORD-MATCH]".format(cvi=self.cvi))
+                    return True, 'Specail-crx-keyword-match'
                 else:
                     logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
                     return False, 'Unsupport Match'
