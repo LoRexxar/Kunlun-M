@@ -11,25 +11,27 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
+import json
 import os
 import re
-import json
-import portalocker
 import traceback
-import codecs
+
+import portalocker
+from phply import phpast as php
+from prettytable import PrettyTable
+
+from cobra.core_engine.php.parser import scan_parser as php_scan_parser
+from cobra.core_engine.php.engine import init_match_rule as php_init_match_rule
+from rules.autorule import autorule
 from . import const
+from .cast import CAST
+from .config import running_path
+from .const import ext_dict
+from .file import FileParseAll
+from .log import logger
+from .result import VulnerabilityResult
 from .rule import Rule
 from .utils import Tool
-from .log import logger
-from .config import running_path
-from .result import VulnerabilityResult
-from .cast import CAST
-from .parser import scan_parser
-from .file import FileParseAll
-from .const import ext_dict
-from rules.autorule import autorule
-from prettytable import PrettyTable
-from phply import phpast as php
 
 
 class Running:
@@ -770,7 +772,7 @@ class Core(object):
                         # with open(self.file_path, 'r') as fi:
                         # fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
                         # code_contents = fi.read()
-                        result = scan_parser(rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions, controlled_params=self.controlled_list)
+                        result = php_scan_parser(rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions, controlled_params=self.controlled_list)
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
                             if result[0]['code'] == 1:  # 函数参数可控
@@ -901,87 +903,15 @@ class Core(object):
                 return False, 'Exception'
 
 
-def init_match_rule(data):
+def init_match_rule(data, lan='php'):
     """
     处理新生成规则初始化正则匹配
+    :param lan: 
     :param data: 
     :return: 
     """
-
-    try:
-        object = data[0]
-        match = ""
-
-        if isinstance(object, php.Method) or isinstance(object, php.Function):
-            function_params = object.params
-            function_name = object.name
-            param = data[1]
-            index = 0
-            for function_param in function_params:
-                if function_param.name == param.name:
-                    break
-                index += 1
-
-            # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
-            match = "(?:\A|\s|\\b)" + function_name + "\s*\("
-            for i in range(len(function_params)):
-                if i != 0:
-                    match += ","
-
-                    if function_params[i].default is not None:
-                        match += "?"
-
-                if i == index:
-                    match += "([^,\)]*)"
-                else:
-                    match += "[^,\)]*"
-
-            match += "\)"
-
-            # 去除定义函数
-            match2 = "function\s+" + function_name
-            vul_function = function_name
-
-        elif isinstance(object, php.Class):
-            class_params = data[2]
-            class_name = object.name
-            param = data[1]
-            index = 0
-
-            for class_param in class_params:
-                if class_param.name == param.name:
-                    break
-                index += 1
-
-            # $A = new a($x, $y);
-            match = "new\s*" + class_name + "\s*\("
-
-            for i in range(len(class_params)):
-                if i != 0:
-                    match += ","
-
-                    if class_params[i].default is not None:
-                        match += "?"
-
-                if i == index:
-                    match += "([^,\)]*)"
-                else:
-                    match += "[^,\)]*"
-
-            match += "\)"
-
-            # 去除定义类，类定义和调用方式不一样，但是为了不影响结构，依然赋值
-            match2 = "class\s+" + class_name + "\s*{"
-            vul_function = class_name
-
-    except:
-        logger.error('[New Rule] Error to unpack function param, Something error')
-        traceback.print_exc()
-        match = None
-        match2 = None
-        index = 0
-
-    return match, match2, vul_function, index
+    if lan.lower() == "php":
+        return php_init_match_rule(data)
 
 
 def auto_parse_match(single_match, svid, language):
@@ -1032,7 +962,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
     match_mode = "New rule to Vustomize-Match"
     logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=match_mode))
 
-    match, match2, vul_function, index = init_match_rule(new_rules)
+    match, match2, vul_function, index = init_match_rule(new_rules, lan=old_single_rule.language)
     logger.debug('[ENGINE] [New Rule] new match_rule: {}'.format(match))
 
     sr = autorule()

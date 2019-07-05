@@ -103,6 +103,9 @@ class Pretreatment:
                     except SyntaxError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
 
+                    except AssertionError as e:
+                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+
                     # 搜索所有的常量
                     for node in all_nodes:
                         if isinstance(node, php.FunctionCall) and node.name == "define":

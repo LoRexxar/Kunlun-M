@@ -12,11 +12,10 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from cobra.parser import scan_parser
-from cobra.parser import anlysis_params
 from cobra.config import project_directory
+from cobra.core_engine.php.parser import anlysis_params
+from cobra.core_engine.php.parser import scan_parser
 from cobra.pretreatment import ast_object
-
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
 ast_object.init_pre(project_directory + '/tests/vulnerabilities/', files)
