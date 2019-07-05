@@ -1,6 +1,6 @@
 <big>**写在最前，Cobra-W仍然处于测试开发阶段，未发布正式版本，谨慎应用...**</big>
 
-**严重不推荐使用python2.7运行该工具，将于近期停止维护python2.7环境**
+**请使用python3运行该工具，已停止维护python2.7环境**
 
 # Cobra-W
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
