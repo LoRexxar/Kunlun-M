@@ -14,14 +14,12 @@
 import os
 import re
 import traceback
-import codecs
-from .log import logger
-from .rule import block
+
+from cobra.core_engine.php.parser import anlysis_params as php_anlysis_params
 from .file import File
 from .file import FileParseAll
-from .parser import is_controllable
-from .parser import anlysis_params
-from .pretreatment import ast_object
+from .log import logger
+from .rule import block
 
 
 class CAST(object):
@@ -234,7 +232,7 @@ class CAST(object):
                     logger.debug("[AST] Is variable: `Yes`")
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno, chain = anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, self.controlled_list, isexternal=True)
+                    _is_co, _cp, expr_lineno, chain = php_anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, self.controlled_list, isexternal=True)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")

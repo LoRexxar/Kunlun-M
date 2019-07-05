@@ -19,9 +19,9 @@ import os
 import codecs
 import traceback
 
-from .log import logger
-from .pretreatment import ast_object
-from .internal_defines.php.functions import function_dict as php_function_dict
+from cobra.log import logger
+from cobra.pretreatment import ast_object
+from cobra.internal_defines.php.functions import function_dict as php_function_dict
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
