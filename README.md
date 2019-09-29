@@ -29,7 +29,7 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
 - 提供更易于从代码层面定制审计思路的规则书写方式，更易于白帽子使用，易于拓展。
 - 底层api重写，支持windows、linux等多平台。
 - 多层语义解析、函数回溯，secret机制，新增多种机制应用于语义分析。
-
+- 新增javascript语义分析，用于扫描包含js相关代码。
 
 ## TODO
 - <del>改写grep以及find，提供更好的底层支持</del>
@@ -41,9 +41,13 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
     - <del>多级函数调用</del>
     - <del>自定义类调用</del>
     - 未知语法待解析
-- 添加Web管理端，通过Web端，可以设置扫描任务，查看扫描log，查看代码。
-- 添加疑似漏洞分级，部分回溯存在问题但是不能回溯到可控变量的漏洞，通过疑似漏洞的方式展示。
-
+- <del>添加疑似漏洞分级，部分回溯存在问题但是不能回溯到可控变量的漏洞，通过疑似漏洞的方式展示。</del>
+- <del>添加关于javascript的静态分析</del>
+- 完成针对有关于javascript的多种特殊问题
+    - 适配关于html中内联js的扫描
+    - 添加区分前端js与nodejs功能，并为node_js添加专门的扫描
+    - 未知语法待解析
+- 完成关于java的静态分析
 
 ## 更新日志
 
@@ -55,6 +59,8 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
 ```
 cobra-w
 ├─cobra
+│  ├─core_engine
+│  └─internal_defines
 ├─docs
 ├─logs
 ├─result
@@ -68,6 +74,8 @@ cobra-w
 ```
 
 - cobra: 核心代码目录
+    - core_engine 核心语义分析代码
+    - internal_defines 部分内置变量
 - docs: cobra-W文档目录
 - logs: 扫描log储存位置
 - result: 扫描结果储存位置（默认为.csv）
