@@ -22,6 +22,9 @@ from prettytable import PrettyTable
 
 from cobra.core_engine.php.parser import scan_parser as php_scan_parser
 from cobra.core_engine.php.engine import init_match_rule as php_init_match_rule
+from cobra.core_engine.javascript.parser import scan_parser as js_scan_parser
+from cobra.core_engine.javascript.engine import init_match_rule as js_init_match_rule
+
 from rules.autorule import autorule
 from . import const
 from .cast import CAST
@@ -206,7 +209,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         except AttributeError as e:
             code_content = x.code_content.decode('utf-8')[:100].strip()
         row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit, code_content, x.analysis]
-        row2 = [idx+1, x.chain]
+        row2 = [idx + 1, x.chain]
 
         data.append(row)
         data2.append(row2)
@@ -237,9 +240,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 logger.info("[Chain] {}".format(c))
 
             if hasattr(os, 'get_terminal_size'):
-                logger.info("[SCAN] ending\r\n" + '-'*(os.get_terminal_size().columns-16))
+                logger.info("[SCAN] ending\r\n" + '-' * (os.get_terminal_size().columns - 16))
             else:
-                logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
+                logger.info(
+                    "[SCAN] ending\r\n -------------------------------------------------------------------------")
 
         if len(diff_rules) > 0:
             logger.info(
@@ -355,6 +359,10 @@ class SingleRule(object):
             else:
                 match = const.fpc_single.replace('[f]', self.sr.match)
 
+            # 垃圾js毁一生，动态类型一时爽，静态分析火葬厂
+            if self.sr.language.lower() == "javascript":
+                match = const.fpc_loose.replace('[f]', self.sr.match)
+
             try:
                 if match:
                     f = FileParseAll(self.files, self.target_directory, language=self.lan)
@@ -468,7 +476,8 @@ class SingleRule(object):
                 else:
                     if reason == 'New Core':  # 新的规则
                         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                        new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0, languages=self.languages, secret_name=self.secret_name)
+                        new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0,
+                                                           languages=self.languages, secret_name=self.secret_name)
 
                         if len(new_rule_vulnerabilities) > 0:
                             self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
@@ -525,7 +534,7 @@ class Core(object):
         self.data = []
         self.repair_dict = {}
         self.repair_functions = []
-        self.controlled_list = {}
+        self.controlled_list = []
 
         self.target_directory = target_directory
 
@@ -638,7 +647,7 @@ class Core(object):
                - Java:
         :return: boolean
         """
-        match_result = re.findall(r"(#|\\\*|\/\/)+", self.code_content)
+        match_result = re.findall(r"^(#|\\\*|\/\/)+", self.code_content)
         # Skip detection only on match
         if self.is_match_only_rule():
             return False
@@ -674,13 +683,14 @@ class Core(object):
         初始化修复函数规则
         :return: 
         """
-        # self.single_rule.svid
-        a = __import__('rules.secret.demo', fromlist=['IS_REPAIR_DEFAULT'])
-        self.repair_dict = getattr(a, 'IS_REPAIR_DEFAULT')
+        if self.lan == "php":
+            a = __import__('rules.secret.demo', fromlist=['PHP_IS_REPAIR_DEFAULT'])
+            self.repair_dict = getattr(a, 'PHP_IS_REPAIR_DEFAULT')
 
-        b = __import__('rules.secret.demo', fromlist=['IS_CONTROLLED_DEFAULT'])
-        self.controlled_list = getattr(b, 'IS_CONTROLLED_DEFAULT')
+            b = __import__('rules.secret.demo', fromlist=['PHP_IS_CONTROLLED_DEFAULT'])
+            self.controlled_list = getattr(b, 'PHP_IS_CONTROLLED_DEFAULT')
 
+        # 如果指定加载某个tamper，那么无视语言
         if self.secret_name is not None:
             try:
                 # 首先加载修复函数指定
@@ -690,7 +700,7 @@ class Core(object):
                 self.repair_dict.update(a.items())
 
                 # 然后加载输入函数
-                b = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name])
+                b = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name + "_controlled"])
                 b = getattr(b, self.secret_name + "_controlled")
                 self.controlled_list += b
 
@@ -753,7 +763,8 @@ class Core(object):
             try:
                 self.init_php_repair()
                 ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
-                           self.code_content, files=self.files, rule_class=self.single_rule, repair_functions=self.repair_functions, controlled_params=self.controlled_list)
+                           self.code_content, files=self.files, rule_class=self.single_rule,
+                           repair_functions=self.repair_functions, controlled_params=self.controlled_list)
 
                 # only match
                 if self.rule_match_mode == const.mm_regex_only_match:
@@ -772,7 +783,9 @@ class Core(object):
                         # with open(self.file_path, 'r') as fi:
                         # fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
                         # code_contents = fi.read()
-                        result = php_scan_parser(rule_match, self.line_number, self.file_path, repair_functions=self.repair_functions, controlled_params=self.controlled_list)
+                        result = php_scan_parser(rule_match, self.line_number, self.file_path,
+                                                 repair_functions=self.repair_functions,
+                                                 controlled_params=self.controlled_list)
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
                             if result[0]['code'] == 1:  # 函数参数可控
@@ -808,7 +821,7 @@ class Core(object):
 
                     if code == 1:
                         return True, 'Vustomize-Match', chain
-                    elif code ==3:
+                    elif code == 3:
                         return False, 'Unconfirmed Vustomize-Match', chain
 
                 else:
@@ -841,7 +854,9 @@ class Core(object):
                     logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
                     return True, 'Regex-return-regex'
                 else:
-                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
+                    logger.warn(
+                        "[CVI-{cvi} [OTHER-MATCH]] sol rules only support for Regex-only-match and Regex-return-regex...".format(
+                            cvi=self.cvi))
                     return False, 'Unsupport Match'
 
             except Exception as e:
@@ -866,8 +881,63 @@ class Core(object):
                 elif self.rule_match_mode == const.mm_regex_return_regex:
                     logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
                     return True, 'Regex-return-regex'
+
+                    # Match for function-param-regex
+                elif self.rule_match_mode == const.mm_function_param_controllable:
+                    rule_match = self.rule_match.strip('()').split('|')
+                    logger.debug('[RULE_MATCH] {r}'.format(r=rule_match))
+                    try:
+                        result = js_scan_parser(rule_match, self.line_number, self.file_path,
+                                                repair_functions=self.repair_functions,
+                                                controlled_params=self.controlled_list)
+                        logger.debug('[AST] [RET] {c}'.format(c=result))
+                        if len(result) > 0:
+                            if result[0]['code'] == 1:  # 函数参数可控
+                                return True, 'Function-param-controllable', result[0]['chain']
+
+                            elif result[0]['code'] == 2:  # 漏洞修复
+                                return False, 'Function-param-controllable but fixed', result[0]['chain']
+
+                            elif result[0]['code'] == 3:  # 疑似漏洞
+                                return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
+
+                            elif result[0]['code'] == -1:  # 函数参数不可控
+                                return False, 'Function-param-uncon', result[0]['chain']
+
+                            elif result[0]['code'] == 4:  # 新规则生成
+                                return False, 'New Core', result[0]['source']
+
+                            logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
+                        else:
+                            logger.debug(
+                                '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
+                                    r=result))
+                            return False, 'Can\'t parser'
+                    except Exception:
+                        exc_msg = traceback.format_exc()
+                        logger.warning(exc_msg)
+                        raise
+
+                elif self.rule_match_mode == const.mm_regex_param_controllable:
+                    param_is_controllable, code, data, chain = ast.is_controllable_param()
+                    if param_is_controllable:
+                        logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
+
+                        if code == 1:
+                            return True, 'Vustomize-Match', chain
+                        elif code == 3:
+                            return False, 'Unconfirmed Vustomize-Match', chain
+
+                    else:
+                        if type(data) is tuple:
+                            if int(data[0]) == 4:
+                                return False, 'New Core', data[1]
+
+                        logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param Not Controllable'.format(cvi=self.cvi))
+                        return False, 'Param-Not-Controllable'
+
                 else:
-                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
+                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] javascript not support this rules...".format(cvi=self.cvi))
                     return False, 'Unsupport Match'
 
             except Exception as e:
@@ -895,7 +965,7 @@ class Core(object):
                     logger.debug("[CVI-{cvi}] [SPECIAL-CRX-KEYWORD-MATCH]".format(cvi=self.cvi))
                     return True, 'Specail-crx-keyword-match'
                 else:
-                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] sol ruls only support for Regex-only-match and Regex-return-regex...".format(cvi=self.cvi))
+                    logger.warn("[CVI-{cvi} [OTHER-MATCH]] chrome ext rules not support it...".format(cvi=self.cvi))
                     return False, 'Unsupport Match'
 
             except Exception as e:
@@ -912,6 +982,9 @@ def init_match_rule(data, lan='php'):
     """
     if lan.lower() == "php":
         return php_init_match_rule(data)
+
+    if lan.lower() == "javascript":
+        return js_init_match_rule(data)
 
 
 def auto_parse_match(single_match, svid, language):
@@ -965,7 +1038,12 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
     match, match2, vul_function, index = init_match_rule(new_rules, lan=old_single_rule.language)
     logger.debug('[ENGINE] [New Rule] new match_rule: {}'.format(match))
 
+    # 想办法传递新函数类型
     sr = autorule()
+
+    if index == -1:
+        sr = autorule(is_eval_object=True)
+
     sr.match = match
     sr.vul_function = vul_function
 
@@ -1038,7 +1116,8 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
             else:
                 if reason == 'New Core':  # 新的规则
                     logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
-                    new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count, secret_name=secret_name)
+                    new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count,
+                                                       secret_name=secret_name)
 
                     if not new_rule_vulnerabilities:
                         return rule_vulnerabilities

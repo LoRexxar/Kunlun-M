@@ -662,6 +662,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
 
+                # 由于函数式变成的关系，为了不在函数回溯中走入歧途，这里优先检查一次函数名是否和可控函数相等
+                is_co, cp = is_controllable(function_name)
+                if is_co == 1:
+                    logger.debug("[AST] Function {} is controllable.".format(function_name))
+                    return is_co, cp, expr_lineno
+
                 logger.debug(
                     "[AST] Find {} from FunctionCall for {} in line {}, start ast in function {}".format(param_name,
                                                                                                          function_name,

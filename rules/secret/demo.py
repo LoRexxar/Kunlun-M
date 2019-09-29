@@ -12,7 +12,7 @@
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
 
-IS_REPAIR_DEFAULT = {
+PHP_IS_REPAIR_DEFAULT = {
     "urlencode": [1000, 10001],
     "rawurlencode": [1000, 10001],
     "htmlspecialchars": [1000, 10001],
@@ -25,6 +25,6 @@ IS_REPAIR_DEFAULT = {
     "escapeshellarg": [1009, 1011],
 }
 
-IS_CONTROLLED_DEFAULT = [
+PHP_IS_CONTROLLED_DEFAULT = [
     "$_GET",
 ]
