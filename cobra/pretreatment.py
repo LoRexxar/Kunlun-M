@@ -9,6 +9,9 @@
 from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
+
+import esprima
+
 from .log import logger
 from .const import ext_dict
 
@@ -19,7 +22,7 @@ import traceback
 import zipfile
 
 
-could_ast_pase_lans = ["php", "chromeext"]
+could_ast_pase_lans = ["php", "chromeext", "javascript"]
 
 
 def un_zip(target_path):
@@ -106,6 +109,9 @@ class Pretreatment:
                     except AssertionError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
 
+                    except:
+                        logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+
                     # 搜索所有的常量
                     for node in all_nodes:
                         if isinstance(node, php.FunctionCall) and node.name == "define":
@@ -151,10 +157,53 @@ class Pretreatment:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                         continue
 
-    def get_nodes(self, filepath):
+            elif fileext[0] in ext_dict['javascript']:
+
+                # 针对javascript的预处理
+                # 需要对js做语义分析
+                for filepath in fileext[1]['list']:
+                    filepath = os.path.join(self.target_directory, filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]['language'] = 'javascript'
+                    self.pre_result[filepath]['ast_nodes'] = []
+
+                    fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
+                    code_content = fi.read()
+
+                    self.pre_result[filepath]['content'] = code_content
+
+                    try:
+                        all_nodes = esprima.parse(code_content, {"loc": True})
+
+                        # 合并字典
+                        self.pre_result[filepath]['ast_nodes'] = all_nodes
+
+                    except SyntaxError as e:
+                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+
+                    except AssertionError as e:
+                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+
+                    except:
+                        logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+
+    def get_nodes(self, filepath, vul_lineno=None, lan = None):
         filepath = os.path.normpath(filepath)
 
         if filepath in self.pre_result:
+            if vul_lineno:
+                # 处理需求函数的问题
+                # 主要应用于，函数定义之后才会调用才会触发
+                if lan == 'javascript':
+                    backnodes = []
+                    allnodes = self.pre_result[filepath]['ast_nodes'].body
+
+                    for node in allnodes:
+                        if node.loc.start.line <= int(vul_lineno):
+                            backnodes.append(node)
+
+                    return backnodes
+
             return self.pre_result[filepath]['ast_nodes']
 
         elif os.path.join(self.target_directory, filepath) in self.pre_result:

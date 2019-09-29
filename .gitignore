@@ -93,4 +93,6 @@ rules/secret/*
 !rules/secret/__init.py
 
 rules/*
-!reles/*/demo.py
+!rules/*/demo.py
+!rules/javascript/CVI_3003.py
+!rules/solidity/CVI_2001.py

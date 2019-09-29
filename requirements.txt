@@ -1,3 +1,4 @@
+pyjsparser
 colorlog==3.0.1
 phply==1.0.0
 portalocker==1.1.0

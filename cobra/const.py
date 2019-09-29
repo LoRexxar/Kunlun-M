@@ -37,6 +37,7 @@ match_modes = [
 fpc = '\s*\((.*)(?:\))'
 fpc_single = '[f]{fpc}'.format(fpc=fpc)
 fpc_multi = '(?:[f]){fpc}'.format(fpc=fpc)
+fpc_loose = '(?:[f])({fpc})?\\b'.format(fpc=fpc)
 
 #
 # Find All variables

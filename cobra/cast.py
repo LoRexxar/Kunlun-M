@@ -16,6 +16,8 @@ import re
 import traceback
 
 from cobra.core_engine.php.parser import anlysis_params as php_anlysis_params
+from cobra.core_engine.javascript.parser import analysis_params as js_analysis_params
+
 from .file import File
 from .file import FileParseAll
 from .log import logger
@@ -72,6 +74,13 @@ class CAST(object):
                 #    $url = $_SERVER
                 #    $url = $testsdf;
                 'assign_out_input': r'({0}\s?=\s?.*\$_[GET|POST|REQUEST|SERVER|COOKIE]+(?:\[))'
+            },
+            'javascript': {
+                'functions': r'(?:function\s+)(\w+)\s*\(',
+                'string': r"(?:['\"])(.*)(?:[\"'])",
+                'assign_string': r"({0}\s?=\s?[\"'](.*)(?:['\"]))",
+                'annotation': r"(#|\\\*|\/\/|\*)+",
+
             }
         }
         logger.debug("[AST] [LANGUAGE] {language}".format(language=self.language))
@@ -203,7 +212,7 @@ class CAST(object):
 
         if params is None:
             logger.debug("[AST] Not matching variables...")
-            return False, self.data
+            return False, -1, self.data, []
 
         for param_name in params:
             try:
@@ -224,7 +233,7 @@ class CAST(object):
                             variables=','.join(regex_get_variable_result)))
                     else:
                         logger.debug("[AST] String have variables: `No`")
-                        return False, self.data
+                        return False, -1, self.data, []
                 logger.debug("[AST] String have variables: `Yes`")
 
                 # variable
@@ -238,8 +247,9 @@ class CAST(object):
                         logger.debug("[AST] Is assign string: `Yes`")
                         return True, _is_co, _cp, chain
                     elif _is_co == 3:
-                        logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
-                        return True, _is_co, _cp, chain
+                        pass
+                        # logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+                        # return True, _is_co, _cp, chain
                     elif _is_co == 4:
                         logger.info("[AST] New vul function {}()".format(_cp[0].name))
                         return False, _is_co, tuple([_is_co, _cp]), chain
@@ -271,10 +281,37 @@ class CAST(object):
                         continue
                         # False, self.data
                     logger.debug("[AST] Is assign out data: `No`")
-                    return True, self.data
+                    return True, -1, self.data, []
+
+                elif self.language == "javascript":
+
+                    logger.debug("[AST] Is variable: `Yes`")
+                    logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
+
+                    _is_co, _cp, expr_lineno, chain = js_analysis_params(param_name, [],
+                                                                         self.sr.vul_function, self.line, self.file_path, self.repair_functions,
+                                                                         self.controlled_list, isexternal=True)
+
+                    if _is_co == 1:
+                        logger.debug("[AST] Is assign string: `Yes`")
+                        return True, _is_co, _cp, chain
+                    elif _is_co == 3:
+                        pass
+                        # logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+                        # return True, _is_co, _cp, chain
+                    elif _is_co == 4:
+                        if hasattr(_cp[0], "name"):
+                            logger.info("[AST] New vul function {}()".format(_cp[0].name))
+                        else:
+                            logger.info("[AST] New vul function {}()".format(_cp[0]))
+
+                        return False, _is_co, tuple([_is_co, _cp]), chain
+
+                    else:
+                        continue
 
                 else:
-                    logger.debug("[AST] Not Java/PHP, can't parse ({l})".format(l=self.language))
+                    logger.debug("[AST] Not Java/PHP/Javascript, can't parse ({l})".format(l=self.language))
                     continue
                     # return False, self.data
 
@@ -284,7 +321,11 @@ class CAST(object):
             except:
                 logger.warning("[AST] Can't get `param`, check built-in rule")
                 traceback.print_exc()
-                return False, self.data
+                return False, -1, self.data, []
+
+        if _is_co == 3:
+            logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+            return True, _is_co, _cp, chain
 
         # if no variable can modify
         return False, self.data, None, None
