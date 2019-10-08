@@ -159,6 +159,7 @@ class ParseArgs(object):
             target_directory = self.target
         elif target_mode == TARGET_MODE_FILE:
             target_directory = self.target
+            return target_directory
         else:
             logger.critical('[PARSE-ARGS] exception target mode ({mode})'.format(mode=target_mode))
             exit()

@@ -17,6 +17,7 @@ import os
 import time
 import codecs
 import zipfile
+import traceback
 from .log import logger
 from .pretreatment import ast_object
 from .const import ext_dict
@@ -103,6 +104,13 @@ def file_grep(file_path, rule_reg):
         return result
 
 
+def check_filepath(target, filepath):
+    if os.path.isfile(target):
+        return target
+    else:
+        return os.path.join(target, filepath)
+
+
 class FileParseAll:
     def __init__(self, filelist, target, language=None):
         self.filelist = filelist
@@ -118,13 +126,15 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            file = codecs.open(os.path.join(self.target, ffile), "r", encoding='utf-8', errors='ignore')
+            filepath = check_filepath(self.target, ffile)
+
+            file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             line_number = 0
             for line in file:
                 line_number += 1
                 # print line, line_number
                 if re.search(reg, line, re.I):
-                    result.append((self.target + ffile, str(line_number), line))
+                    result.append((filepath, str(line_number), line))
 
         return result
 
@@ -138,7 +148,9 @@ class FileParseAll:
         line_number = 0
 
         for ffile in self.t_filelist:
-            file = codecs.open(os.path.join(self.target, ffile), "r", encoding='utf-8', errors='ignore')
+            filepath = check_filepath(self.target, ffile)
+
+            file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             content = file.read()
             file.close()
 
@@ -147,7 +159,7 @@ class FileParseAll:
             if r_con_obj:
                 start_pos = r_con_obj.regs[0][0]
                 line_number = len(content[:start_pos].split('\n'))
-                result.append((self.target + ffile, str(line_number), r_con_obj.group(0)))
+                result.append((filepath, str(line_number), r_con_obj.group(0)))
 
         return result
     
@@ -178,7 +190,9 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            file = codecs.open(os.path.join(self.target, ffile), "r", encoding='utf-8', errors='ignore')
+            filepath = check_filepath(self.target, ffile)
+
+            file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             content = file.read()
             file.close()
             
@@ -240,7 +254,7 @@ class FileParseAll:
                 if re_flag:
                     # 例如CVI2100中，没有match，只要不含unmatch即为漏洞的，没有行数
                     if matchs_tmp == []:
-                        result.append(tuple([self.target+ffile, str(line_number), 'name:<'+n+'>']))
+                        result.append(tuple([filepath, str(line_number), 'name:<'+n+'>']))
                         logger.debug('[DEBUG] [MATCH_REGEX_RETURN_REGEX] success match:{0} in line {1}'.format(n, str(line_number)))
                         continue
 
@@ -250,7 +264,7 @@ class FileParseAll:
 
                         if result_list_tmp is not None and result_list_tmp != []:
                             for result_tmp in result_list_tmp:
-                                result.append(tuple([self.target+ffile, str(line_number), 'name:<'+result_tmp[0]+'>, point:<'+result_tmp[1]+'>']))
+                                result.append(tuple([filepath, str(line_number), 'name:<'+result_tmp[0]+'>, point:<'+result_tmp[1]+'>']))
                                 logger.debug('[DEBUG] [MATCH_REGEX_RETURN_REGEX] success match:{0} in line {1}'.format(n, str(line_number)))
                         else:
                             re_flag = False
@@ -268,7 +282,7 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            ffile_path = os.path.join(self.target, ffile)
+            ffile_path = check_filepath(self.target, ffile)
 
             ffile_object = ast_object.get_object(ffile_path)
 
@@ -401,6 +415,7 @@ class Directory(object):
                     if os.path.isfile(directory):
                         self.file_info(directory, filename)
         except OSError as e:
+            logger.error("[PICKUP] {}".format(traceback.format_exc()))
             logger.critical('[PICKUP] {msg}'.format(msg=e))
             exit()
 
