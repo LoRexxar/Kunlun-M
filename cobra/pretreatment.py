@@ -70,6 +70,12 @@ class Pretreatment:
 
         self.target_directory = os.path.normpath(self.target_directory)
 
+    def get_path(self, filepath):
+        if os.path.isfile(self.target_directory):
+            return self.target_directory
+        else:
+            return os.path.join(self.target_directory, filepath)
+
     def pre_ast(self, lan=None):
 
         if lan is not None:
@@ -86,7 +92,7 @@ class Pretreatment:
                 for filepath in fileext[1]['list']:
                     all_nodes = []
 
-                    filepath = os.path.join(self.target_directory, filepath)
+                    filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'php'
                     self.pre_result[filepath]['ast_nodes'] = []
@@ -126,7 +132,7 @@ class Pretreatment:
                 # 针对chrome 拓展的预处理
                 # 需要提取其中的js和html？
                 for filepath in fileext[1]['list']:
-                    filepath = os.path.join(self.target_directory, filepath)
+                    filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'chromeext'
 
@@ -162,7 +168,7 @@ class Pretreatment:
                 # 针对javascript的预处理
                 # 需要对js做语义分析
                 for filepath in fileext[1]['list']:
-                    filepath = os.path.join(self.target_directory, filepath)
+                    filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'javascript'
                     self.pre_result[filepath]['ast_nodes'] = []
@@ -187,7 +193,7 @@ class Pretreatment:
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
 
-    def get_nodes(self, filepath, vul_lineno=None, lan = None):
+    def get_nodes(self, filepath, vul_lineno=None, lan=None):
         filepath = os.path.normpath(filepath)
 
         if filepath in self.pre_result:
