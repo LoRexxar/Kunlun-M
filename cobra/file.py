@@ -43,17 +43,13 @@ def file_list_parse(filelist, language=None):
     if language is not None and language in ext_dict:
         self_ext_list = ext_dict[language]
 
-        # special in chrome ext
-        if language == "javascript":
-            self_ext_list.extend(ext_dict['chromeext'])
-
     for file in filelist:
         if file[0] in self_ext_list:
-            if file[0] in ['.crx'] and language == "javascript":
-                for filepath in file[1]['list']:
-                    result.extend(ast_object.get_child_files(filepath))
-            else:
-                result.extend(file[1]['list'])
+            # if file[0] in ['.crx'] and language == "javascript":
+            #     for filepath in file[1]['list']:
+            #         result.extend(ast_object.get_child_files(filepath))
+            # else:
+            result.extend(file[1]['list'])
 
     return result
 
@@ -294,7 +290,6 @@ class FileParseAll:
             keywords = keyword.split('.')
             value_list = self.keyword_object_parse(keywords, manifest)
 
-            print(value_list)
             # 逐个检查匹配
             for value in value_list:
                 flag = False

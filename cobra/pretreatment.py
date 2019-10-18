@@ -16,6 +16,7 @@ from .log import logger
 from .const import ext_dict
 
 import os
+import re
 import json
 import codecs
 import traceback
@@ -71,10 +72,18 @@ class Pretreatment:
         self.target_directory = os.path.normpath(self.target_directory)
 
     def get_path(self, filepath):
+
+        if os.path.join(os.path.dirname(self.target_directory), filepath):
+            return os.path.join(os.path.dirname(self.target_directory), filepath)
+
         if os.path.isfile(self.target_directory):
             return self.target_directory
         else:
             return os.path.join(self.target_directory, filepath)
+
+    def get_files(self):
+        files_list = []
+
 
     def pre_ast(self, lan=None):
 
@@ -142,7 +151,12 @@ class Pretreatment:
 
                     # 分析manifest.json
                     manifest_path = os.path.join(target_files_path, "manifest.json")
-                    relative_path = target_files_path.split(self.target_directory)[-1]
+
+                    # target可能是单个文件，这里需要专门处理
+                    if not self.target_directory.endswith("/") and not self.target_directory.endswith("\\"):
+                        relative_path = os.path.join(re.split(r'[\\|/]', self.target_directory)[-1]+"_files")
+                    else:
+                        relative_path = target_files_path.split(self.target_directory)[-1]
 
                     if relative_path.startswith('\\') or relative_path.startswith("/"):
                         relative_path = relative_path[1:]
@@ -159,6 +173,10 @@ class Pretreatment:
                                 child_files.extend([os.path.join(relative_path, js) for js in script['js']])
 
                         self.pre_result[filepath]["child_files"] = child_files
+
+                        # 将content_scripts加入到文件列表中构造
+                        self.file_list.append(('.js', {'count': len(child_files), 'list': child_files}))
+
                     else:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                         continue

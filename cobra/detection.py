@@ -77,6 +77,11 @@ class Detection(object):
                         logger.debug(
                             '[DETECTION] [LANGUAGE] found the chiefly language({language}), maybe have largest, continue...'.format(
                                 language=language))
+
+                        # special deal for chrome ext
+                        if language == 'chromeext':
+                            self.lang.append('javascript')
+
                         self.lang.append(language)
                     else:
                         logger.debug('[DETECTION] [LANGUAGE] not chiefly, continue...'.format(language=language))
