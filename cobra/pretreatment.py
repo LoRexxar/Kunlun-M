@@ -73,17 +73,13 @@ class Pretreatment:
 
     def get_path(self, filepath):
 
-        if os.path.join(os.path.dirname(self.target_directory), filepath):
+        if os.path.isfile(os.path.join(os.path.dirname(self.target_directory), filepath)):
             return os.path.join(os.path.dirname(self.target_directory), filepath)
 
         if os.path.isfile(self.target_directory):
             return self.target_directory
         else:
             return os.path.join(self.target_directory, filepath)
-
-    def get_files(self):
-        files_list = []
-
 
     def pre_ast(self, lan=None):
 
