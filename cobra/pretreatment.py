@@ -11,10 +11,10 @@ from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 
 import esprima
+import jsbeautifier
 
 from .log import logger
 from .const import ext_dict
-from .utils import pretty_code_js
 
 import os
 import re
@@ -61,7 +61,10 @@ def un_zip(target_path):
 
             new_file = codecs.open(file_path, 'w+', encoding='utf-8', errors='ignore')
 
-            new_file.write(pretty_code_js(file_content))
+            opts = jsbeautifier.default_options()
+            opts.indent_size = 2
+
+            new_file.write(jsbeautifier.beautify(file_content, opts))
             new_file.close()
 
     zip_file.close()

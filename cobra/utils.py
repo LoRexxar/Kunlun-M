@@ -599,6 +599,8 @@ def pretty_code_js(code):
 
             # 多行注释
             if char == '*' and nowoldchar == '/':
+                if len(newline):
+                    newline.pop(-1)
                 is_comment = True
                 break
 
@@ -616,7 +618,7 @@ def pretty_code_js(code):
                 is_regex = True
                 continue
 
-            if is_regex and char == '/':
+            if is_regex and char == '/' and nowoldchar != '\\':
                 is_regex = False
                 continue
 
@@ -624,6 +626,14 @@ def pretty_code_js(code):
                 continue
 
             # 处理字符串
+            if not is_string and char == '`':
+                is_string = '`'
+                continue
+
+            if is_string == '`' and char == '`' and nowoldchar != '\\':
+                is_string = False
+                continue
+
             if not is_string and char == '"':
                 is_string = '"'
                 continue
