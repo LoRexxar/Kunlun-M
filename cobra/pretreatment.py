@@ -14,6 +14,7 @@ import esprima
 
 from .log import logger
 from .const import ext_dict
+from .utils import pretty_code_js
 
 import os
 import re
@@ -29,6 +30,7 @@ could_ast_pase_lans = ["php", "chromeext", "javascript"]
 def un_zip(target_path):
     """
     解压缩目标压缩包
+    实现新需求，解压缩后相应的js文件做代码格式化
     :return: 
     """
 
@@ -49,6 +51,19 @@ def un_zip(target_path):
 
     for names in zip_file.namelist():
         zip_file.extract(names, target_file_path)
+
+        # 对其中部分文件中为js的时候，将js代码格式化便于阅读
+        if names.endswith(".js"):
+            file_path = os.path.join(target_file_path, names)
+            file = codecs.open(file_path, 'r+', encoding='utf-8', errors='ignore')
+            file_content = file.read()
+            file.close()
+
+            new_file = codecs.open(file_path, 'w+', encoding='utf-8', errors='ignore')
+
+            new_file.write(pretty_code_js(file_content))
+            new_file.close()
+
     zip_file.close()
 
     return target_file_path
