@@ -645,12 +645,12 @@ def pretty_code_js(code):
 
             # 处理注释
             if char == '/' and nowoldchar == '/':
-                is_comment = True
+                # is_comment = True
                 newline.append('\n')
                 break
 
             if char == '!' and nowoldchar == '<':
-                is_comment = True
+                # is_comment = True
                 newline.append('\n')
                 break
 
