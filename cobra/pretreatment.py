@@ -11,11 +11,13 @@ from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 
 import esprima
+import jsbeautifier
 
 from .log import logger
 from .const import ext_dict
 
 import os
+import re
 import json
 import codecs
 import traceback
@@ -28,6 +30,7 @@ could_ast_pase_lans = ["php", "chromeext", "javascript"]
 def un_zip(target_path):
     """
     解压缩目标压缩包
+    实现新需求，解压缩后相应的js文件做代码格式化
     :return: 
     """
 
@@ -48,6 +51,22 @@ def un_zip(target_path):
 
     for names in zip_file.namelist():
         zip_file.extract(names, target_file_path)
+
+        # 对其中部分文件中为js的时候，将js代码格式化便于阅读
+        if names.endswith(".js"):
+            file_path = os.path.join(target_file_path, names)
+            file = codecs.open(file_path, 'r+', encoding='utf-8', errors='ignore')
+            file_content = file.read()
+            file.close()
+
+            new_file = codecs.open(file_path, 'w+', encoding='utf-8', errors='ignore')
+
+            opts = jsbeautifier.default_options()
+            opts.indent_size = 2
+
+            new_file.write(jsbeautifier.beautify(file_content, opts))
+            new_file.close()
+
     zip_file.close()
 
     return target_file_path
@@ -71,6 +90,10 @@ class Pretreatment:
         self.target_directory = os.path.normpath(self.target_directory)
 
     def get_path(self, filepath):
+
+        if os.path.isfile(os.path.join(os.path.dirname(self.target_directory), filepath)):
+            return os.path.join(os.path.dirname(self.target_directory), filepath)
+
         if os.path.isfile(self.target_directory):
             return self.target_directory
         else:
@@ -142,7 +165,12 @@ class Pretreatment:
 
                     # 分析manifest.json
                     manifest_path = os.path.join(target_files_path, "manifest.json")
-                    relative_path = target_files_path.split(self.target_directory)[-1]
+
+                    # target可能是单个文件，这里需要专门处理
+                    if not self.target_directory.endswith("/") and not self.target_directory.endswith("\\"):
+                        relative_path = os.path.join(re.split(r'[\\|/]', self.target_directory)[-1]+"_files")
+                    else:
+                        relative_path = target_files_path.split(self.target_directory)[-1]
 
                     if relative_path.startswith('\\') or relative_path.startswith("/"):
                         relative_path = relative_path[1:]
@@ -159,6 +187,10 @@ class Pretreatment:
                                 child_files.extend([os.path.join(relative_path, js) for js in script['js']])
 
                         self.pre_result[filepath]["child_files"] = child_files
+
+                        # 将content_scripts加入到文件列表中构造
+                        self.file_list.append(('.js', {'count': len(child_files), 'list': child_files}))
+
                     else:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                         continue
@@ -175,6 +207,16 @@ class Pretreatment:
 
                     fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
                     code_content = fi.read()
+
+                    # 添加代码美化并且写入新文件
+                    new_filepath = filepath + ".pretty"
+
+                    if not os.path.isfile(new_filepath):
+
+                        fi2 = codecs.open(new_filepath, "w", encoding='utf-8', errors='ignore')
+                        code_content = jsbeautifier.beautify(code_content)
+                        fi2.write(code_content)
+                        fi2.close()
 
                     self.pre_result[filepath]['content'] = code_content
 

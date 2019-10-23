@@ -162,7 +162,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     def store(result):
         if result is not None and isinstance(result, list) is True:
             for res in result:
-                res.file_path = res.file_path.replace(target_directory, '')
+                res.file_path = res.file_path
                 find_vulnerabilities.append(res)
         else:
             logger.debug('[SCAN] [STORE] Not found vulnerabilities on this rule!')
@@ -581,7 +581,7 @@ class Core(object):
         > Code: `{code}`""".format(
             cvi=single_rule.svid,
             index=index,
-            file=self.file_path.replace(self.target_directory, ''),
+            file=self.file_path,
             line=self.line_number,
             code=self.code_content))
 
