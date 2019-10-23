@@ -208,6 +208,16 @@ class Pretreatment:
                     fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
                     code_content = fi.read()
 
+                    # 添加代码美化并且写入新文件
+                    new_filepath = filepath + ".pretty"
+
+                    if not os.path.isfile(new_filepath):
+
+                        fi2 = codecs.open(new_filepath, "w", encoding='utf-8', errors='ignore')
+                        code_content = jsbeautifier.beautify(code_content)
+                        fi2.write(code_content)
+                        fi2.close()
+
                     self.pre_result[filepath]['content'] = code_content
 
                     try:
