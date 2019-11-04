@@ -96,7 +96,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
 
         # Pretreatment ast object
         ast_object.init_pre(target_directory, files)
-        ast_object.pre_ast(main_language)
+        ast_object.pre_ast_all(main_language)
 
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,

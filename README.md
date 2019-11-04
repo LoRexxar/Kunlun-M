@@ -1,12 +1,12 @@
-<big>**写在最前，Cobra-W仍然处于测试开发阶段，未发布正式版本，谨慎应用...**</big>
+<big>**写在最前，Cobra-W就像手中的一把剑，这把剑好不好用是Cobra-W的事，如何使用是你的事，希望能有更多的人参与到Cobra-W的变化中来...**</big>
 
-**请使用python3运行该工具，已停止维护python2.7环境**
+**请使用python3.6+运行该工具，已停止维护python2.7环境**
 
 # Cobra-W
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
 [![Build Status](https://travis-ci.org/LoRexxar/Cobra-W.svg?branch=master)](https://travis-ci.org/LoRexxar/Cobra-W)
-[![Coverage Status](https://coveralls.io/repos/github/LoRexxar/Cobra-W/badge.svg?branch=master)](https://coveralls.io/github/LoRexxar/Cobra-W?branch=master)
+![](https://img.shields.io/badge/language-python3.7-orange.svg)
 
 ## Introduction
 Cobra是一款**源代码安全审计**工具，支持检测多种开发语言源代码中的**大部分显著**的安全问题和漏洞。

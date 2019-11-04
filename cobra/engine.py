@@ -14,7 +14,9 @@
 import json
 import os
 import re
+import asyncio
 import traceback
+import functools
 
 import portalocker
 from phply import phpast as php
@@ -167,11 +169,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         else:
             logger.debug('[SCAN] [STORE] Not found vulnerabilities on this rule!')
 
+    async def start_scan(target_directory, rule, files, language, secret_name):
+
+        result = scan_single(target_directory, rule, files, language, secret_name)
+        store(result)
+
     if len(rules) == 0:
         logger.critical('no rules!')
         return False
     logger.info('[PUSH] {rc} Rules'.format(rc=len(rules)))
     push_rules = []
+    scan_list = []
+
+    # async start task
+    loop = asyncio.get_event_loop()
 
     for idx, single_rule in enumerate(sorted(rules.keys())):
 
@@ -189,8 +200,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             vulnerability=rule.vulnerability,
             language=rule.language
         ))
-        result = scan_single(target_directory, rule, files, language, secret_name)
-        store(result)
+        # result = scan_single(target_directory, rule, files, language, secret_name)
+        scan_list.append(start_scan(target_directory, rule, files, language, secret_name))
+        # store(result)
+
+    loop.run_until_complete(asyncio.gather(*scan_list))
+    loop.close()
 
     # print
     data = []

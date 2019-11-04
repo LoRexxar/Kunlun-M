@@ -22,6 +22,8 @@ import json
 import codecs
 import traceback
 import zipfile
+import queue
+import asyncio
 
 
 could_ast_pase_lans = ["php", "chromeext", "javascript"]
@@ -76,12 +78,13 @@ class Pretreatment:
 
     def __init__(self):
         self.file_list = []
+        self.target_queue = queue.Queue()
         self.target_directory = ""
 
         self.pre_result = {}
         self.define_dict = {}
 
-        self.pre_ast()
+        self.pre_ast_all()
 
     def init_pre(self, target_directory, files):
         self.file_list = files
@@ -99,7 +102,7 @@ class Pretreatment:
         else:
             return os.path.join(self.target_directory, filepath)
 
-    def pre_ast(self, lan=None):
+    def pre_ast_all(self, lan=None):
 
         if lan is not None:
             # 检查是否在可ast pasre列表中
@@ -109,6 +112,17 @@ class Pretreatment:
                 return True
 
         for fileext in self.file_list:
+            self.target_queue.put(fileext)
+
+        loop = asyncio.get_event_loop()
+        scan_list = (self.pre_ast() for i in range(20))
+        loop.run_until_complete(asyncio.gather(*scan_list))
+
+    async def pre_ast(self):
+
+        while not self.target_queue.empty():
+
+            fileext = self.target_queue.get()
 
             if fileext[0] in ext_dict['php']:
                 # 下面是对于php文件的处理逻辑
@@ -145,7 +159,8 @@ class Pretreatment:
                     for node in all_nodes:
                         if isinstance(node, php.FunctionCall) and node.name == "define":
                             define_params = node.params
-                            logger.debug("[AST][Pretreatment] new define {}={}".format(define_params[0].node, define_params[1].node))
+                            logger.debug(
+                                "[AST][Pretreatment] new define {}={}".format(define_params[0].node, define_params[1].node))
 
                             self.define_dict[define_params[0].node] = define_params[1].node
 
@@ -168,7 +183,7 @@ class Pretreatment:
 
                     # target可能是单个文件，这里需要专门处理
                     if not self.target_directory.endswith("/") and not self.target_directory.endswith("\\"):
-                        relative_path = os.path.join(re.split(r'[\\|/]', self.target_directory)[-1]+"_files")
+                        relative_path = os.path.join(re.split(r'[\\|/]', self.target_directory)[-1] + "_files")
                     else:
                         relative_path = target_files_path.split(self.target_directory)[-1]
 
@@ -212,7 +227,6 @@ class Pretreatment:
                     new_filepath = filepath + ".pretty"
 
                     if not os.path.isfile(new_filepath):
-
                         fi2 = codecs.open(new_filepath, "w", encoding='utf-8', errors='ignore')
                         code_content = jsbeautifier.beautify(code_content)
                         fi2.write(code_content)
@@ -234,6 +248,9 @@ class Pretreatment:
 
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+
+        return True
+
 
     def get_nodes(self, filepath, vul_lineno=None, lan=None):
         filepath = os.path.normpath(filepath)
