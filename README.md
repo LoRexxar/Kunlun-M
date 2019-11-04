@@ -1,6 +1,6 @@
 <big>**写在最前，Cobra-W就像手中的一把剑，这把剑好不好用是Cobra-W的事，如何使用是你的事，希望能有更多的人参与到Cobra-W的变化中来...**</big>
 
-**请使用python3.7+运行该工具，已停止维护python2.7环境**
+**请使用python3.6+运行该工具，已停止维护python2.7环境**
 
 # Cobra-W
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
