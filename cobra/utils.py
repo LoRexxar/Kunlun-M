@@ -77,11 +77,11 @@ class ParseArgs(object):
                 self.black_path_list = [x.strip() for x in black_path.split(',') if x != ""]
                 logger.info("[INIT][PARSE_ARGS] Black Path list is {}".format(self.black_path_list))
             else:
-                self.black_path_list = None
+                self.black_path_list = []
                 logger.warning("[INIT][PARSE_ARGS] Black Path parse error.")
 
         else:
-            self.black_path_list = None
+            self.black_path_list = []
 
         # check and deal language
         if language is not None and language is not "":

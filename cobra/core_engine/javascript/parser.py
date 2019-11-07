@@ -22,6 +22,25 @@ default_controlled_params = [
     'document.cookie',
     'location.search',
     'location.href',
+    'window.name',
+
+    # for chrome ext
+    'chrome.tabs.query',
+    'chrome.tabs.get',
+    'chrome.tabs.getCurrent',
+    'chrome.tabs.getSelected',
+    'chrome.tabs.getAllInWindow',
+    'chrome.runtime.onMessage.addListener',
+    'chrome.runtime.onConnect.addListener',
+    'chrome.runtime.onMessageExternal.addListener',
+    'chrome.runtime.onConnectExternal.addListener',
+
+    # for chrome
+    'chrome.cookies.get',
+    'chrome.cookies.getAll'
+
+    # new api
+    '.addEventListener'
     # 'location',
 ]
 

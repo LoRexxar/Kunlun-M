@@ -16,15 +16,16 @@ import jsbeautifier
 from .log import logger
 from .const import ext_dict
 
+import gc
 import os
 import re
 import json
+import time
 import codecs
 import traceback
 import zipfile
 import queue
 import asyncio
-
 
 could_ast_pase_lans = ["php", "chromeext", "javascript"]
 
@@ -43,7 +44,7 @@ def un_zip(target_path):
         return False
 
     zip_file = zipfile.ZipFile(target_path)
-    target_file_path = target_path+"_files/"
+    target_file_path = target_path + "_files/"
 
     if os.path.isdir(target_file_path):
         logger.debug("[Pre][Unzip] Target files {} is exist...continue".format(target_file_path))
@@ -95,19 +96,18 @@ class Pretreatment:
     def get_path(self, filepath):
 
         if os.path.isfile(os.path.join(os.path.dirname(self.target_directory), filepath)):
-            return os.path.join(os.path.dirname(self.target_directory), filepath)
+            return os.path.normpath(os.path.join(os.path.dirname(self.target_directory), filepath))
 
         if os.path.isfile(self.target_directory):
-            return self.target_directory
+            return os.path.normpath(self.target_directory)
         else:
-            return os.path.join(self.target_directory, filepath)
+            return os.path.normpath(os.path.join(self.target_directory, filepath))
 
     def pre_ast_all(self, lan=None):
 
         if lan is not None:
             # 检查是否在可ast pasre列表中
             if not list(set(lan).intersection(set(could_ast_pase_lans))):
-
                 logger.info("[AST][Pretreatment] Current scan target language does not require ast pretreatment...")
                 return True
 
@@ -115,7 +115,7 @@ class Pretreatment:
             self.target_queue.put(fileext)
 
         loop = asyncio.get_event_loop()
-        scan_list = (self.pre_ast() for i in range(20))
+        scan_list = (self.pre_ast() for i in range(10))
         loop.run_until_complete(asyncio.gather(*scan_list))
 
     async def pre_ast(self):
@@ -136,6 +136,7 @@ class Pretreatment:
 
                     fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
                     code_content = fi.read()
+                    fi.close()
 
                     self.pre_result[filepath]['content'] = code_content
 
@@ -160,29 +161,36 @@ class Pretreatment:
                         if isinstance(node, php.FunctionCall) and node.name == "define":
                             define_params = node.params
                             logger.debug(
-                                "[AST][Pretreatment] new define {}={}".format(define_params[0].node, define_params[1].node))
+                                "[AST][Pretreatment] new define {}={}".format(define_params[0].node,
+                                                                              define_params[1].node))
 
                             self.define_dict[define_params[0].node] = define_params[1].node
 
             elif fileext[0] in ext_dict['chromeext']:
-                child_files = []
 
                 # 针对chrome 拓展的预处理
                 # 需要提取其中的js和html？
                 for filepath in fileext[1]['list']:
+                    child_files = []
+
                     filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'chromeext'
 
                     # 首先想办法解压crx
-                    target_files_path = un_zip(filepath)
-                    self.pre_result[filepath]['target_files_path'] = target_files_path
+                    try:
+                        target_files_path = un_zip(filepath)
+                        self.pre_result[filepath]['target_files_path'] = target_files_path
+
+                    except zipfile.BadZipFile:
+                        logger.warning("[Pretreatment][Chrome Ext] file {} not zip".format(filepath))
+                        continue
 
                     # 分析manifest.json
                     manifest_path = os.path.join(target_files_path, "manifest.json")
 
                     # target可能是单个文件，这里需要专门处理
-                    if not self.target_directory.endswith("/") and not self.target_directory.endswith("\\"):
+                    if not (self.target_directory.endswith("/") or self.target_directory.endswith("\\")) and not os.path.isdir(self.target_directory):
                         relative_path = os.path.join(re.split(r'[\\|/]', self.target_directory)[-1] + "_files")
                     else:
                         relative_path = target_files_path.split(self.target_directory)[-1]
@@ -193,17 +201,29 @@ class Pretreatment:
                     if os.path.isfile(manifest_path):
                         fi = codecs.open(manifest_path, "r", encoding='utf-8', errors='ignore')
                         manifest_content = fi.read()
-                        manifest = json.loads(manifest_content)
+                        fi.close()
+
+                        try:
+                            manifest = json.loads(manifest_content, encoding='utf-8')
+
+                        except json.decoder.JSONDecodeError:
+                            logger.warning(
+                                "[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
+                            continue
 
                         self.pre_result[filepath]["manifest"] = manifest
 
                         if "content_scripts" in manifest:
                             for script in manifest["content_scripts"]:
-                                child_files.extend([os.path.join(relative_path, js) for js in script['js']])
+                                if 'js' in script:
+                                    child_files.extend([os.path.join(relative_path, js) for js in script['js']])
 
                         self.pre_result[filepath]["child_files"] = child_files
 
                         # 将content_scripts加入到文件列表中构造
+                        self.target_queue.put(('.js', {'count': len(child_files), 'list': child_files}))
+
+                        # 通过浅复制操作外部传入的files
                         self.file_list.append(('.js', {'count': len(child_files), 'list': child_files}))
 
                     else:
@@ -222,6 +242,7 @@ class Pretreatment:
 
                     fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
                     code_content = fi.read()
+                    fi.close()
 
                     # 添加代码美化并且写入新文件
                     new_filepath = filepath + ".pretty"
@@ -246,11 +267,21 @@ class Pretreatment:
                     except AssertionError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
 
+                    except esprima.error_handler.Error:
+                        logger.warning('[AST] [ERROR] Invalid regular expression in {}...'.format(filepath))
+
+                    except KeyboardInterrupt:
+                        logger.log('[AST stop...')
+                        exit()
+
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+                        continue
+
+            # 手动回收?
+            gc.collect()
 
         return True
-
 
     def get_nodes(self, filepath, vul_lineno=None, lan=None):
         filepath = os.path.normpath(filepath)
@@ -303,7 +334,8 @@ class Pretreatment:
         if filepath in self.pre_result and "child_files" in self.pre_result[filepath]:
             return self.pre_result[filepath]['child_files']
 
-        elif os.path.join(self.target_directory, filepath) in self.pre_result and "child_files" in self.pre_result[os.path.join(self.target_directory, filepath)]:
+        elif os.path.join(self.target_directory, filepath) in self.pre_result and "child_files" in self.pre_result[
+            os.path.join(self.target_directory, filepath)]:
             return self.pre_result[os.path.join(self.target_directory, filepath)]['child_files']
 
         else:
