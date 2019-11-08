@@ -91,6 +91,6 @@ class autorule:
         if re.search(reg, sql_sen, re.I):
             p = re.compile(reg)
             match = p.findall(sql_sen)
-            print(match)
+
             return trim(match)
         return None

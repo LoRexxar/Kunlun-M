@@ -294,7 +294,18 @@ class FileParseAll:
             for value in value_list:
                 flag = False
 
+                # if not value:
+                #     result.append((ffile_path, str(0), "{} = {}".format(keyword, "None")))
+                #     continue
+
                 for m in match:
+
+                    if not value:
+                        if not m:
+                            # check None
+                            result.append((ffile_path, str(0), "{} = {}".format(keyword, "None")))
+                        continue
+
                     r_con_obj = re.search(m, value, re.I)
 
                     if r_con_obj:
@@ -309,7 +320,7 @@ class FileParseAll:
                         break
 
                 if flag:
-                    result.append((ffile_path, str(0), keyword + r_con_obj.group(0)))
+                    result.append((ffile_path, str(0), "{} = {}".format(keyword, r_con_obj.group(0))))
 
         return result
 
@@ -322,6 +333,7 @@ class FileParseAll:
             if index+1 == len(keywords):
 
                 if key not in tmp_manifest:
+                    value_list.extend([None])
                     break
 
                 value_list.extend([str(tmp_manifest[key])])
@@ -332,6 +344,7 @@ class FileParseAll:
                     tmp_manifest = tmp_manifest[key]
                     index += 1
                 else:
+                    value_list.extend([None])
                     logger.warning("[REGEX][FILE] Special keyword {} Not found in object {}".format(key, object))
                     break
             else:
@@ -344,9 +357,11 @@ class FileParseAll:
 
 
 class Directory(object):
-    def __init__(self, absolute_path, black_path_list=None):
+    def __init__(self, absolute_path, black_path_list=[]):
         self.absolute_path = absolute_path
-        self.black_path_list = black_path_list
+        self.black_path_list = ['.crx_files']
+
+        self.black_path_list.extend(black_path_list)
 
     file_sum = 0
     type_nums = {}
@@ -395,13 +410,16 @@ class Directory(object):
                 for filename in os.listdir(absolute_path):
                     directory = os.path.join(absolute_path, filename)
 
+                    flag = 0
+
                     # check black path list
                     if self.black_path_list:
                         for black_path in self.black_path_list:
-                            if black_path in directory:
-                                break
-                        else:
-                            continue
+                            if black_path in filename:
+                                flag = 1
+
+                    if flag:
+                        continue
 
                     # Directory Structure
                     logger.debug('[PICKUP] [FILES] ' + '|  ' * (level - 1) + '|--' + filename)
