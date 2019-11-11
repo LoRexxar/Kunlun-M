@@ -8,3 +8,4 @@ requests>=2.20.0
 Werkzeug==0.16.0
 esprima==4.0.1
 jsbeautifier==1.10.2
+bs4
