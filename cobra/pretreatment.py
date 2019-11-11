@@ -10,6 +10,8 @@ from phply.phplex import lexer  # 词法分析
 from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 
+from bs4 import BeautifulSoup
+
 import esprima
 import jsbeautifier
 
@@ -27,7 +29,7 @@ import zipfile
 import queue
 import asyncio
 
-could_ast_pase_lans = ["php", "chromeext", "javascript"]
+could_ast_pase_lans = ["php", "chromeext", "javascript", "html"]
 
 
 def un_zip(target_path):
@@ -95,7 +97,10 @@ class Pretreatment:
 
     def get_path(self, filepath):
 
-        if os.path.isfile(os.path.join(os.path.dirname(self.target_directory), filepath)):
+        if os.path.isfile(filepath):
+            return os.path.normpath(filepath)
+
+        if os.path.isfile(os.path.normpath(os.path.join(os.path.dirname(self.target_directory), filepath))):
             return os.path.normpath(os.path.join(os.path.dirname(self.target_directory), filepath))
 
         if os.path.isfile(self.target_directory):
@@ -172,6 +177,7 @@ class Pretreatment:
                 # 需要提取其中的js和html？
                 for filepath in fileext[1]['list']:
                     child_files = []
+                    child_files_html = []
 
                     filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
@@ -213,21 +219,79 @@ class Pretreatment:
 
                         self.pre_result[filepath]["manifest"] = manifest
 
+                        # content scripts
                         if "content_scripts" in manifest:
                             for script in manifest["content_scripts"]:
-                                if 'js' in script:
+                                if "js" in script:
                                     child_files.extend([os.path.join(relative_path, js) for js in script['js']])
+
+                        # background js
+                        if "background" in manifest:
+                            if "scripts" in manifest["background"]:
+                                child_files.extend([os.path.join(relative_path, js) for js in manifest["background"]["scripts"]])
+
+                            # background html
+                            if "page" in manifest["background"]:
+                                child_files_html.append(os.path.join(relative_path, manifest["background"]["page"]))
 
                         self.pre_result[filepath]["child_files"] = child_files
 
                         # 将content_scripts加入到文件列表中构造
                         self.target_queue.put(('.js', {'count': len(child_files), 'list': child_files}))
+                        self.target_queue.put(('.html', {'count': len(child_files_html), 'list': child_files_html}))
 
                         # 通过浅复制操作外部传入的files
                         self.file_list.append(('.js', {'count': len(child_files), 'list': child_files}))
 
                     else:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
+                        continue
+
+            elif fileext[0] in ext_dict['html']:
+                # html only found js
+                for filepath in fileext[1]['list']:
+                    filepath = self.get_path(filepath)
+                    script_list = []
+
+                    fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
+                    code_content = fi.read()
+                    fi.close()
+
+                    # tmp.js save all inline javascript code
+                    tmp_path = os.path.join(os.path.dirname(filepath), "tmp.js")
+                    fi2 = codecs.open(tmp_path, "a", encoding='utf-8', errors='ignore')
+
+                    try:
+                        soup = BeautifulSoup(code_content, "html.parser")
+
+                        script_tag_list = soup.find_all('script')
+
+                        for script_tag in script_tag_list:
+                            script_attrs = script_tag.attrs
+
+                            if 'src' in script_attrs:
+                                parents_path = os.path.normpath("\\".join(re.split(r'[\\|/]', filepath)[:-1]))
+
+                                script_path = os.path.join(parents_path, script_attrs['src'])
+                                script_list.append(script_path)
+
+                            else:
+                                # 如果没有src，那么代表是内联js
+                                script_content = script_tag.string
+
+                                fi2.write(" \n{}\n ".format(script_content))
+
+                        fi2.close()
+                        script_list.append(tmp_path)
+
+                        # 将content_scripts加入到文件列表中构造
+                        self.target_queue.put(('.js', {'count': len(script_list), 'list': script_list}))
+
+                        # 通过浅复制操作外部传入的files
+                        self.file_list.append(('.js', {'count': len(script_list), 'list': script_list}))
+
+                    except:
+                        logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
                         continue
 
             elif fileext[0] in ext_dict['javascript']:

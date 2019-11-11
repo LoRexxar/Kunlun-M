@@ -79,7 +79,7 @@
     <language name="Bat">
         <extension value=".bat"/>
     </language>
-    <language name="HTML">
+    <language name="HTML" chiefly="True">
         <extension value=".html"/>
         <extension value=".htm"/>
         <extension value=".phtml"/>

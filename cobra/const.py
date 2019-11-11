@@ -51,4 +51,5 @@ ext_dict = {
     "solidity": ['.sol'],
     "javascript": ['.js'],
     "chromeext": ['.crx'],
+    "html": ['.html'],
 }
