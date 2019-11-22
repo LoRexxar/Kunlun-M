@@ -143,7 +143,7 @@ class Pretreatment:
                     code_content = fi.read()
                     fi.close()
 
-                    self.pre_result[filepath]['content'] = code_content
+                    # self.pre_result[filepath]['content'] = code_content
 
                     try:
                         parser = make_parser()
@@ -197,7 +197,9 @@ class Pretreatment:
 
                     # target可能是单个文件，这里需要专门处理
                     if not (self.target_directory.endswith("/") or self.target_directory.endswith("\\")) and not os.path.isdir(self.target_directory):
-                        relative_path = os.path.join(re.split(r'[\\|/]', self.target_directory)[-1] + "_files")
+
+                        path_list = re.split(r'[\\|/]', self.target_directory)
+                        relative_path = os.path.join(path_list[-1]+"_files")
                     else:
                         relative_path = target_files_path.split(self.target_directory)[-1]
 
@@ -234,14 +236,36 @@ class Pretreatment:
                             if "page" in manifest["background"]:
                                 child_files_html.append(os.path.join(relative_path, manifest["background"]["page"]))
 
+                        # popup.html
+                        if "browser_action" in manifest:
+                            if "default_popup" in manifest["browser_action"]:
+                                child_files_html.append(os.path.join(relative_path, manifest["browser_action"]["default_popup"]))
+
+                        # web_accessible_resources
+                        if "web_accessible_resources" in manifest:
+                            for resource in manifest["web_accessible_resources"]:
+                                if ".js" in resource:
+                                    child_files.append(os.path.join(relative_path, resource))
+
+                                if ".html" in resource:
+                                    child_files_html.append(os.path.join(relative_path, resource))
+
+                        # chrome_url_overrides
+                        if "chrome_url_overrides" in manifest:
+                            for key in manifest["chrome_url_overrides"]:
+                                child_files_html.append(os.path.join(relative_path, manifest["chrome_url_overrides"][key]))
+
                         self.pre_result[filepath]["child_files"] = child_files
 
-                        # 将content_scripts加入到文件列表中构造
-                        self.target_queue.put(('.js', {'count': len(child_files), 'list': child_files}))
-                        self.target_queue.put(('.html', {'count': len(child_files_html), 'list': child_files_html}))
+                        if len(child_files):
+                            # 将content_scripts加入到文件列表中构造
+                            self.target_queue.put(('.js', {'count': len(child_files), 'list': child_files}))
 
-                        # 通过浅复制操作外部传入的files
-                        self.file_list.append(('.js', {'count': len(child_files), 'list': child_files}))
+                            # 通过浅复制操作外部传入的files
+                            self.file_list.append(('.js', {'count': len(child_files), 'list': child_files}))
+
+                        if len(child_files_html):
+                            self.target_queue.put(('.html', {'count': len(child_files_html), 'list': child_files_html}))
 
                     else:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
@@ -300,6 +324,10 @@ class Pretreatment:
                 # 需要对js做语义分析
                 for filepath in fileext[1]['list']:
                     filepath = self.get_path(filepath)
+
+                    if ".js" not in filepath:
+                        continue
+
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'javascript'
                     self.pre_result[filepath]['ast_nodes'] = []
@@ -311,15 +339,16 @@ class Pretreatment:
                     # 添加代码美化并且写入新文件
                     new_filepath = filepath + ".pretty"
 
-                    if not os.path.isfile(new_filepath):
-                        fi2 = codecs.open(new_filepath, "w", encoding='utf-8', errors='ignore')
-                        code_content = jsbeautifier.beautify(code_content)
-                        fi2.write(code_content)
-                        fi2.close()
-
-                    self.pre_result[filepath]['content'] = code_content
-
                     try:
+
+                        if not os.path.isfile(new_filepath):
+                            fi2 = codecs.open(new_filepath, "w", encoding='utf-8', errors='ignore')
+                            code_content = jsbeautifier.beautify(code_content)
+                            fi2.write(code_content)
+                            fi2.close()
+
+                        # self.pre_result[filepath]['content'] = code_content
+
                         all_nodes = esprima.parse(code_content, {"loc": True})
 
                         # 合并字典
@@ -373,15 +402,15 @@ class Pretreatment:
             logger.warning("[AST] file {} parser not found...".format(filepath))
             return False
 
-    def get_content(self, filepath):
-        filepath = os.path.normpath(filepath)
-
-        if filepath in self.pre_result:
-            return self.pre_result[filepath]['content']
-
-        else:
-            logger.warning("[AST] file {} parser not found...".format(filepath))
-            return False
+    # def get_content(self, filepath):
+    #     filepath = os.path.normpath(filepath)
+    #
+    #     if filepath in self.pre_result:
+    #         return self.pre_result[filepath]['content']
+    #
+    #     else:
+    #         logger.warning("[AST] file {} parser not found...".format(filepath))
+    #         return False
 
     def get_object(self, filepath):
         filepath = os.path.normpath(filepath)
