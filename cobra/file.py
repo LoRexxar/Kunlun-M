@@ -101,10 +101,15 @@ def file_grep(file_path, rule_reg):
 
 
 def check_filepath(target, filepath):
-    if os.path.isfile(target):
+
+    if os.path.isfile(filepath):
+        return filepath
+    elif os.path.isfile(os.path.join(target, filepath)):
+        return os.path.join(target, filepath)
+    elif os.path.isfile(target):
         return target
     else:
-        return os.path.join(target, filepath)
+        return False
 
 
 class FileParseAll:
@@ -123,6 +128,9 @@ class FileParseAll:
 
         for ffile in self.t_filelist:
             filepath = check_filepath(self.target, ffile)
+
+            if not filepath:
+                continue
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             line_number = 0
@@ -145,6 +153,9 @@ class FileParseAll:
 
         for ffile in self.t_filelist:
             filepath = check_filepath(self.target, ffile)
+
+            if not filepath:
+                continue
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             content = file.read()
@@ -187,6 +198,9 @@ class FileParseAll:
 
         for ffile in self.t_filelist:
             filepath = check_filepath(self.target, ffile)
+
+            if not filepath:
+                continue
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             content = file.read()
@@ -278,7 +292,11 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
+
             ffile_path = check_filepath(self.target, ffile)
+
+            if not ffile_path:
+                continue
 
             ffile_object = ast_object.get_object(ffile_path)
 
