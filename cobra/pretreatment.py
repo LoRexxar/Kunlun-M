@@ -133,6 +133,9 @@ class Pretreatment:
 
             fileext = self.target_queue.get()
 
+            if not self.lan:
+                break
+
             if fileext[0] in ext_dict['php'] and 'php' in self.lan:
                 # 下面是对于php文件的处理逻辑
                 for filepath in fileext[1]['list']:

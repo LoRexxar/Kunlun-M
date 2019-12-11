@@ -294,7 +294,7 @@ class FileParseAll:
 
         for ffile in self.t_filelist:
             ffile_path = check_filepath(self.target, ffile)
-            
+
             if not ffile_path:
                 continue
 
