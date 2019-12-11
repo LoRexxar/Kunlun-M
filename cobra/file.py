@@ -101,6 +101,7 @@ def file_grep(file_path, rule_reg):
 
 
 def check_filepath(target, filepath):
+    os.chdir(os.path.dirname(__file__))
 
     if os.path.isfile(filepath):
         return filepath
@@ -292,15 +293,14 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-
             ffile_path = check_filepath(self.target, ffile)
-
+            
             if not ffile_path:
                 continue
 
             ffile_object = ast_object.get_object(ffile_path)
 
-            if not ffile_object:
+            if not ffile_object or 'manifest' not in ffile_object:
                 continue
 
             manifest = ffile_object['manifest']

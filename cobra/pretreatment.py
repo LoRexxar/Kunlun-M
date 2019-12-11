@@ -83,11 +83,12 @@ class Pretreatment:
         self.file_list = []
         self.target_queue = queue.Queue()
         self.target_directory = ""
+        self.lan = None
 
         self.pre_result = {}
         self.define_dict = {}
 
-        self.pre_ast_all()
+        # self.pre_ast_all()
 
     def init_pre(self, target_directory, files):
         self.file_list = files
@@ -119,6 +120,9 @@ class Pretreatment:
         for fileext in self.file_list:
             self.target_queue.put(fileext)
 
+        # 设置公共变量用于判断是否设定了扫描语言
+        self.lan = lan
+
         loop = asyncio.get_event_loop()
         scan_list = (self.pre_ast() for i in range(10))
         loop.run_until_complete(asyncio.gather(*scan_list))
@@ -129,7 +133,7 @@ class Pretreatment:
 
             fileext = self.target_queue.get()
 
-            if fileext[0] in ext_dict['php']:
+            if fileext[0] in ext_dict['php'] and 'php' in self.lan:
                 # 下面是对于php文件的处理逻辑
                 for filepath in fileext[1]['list']:
                     all_nodes = []
@@ -171,7 +175,7 @@ class Pretreatment:
 
                             self.define_dict[define_params[0].node] = define_params[1].node
 
-            elif fileext[0] in ext_dict['chromeext']:
+            elif fileext[0] in ext_dict['chromeext'] and 'chromeext' in self.lan:
 
                 # 针对chrome 拓展的预处理
                 # 需要提取其中的js和html？
@@ -190,6 +194,10 @@ class Pretreatment:
 
                     except zipfile.BadZipFile:
                         logger.warning("[Pretreatment][Chrome Ext] file {} not zip".format(filepath))
+                        continue
+
+                    except OSError:
+                        logger.warning("[Pretreatment][Chrome Ext] file {} unzip error".format(filepath))
                         continue
 
                     # 分析manifest.json
@@ -219,7 +227,13 @@ class Pretreatment:
                                 "[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                             continue
 
+                        print(filepath)
                         self.pre_result[filepath]["manifest"] = manifest
+
+                        # 想办法优化，如果不想深入js和html的判断，那么就跳过
+                        if len(self.lan) and self.lan == 'chromeext':
+                            logger.debug("[Pretreatment][Chrome Ext] pass js & html scan...")
+                            continue
 
                         # content scripts
                         if "content_scripts" in manifest:
@@ -271,7 +285,7 @@ class Pretreatment:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                         continue
 
-            elif fileext[0] in ext_dict['html']:
+            elif fileext[0] in ext_dict['html'] and 'html' in self.lan:
                 # html only found js
                 for filepath in fileext[1]['list']:
                     filepath = self.get_path(filepath)
@@ -318,7 +332,7 @@ class Pretreatment:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
                         continue
 
-            elif fileext[0] in ext_dict['javascript']:
+            elif fileext[0] in ext_dict['javascript'] and 'javascript' in self.lan:
 
                 # 针对javascript的预处理
                 # 需要对js做语义分析
@@ -332,9 +346,13 @@ class Pretreatment:
                     self.pre_result[filepath]['language'] = 'javascript'
                     self.pre_result[filepath]['ast_nodes'] = []
 
-                    fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
-                    code_content = fi.read()
-                    fi.close()
+                    try:
+                        fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
+                        code_content = fi.read()
+                        fi.close()
+
+                    except FileNotFoundError:
+                        continue
 
                     # 添加代码美化并且写入新文件
                     new_filepath = filepath + ".pretty"

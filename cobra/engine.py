@@ -617,6 +617,7 @@ class Core(object):
             '/node_modules/',
             '/bower_components/',
             '.min.js',
+            'jquery',
         ]
         for path in special_paths:
             if path in self.file_path:
