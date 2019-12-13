@@ -231,7 +231,6 @@ class Pretreatment:
                                 "[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                             continue
 
-                        print(filepath)
                         self.pre_result[filepath]["manifest"] = manifest
 
                         # 想办法优化，如果不想深入js和html的判断，那么就跳过
@@ -289,15 +288,22 @@ class Pretreatment:
                         logger.warning("[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
                         continue
 
-            elif fileext[0] in ext_dict['html'] and 'html' in self.lan:
+            elif fileext[0] in ext_dict['html'] and 'javascript' in self.lan:
                 # html only found js
                 for filepath in fileext[1]['list']:
                     filepath = self.get_path(filepath)
                     script_list = []
 
-                    fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
-                    code_content = fi.read()
-                    fi.close()
+                    try:
+                        fi = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
+                        code_content = fi.read()
+                        fi.close()
+
+                    except FileNotFoundError:
+                        continue
+
+                    except OSError:
+                        continue
 
                     # tmp.js save all inline javascript code
                     tmp_path = os.path.join(os.path.dirname(filepath), "tmp.js")
@@ -324,7 +330,8 @@ class Pretreatment:
                                 fi2.write(" \n{}\n ".format(script_content))
 
                         fi2.close()
-                        script_list.append(tmp_path)
+                        if tmp_path not in script_list:
+                            script_list.append(tmp_path)
 
                         # 将content_scripts加入到文件列表中构造
                         self.target_queue.put(('.js', {'count': len(script_list), 'list': script_list}))
@@ -343,7 +350,7 @@ class Pretreatment:
                 for filepath in fileext[1]['list']:
                     filepath = self.get_path(filepath)
 
-                    if ".js" not in filepath:
+                    if not filepath.endswith(".js"):
                         continue
 
                     self.pre_result[filepath] = {}
@@ -356,6 +363,9 @@ class Pretreatment:
                         fi.close()
 
                     except FileNotFoundError:
+                        continue
+
+                    except OSError:
                         continue
 
                     # 添加代码美化并且写入新文件
@@ -406,12 +416,13 @@ class Pretreatment:
                 # 处理需求函数的问题
                 # 主要应用于，函数定义之后才会调用才会触发
                 if lan == 'javascript':
-                    backnodes = []
+                    backnodes = lambda: None
+                    backnodes.body = []
                     allnodes = self.pre_result[filepath]['ast_nodes'].body
 
                     for node in allnodes:
                         if node.loc.start.line <= int(vul_lineno):
-                            backnodes.append(node)
+                            backnodes.body.append(node)
 
                     return backnodes
 

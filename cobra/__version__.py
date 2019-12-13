@@ -28,5 +28,6 @@ __epilog__ = """Usage:
   python {m} -t {td} -s wordpress
   python {m} -t {td} -f json -o /tmp/report.json 
   python {m} -t {td} --debug
+  python {m} -t {td} -d -u
   python {m} -t {td} --lan php -b vendor --debug
 """.format(m='cobra.py', td='tests/vulnerabilities')
