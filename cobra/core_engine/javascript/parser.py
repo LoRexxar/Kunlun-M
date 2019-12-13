@@ -37,10 +37,10 @@ default_controlled_params = [
 
     # for chrome
     'chrome.cookies.get',
-    'chrome.cookies.getAll'
+    'chrome.cookies.getAll',
 
     # new api
-    '.addEventListener'
+    '.addEventListener',
     # 'location',
 ]
 

@@ -36,7 +36,7 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None, is_unconfirm=False):
     """
     Start CLI
     :param black_path: 
@@ -101,7 +101,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
              language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
-             files=files, secret_name=secret_name)
+             files=files, secret_name=secret_name, is_unconfirm=is_unconfirm)
     except KeyboardInterrupt as e:
         logger.critical("[!] KeyboardInterrupt, exit...")
         exit()

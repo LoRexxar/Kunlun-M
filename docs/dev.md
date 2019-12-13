@@ -8,51 +8,53 @@
 ```
 python .\cobra.py -h
 
-usage: cobra [-h] [-t <target>] [-f <format>] [-o <output>] [-r <rule_id>]                                              
-             [-s <secret_name>] [-i <sid>] [-l <log>] [-d] [-lan LANGUAGE]                                              
-             [-b BLACK_PATH]                                                                                            
-                                                                                                                        
-  ____      _                  __        __                                                                             
- / ___|___ | |__  _ __ __ _    \ \      / /                                                                             
-| |   / _ \| '_ \| '__/ _` |    \ \ /\ / /                                                                              
-| |__| (_) | |_) | | | (_| | --- \ V  V /                                                                               
- \____\___/|_.__/|_|  \__,_|      \_/\_/  v1.6.0                                                                        
-                                                                                                                        
-GitHub: https://github.com/LoRexxar/Cobra-W                                                                             
-                                                                                                                        
-Cobra is a static code analysis system that automates the detecting vulnerabilities and security issue.                 
-                                                                                                                        
-optional arguments:                                                                                                     
-  -h, --help            show this help message and exit                                                                 
-                                                                                                                        
-Scan:                                                                                                                   
-  -t <target>, --target <target>                                                                                        
-                        file, folder, compress, or repository address                                                   
-  -f <format>, --format <format>                                                                                        
-                        vulnerability output format (formats: html, json, csv,                                          
-                        xml)                                                                                            
-  -o <output>, --output <output>                                                                                        
-                        vulnerability output STREAM, FILE                                                               
-  -r <rule_id>, --rule <rule_id>                                                                                        
-                        specifies rules e.g: 1000, 1001                                                                 
-  -s <secret_name>, --secret <secret_name>                                                                              
-                        secret repair function e.g: wordpress                                                           
-  -i <sid>, --sid <sid>                                                                                                 
-                        sid for cobra-wa                                                                                
-  -l <log>, --log <log>                                                                                                 
-                        log name for cobra-wa                                                                           
-  -d, --debug           open debug mode                                                                                 
-  -lan LANGUAGE, --language LANGUAGE                                                                                    
-                        set target language                                                                             
-  -b BLACK_PATH, --blackpath BLACK_PATH                                                                                 
-                        black path list                                                                                 
-                                                                                                                        
-Usage:                                                                                                                  
-  python cobra.py -t tests/vulnerabilities                                                                              
-  python cobra.py -t tests/vulnerabilities -r 1000, 1001                                                                
-  python cobra.py -t tests/vulnerabilities -s wordpress                                                                 
-  python cobra.py -t tests/vulnerabilities -f json -o /tmp/report.json                                                  
-  python cobra.py -t tests/vulnerabilities --debug                                                                      
+usage: cobra [-h] [-t <target>] [-f <format>] [-o <output>] [-r <rule_id>]
+             [-b BLACK_PATH] [-d] [-u]
+
+  ____      _                  __        __
+ / ___|___ | |__  _ __ __ _    \ \      / /
+| |   / _ \| '_ \| '__/ _` |    \ \ /\ / /
+| |__| (_) | |_) | | | (_| | --- \ V  V /
+ \____\___/|_.__/|_|  \__,_|      \_/\_/  v1.9.1
+
+GitHub: https://github.com/LoRexxar/Cobra-W
+
+Cobra is a static code analysis system that automates the detecting vulnerabilities and security issue.
+
+optional arguments:
+  -h, --help            show this help message and exit
+
+Scan:
+  -t <target>, --target <target>
+                        file, folder, compress, or repository address
+  -f <format>, --format <format>
+                        vulnerability output format (formats: html, json, csv,
+                        xml)
+  -o <output>, --output <output>
+                        vulnerability output STREAM, FILE
+  -r <rule_id>, --rule <rule_id>
+                        specifies rules e.g: 1000, 1001
+  -s <secret_name>, --secret <secret_name>
+                        secret repair function e.g: wordpress
+  -i <sid>, --sid <sid>
+                        sid for cobra-wa
+  -l <log>, --log <log>
+                        log name for cobra-wa
+  -lan LANGUAGE, --language LANGUAGE
+                        set target language
+  -b BLACK_PATH, --blackpath BLACK_PATH
+                        black path list
+  -d, --debug           open debug mode
+  -u, --unconfirm       show unconfirmed vuls
+
+Usage:
+  python cobra.py -t tests/vulnerabilities
+  python cobra.py -t tests/vulnerabilities -r 1000, 1001
+  python cobra.py -t tests/vulnerabilities -s wordpress
+  python cobra.py -t tests/vulnerabilities -f json -o /tmp/report.json
+  python cobra.py -t tests/vulnerabilities --debug
+  python cobra.py -t tests/vulnerabilities -d -u
+  python cobra.py -t tests/vulnerabilities --lan php -b vendor --debug
 ```
 
 ## 核心代码

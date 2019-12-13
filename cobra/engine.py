@@ -147,15 +147,15 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None):
+def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None, is_unconfirm=False):
     try:
-        return SingleRule(target_directory, single_rule, files, language, secret_name).process()
+        return SingleRule(target_directory, single_rule, files, language, secret_name, is_unconfirm).process()
     except Exception:
         raise
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None, secret_name=None):
+         extension_count=0, files=None, secret_name=None, is_unconfirm=False):
     r = Rule(language)
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
@@ -171,7 +171,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     async def start_scan(target_directory, rule, files, language, secret_name):
 
-        result = scan_single(target_directory, rule, files, language, secret_name)
+        result = scan_single(target_directory, rule, files, language, secret_name, is_unconfirm)
         store(result)
 
     if len(rules) == 0:
@@ -284,7 +284,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None):
+    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None, is_unconfirm=False):
         self.target_directory = target_directory
         self.find = Tool().find
         self.grep = Tool().grep
@@ -293,6 +293,7 @@ class SingleRule(object):
         self.languages = language
         self.lan = self.sr.language.lower()
         self.secret_name = secret_name
+        self.is_unconfirm = is_unconfirm
         # Single Rule Vulnerabilities
         """
         [
@@ -467,7 +468,8 @@ class SingleRule(object):
             try:
                 datas = Core(self.target_directory, vulnerability, self.sr, 'project name',
                              ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                             files=self.files, languages=self.languages, secret_name=self.secret_name).scan()
+                             files=self.files, languages=self.languages, secret_name=self.secret_name,
+                             is_unconfirm=self.is_unconfirm).scan()
                 data = ""
 
                 if len(datas) == 3:
@@ -492,7 +494,8 @@ class SingleRule(object):
                     if reason == 'New Core':  # 新的规则
                         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
                         new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0,
-                                                           languages=self.languages, secret_name=self.secret_name)
+                                                           languages=self.languages, secret_name=self.secret_name,
+                                                           is_unconfirm=self.is_unconfirm)
 
                         if len(new_rule_vulnerabilities) > 0:
                             self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
@@ -533,7 +536,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=0, files=None, languages=None, secret_name=None):
+                 index=0, files=None, languages=None, secret_name=None, is_unconfirm=False):
         """
         Initialize
         :param: target_directory:
@@ -551,7 +554,7 @@ class Core(object):
         self.repair_functions = []
         self.controlled_list = []
 
-        self.target_directory = target_directory
+        self.target_directory = os.path.normpath(target_directory)
 
         self.file_path = vulnerability_result.file_path.strip()
         self.line_number = vulnerability_result.line_number
@@ -567,6 +570,7 @@ class Core(object):
         self.cvi = single_rule.svid
         self.lan = single_rule.language.lower()
         self.single_rule = single_rule
+        self.is_unconfirm = is_unconfirm
 
         self.project_name = project_name
         self.white_list = white_list
@@ -617,6 +621,7 @@ class Core(object):
             '/node_modules/',
             '/bower_components/',
             '.min.js',
+            'jquery',
         ]
         for path in special_paths:
             if path in self.file_path:
@@ -810,7 +815,10 @@ class Core(object):
                                 return False, 'Function-param-controllable but fixed', result[0]['chain']
 
                             elif result[0]['code'] == 3:  # 疑似漏洞
-                                return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
+                                if self.is_unconfirm:
+                                    return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
+                                else:
+                                    return False, 'Unconfirmed Function-param-controllable', result[0]['chain']
 
                             elif result[0]['code'] == -1:  # 函数参数不可控
                                 return False, 'Function-param-uncon', result[0]['chain']
@@ -837,7 +845,10 @@ class Core(object):
                     if code == 1:
                         return True, 'Vustomize-Match', chain
                     elif code == 3:
-                        return False, 'Unconfirmed Vustomize-Match', chain
+                        if self.is_unconfirm:
+                            return True, 'Unconfirmed Vustomize-Match', chain
+                        else:
+                            return False, 'Unconfirmed Vustomize-Match', chain
 
                 else:
                     if type(data) is tuple:
@@ -914,7 +925,10 @@ class Core(object):
                                 return False, 'Function-param-controllable but fixed', result[0]['chain']
 
                             elif result[0]['code'] == 3:  # 疑似漏洞
-                                return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
+                                if self.is_unconfirm:
+                                    return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
+                                else:
+                                    return False, 'Unconfirmed Function-param-controllable', result[0]['chain']
 
                             elif result[0]['code'] == -1:  # 函数参数不可控
                                 return False, 'Function-param-uncon', result[0]['chain']
@@ -941,8 +955,10 @@ class Core(object):
                         if code == 1:
                             return True, 'Vustomize-Match', chain
                         elif code == 3:
-                            return False, 'Unconfirmed Vustomize-Match', chain
-
+                            if self.is_unconfirm:
+                                return True, 'Unconfirmed Vustomize-Match', chain
+                            else:
+                                return False, 'Unconfirmed Vustomize-Match', chain
                     else:
                         if type(data) is tuple:
                             if int(data[0]) == 4:
@@ -1028,7 +1044,7 @@ def auto_parse_match(single_match, svid, language):
     return mr
 
 
-def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None):
+def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None, is_unconfirm=False):
     """
     处理新的规则生成
     :param languages: 
@@ -1108,7 +1124,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
 
         try:
             datas = Core(target_directory, vulnerability, sr, 'project name',
-                         ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name).scan()
+                         ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name, is_unconfirm=is_unconfirm).scan()
             data = ""
 
             if len(datas) == 3:
@@ -1132,7 +1148,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
                 if reason == 'New Core':  # 新的规则
                     logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
                     new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count,
-                                                       secret_name=secret_name)
+                                                       secret_name=secret_name, is_unconfirm=is_unconfirm)
 
                     if not new_rule_vulnerabilities:
                         return rule_vulnerabilities

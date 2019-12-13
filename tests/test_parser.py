@@ -19,7 +19,7 @@ from cobra.pretreatment import ast_object
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
 ast_object.init_pre(project_directory + '/tests/vulnerabilities/', files)
-ast_object.pre_ast_all()
+ast_object.pre_ast_all(['php'])
 
 
 target_projects = project_directory + '/tests/vulnerabilities/v_parser.php'
