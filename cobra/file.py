@@ -135,11 +135,24 @@ class FileParseAll:
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             line_number = 0
+            i = 0
+            content = ""
+
+            # 逐行匹配问题比较大，先测试为每5行匹配一次
             for line in file:
+                i += 1
                 line_number += 1
+                content += line
+
+                if i < 5:
+                    continue
+
+                i = 0
                 # print line, line_number
-                if re.search(reg, line, re.I):
-                    result.append((filepath, str(line_number), line))
+                if re.search(reg, content, re.I):
+                    result.append((filepath, str(line_number), content))
+
+                content = ""
 
         return result
 
