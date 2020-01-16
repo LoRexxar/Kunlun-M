@@ -861,6 +861,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                      file_path=file_path, isback=isback, parent_node=node)
 
             if is_co == 3 and cp != param:  # 理由如上
+                param = cp
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback,
@@ -886,6 +887,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                              isback=isback, parent_node=node)
 
                     if is_co == 3 and cp != param:  # 理由如上
+                        param = cp
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                  function_flag=function_flag, vul_function=vul_function,
                                                                  file_path=file_path,
@@ -910,6 +912,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          file_path=file_path, isback=isback, parent_node=node)
 
                 if is_co == 3 and cp != param:  # 理由如上
+                    param = cp
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
@@ -1145,9 +1148,6 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
     :return:
     """
     global scan_results
-    print(node.name)
-    print(node.lineno)
-    print(vul_lineno)
     try:
         if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 函数体中存在敏感函数，开始对敏感函数前的代码进行检测
             for param in node.params:
