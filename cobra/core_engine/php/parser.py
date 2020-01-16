@@ -861,6 +861,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                      file_path=file_path, isback=isback, parent_node=node)
 
             if is_co == 3 and cp != param:  # 理由如上
+                param = cp
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback,
@@ -886,6 +887,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                              isback=isback, parent_node=node)
 
                     if is_co == 3 and cp != param:  # 理由如上
+                        param = cp
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                  function_flag=function_flag, vul_function=vul_function,
                                                                  file_path=file_path,
@@ -910,6 +912,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          file_path=file_path, isback=isback, parent_node=node)
 
                 if is_co == 3 and cp != param:  # 理由如上
+                    param = cp
                     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
@@ -1629,7 +1632,6 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_body = []
             function_params = get_function_params(node.params)
-
             analysis(node.nodes, vul_function, function_body, vul_lineo, function_params=function_params,
                      file_path=file_path)
 

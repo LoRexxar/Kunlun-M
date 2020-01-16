@@ -2,7 +2,6 @@ language: python
 python:
   - "3.6"
   - "3.7"
-  - "nightly"
 install:
   - pip install coveralls
   - pip install -r requirements.txt

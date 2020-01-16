@@ -97,7 +97,7 @@ class Pretreatment:
         self.target_directory = os.path.normpath(self.target_directory)
 
     def get_path(self, filepath):
-        os.chdir(os.path.dirname(__file__))
+        os.chdir(os.path.dirname(os.path.dirname(__file__)))
 
         if os.path.isfile(filepath):
             return os.path.normpath(filepath)
