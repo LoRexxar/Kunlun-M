@@ -225,7 +225,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             code_content = x.code_content.decode('utf-8')[:100].strip()
         row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit, code_content.replace('\r\n', ' ').replace('\n', ' '), x.analysis]
         row2 = [idx + 1, x.chain]
-        print(row)
 
         data.append(row)
         data2.append(row2)
