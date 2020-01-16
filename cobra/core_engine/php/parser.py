@@ -1145,6 +1145,9 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
     :return:
     """
     global scan_results
+    print(node.name)
+    print(node.lineno)
+    print(vul_lineno)
     try:
         if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 函数体中存在敏感函数，开始对敏感函数前的代码进行检测
             for param in node.params:
@@ -1629,7 +1632,6 @@ def analysis(nodes, vul_function, back_node, vul_lineo, file_path=None, function
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_body = []
             function_params = get_function_params(node.params)
-
             analysis(node.nodes, vul_function, function_body, vul_lineo, function_params=function_params,
                      file_path=file_path)
 
