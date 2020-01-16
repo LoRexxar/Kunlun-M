@@ -101,7 +101,7 @@ def file_grep(file_path, rule_reg):
 
 
 def check_filepath(target, filepath):
-    os.chdir(os.path.dirname(__file__))
+    os.chdir(os.path.dirname(os.path.dirname(__file__)))
 
     if os.path.isfile(filepath):
         return filepath
@@ -153,6 +153,11 @@ class FileParseAll:
                     result.append((filepath, str(line_number), content))
 
                 content = ""
+
+            # 如果退出循环的时候没有清零，则还要检查一次
+            if i > 0:
+                if re.search(reg, content, re.I):
+                    result.append((filepath, str(line_number), content))
 
         return result
 
