@@ -153,8 +153,14 @@ class FileParseAll:
 
                     # 尝试通过分割来判断行数
                     split_data = re.split(reg, content)[2:]
+                    enddata = re.split(reg, content)[-1]
                     LRnumber = " ".join(split_data).count('\n')
-                    line_number = line_number - LRnumber + 1
+
+                    if enddata.endswith('\n'):
+                        line_number = line_number - LRnumber + 1
+                    else:
+                        line_number = line_number - LRnumber
+
 
                     result.append((filepath, str(line_number), content))
 
@@ -165,8 +171,13 @@ class FileParseAll:
                 if re.search(reg, content, re.I):
                     # 尝试通过分割来判断行数
                     split_data = re.split(reg, content)[2:]
+                    enddata = re.split(reg, content)[-1]
                     LRnumber = " ".join(split_data).count('\n')
-                    line_number = line_number - LRnumber + 1
+
+                    if enddata.endswith('\n'):
+                        line_number = line_number - LRnumber + 1
+                    else:
+                        line_number = line_number - LRnumber
 
                     result.append((filepath, str(line_number), content))
 
