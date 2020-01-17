@@ -435,17 +435,16 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
 
     is_co = 3
     cp = param
-    expr_lineno = 0
+    expr_lineno = param.lineno
 
-    # print nodes
     for node in nodes[::-1]:
         if isinstance(node, php.Assignment):
             param_node_name = get_node_name(node.node)
             param_node = node.node
             param_node_expr = node.expr
 
-            if param_node_name == param_name:  # 处理数组中值被改变的问题
-                if isinstance(node.expr, php.Array):
+            if param_node_name == param_name or param == param_node:  # 处理数组中值被改变的问题
+                if isinstance(param_node_expr, php.Array):
                     for p_node in node.expr.nodes:
                         if p_node.key == param_expr:
                             if isinstance(p_node.value, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
@@ -461,7 +460,7 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
                                                                          file_path=file_path,
                                                                          isback=isback)
 
-            if param == param_node:  # 处理数组一次性赋值，左值为数组
+            # if param == param_node:  # 处理数组一次性赋值，左值为数组
                 if isinstance(param_node_expr, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
                     is_co, cp = is_controllable(param_node_expr.node.name)
 
