@@ -747,6 +747,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                         if is_co == 1:
                             return is_co, cp, expr_lineno
 
+                        if is_co == -1:
+                            continue
+
                         param = php.Variable(param)
                         _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                    function_flag=1, vul_function=vul_function,
