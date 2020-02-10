@@ -52,7 +52,9 @@ def main():
         parser_group_scan.add_argument('-b', '--blackpath', dest='black_path', action='store', default=None, help='black path list')
 
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
-        parser_group_scan.add_argument('-u', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
+
+        parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
+        parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
         args = parser.parse_args()
 
@@ -83,7 +85,7 @@ def main():
         }
         Running(a_sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.secret_name, args.black_path, args.unconfirm)
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.secret_name, args.black_path, args.unconfirm, args.unprecom)
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))

@@ -36,7 +36,7 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None, is_unconfirm=False):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None, is_unconfirm=False, is_unprecom=False):
     """
     Start CLI
     :param black_path: 
@@ -96,7 +96,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
 
         # Pretreatment ast object
         ast_object.init_pre(target_directory, files)
-        ast_object.pre_ast_all(main_language)
+        ast_object.pre_ast_all(main_language, is_unprecom=is_unprecom)
 
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
