@@ -237,6 +237,11 @@ def get_node_name(node):  # node为'node'中的元组
     if isinstance(node, php.ObjectProperty):
         return node
 
+    if isinstance(node, php.ArrayOffset):
+        return get_node_name(node.node)
+
+    return node
+
 
 def get_filename(node, file_path):  # 获取filename
     """
@@ -1335,7 +1340,6 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     param_lineno = node.lineno
 
     if file_path is not None:
-
         is_co, cp, expr_lineno, chain = anlysis_params(param, file_path, param_lineno, vul_function=vul_function)
     else:
         count = 0
