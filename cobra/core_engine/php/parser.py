@@ -237,6 +237,11 @@ def get_node_name(node):  # node为'node'中的元组
     if isinstance(node, php.ObjectProperty):
         return node
 
+    if isinstance(node, php.ArrayOffset):
+        return get_node_name(node.node)
+
+    return node
+
 
 def get_filename(node, file_path):  # 获取filename
     """
@@ -622,7 +627,15 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         return is_co, cp, expr_lineno
 
     if len(nodes) != 0 and is_co not in [-1, 1, 2]:
-        node = nodes[len(nodes) - 1]
+        node = nodes[-1]
+
+        # 加入扫描范围check, 如果当前行数大于目标行数，直接跳过(等于会不会有问题呢？)
+        if node.lineno >= lineno:
+            return parameters_back(param, nodes[:-1], function_params, lineno,
+                                     function_flag=0, vul_function=vul_function,
+                                     file_path=file_path,
+                                     isback=isback, parent_node=0)
+
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
@@ -747,6 +760,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                         if is_co == 1:
                             return is_co, cp, expr_lineno
 
+                        if is_co == -1:
+                            continue
+
                         param = php.Variable(param)
                         _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                    function_flag=1, vul_function=vul_function,
@@ -798,7 +814,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
-                is_co, cp, expr_lineno = parameters_back(param, vul_nodes, function_params, function_lineno,
+                is_co, cp, expr_lineno = parameters_back(param, vul_nodes, function_params, lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=None)
@@ -855,7 +871,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if_node_lineno = 0
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
-            is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, if_node_lineno,
+            is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path, isback=isback, parent_node=node)
 
@@ -866,7 +882,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          parent_node=parent_node)  # 找到可控的输入时，停止递归
                 # return is_co, cp, expr_lineno
 
-            if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
+            if is_co is not 1 and node.elseifs != [] and node.elseifs.lineno < lineno:  # elseif可能有多个，所以需要列表
 
                 logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.lineno))
 
@@ -881,7 +897,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                         elif_nodes = []
                         elif_node_lineno = 0
 
-                    is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, elif_node_lineno,
+                    is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
@@ -895,9 +911,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     else:
                         break
 
-            if is_co is not 1 and node.else_ != [] and node.else_ is not None:
+            if is_co is not 1 and node.else_ != [] and node.else_ is not None and node.else_.lineno < lineno:
 
-                logger.debug("[AST] param {} line {} in new branch for else".format(param, node.lineno))
+                logger.debug("[AST] param {} line {} in new branch for else".format(param, node.else_.lineno))
 
                 if isinstance(node.else_.node, php.Block):
                     else_nodes = node.else_.node.nodes
@@ -909,7 +925,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     else_nodes = []
                     else_node_lineno = 0
 
-                is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, else_node_lineno,
+                is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)
 
@@ -930,7 +946,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
 
-            return is_co, cp, expr_lineno
+            # return is_co, cp, expr_lineno
 
         elif isinstance(node, php.For):
             for_nodes = node.node.nodes
@@ -939,7 +955,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             logger.debug(
                 "[AST] param {} line {} in for, start ast in for".format(param_name, for_node_lineno))
 
-            is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, for_node_lineno,
+            is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, lineno,
                                                      function_flag=1, vul_function=vul_function, file_path=file_path,
                                                      isback=isback, parent_node=node)
             function_flag = 0
@@ -1332,7 +1348,6 @@ def analysis_variable_node(node, back_node, vul_function, vul_lineno, function_p
     param_lineno = node.lineno
 
     if file_path is not None:
-
         is_co, cp, expr_lineno, chain = anlysis_params(param, file_path, param_lineno, vul_function=vul_function)
     else:
         count = 0

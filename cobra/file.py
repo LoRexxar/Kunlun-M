@@ -134,8 +134,8 @@ class FileParseAll:
                 continue
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
-            line_number = 0
-            i = 0
+            line_number = 1
+            i = 1
             content = ""
 
             # 逐行匹配问题比较大，先测试为每5行匹配一次
@@ -144,42 +144,45 @@ class FileParseAll:
                 line_number += 1
                 content += line
 
-                if i < 5:
+                if i < 6:
                     continue
 
-                i = 0
+                i = 1
                 # print line, line_number
                 if re.search(reg, content, re.I):
 
-                    # 尝试通过分割来判断行数
-                    split_data = re.split(reg, content)[2:]
-                    enddata = re.split(reg, content)[-1]
+                    # 尝试通过以目标作为标志分割，来判断行数
+                    # 目标以前的回车数计算
+                    m = re.search(reg, content, re.I)
+                    data = m.group(0)
+
+                    split_data = content.split(data)[0]
+                    # enddata = content.split(data)[1]
+
                     LRnumber = " ".join(split_data).count('\n')
 
-                    if enddata.endswith('\n'):
-                        line_number = line_number - LRnumber + 1
-                    else:
-                        line_number = line_number - LRnumber
+                    match_numer = line_number - 5 + LRnumber
 
-
-                    result.append((filepath, str(line_number), content))
+                    result.append((filepath, str(match_numer), data))
 
                 content = ""
 
             # 如果退出循环的时候没有清零，则还要检查一次
             if i > 0:
                 if re.search(reg, content, re.I):
-                    # 尝试通过分割来判断行数
-                    split_data = re.split(reg, content)[2:]
-                    enddata = re.split(reg, content)[-1]
+                    # 尝试通过以目标作为标志分割，来判断行数
+                    # 目标以前的回车数计算
+                    m = re.search(reg, content, re.I)
+                    data = m.group(0)
+
+                    split_data = content.split(data)[0]
+                    # enddata = content.split(data)[1]
+
                     LRnumber = " ".join(split_data).count('\n')
 
-                    if enddata.endswith('\n'):
-                        line_number = line_number - LRnumber + 1
-                    else:
-                        line_number = line_number - LRnumber
+                    match_numer = line_number - 5 + LRnumber
 
-                    result.append((filepath, str(line_number), content))
+                    result.append((filepath, str(match_numer), data))
 
         return result
 

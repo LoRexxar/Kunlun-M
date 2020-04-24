@@ -84,6 +84,7 @@ class Pretreatment:
         self.target_queue = queue.Queue()
         self.target_directory = ""
         self.lan = None
+        self.is_unprecom = False
 
         self.pre_result = {}
         self.define_dict = {}
@@ -110,7 +111,7 @@ class Pretreatment:
         else:
             return os.path.normpath(os.path.join(self.target_directory, filepath))
 
-    def pre_ast_all(self, lan=None):
+    def pre_ast_all(self, lan=None, is_unprecom=False):
 
         if lan is not None:
             # 检查是否在可ast pasre列表中
@@ -123,6 +124,9 @@ class Pretreatment:
 
         # 设置公共变量用于判断是否设定了扫描语言
         self.lan = lan
+
+        # 设置标志位标识跳过预编译阶段
+        self.is_unprecom = is_unprecom
 
         loop = asyncio.get_event_loop()
         scan_list = (self.pre_ast() for i in range(10))
@@ -154,8 +158,11 @@ class Pretreatment:
                     # self.pre_result[filepath]['content'] = code_content
 
                     try:
-                        parser = make_parser()
-                        all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=True)
+                        if not self.is_unprecom:
+                            parser = make_parser()
+                            all_nodes = parser.parse(code_content, debug=False, lexer=lexer.clone(), tracking=True)
+                        else:
+                            all_nodes = []
 
                         # 合并字典
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
@@ -380,8 +387,10 @@ class Pretreatment:
                             fi2.close()
 
                         # self.pre_result[filepath]['content'] = code_content
-
-                        all_nodes = esprima.parse(code_content, {"loc": True})
+                        if not self.is_unprecom:
+                            all_nodes = esprima.parse(code_content, {"loc": True})
+                        else:
+                            all_nodes = []
 
                         # 合并字典
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
@@ -396,7 +405,7 @@ class Pretreatment:
                         logger.warning('[AST] [ERROR] Invalid regular expression in {}...'.format(filepath))
 
                     except KeyboardInterrupt:
-                        logger.log('[AST stop...')
+                        logger.log('[AST] stop...')
                         exit()
 
                     except:
