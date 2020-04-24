@@ -29,7 +29,7 @@ class CVI_1003():
         self.description = "get_headers SSRF"
 
         # status
-        self.status = True
+        self.status = False
 
         # 部分配置
         self.match_mode = "function-param-regex"
