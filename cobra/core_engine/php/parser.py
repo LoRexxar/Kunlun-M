@@ -630,12 +630,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         node = nodes[-1]
 
         # 加入扫描范围check, 如果当前行数大于目标行数，直接跳过(等于会不会有问题呢？)
-        if node.lineno >= lineno:
+        if node.lineno >= int(lineno):
             return parameters_back(param, nodes[:-1], function_params, lineno,
                                      function_flag=0, vul_function=vul_function,
                                      file_path=file_path,
                                      isback=isback, parent_node=0)
-
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
@@ -862,91 +861,58 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句
                 if_nodes = node.node.nodes
-                if_node_lineno = node.node.lineno
             elif node.node is not None:
                 if_nodes = [node.node]
-                if_node_lineno = node.node.lineno
             else:
                 if_nodes = []
-                if_node_lineno = 0
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path, isback=isback, parent_node=node)
 
-            if is_co == 3 and cp != param:  # 理由如上
-                is_co, cp, expr_lineno = parameters_back(cp, nodes[:-1], function_params, lineno,
-                                                         function_flag=function_flag, vul_function=vul_function,
-                                                         file_path=file_path, isback=isback,
-                                                         parent_node=parent_node)  # 找到可控的输入时，停止递归
-                # return is_co, cp, expr_lineno
-
-            if is_co is not 1 and node.elseifs != [] and node.elseifs.lineno < lineno:  # elseif可能有多个，所以需要列表
+            if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
                 logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.lineno))
 
                 for node_elseifs_node in node.elseifs:
                     if isinstance(node_elseifs_node.node, php.Block):
                         elif_nodes = node_elseifs_node.node.nodes
-                        elif_node_lineno = node_elseifs_node.node.lineno
                     elif node_elseifs_node.node is not None:
                         elif_nodes = [node_elseifs_node.node]
-                        elif_node_lineno = node_elseifs_node.node.lineno
                     else:
                         elif_nodes = []
-                        elif_node_lineno = 0
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
 
-                    if is_co == 3 and cp != param:  # 理由如上
-                        is_co, cp, expr_lineno = parameters_back(cp, nodes[:-1], function_params, lineno,
-                                                                 function_flag=function_flag, vul_function=vul_function,
-                                                                 file_path=file_path,
-                                                                 isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
-                        # return is_co, cp, expr_lineno
-                    else:
-                        break
-
-            if is_co is not 1 and node.else_ != [] and node.else_ is not None and node.else_.lineno < lineno:
+            if is_co is not 1 and node.else_ != [] and node.else_ is not None:
 
                 logger.debug("[AST] param {} line {} in new branch for else".format(param, node.else_.lineno))
 
                 if isinstance(node.else_.node, php.Block):
                     else_nodes = node.else_.node.nodes
-                    else_node_lineno = node.else_.node.lineno
                 elif node.else_.node is not None:
                     else_nodes = [node.else_.node]
-                    else_node_lineno = node.else_.node.lineno
                 else:
                     else_nodes = []
-                    else_node_lineno = 0
 
                 is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)
 
-                if is_co == 3 and cp != param:  # 理由如上
-                    is_co, cp, expr_lineno = parameters_back(cp, nodes[:-1], function_params, lineno,
-                                                             function_flag=function_flag, vul_function=vul_function,
-                                                             file_path=file_path,
-                                                             isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
-                    # return is_co, cp, expr_lineno
+                if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                    return is_co, cp, expr_lineno
 
             # 添加一种情况，如果只有if没有else，则会考虑不进入循环的特殊情况
             if is_co is not 1 and (node.else_ == [] or node.else_ is None):
 
                 logger.debug("[AST] param {} line {} in new branch skip if/else".format(param, node.lineno))
 
-                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
-                                                         function_flag=function_flag, vul_function=vul_function,
-                                                         file_path=file_path,
-                                                         isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
-
-            # return is_co, cp, expr_lineno
+            if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                return is_co, cp, expr_lineno
 
         elif isinstance(node, php.For):
             for_nodes = node.node.nodes
@@ -959,6 +925,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                      function_flag=1, vul_function=vul_function, file_path=file_path,
                                                      isback=isback, parent_node=node)
             function_flag = 0
+
+            if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                return is_co, cp, expr_lineno
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,

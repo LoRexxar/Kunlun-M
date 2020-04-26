@@ -147,9 +147,9 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None, is_unconfirm=False):
+def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None, is_unconfirm=False, newcore_function_list=[]):
     try:
-        return SingleRule(target_directory, single_rule, files, language, secret_name, is_unconfirm).process()
+        return SingleRule(target_directory, single_rule, files, language, secret_name, is_unconfirm, newcore_function_list).process()
     except Exception:
         raise
 
@@ -160,6 +160,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
     find_vulnerabilities = []
+    newcore_function_list = {}
 
     def store(result):
         if result is not None and isinstance(result, list) is True:
@@ -171,7 +172,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     async def start_scan(target_directory, rule, files, language, secret_name):
 
-        result = scan_single(target_directory, rule, files, language, secret_name, is_unconfirm)
+        result = scan_single(target_directory, rule, files, language, secret_name, is_unconfirm, newcore_function_list)
         store(result)
 
     if len(rules) == 0:
@@ -264,6 +265,19 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.info(
                 '[SCAN] Not Trigger Rules ({l}): {r}'.format(l=len(diff_rules), r=','.join(diff_rules)))
 
+    # show detail about newcore function list
+    table2 = PrettyTable(
+        ['#', 'NewFunction', 'Related Rules id'])
+
+    table2.align = 'l'
+    idy = 0
+    for new_function_name in newcore_function_list:
+        table2.add_row([idy + 1, new_function_name, newcore_function_list[new_function_name]])
+        idy += 1
+
+    if len(newcore_function_list) > 0:
+        logger.info("[SCAN] New evil Function list by NewCore:\r\n{}".format(table2))
+
     # completed running data
     if s_sid is not None:
         Running(s_sid).data({
@@ -284,7 +298,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None, is_unconfirm=False):
+    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None, is_unconfirm=False, newcore_function_list=[]):
         self.target_directory = target_directory
         self.find = Tool().find
         self.grep = Tool().grep
@@ -301,6 +315,9 @@ class SingleRule(object):
         ]
         """
         self.rule_vulnerabilities = []
+
+        # new core function list
+        self.newcore_function_list = newcore_function_list
 
         logger.info("[!] Start scan [CVI-{sr_id}]".format(sr_id=self.sr.svid))
 
@@ -492,10 +509,12 @@ class SingleRule(object):
                     self.rule_vulnerabilities.append(vulnerability)
                 else:
                     if reason == 'New Core':  # 新的规则
-                        logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
+
+                        logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init'.format(cvi=self.sr.svid))
                         new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0,
                                                            languages=self.languages, secret_name=self.secret_name,
-                                                           is_unconfirm=self.is_unconfirm)
+                                                           is_unconfirm=self.is_unconfirm,
+                                                           newcore_function_list=self.newcore_function_list)
 
                         if len(new_rule_vulnerabilities) > 0:
                             self.rule_vulnerabilities.extend(new_rule_vulnerabilities)
@@ -1044,7 +1063,7 @@ def auto_parse_match(single_match, svid, language):
     return mr
 
 
-def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None, is_unconfirm=False):
+def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None, is_unconfirm=False, newcore_function_list=[]):
     """
     处理新的规则生成
     :param languages: 
@@ -1083,6 +1102,17 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
     language = old_single_rule.language
     sr.svid = svid
     sr.language = language
+
+    # check vul rule exist
+    if vul_function in newcore_function_list:
+        logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules {macth} exist.'.format(cvi=svid, macth=vul_function))
+
+        if svid not in newcore_function_list[vul_function]:
+            newcore_function_list[vul_function].append(svid)
+
+        return []
+    else:
+        newcore_function_list[vul_function] = [svid]
 
     # grep
 
@@ -1148,7 +1178,8 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
                 if reason == 'New Core':  # 新的规则
                     logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
                     new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count,
-                                                       secret_name=secret_name, is_unconfirm=is_unconfirm)
+                                                       secret_name=secret_name, is_unconfirm=is_unconfirm,
+                                                       newcore_function_list=newcore_function_list)
 
                     if not new_rule_vulnerabilities:
                         return rule_vulnerabilities
