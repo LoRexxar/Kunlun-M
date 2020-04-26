@@ -168,23 +168,32 @@ class Pretreatment:
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
 
                     except SyntaxError as e:
-                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        continue
 
                     except AssertionError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                        continue
 
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+                        continue
 
                     # 搜索所有的常量
                     for node in all_nodes:
                         if isinstance(node, php.FunctionCall) and node.name == "define":
                             define_params = node.params
-                            logger.debug(
-                                "[AST][Pretreatment] new define {}={}".format(define_params[0].node,
-                                                                              define_params[1].node))
 
-                            self.define_dict[define_params[0].node] = define_params[1].node
+                            if define_params:
+                                logger.debug(
+                                    "[AST][Pretreatment] new define {}={}".format(define_params[0].node,
+                                                                                  define_params[1].node))
+
+                                key = define_params[0].node
+                                if isinstance(key, php.Constant):
+                                    key = key.name
+
+                                self.define_dict[key] = define_params[1].node
 
             elif fileext[0] in ext_dict['chromeext'] and 'chromeext' in self.lan:
 
