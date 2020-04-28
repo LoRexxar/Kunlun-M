@@ -609,6 +609,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     is_co, cp = is_controllable(param_name)
 
+    if not nodes and type(nodes) is bool:
+        logger.warning("[AST] AST analysis error, return back.")
+        return is_co, cp, expr_lineno
+
     if (isinstance(param, php.FunctionCall) or isinstance(param, php.MethodCall)) and is_co != 1:  # 当污点为寻找函数时，递归进入寻找函数
         logger.debug("[AST] AST analysis for FunctionCall or MethodCall {} in line {}".format(param.name, param.lineno))
         is_co, cp, expr_lineno = function_back(param, nodes, function_params, file_path=file_path, isback=isback)
@@ -632,9 +636,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         # 加入扫描范围check, 如果当前行数大于目标行数，直接跳过(等于会不会有问题呢？)
         if node.lineno >= int(lineno):
             return parameters_back(param, nodes[:-1], function_params, lineno,
-                                     function_flag=0, vul_function=vul_function,
-                                     file_path=file_path,
-                                     isback=isback, parent_node=0)
+                                   function_flag=0, vul_function=vul_function,
+                                   file_path=file_path,
+                                   isback=isback, parent_node=0)
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
@@ -969,7 +973,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
         logger.warning("[Deep AST] depth too big, auto exit...")
         return is_co, cp, expr_lineno
 
-    if is_co == 3:
+    if is_co == 3 and back_node and type(back_node) is not bool:
         logger.debug("[Deep AST] try to find include, start deep AST for {}".format(cp))
 
         for node in back_node[::-1]:

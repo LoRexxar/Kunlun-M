@@ -1176,7 +1176,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
                 rule_vulnerabilities.append(vulnerability)
             else:
                 if reason == 'New Core':  # 新的规则
-                    logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
+                    logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init'.format(cvi=sr.svid))
                     new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count,
                                                        secret_name=secret_name, is_unconfirm=is_unconfirm,
                                                        newcore_function_list=newcore_function_list)
