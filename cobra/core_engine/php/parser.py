@@ -22,6 +22,7 @@ import traceback
 from cobra.log import logger
 from cobra.pretreatment import ast_object
 from cobra.internal_defines.php.functions import function_dict as php_function_dict
+from cobra.internal_defines.php.class_functions import function_dict as php_magic_function_dict
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -795,7 +796,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             # 在这里想一个解决办法，如果当前父节点为0
             # 然后最后一个为函数节点，那么如果其中的最后一行代码行数小于目标行数，则不进入
-            if function_nodes[-1].lineno < int(lineno):
+            if not function_nodes or function_nodes[-1].lineno < int(lineno):
                 is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=0, vul_function=vul_function,
                                                          file_path=file_path,
@@ -824,31 +825,37 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 function_flag = 0
 
             if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
-                for node_param in node.params:
-                    if node_param.name == cp.name:
-                        logger.debug(
-                            "[AST] param {} line {} in function_params, start new rule for function {}".format(
-                                param_name, node.lineno, node.name))
 
-                        file_path = os.path.normpath(file_path)
-                        code = "param {} in NewFunction {}".format(param_name, node.name)
-                        scan_chain.append(('NewFunction', code, file_path, node.lineno))
+                # 检查函数是不是魔术方法
+                if node.name in php_magic_function_dict:
+                    logger.debug("[AST] param {} found in php magic funtion {}, continue.".format(param_name, node.name))
 
-                        if vul_function is None or node.name != vul_function:
-                            logger.info(
-                                "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
-                                                                                                           cp.name))
+                else:
+                    for node_param in node.params:
+                        if node_param.name == cp.name:
+                            logger.debug(
+                                "[AST] param {} line {} in function_params, start new rule for function {}".format(
+                                    param_name, node.lineno, node.name))
 
-                            is_co = 4
-                            cp = tuple([node, param])
-                            return is_co, cp, 0
-                        else:
-                            logger.info(
-                                "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
-                            )
-                            # 无法解决递归，直接退出
-                            is_co = -1
-                            return is_co, cp, 0
+                            file_path = os.path.normpath(file_path)
+                            code = "param {} in NewFunction {}".format(param_name, node.name)
+                            scan_chain.append(('NewFunction', code, file_path, node.lineno))
+
+                            if vul_function is None or node.name != vul_function:
+                                logger.info(
+                                    "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
+                                                                                                               cp.name))
+
+                                is_co = 4
+                                cp = tuple([node, param])
+                                return is_co, cp, 0
+                            else:
+                                logger.info(
+                                    "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
+                                )
+                                # 无法解决递归，直接退出
+                                is_co = -1
+                                return is_co, cp, 0
 
                 # 从函数中出来的变量，如果参数列表中没有，也不能继续递归
                 is_co = -1
