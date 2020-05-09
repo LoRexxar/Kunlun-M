@@ -189,10 +189,10 @@ def show_info(type, key):
                     return f.read()
 
             logger.error('[Show] no CVI id {}.'.format(key))
-            return False
+            return ""
         else:
             logger.error('[Show] error language/CVI id input.')
-            return False
+            return ""
 
         i = 0
         table = PrettyTable(
