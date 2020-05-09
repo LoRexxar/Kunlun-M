@@ -22,3 +22,6 @@ wordpress = {
     "esc_sql": [1004, 1005, 1006],
     "_real_escape": [1004, 1005, 1006],
 }
+
+
+wordpress_controlled = []
