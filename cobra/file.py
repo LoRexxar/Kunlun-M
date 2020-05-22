@@ -20,7 +20,7 @@ import zipfile
 import traceback
 from .log import logger
 from .pretreatment import ast_object
-from .const import ext_dict
+from .const import ext_dict, default_black_list
 
 try:
     from urllib import quote
@@ -420,7 +420,7 @@ class FileParseAll:
 class Directory(object):
     def __init__(self, absolute_path, black_path_list=[]):
         self.absolute_path = absolute_path
-        self.black_path_list = ['.crx_files']
+        self.black_path_list = default_black_list
 
         self.black_path_list.extend(black_path_list)
 

@@ -53,3 +53,5 @@ ext_dict = {
     "chromeext": ['.crx'],
     "html": ['.html'],
 }
+
+default_black_list = ['.crx_files', 'vendor']

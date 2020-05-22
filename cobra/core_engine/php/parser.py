@@ -832,7 +832,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 else:
                     for node_param in node.params:
-                        if node_param.name == cp.name:
+                        if hasattr(node_param, 'name') and node_param.name == cp.name:
                             logger.debug(
                                 "[AST] param {} line {} in function_params, start new rule for function {}".format(
                                     param_name, node.lineno, node.name))
