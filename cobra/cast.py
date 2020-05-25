@@ -290,8 +290,8 @@ class CAST(object):
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
                     _is_co, _cp, expr_lineno, chain = js_analysis_params(param_name, [],
-                                                                         self.sr.vul_function, self.line, self.file_path, self.repair_functions,
-                                                                         self.controlled_list, isexternal=True)
+                                                                         self.sr.vul_function, self.line, self.file_path,
+                                                                         self.repair_functions, self.controlled_list, isexternal=True)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")

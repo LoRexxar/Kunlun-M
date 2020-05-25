@@ -35,6 +35,10 @@ match_modes = [
 # call_function ($exp);
 #
 fpc = '\s*\((.*)(?:\))'
+
+fpc_echo_statement_single = '[f]\s*[\'"]?(.+?)?\$(.+?)?[\'"]?(.+?)?;'
+fpc_echo_statement_multi = '(?:[f])\s*[\'"]?(.+?)?\$(.+?)?[\'"]?(.+?)?;'
+
 fpc_single = '[f]{fpc}'.format(fpc=fpc)
 fpc_multi = '(?:[f]){fpc}'.format(fpc=fpc)
 fpc_loose = '(?:(\A|\s|\\b)[f])({fpc})?\\b'.format(fpc=fpc)
@@ -53,3 +57,5 @@ ext_dict = {
     "chromeext": ['.crx'],
     "html": ['.html'],
 }
+
+default_black_list = ['.crx_files', 'vendor']

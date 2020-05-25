@@ -147,9 +147,11 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None, is_unconfirm=False, newcore_function_list=[]):
+def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None, is_unconfirm=False,
+                newcore_function_list=[]):
     try:
-        return SingleRule(target_directory, single_rule, files, language, secret_name, is_unconfirm, newcore_function_list).process()
+        return SingleRule(target_directory, single_rule, files, language, secret_name, is_unconfirm,
+                          newcore_function_list).process()
     except Exception:
         raise
 
@@ -224,7 +226,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             code_content = x.code_content[:50].strip()
         except AttributeError as e:
             code_content = x.code_content.decode('utf-8')[:100].strip()
-        row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit, code_content.replace('\r\n', ' ').replace('\n', ' '), x.analysis]
+        row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit,
+               code_content.replace('\r\n', ' ').replace('\n', ' '), x.analysis]
         row2 = [idx + 1, x.chain]
 
         data.append(row)
@@ -298,7 +301,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None, is_unconfirm=False, newcore_function_list=[]):
+    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None, is_unconfirm=False,
+                 newcore_function_list=[]):
         self.target_directory = target_directory
         self.find = Tool().find
         self.grep = Tool().grep
@@ -389,8 +393,12 @@ class SingleRule(object):
             # param controllable
             if '|' in self.sr.match:
                 match = const.fpc_multi.replace('[f]', self.sr.match)
+                if hasattr(self.sr, "is_echo_statement") and self.sr.is_echo_statement:
+                    match = const.fpc_echo_statement_multi.replace('[f]', self.sr.match)
             else:
                 match = const.fpc_single.replace('[f]', self.sr.match)
+                if hasattr(self.sr, "is_echo_statement") and self.sr.is_echo_statement:
+                    match = const.fpc_echo_statement_single.replace('[f]', self.sr.match)
 
             # 垃圾js毁一生，动态类型一时爽，静态分析火葬厂
             if self.sr.language.lower() == "javascript":
@@ -751,6 +759,7 @@ class Core(object):
             if self.single_rule.svid in self.repair_dict[key]:
                 self.repair_functions.append(key)
 
+
     def scan(self):
         """
         Scan vulnerabilities
@@ -858,6 +867,7 @@ class Core(object):
 
                 # vustomize-match
                 param_is_controllable, code, data, chain = ast.is_controllable_param()
+
                 if param_is_controllable:
                     logger.debug('[CVI-{cvi}] [PARAM-CONTROLLABLE] Param is controllable'.format(cvi=self.cvi))
 
@@ -1063,7 +1073,8 @@ def auto_parse_match(single_match, svid, language):
     return mr
 
 
-def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None, is_unconfirm=False, newcore_function_list=[]):
+def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None,
+            is_unconfirm=False, newcore_function_list=[]):
     """
     处理新的规则生成
     :param languages: 
@@ -1154,7 +1165,8 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
 
         try:
             datas = Core(target_directory, vulnerability, sr, 'project name',
-                         ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name, is_unconfirm=is_unconfirm).scan()
+                         ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name,
+                         is_unconfirm=is_unconfirm).scan()
             data = ""
 
             if len(datas) == 3:
@@ -1176,7 +1188,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
                 rule_vulnerabilities.append(vulnerability)
             else:
                 if reason == 'New Core':  # 新的规则
-                    logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init')
+                    logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init'.format(cvi=sr.svid))
                     new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count,
                                                        secret_name=secret_name, is_unconfirm=is_unconfirm,
                                                        newcore_function_list=newcore_function_list)

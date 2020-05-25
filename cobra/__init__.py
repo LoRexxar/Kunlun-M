@@ -19,7 +19,7 @@ import logging
 import traceback
 from .log import log, logger
 from . import cli, config
-from .cli import get_sid
+from .cli import get_sid, show_info
 from .engine import Running
 # from .utils import unhandled_exception_message, create_github_issue
 
@@ -56,6 +56,12 @@ def main():
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
+        parser_group_show = parser.add_argument_group('Show')
+
+        parser_group_show.add_argument('-list', '--list', dest='list', action='store', default=None, help='show all rules')
+        parser_group_show.add_argument('-listt', '--listtamper', dest='listtamper', action='store', default=None,
+                                       help='show all tamper')
+
         args = parser.parse_args()
 
         # log
@@ -67,6 +73,15 @@ def main():
         if args.debug:
             logger.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
+
+        if args.list or args.listtamper:
+            if args.list:
+                logger.info("Show List:\n{}".format(show_info('rule', args.list.strip(""))))
+
+            if args.listtamper:
+                logger.info("Show Tamper List:\n{}".format(show_info('tamper', args.listtamper.strip(""))))
+
+            exit()
 
         if args.target is '' and args.output is '':
             parser.print_help()

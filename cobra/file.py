@@ -20,7 +20,7 @@ import zipfile
 import traceback
 from .log import logger
 from .pretreatment import ast_object
-from .const import ext_dict
+from .const import ext_dict, default_black_list
 
 try:
     from urllib import quote
@@ -153,17 +153,21 @@ class FileParseAll:
 
                     # 尝试通过以目标作为标志分割，来判断行数
                     # 目标以前的回车数计算
-                    m = re.search(reg, content, re.I)
-                    data = m.group(0)
+                    p = re.compile(reg)
+                    matchs = p.finditer(content)
 
-                    split_data = content.split(data)[0]
-                    # enddata = content.split(data)[1]
+                    for m in matchs:
 
-                    LRnumber = " ".join(split_data).count('\n')
+                        data = m.group(0)
 
-                    match_numer = line_number - 5 + LRnumber
+                        split_data = content.split(data)[0]
+                        # enddata = content.split(data)[1]
 
-                    result.append((filepath, str(match_numer), data))
+                        LRnumber = " ".join(split_data).count('\n')
+
+                        match_numer = line_number - 5 + LRnumber
+
+                        result.append((filepath, str(match_numer), data))
 
                 content = ""
 
@@ -172,17 +176,20 @@ class FileParseAll:
                 if re.search(reg, content, re.I):
                     # 尝试通过以目标作为标志分割，来判断行数
                     # 目标以前的回车数计算
-                    m = re.search(reg, content, re.I)
-                    data = m.group(0)
+                    p = re.compile(reg)
+                    matchs = p.finditer(content)
 
-                    split_data = content.split(data)[0]
-                    # enddata = content.split(data)[1]
+                    for m in matchs:
+                        data = m.group(0)
 
-                    LRnumber = " ".join(split_data).count('\n')
+                        split_data = content.split(data)[0]
+                        # enddata = content.split(data)[1]
 
-                    match_numer = line_number - 5 + LRnumber
+                        LRnumber = " ".join(split_data).count('\n')
 
-                    result.append((filepath, str(match_numer), data))
+                        match_numer = line_number - 5 + LRnumber
+
+                        result.append((filepath, str(match_numer), data))
 
         return result
 
@@ -420,7 +427,7 @@ class FileParseAll:
 class Directory(object):
     def __init__(self, absolute_path, black_path_list=[]):
         self.absolute_path = absolute_path
-        self.black_path_list = ['.crx_files']
+        self.black_path_list = default_black_list
 
         self.black_path_list.extend(black_path_list)
 
