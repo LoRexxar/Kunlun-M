@@ -92,7 +92,7 @@ class ParseArgs(object):
                 logger.info("[INIT][PARSE_ARGS] Language is {}".format(self.language))
             else:
                 self.language = [language.strip()]
-                logger.warning("[INIT][PARSE_ARGS] Language parse error.")
+                logger.info("[INIT][PARSE_ARGS] Only one Language {}.".format(self.language))
 
         self.sid = a_sid
 

@@ -103,8 +103,8 @@ class Pretreatment:
         if os.path.isfile(filepath):
             return os.path.normpath(filepath)
 
-        if os.path.isfile(os.path.normpath(os.path.join(os.path.dirname(self.target_directory), filepath))):
-            return os.path.normpath(os.path.join(os.path.dirname(self.target_directory), filepath))
+        if os.path.isfile(os.path.normpath(os.path.join(self.target_directory, filepath))):
+            return os.path.normpath(os.path.join(self.target_directory, filepath))
 
         if os.path.isfile(self.target_directory):
             return os.path.normpath(self.target_directory)
@@ -145,7 +145,6 @@ class Pretreatment:
                 # 下面是对于php文件的处理逻辑
                 for filepath in fileext[1]['list']:
                     all_nodes = []
-
                     filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
                     self.pre_result[filepath]['language'] = 'php'
