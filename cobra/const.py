@@ -51,7 +51,7 @@ fpc_loose = '(?:(\A|\s|\\b)[f])({fpc})?\\b'.format(fpc=fpc)
 fav = '\$([a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*)'
 
 ext_dict = {
-    "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml'],
+    "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml', '.inc'],
     "solidity": ['.sol'],
     "javascript": ['.js'],
     "chromeext": ['.crx'],

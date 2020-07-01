@@ -135,7 +135,7 @@ class FileParseAll:
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             line_number = 1
-            i = 1
+            i = 0
             content = ""
 
             # 逐行匹配问题比较大，先测试为每5行匹配一次
@@ -144,10 +144,10 @@ class FileParseAll:
                 line_number += 1
                 content += line
 
-                if i < 6:
+                if i < 5:
                     continue
 
-                i = 1
+                i = 0
                 # print line, line_number
                 if re.search(reg, content, re.I):
 
@@ -187,7 +187,7 @@ class FileParseAll:
 
                         LRnumber = " ".join(split_data).count('\n')
 
-                        match_numer = line_number - 5 + LRnumber
+                        match_numer = line_number - i + LRnumber
 
                         result.append((filepath, str(match_numer), data))
 
@@ -407,7 +407,7 @@ class FileParseAll:
                 value_list.extend([str(tmp_manifest[key])])
                 break
 
-            if key is not "*":
+            if key != "*":
                 if key in tmp_manifest:
                     tmp_manifest = tmp_manifest[key]
                     index += 1
