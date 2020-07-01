@@ -893,7 +893,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                      function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path, isback=isback, parent_node=node)
 
-            if is_co is not 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
+            if is_co != 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
                 logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.lineno))
 
@@ -910,7 +910,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
 
-            if is_co is not 1 and node.else_ != [] and node.else_ is not None:
+            if is_co != 1 and node.else_ != [] and node.else_ is not None:
 
                 logger.debug("[AST] param {} line {} in new branch for else".format(param, node.else_.lineno))
 
@@ -929,7 +929,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     return is_co, cp, expr_lineno
 
             # 添加一种情况，如果只有if没有else，则会考虑不进入循环的特殊情况
-            if is_co is not 1 and (node.else_ == [] or node.else_ is None):
+            if is_co != 1 and (node.else_ == [] or node.else_ is None):
 
                 logger.debug("[AST] param {} line {} in new branch skip if/else".format(param, node.lineno))
 
@@ -1698,6 +1698,7 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
         is_repair_functions = repair_functions
         is_controlled_params = controlled_params
         all_nodes = ast_object.get_nodes(file_path)
+        print(all_nodes)
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
