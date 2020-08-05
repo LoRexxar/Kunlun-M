@@ -6,7 +6,7 @@
     new auto rule base class
 
     :author:    LoRexxar <LoRexxar@gmail.com>
-    :homepage:  https://github.com/LoRexxar/cobra
+    :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
@@ -52,7 +52,7 @@ class autorule:
 
         self.svid = 00000
         self.language = "Auto Rule"
-        self.author = "LoRexxar/Cobra-W"
+        self.author = "LoRexxar/Kunlun-M"
         self.vulnerability = "Auto Rule"
         self.description = "Auto Rule"
 

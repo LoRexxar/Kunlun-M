@@ -96,3 +96,19 @@ rules/*
 !rules/*/demo.py
 !rules/javascript/CVI_3003.py
 !rules/solidity/CVI_2001.py
+
+# upload
+uploads/*.zip
+uploads/*
+
+# sqlite
+db.sqlite3
+db.sqlite3*
+
+venv/*
+settings.py
+
+# webdriver
+bin/*
+ghostdriver.log
+debug.log

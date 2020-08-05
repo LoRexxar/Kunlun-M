@@ -7,7 +7,7 @@
     readfile by open/read for windows
 
     :author:    LoRexxar
-    :homepage:  https://github.com/LoRexxar/cobra
+    :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """

@@ -5,9 +5,9 @@
 **请使用python3.6+运行该工具，已停止维护python2.7环境**
 
 # Kunlun-Mirror
-[![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
+[![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
-[![Build Status](https://travis-ci.org/LoRexxar/Cobra-W.svg?branch=master)](https://travis-ci.org/LoRexxar/Cobra-W)
+[![Build Status](https://travis-ci.org/LoRexxar/Kunlun-M.svg?branch=master)](https://travis-ci.org/LoRexxar/Cobra-W)
 ![](https://img.shields.io/badge/language-python3.6-orange.svg)
 
 ```
@@ -16,7 +16,12 @@
 | |/ / _   _ _ __ | |    _   _ _ __ ______| .  . |
 |    \| | | | '_ \| |   | | | | '_ \______| |\/| |
 | |\  \ |_| | | | | |___| |_| | | | |     | |  | |
-\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/
+\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0 beta1
+
+GitHub: https://github.com/LoRexxar/Kunlun-M
+
+KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
+
 ```
 
 ## Introduction
@@ -24,7 +29,7 @@ Cobra是一款**源代码安全审计**工具，支持检测多种开发语言�
 [https://github.com/wufeifei/cobra](https://github.com/wufeifei/cobra)
 
 Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发现威胁转变为提高发现漏洞的准确率以及精度。
-[https://github.com/LoRexxar/Cobra-W/tree/cobra-w](https://github.com/LoRexxar/Cobra-W/tree/cobra-w)
+[https://github.com/LoRexxar/Kunlun-M/tree/cobra-w](https://github.com/LoRexxar/Kunlun-M/tree/cobra-w)
 
 Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原工具之后，昆仑镜将工具的发展重心放在安全研究员的使用上，将会围绕工具化使用不断改进使用体验。
 

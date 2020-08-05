@@ -154,7 +154,7 @@ if os.path.isdir('./result') is not True:
 default_result_path = os.path.join(project_directory, 'result/')
 
 issue_history_path = os.path.join(issue_path, 'history')
-cobra_main = os.path.join(project_directory, 'kunlun.py')
+kunlun_main = os.path.join(project_directory, 'kunlun.py')
 core_path = os.path.join(project_directory, 'core')
 tests_path = os.path.join(project_directory, 'tests')
 examples_path = os.path.join(tests_path, 'examples')

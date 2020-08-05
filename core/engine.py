@@ -1067,7 +1067,7 @@ def auto_parse_match(single_match, svid, language):
     mr.rule_name = 'Auto rule'
     mr.id = svid
     mr.language = language
-    mr.commit_author = 'Cobra-W'
+    mr.commit_author = 'Kunlun-M'
 
     return mr
 

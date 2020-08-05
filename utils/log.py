@@ -7,7 +7,7 @@
     Implements color logger
 
     :author:    LoRexxar <LoRexxar@gmail.com>
-    :homepage:  https://github.com/wufeifei/cobra
+    :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
@@ -20,7 +20,7 @@ import time
 #
 # Copyright (C) 2010-2012 Vinay Sajip. All rights reserved. Licensed under the new BSD license.
 #
-logger = logging.getLogger('CobraLog')
+logger = logging.getLogger('KunlunLog')
 log_path = 'logs'
 
 

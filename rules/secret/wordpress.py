@@ -7,7 +7,7 @@
     secret for wordpress 
 
     :author:    LoRexxar <LoRexxar@gmail.com>
-    :homepage:  https://github.com/LoRexxar/cobra
+    :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """

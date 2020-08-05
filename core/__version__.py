@@ -3,8 +3,8 @@ import platform
 
 __title__ = 'KunLun-M'
 __description__ = 'Code Security Audit'
-__url__ = 'https://github.com/LoRexxar/Cobra-W'
-__issue_page__ = 'https://github.com/LoRexxar/Cobra-W/issues/new'
+__url__ = 'https://github.com/LoRexxar/Kunlun-M'
+__issue_page__ = 'https://github.com/LoRexxar/Kunlun-M/issues/new'
 __python_version__ = sys.version.split()[0]
 __platform__ = platform.platform()
 __version__ = '2.0 beta1'
@@ -20,7 +20,7 @@ __introduction__ = """
 | |\  \ |_| | | | | |___| |_| | | | |     | |  | |
 \_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v{version}
 
-GitHub: https://github.com/LoRexxar/Cobra-W
+GitHub: https://github.com/LoRexxar/Kunlun-M
 
 KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.""".format(version=__version__)
 __epilog__ = """Usage:
