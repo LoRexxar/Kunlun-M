@@ -19,8 +19,8 @@ import string
 import sys
 import time
 
-from .config import rules_path
-from .log import logger
+from Kunlun_M.settings import rules_path
+from utils.log import logger
 
 TARGET_MODE_GIT = 'git'
 TARGET_MODE_FILE = 'file'
@@ -40,7 +40,7 @@ class ParseArgs(object):
         self.formatter = formatter
         self.output = output
 
-        if special_rules is not None and special_rules is not '':
+        if special_rules != None and special_rules != '':
             self.special_rules = []
             extension = '.py'
             start_name = 'CVI_'
@@ -70,7 +70,7 @@ class ParseArgs(object):
             self.special_rules = None
 
         # check black pth list
-        if black_path is not None and black_path is not "":
+        if black_path != None and black_path != "":
             self.black_path_list = []
 
             if ',' in black_path:
@@ -84,7 +84,7 @@ class ParseArgs(object):
             self.black_path_list = []
 
         # check and deal language
-        if language is not None and language is not "":
+        if language != None and language != "":
             self.language = []
 
             if ',' in language:
@@ -420,29 +420,6 @@ class Tool:
             self.find = 'find'
 
 
-        # if 'darwin' == sys.platform:
-        #     ggrep = ''
-        #     gfind = ''
-        #     for root, dir_names, file_names in os.walk('/usr/local/Cellar/grep'):
-        #         for filename in file_names:
-        #             if 'ggrep' == filename or 'grep' == filename:
-        #                 ggrep = os.path.join(root, filename)
-        #     for root, dir_names, file_names in os.walk('/usr/local/Cellar/findutils'):
-        #         for filename in file_names:
-        #             if 'gfind' == filename:
-        #                 gfind = os.path.join(root, filename)
-        #     if ggrep == '':
-        #         logger.critical("brew install ggrep pleases!")
-        #         sys.exit(0)
-        #     else:
-        #         self.grep = ggrep
-        #     if gfind == '':
-        #         logger.critical("brew install findutils pleases!")
-        #         sys.exit(0)
-        #     else:
-        #         self.find = gfind
-
-
 def secure_filename(filename):
     _filename_utf8_strip_re = re.compile(u"[^\u4e00-\u9fa5A-Za-z0-9_.\-\+]")
     _windows_device_files = ('CON', 'AUX', 'COM1', 'COM2', 'COM3', 'COM4', 'LPT1', 'LPT2', 'LPT3', 'PRN', 'NUL')
@@ -481,7 +458,7 @@ def secure_filename(filename):
 #         cv=__version__,
 #         pv=__python_version__,
 #         os=__platform__,
-#         cl=re.sub(r".+?\bcobra.py\b", "cobra.py", " ".join(sys.argv).encode('utf-8'))
+#         cl=re.sub(r".+?\bkunlun.py\b", "kunlun.py", " ".join(sys.argv).encode('utf-8'))
 #     )
 #     return err_msg
 #
@@ -513,7 +490,7 @@ def secure_filename(filename):
 #     ex = None
 #
 #     try:
-#         url = "https://api.github.com/search/issues?q={q}".format(q=urllib.quote("repo:wufeifei/cobra [AUTO] Unhandled exception (#{k})".format(k=key)))
+#         url = "https://api.github.com/search/issues?q={q}".format(q=urllib.quote("repo:wufeifei/core [AUTO] Unhandled exception (#{k})".format(k=key)))
 #         logger.debug(url)
 #         resp = requests.get(url=url)
 #         content = resp.json()

@@ -7,6 +7,6 @@ install:
   - pip install -r requirements.txt
 script:
   - py.test
-  - coverage run --source=cobra -m pytest
+  - coverage run --source=core -m pytest
 after_success:
   - coveralls

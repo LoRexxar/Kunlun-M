@@ -8,7 +8,7 @@
 
 import re
 import traceback
-from cobra.log import logger
+from utils.log import logger
 
 from .parser import get_param_list, get_member_data
 

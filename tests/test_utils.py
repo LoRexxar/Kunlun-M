@@ -11,7 +11,7 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from cobra.utils import *
+from utils.utils import *
 
 
 def test_convert_time():

@@ -11,18 +11,15 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from phply.phplex import lexer  # 词法分析
-from phply.phpparse import make_parser  # 语法分析
 from phply import phpast as php
 import re
 import os
-import codecs
 import traceback
 
-from cobra.log import logger
-from cobra.pretreatment import ast_object
-from cobra.internal_defines.php.functions import function_dict as php_function_dict
-from cobra.internal_defines.php.class_functions import function_dict as php_magic_function_dict
+from utils.log import logger
+from core.pretreatment import ast_object
+from core.internal_defines.php.functions import function_dict as php_function_dict
+from core.internal_defines.php.class_functions import function_dict as php_magic_function_dict
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -1698,7 +1695,6 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
         is_repair_functions = repair_functions
         is_controlled_params = controlled_params
         all_nodes = ast_object.get_nodes(file_path)
-        print(all_nodes)
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []

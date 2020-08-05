@@ -15,12 +15,12 @@ import os
 import re
 import traceback
 
-from cobra.core_engine.php.parser import anlysis_params as php_anlysis_params
-from cobra.core_engine.javascript.parser import analysis_params as js_analysis_params
+from core.core_engine.php.parser import anlysis_params as php_anlysis_params
+from core.core_engine.javascript.parser import analysis_params as js_analysis_params
 
-from .file import File
-from .file import FileParseAll
-from .log import logger
+from utils.file import File
+from utils.file import FileParseAll
+from utils.log import logger
 from .rule import block
 
 

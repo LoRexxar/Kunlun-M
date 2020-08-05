@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from cobra.config import project_directory
-from cobra.file import FileParseAll
+from Kunlun_M.settings import project_directory
+from utils.file import FileParseAll
 
 
 vul_path = project_directory+'/tests/vulnerabilities/'

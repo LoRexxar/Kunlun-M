@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    cobra
+    core
     ~~~~~
 
-    Implements cobra main
+    Implements core main
 
     :author:    BlBana <635373043@qq.com>
     :homepage:  https://github.com/wufeifei/cobra
@@ -14,8 +14,8 @@
 """
 import os
 import xml.etree.ElementTree as eT
-from cobra.dependencies import Dependencies
-from cobra.config import project_directory
+from core.dependencies import Dependencies
+from Kunlun_M.settings import project_directory
 
 
 requirements = project_directory+'/tests/vulnerabilities/requirements.txt'

@@ -8,7 +8,7 @@
 
 import traceback
 from phply import phpast as php
-from cobra.log import logger
+from utils.log import logger
 
 
 def init_match_rule(data):

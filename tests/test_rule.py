@@ -1,4 +1,4 @@
-from cobra.rule import Rule
+from core.rule import Rule
 
 
 def test_vulnerabilities():

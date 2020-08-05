@@ -1,7 +1,7 @@
-from cobra.engine import scan
-from cobra.engine import init_match_rule
-from cobra.config import examples_path
-from cobra.log import logger
+from core.engine import scan
+from core.engine import init_match_rule
+from Kunlun_M.settings import examples_path
+from utils.log import logger
 from phply import phpast as php
 
 

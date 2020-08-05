@@ -15,14 +15,13 @@ from bs4 import BeautifulSoup
 import esprima
 import jsbeautifier
 
-from .log import logger
-from .const import ext_dict
+from utils.log import logger
+from Kunlun_M.const import ext_dict
 
 import gc
 import os
 import re
 import json
-import time
 import codecs
 import traceback
 import zipfile

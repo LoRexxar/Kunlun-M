@@ -13,7 +13,7 @@
 """
 import os
 import xml.etree.cElementTree as eT
-from .log import logger
+from utils.log import logger
 
 
 class Dependencies(object):

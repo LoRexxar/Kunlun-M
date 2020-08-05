@@ -10,12 +10,12 @@ import os
 import traceback
 
 from esprima import nodes as jsnodes
-from esprima.parser import SourceLocation, Position, Marker
+from esprima.parser import SourceLocation, Position
 
-from cobra.log import logger
-from cobra.pretreatment import ast_object
+from utils.log import logger
+from core.pretreatment import ast_object
 
-from cobra.internal_defines.javascript.functions import function_dict, string_function
+from core.internal_defines.javascript.functions import function_dict, string_function
 
 default_controlled_params = [
     'location.hash',

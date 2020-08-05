@@ -12,8 +12,6 @@
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
 
-from cobra.file import file_grep
-
 
 class CVI_1011():
     """

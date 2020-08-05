@@ -18,14 +18,12 @@ from prettytable import PrettyTable
 
 from .detection import Detection
 from .engine import scan, Running
-from .exceptions import PickupException
-from .export import write_to_file
-from .log import logger
-from .file import Directory
-from .utils import ParseArgs
-from .utils import md5, random_generator
-from .pretreatment import ast_object
-from .config import rules_path
+from utils.export import write_to_file
+from utils.log import logger
+from utils.file import Directory
+from utils.utils import ParseArgs
+from utils.utils import md5, random_generator
+from Kunlun_M.settings import rules_path
 
 
 def get_sid(target, is_a_sid=False):
@@ -110,13 +108,6 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
     except KeyboardInterrupt as e:
         logger.critical("[!] KeyboardInterrupt, exit...")
         exit()
-    except PickupException as e:
-        result = {
-            'code': 1002,
-            'msg': 'Repository not exist!'
-        }
-        Running(s_sid).data(result)
-        raise
     except Exception:
         result = {
             'code': 1002,

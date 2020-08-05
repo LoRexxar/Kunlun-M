@@ -16,27 +16,26 @@ import os
 import re
 import asyncio
 import traceback
-import functools
-
 import portalocker
-from phply import phpast as php
 from prettytable import PrettyTable
 
-from cobra.core_engine.php.parser import scan_parser as php_scan_parser
-from cobra.core_engine.php.engine import init_match_rule as php_init_match_rule
-from cobra.core_engine.javascript.parser import scan_parser as js_scan_parser
-from cobra.core_engine.javascript.engine import init_match_rule as js_init_match_rule
+from core.core_engine.php.parser import scan_parser as php_scan_parser
+from core.core_engine.php.engine import init_match_rule as php_init_match_rule
+from core.core_engine.javascript.parser import scan_parser as js_scan_parser
+from core.core_engine.javascript.engine import init_match_rule as js_init_match_rule
+
+from .rule import Rule
+from .cast import CAST
 
 from rules.autorule import autorule
-from . import const
-from .cast import CAST
-from .config import running_path
-from .const import ext_dict
-from .file import FileParseAll
-from .log import logger
-from .result import VulnerabilityResult
-from .rule import Rule
-from .utils import Tool
+from Kunlun_M import const
+from Kunlun_M.settings import running_path
+from Kunlun_M.const import ext_dict
+from Kunlun_M.const import VulnerabilityResult
+
+from utils.file import FileParseAll
+from utils.log import logger
+from utils.utils import Tool
 
 
 class Running:
@@ -193,7 +192,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         r = getattr(rules[single_rule], single_rule)
         rule = r()
 
-        if rule.status is False:
+        if rule.status is False and len(rules) != 1:
             logger.info('[CVI_{cvi}] [STATUS] OFF, CONTINUE...'.format(cvi=rule.svid))
             continue
         # SR(Single Rule)
@@ -541,7 +540,7 @@ class SingleRule(object):
         #
         # Rules
         #
-        # (u'D:\\program\\cobra-w\\tests\\vulnerabilities/v.php', 10, 'echo($callback . ";");\n')
+        # (u'D:\\program\\core-w\\tests\\vulnerabilities/v.php', 10, 'echo($callback . ";");\n')
         try:
             mr.line_number = single_match[1]
             mr.code_content = single_match[2]
@@ -1053,7 +1052,7 @@ def auto_parse_match(single_match, svid, language):
     #
     # Rules
     #
-    # (u'D:\\program\\cobra-w\\tests\\vulnerabilities/v.php', 10, 'echo($callback . ";");\n')
+    # (u'D:\\program\\core-w\\tests\\vulnerabilities/v.php', 10, 'echo($callback . ";");\n')
     try:
         mr.line_number = single_match[1]
         mr.code_content = single_match[2]

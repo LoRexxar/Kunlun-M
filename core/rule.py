@@ -12,11 +12,8 @@
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
 import os
-from . import const
-from .config import rules_path
-from .log import logger
-from .utils import to_bool
-from xml.etree import ElementTree
+from Kunlun_M.settings import rules_path
+from utils.log import logger
 
 
 def block(index):

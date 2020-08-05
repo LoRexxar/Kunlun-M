@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    cobra
+    core
     ~~~~~
 
-    Implements cobra main
+    Implements core main
 
     :author:    BlBana <635373043@qq.com>
     :homepage:  https://github.com/wufeifei/cobra
@@ -13,8 +13,8 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 import xml.etree.ElementTree as eT
-from cobra.detection import Detection
-from cobra.config import project_directory
+from core.detection import Detection
+from Kunlun_M.settings import project_directory
 
 
 vul_path = project_directory+'/tests/vulnerabilities/'

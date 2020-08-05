@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    cobra
+    core
     ~~~~~
 
-    Implements cobra main
+    Implements core main
 
     :author:    Feei <feei@feei.cn>
     :homepage:  https://github.com/wufeifei/cobra
@@ -17,11 +17,10 @@ import time
 import argparse
 import logging
 import traceback
-from .log import log, logger
-from . import cli, config
+from utils.log import log, logger
+from . import cli
 from .cli import get_sid, show_info
 from .engine import Running
-# from .utils import unhandled_exception_message, create_github_issue
 
 from .__version__ import __title__, __introduction__, __url__, __version__
 from .__version__ import __author__, __author_email__, __license__
@@ -46,8 +45,8 @@ def main():
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
         parser_group_scan.add_argument('-s', '--secret', dest='secret_name', action='store', default=None, metavar='<secret_name>', help='secret repair function e.g: wordpress')
-        parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None, metavar='<sid>', help='sid for cobra-wa')
-        parser_group_scan.add_argument('-l', '--log', dest='log', action='store', default=None, metavar='<log>', help='log name for cobra-wa')
+        parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None, metavar='<sid>', help='sid for core-wa')
+        parser_group_scan.add_argument('-l', '--log', dest='log', action='store', default=None, metavar='<log>', help='log name for core-wa')
         parser_group_scan.add_argument('-lan', '--language', dest='language', action='store', default=None, help='set target language')
         parser_group_scan.add_argument('-b', '--blackpath', dest='black_path', action='store', default=None, help='black path list')
 
@@ -83,7 +82,7 @@ def main():
 
             exit()
 
-        if args.target is '' and args.output is '':
+        if args.target == '' and args.output == '':
             parser.print_help()
             exit()
 

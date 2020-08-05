@@ -14,10 +14,9 @@
 import os
 from prettytable import PrettyTable
 import xml.etree.ElementTree as eT
-from .rule import Rule
 from .dependencies import Dependencies
-from .log import logger
-from .config import rules_path
+from utils.log import logger
+from Kunlun_M.settings import rules_path
 
 try:  # for pip >= 10
     from pip._internal.req import parse_requirements
@@ -168,7 +167,7 @@ class Detection(object):
     def parse_xml(self, root, frame_data, language_data, frame_name=None):
         language_name = ''
         if len(root) != 0:
-            if root.tag != 'cobra':
+            if root.tag != 'kunlun':
                 frame_name = root.attrib['name']
                 language_name = root.attrib['language']
                 frame_data.setdefault(frame_name, [])

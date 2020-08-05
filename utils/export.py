@@ -15,12 +15,12 @@ import csv
 import json
 import os
 import re
-from codecs import open, BOM_UTF8
+from codecs import open
 
 from prettytable import PrettyTable
 
-from .config import running_path, export_path, default_result_path
-from .log import logger
+from Kunlun_M.settings import running_path, export_path, default_result_path
+from utils.log import logger
 
 import html
 
