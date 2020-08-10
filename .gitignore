@@ -90,7 +90,7 @@ tests/*
 rules/tamper/*
 !rules/tamper/demo.py
 !rules/tamper/wordpress.py
-!rules/tamper/__init.py
+!rules/tamper/__init__.py
 
 rules/*
 !rules/*/demo.py
