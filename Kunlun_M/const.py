@@ -27,6 +27,9 @@ match_modes = [
     sp_crx_keyword_match,
 ]
 
+
+TAMPER_TYPE = ["Filter-Function", "Input-Function"]
+
 #
 # Function-Param-Controllable
 #

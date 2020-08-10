@@ -39,11 +39,11 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language=None, secret_name=None, black_path=None, is_unconfirm=False, is_unprecom=False):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False):
     """
     Start CLI
     :param black_path: 
-    :param secret_name: 
+    :param tamper_name:
     :param language: 
     :param target: File, FOLDER, GIT
     :param formatter:
@@ -104,7 +104,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, s
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
              language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
-             files=files, secret_name=secret_name, is_unconfirm=is_unconfirm)
+             files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm)
     except KeyboardInterrupt as e:
         logger.critical("[!] KeyboardInterrupt, exit...")
         exit()
@@ -135,7 +135,7 @@ def show_info(type, key):
                 continue
 
             if os.path.isdir(os.path.join(rules_path, f)):
-                if f not in ['test', 'secret']:
+                if f not in ['test', 'tamper']:
                     result.append(f)
 
             if f.startswith("CVI_"):
@@ -214,14 +214,14 @@ def show_info(type, key):
         table.align = 'l'
         i = 0
 
-        tamp_path = os.path.join(rules_path, 'secret/')
+        tamp_path = os.path.join(rules_path, 'tamper/')
         tamp_list = list_parse(tamp_path, True)
 
         if key == "all":
             for tamp in tamp_list:
                 i += 1
                 tampname = tamp.split('.')[0]
-                tampfile = "rules.secret." + tampname
+                tampfile = "rules.tamper." + tampname
 
                 tamp_obj = __import__(tampfile, fromlist=tampname)
 
@@ -233,7 +233,7 @@ def show_info(type, key):
             return table
         elif key + ".py" in tamp_list:
             tampname = key
-            tampfile = "rules.secret." + tampname
+            tampfile = "rules.tamper." + tampname
 
             tamp_obj = __import__(tampfile, fromlist=tampname)
 

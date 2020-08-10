@@ -44,7 +44,7 @@ def main():
         parser_group_scan.add_argument('-f', '--format', dest='format', action='store', default='csv', metavar='<format>', choices=['html', 'json', 'csv', 'xml'], help='vulnerability output format (formats: %(choices)s)')
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
-        parser_group_scan.add_argument('-s', '--secret', dest='secret_name', action='store', default=None, metavar='<secret_name>', help='secret repair function e.g: wordpress')
+        parser_group_scan.add_argument('-tam', '--tamper', dest='tamper_name', action='store', default=None, metavar='<tamper_name>', help='tamper repair function e.g: wordpress')
         parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None, metavar='<sid>', help='set sid')
         parser_group_scan.add_argument('-l', '--log', dest='log', action='store', default=None, metavar='<log>', help='log name')
         parser_group_scan.add_argument('-lan', '--language', dest='language', action='store', default=None, help='set target language')
@@ -99,7 +99,7 @@ def main():
         }
         Running(a_sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.secret_name, args.black_path, args.unconfirm, args.unprecom)
+        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom)
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))

@@ -146,17 +146,17 @@ def score2level(score):
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
 
-def scan_single(target_directory, single_rule, files=None, language=None, secret_name=None, is_unconfirm=False,
+def scan_single(target_directory, single_rule, files=None, language=None, tamper_name=None, is_unconfirm=False,
                 newcore_function_list=[]):
     try:
-        return SingleRule(target_directory, single_rule, files, language, secret_name, is_unconfirm,
+        return SingleRule(target_directory, single_rule, files, language, tamper_name, is_unconfirm,
                           newcore_function_list).process()
     except Exception:
         raise
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None, secret_name=None, is_unconfirm=False):
+         extension_count=0, files=None, tamper_name=None, is_unconfirm=False):
     r = Rule(language)
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
@@ -171,9 +171,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         else:
             logger.debug('[SCAN] [STORE] Not found vulnerabilities on this rule!')
 
-    async def start_scan(target_directory, rule, files, language, secret_name):
+    async def start_scan(target_directory, rule, files, language, tamper_name):
 
-        result = scan_single(target_directory, rule, files, language, secret_name, is_unconfirm, newcore_function_list)
+        result = scan_single(target_directory, rule, files, language, tamper_name, is_unconfirm, newcore_function_list)
         store(result)
 
     if len(rules) == 0:
@@ -202,8 +202,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             vulnerability=rule.vulnerability,
             language=rule.language
         ))
-        # result = scan_single(target_directory, rule, files, language, secret_name)
-        scan_list.append(start_scan(target_directory, rule, files, language, secret_name))
+        # result = scan_single(target_directory, rule, files, language, tamper_name)
+        scan_list.append(start_scan(target_directory, rule, files, language, tamper_name))
         # store(result)
 
     loop.run_until_complete(asyncio.gather(*scan_list))
@@ -300,7 +300,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
 class SingleRule(object):
-    def __init__(self, target_directory, single_rule, files, language=None, secret_name=None, is_unconfirm=False,
+    def __init__(self, target_directory, single_rule, files, language=None, tamper_name=None, is_unconfirm=False,
                  newcore_function_list=[]):
         self.target_directory = target_directory
         self.find = Tool().find
@@ -309,7 +309,7 @@ class SingleRule(object):
         self.files = files
         self.languages = language
         self.lan = self.sr.language.lower()
-        self.secret_name = secret_name
+        self.tamper_name = tamper_name
         self.is_unconfirm = is_unconfirm
         # Single Rule Vulnerabilities
         """
@@ -492,7 +492,7 @@ class SingleRule(object):
             try:
                 datas = Core(self.target_directory, vulnerability, self.sr, 'project name',
                              ['whitelist1', 'whitelist2'], test=is_test, index=index,
-                             files=self.files, languages=self.languages, secret_name=self.secret_name,
+                             files=self.files, languages=self.languages, tamper_name=self.tamper_name,
                              is_unconfirm=self.is_unconfirm).scan()
                 data = ""
 
@@ -519,7 +519,7 @@ class SingleRule(object):
 
                         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init'.format(cvi=self.sr.svid))
                         new_rule_vulnerabilities = NewCore(self.sr, self.target_directory, data, self.files, 0,
-                                                           languages=self.languages, secret_name=self.secret_name,
+                                                           languages=self.languages, tamper_name=self.tamper_name,
                                                            is_unconfirm=self.is_unconfirm,
                                                            newcore_function_list=self.newcore_function_list)
 
@@ -562,7 +562,7 @@ class SingleRule(object):
 
 class Core(object):
     def __init__(self, target_directory, vulnerability_result, single_rule, project_name, white_list, test=False,
-                 index=0, files=None, languages=None, secret_name=None, is_unconfirm=False):
+                 index=0, files=None, languages=None, tamper_name=None, is_unconfirm=False):
         """
         Initialize
         :param: target_directory:
@@ -573,7 +573,7 @@ class Core(object):
         :param test: is test
         :param index: vulnerability index
         :param files: core file list
-        :param secret_name: secret name
+        :param tamper_name: tamper name
         """
         self.data = []
         self.repair_dict = {}
@@ -588,7 +588,7 @@ class Core(object):
         self.code_content = vulnerability_result.code_content
         self.files = files
         self.languages = languages
-        self.secret_name = secret_name
+        self.tamper_name = tamper_name
 
         self.rule_match = single_rule.match
         self.rule_match_mode = single_rule.match_mode
@@ -730,28 +730,28 @@ class Core(object):
         :return: 
         """
         if self.lan == "php":
-            a = __import__('rules.secret.demo', fromlist=['PHP_IS_REPAIR_DEFAULT'])
+            a = __import__('rules.tamper.demo', fromlist=['PHP_IS_REPAIR_DEFAULT'])
             self.repair_dict = getattr(a, 'PHP_IS_REPAIR_DEFAULT')
 
-            b = __import__('rules.secret.demo', fromlist=['PHP_IS_CONTROLLED_DEFAULT'])
+            b = __import__('rules.tamper.demo', fromlist=['PHP_IS_CONTROLLED_DEFAULT'])
             self.controlled_list = getattr(b, 'PHP_IS_CONTROLLED_DEFAULT')
 
         # 如果指定加载某个tamper，那么无视语言
-        if self.secret_name is not None:
+        if self.tamper_name is not None:
             try:
                 # 首先加载修复函数指定
-                a = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name])
-                a = getattr(a, self.secret_name)
+                a = __import__('rules.tamper.' + self.tamper_name, fromlist=[self.tamper_name])
+                a = getattr(a, self.tamper_name)
                 self.repair_dict = self.repair_dict.copy()
                 self.repair_dict.update(a.items())
 
                 # 然后加载输入函数
-                b = __import__('rules.secret.' + self.secret_name, fromlist=[self.secret_name + "_controlled"])
-                b = getattr(b, self.secret_name + "_controlled")
+                b = __import__('rules.tamper.' + self.tamper_name, fromlist=[self.tamper_name + "_controlled"])
+                b = getattr(b, self.tamper_name + "_controlled")
                 self.controlled_list += b
 
             except ImportError:
-                logger.warning('[AST][INIT] Secret_name init error... No module named {}'.format(self.secret_name))
+                logger.warning('[AST][INIT] tamper_name init error... No module named {}'.format(self.tamper_name))
 
         # init
         for key in self.repair_dict:
@@ -1072,13 +1072,13 @@ def auto_parse_match(single_match, svid, language):
     return mr
 
 
-def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, secret_name=None,
+def NewCore(old_single_rule, target_directory, new_rules, files, count=0, languages=None, tamper_name=None,
             is_unconfirm=False, newcore_function_list=[]):
     """
     处理新的规则生成
     :param languages: 
     :param old_single_rule: 
-    :param secret_name: 
+    :param tamper_name: 
     :param target_directory: 
     :param new_rules: 
     :param files: 
@@ -1164,7 +1164,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
 
         try:
             datas = Core(target_directory, vulnerability, sr, 'project name',
-                         ['whitelist1', 'whitelist2'], files=files, secret_name=secret_name,
+                         ['whitelist1', 'whitelist2'], files=files, tamper_name=tamper_name,
                          is_unconfirm=is_unconfirm).scan()
             data = ""
 
@@ -1189,7 +1189,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
                 if reason == 'New Core':  # 新的规则
                     logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules init'.format(cvi=sr.svid))
                     new_rule_vulnerabilities = NewCore(sr, target_directory, data, files, count,
-                                                       secret_name=secret_name, is_unconfirm=is_unconfirm,
+                                                       tamper_name=tamper_name, is_unconfirm=is_unconfirm,
                                                        newcore_function_list=newcore_function_list)
 
                     if not new_rule_vulnerabilities:

@@ -87,10 +87,10 @@ tests/real_test/*
 tests/*
 
 # new rule for test
-rules/secret/*
-!rules/secret/demo.py
-!rules/secret/wordpress.py
-!rules/secret/__init.py
+rules/tamper/*
+!rules/tamper/demo.py
+!rules/tamper/wordpress.py
+!rules/tamper/__init.py
 
 rules/*
 !rules/*/demo.py
