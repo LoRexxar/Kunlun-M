@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+from datetime import datetime
+
 from django.db import models
-from django.utils import timezone
+from django.db import connection
 
 from Kunlun_M.const import TAMPER_TYPE
 
@@ -11,7 +13,7 @@ class ScanTask(models.Model):
     task_name = models.CharField(max_length=50)
     target_path = models.CharField(max_length=300)
     parameter_config = models.CharField(max_length=100)
-    last_scan_time = models.DateTimeField()
+    last_scan_time = models.DateTimeField(auto_now=True)
     is_finished = models.BooleanField(default=False)
 
 
@@ -49,3 +51,52 @@ class Tampers(models.Model):
     tam_type = models.IntegerField()
     tam_key = models.CharField(max_length=200)
     tam_value = models.CharField(max_length=200)
+
+
+# 数据流模板表
+def get_dataflow_table(name, isnew=False):
+
+    prefix = ""
+
+    if isnew:
+        prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
+
+    table_name = "DataFlow_{}{}".format(name, prefix)
+
+    class DataFlowTemplate(models.Model):
+        source_node = models.CharField(max_length=500)
+        sink_node = models.CharField(max_length=500)
+        issue_type = models.IntegerField()
+        issue_content = models.CharField(max_length=500)
+
+        @staticmethod
+        def is_exists():
+            return table_name in connection.introspection.table_names()
+
+        class Meta:
+            db_table = table_name
+
+    return DataFlowTemplate
+
+
+# 结果流模板表
+def get_resultflow_table():
+    prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
+
+    table_name = "DataFlow{}".format(prefix)
+
+    class ResultFlowTemplate(models.Model):
+        vul_id = models.IntegerField()
+        node_type = models.IntegerField()
+        node_content = models.CharField(max_length=500)
+        node_path = models.CharField(max_length=300)
+        node_lineno = models.IntegerField()
+
+        @staticmethod
+        def is_exists():
+            return table_name in connection.introspection.table_names()
+
+        class Meta:
+            db_table = table_name
+
+    return ResultFlowTemplate

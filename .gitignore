@@ -87,7 +87,6 @@ tests/real_test/*
 tests/*
 
 # new rule for test
-!rules/tamper/demo.py
 rules/tamper/*
 !rules/tamper/demo.py
 !rules/tamper/wordpress.py
