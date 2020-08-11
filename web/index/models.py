@@ -5,8 +5,10 @@ from datetime import datetime
 
 from django.db import models
 from django.db import connection
+from django import db
 
 from Kunlun_M.const import TAMPER_TYPE
+from utils.log import logger
 
 
 class ScanTask(models.Model):
@@ -79,6 +81,16 @@ def get_dataflow_table(name, isnew=False):
     return DataFlowTemplate
 
 
+def get_dataflow_class(name, isnew=False):
+    DateflowObject = get_dataflow_table(name, isnew)
+
+    if not DateflowObject.is_exists():
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(DateflowObject)
+
+    return DateflowObject
+
+
 # 结果流模板表
 def get_resultflow_table():
     prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
@@ -100,3 +112,14 @@ def get_resultflow_table():
             db_table = table_name
 
     return ResultFlowTemplate
+
+
+def get_resultflow_class():
+
+    ResultflowObject = get_resultflow_table()
+
+    if not ResultflowObject.is_exists():
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(ResultflowObject)
+
+    return ResultflowObject

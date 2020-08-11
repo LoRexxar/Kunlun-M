@@ -103,3 +103,42 @@ class Rule(object):
             vul_list.append(ruleclass.vulnerability)
 
         return vul_list
+
+
+class RuleCheck:
+    """
+    规则检查，并读取所有的规则
+    """
+
+    def __init__(self):
+        self.rule_dict = {}
+
+        self.rule_base_path = rules_path
+
+    def list_parse(self, rules_path, istamp=False):
+
+        files = os.listdir(rules_path)
+        result = []
+
+        for f in files:
+
+            if f.startswith("_") or f.endswith("pyc"):
+                continue
+
+            if os.path.isdir(os.path.join(rules_path, f)):
+                if f not in ['test', 'tamper']:
+                    result.append(f)
+
+            if f.startswith("CVI_"):
+                result.append(f)
+
+            if istamp:
+                if f not in ['test.py', 'demo.py', 'none.py']:
+                    result.append(f)
+
+        return result
+
+    def run(self):
+        print(self.list_parse(self.rule_base_path))
+
+        return True

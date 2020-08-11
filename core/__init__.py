@@ -17,14 +17,18 @@ import time
 import argparse
 import logging
 import traceback
+
 from utils.log import log, logger
+
 from . import cli
 from .cli import get_sid, show_info
 from .engine import Running
 
 from .__version__ import __title__, __introduction__, __url__, __version__
 from .__version__ import __author__, __author_email__, __license__
-from .__version__ import __copyright__, __epilog__
+from .__version__ import __copyright__, __epilog__, __scan_epilog__
+
+from core.rule import RuleCheck
 
 try:
     reload(sys)
@@ -37,14 +41,19 @@ def main():
     try:
         # arg parse
         t1 = time.time()
-        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__, epilog=__epilog__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__, epilog=__epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS)
 
-        parser_group_scan = parser.add_argument_group('Scan')
+        subparsers = parser.add_subparsers()
+
+        parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description='config for rule&tamper', usage=argparse.SUPPRESS, add_help=True)
+        parser_group_core.add_argument('load', action='store_true', default=False, help='load rule&tamper')
+
+        parser_group_scan = subparsers.add_parser('scan', help='scan target path', description='scan target path', epilog=__scan_epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, add_help=True)
         parser_group_scan.add_argument('-t', '--target', dest='target', action='store', default='', metavar='<target>', help='file, folder, compress, or repository address')
         parser_group_scan.add_argument('-f', '--format', dest='format', action='store', default='csv', metavar='<format>', choices=['html', 'json', 'csv', 'xml'], help='vulnerability output format (formats: %(choices)s)')
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
-        parser_group_scan.add_argument('-tam', '--tamper', dest='tamper_name', action='store', default=None, metavar='<tamper_name>', help='tamper repair function e.g: wordpress')
+        parser_group_scan.add_argument('-tp', '--tamper', dest='tamper_name', action='store', default=None, metavar='<tamper_name>', help='tamper repair function e.g: wordpress')
         parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None, metavar='<sid>', help='set sid')
         parser_group_scan.add_argument('-l', '--log', dest='log', action='store', default=None, metavar='<log>', help='log name')
         parser_group_scan.add_argument('-lan', '--language', dest='language', action='store', default=None, help='set target language')
@@ -55,7 +64,7 @@ def main():
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
-        parser_group_show = parser.add_argument_group('Show')
+        parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description='show rule&tamper', usage=argparse.SUPPRESS, add_help=True)
 
         parser_group_show.add_argument('-list', '--list', dest='list', action='store', default=None, help='show all rules')
         parser_group_show.add_argument('-listt', '--listtamper', dest='listtamper', action='store', default=None,
@@ -72,6 +81,11 @@ def main():
         if args.debug:
             logger.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
+
+        RuleCheck().run()
+        if args.load:
+            logger.info("[INIT] RuleCheck finished.")
+            exit()
 
         if args.list or args.listtamper:
             if args.list:

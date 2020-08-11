@@ -15,23 +15,30 @@ __copyright__ = 'Copyright (C) 2017 LoRexxar. All Rights Reserved'
 __introduction__ = """
  _   __            _                      ___  ___
 | | / /           | |                     |  \/  |
-| |/ / _   _ _ __ | |    _   _ _ __ ______| .  . |
-|    \| | | | '_ \| |   | | | | '_ \______| |\/| |
-| |\  \ |_| | | | | |___| |_| | | | |     | |  | |
+| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
+|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
+| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
 \_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v{version}
 
 GitHub: https://github.com/LoRexxar/Kunlun-M
 
 KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.""".format(version=__version__)
 __epilog__ = """Usage:
-  python {m} -t {td}
-  python {m} -t {td} -r 1000, 1001
-  python {m} -t {td} -s wordpress
-  python {m} -t {td} -f json -o /tmp/report.json 
-  python {m} -t {td} --debug
-  python {m} -t {td} -d -u
-  python {m} -t {td} --lan php -b vendor --debug
-  python {m} -t {td} --lan php -s roundcube -d -uc
+  python {m} scan -t {td}
+  python {m} scan -t {td} -r 1000, 1001
+  python {m} scan -t {td} -tp wordpress
+  python {m} scan -t {td} -d -uc
   
   python {m} --list php
+""".format(m='kunlun.py', td='tests/vulnerabilities')
+__scan_epilog__ = """Usage:
+  python {m} scan -t {td}
+  python {m} scan -t {td} -r 1000, 1001
+  python {m} scan -t {td} -tp wordpress
+  python {m} scan -t {td} -f json -o /tmp/report.json 
+  python {m} scan -t {td} --debug
+  python {m} scan -t {td} -d -u
+  python {m} scan -t {td} --lan php -b vendor --debug
+  python {m} scan -t {td} --lan php -tp roundcube -d -uc
+
 """.format(m='kunlun.py', td='tests/vulnerabilities')
