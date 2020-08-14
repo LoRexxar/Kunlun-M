@@ -23,7 +23,7 @@ from utils.log import logger
 from utils.file import Directory
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
-from Kunlun_M.settings import rules_path
+from Kunlun_M.settings import RULES_PATH
 
 
 def get_sid(target, is_a_sid=False):
@@ -151,32 +151,32 @@ def show_info(type, key):
 
     if type == "rule":
 
-        rule_lan_list = list_parse(rules_path)
+        rule_lan_list = list_parse(RULES_PATH)
         rule_dict = {}
         if key == "all":
             # show all
             for lan in rule_lan_list:
                 info_dict[lan] = []
-                rule_lan_path = os.path.join(rules_path, lan)
+                rule_lan_path = os.path.join(RULES_PATH, lan)
 
                 info_dict[lan] = list_parse(rule_lan_path)
 
         elif key in rule_lan_list:
             info_dict[key] = []
-            rule_lan_path = os.path.join(rules_path, key)
+            rule_lan_path = os.path.join(RULES_PATH, key)
 
             info_dict[key] = list_parse(rule_lan_path)
 
         elif str(int(key)) == key:
             for lan in rule_lan_list:
                 info_dict[lan] = []
-                rule_lan_path = os.path.join(rules_path, lan)
+                rule_lan_path = os.path.join(RULES_PATH, lan)
 
                 info_dict[lan] = list_parse(rule_lan_path)
 
             for lan in info_dict:
                 if "CVI_{}.py".format(key) in info_dict[lan]:
-                    f = codecs.open(os.path.join(rules_path, lan, "CVI_{}.py".format(key)), encoding='utf-8', errors="ignore")
+                    f = codecs.open(os.path.join(RULES_PATH, lan, "CVI_{}.py".format(key)), encoding='utf-8', errors="ignore")
                     return f.read()
 
             logger.error('[Show] no CVI id {}.'.format(key))
@@ -214,7 +214,7 @@ def show_info(type, key):
         table.align = 'l'
         i = 0
 
-        tamp_path = os.path.join(rules_path, 'tamper/')
+        tamp_path = os.path.join(RULES_PATH, 'tamper/')
         tamp_list = list_parse(tamp_path, True)
 
         if key == "all":

@@ -19,7 +19,7 @@ import string
 import sys
 import time
 
-from Kunlun_M.settings import rules_path
+from Kunlun_M.settings import RULES_PATH
 from utils.log import logger
 
 TARGET_MODE_GIT = 'git'

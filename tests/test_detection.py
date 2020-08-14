@@ -14,11 +14,11 @@
 """
 import xml.etree.ElementTree as eT
 from core.detection import Detection
-from Kunlun_M.settings import project_directory
+from Kunlun_M.settings import PROJECT_DIRECTORY
 
 
-vul_path = project_directory+'/tests/vulnerabilities/'
-examples_path = project_directory+'/tests/examples'
+vul_path = PROJECT_DIRECTORY+'/tests/vulnerabilities/'
+EXAMPLES_PATH = PROJECT_DIRECTORY+'/tests/examples'
 
 
 def test_framework():
@@ -28,7 +28,7 @@ def test_framework():
 
 
 def test_param_xml():
-    detection = Detection(examples_path, '.')
+    detection = Detection(EXAMPLES_PATH, '.')
     frame_data = {}
     language_data = {}
     tree = detection.rule()
@@ -39,14 +39,14 @@ def test_param_xml():
 
 
 def test_rule():
-    detection = Detection(examples_path, '.')
-    root = eT.ElementTree(file=examples_path+'/param_xml.xml')
+    detection = Detection(EXAMPLES_PATH, '.')
+    root = eT.ElementTree(file=EXAMPLES_PATH+'/param_xml.xml')
     tree = detection.rule()
     assert type(root) is type(tree)
 
 
 def test_get_dict():
-    detection = Detection(examples_path, '.')
+    detection = Detection(EXAMPLES_PATH, '.')
     extension = ['php', 'js', 'java']
     type_num = {}
     type_num = detection.get_dict(extension, type_num)
@@ -56,30 +56,30 @@ def test_get_dict():
 
 def test_project_information():
     extension = ['php', 'js', 'java']
-    allfiles = Detection.project_information(examples_path, extension)
-    assert examples_path+'/cloc.html' in allfiles
+    allfiles = Detection.project_information(EXAMPLES_PATH, extension)
+    assert EXAMPLES_PATH+'/cloc.html' in allfiles
 
 
 def test_count_py_line():
-    count = Detection.count_py_line(examples_path+'/cloc.py')
+    count = Detection.count_py_line(EXAMPLES_PATH+'/cloc.py')
     type_count = ['count_blank', 'count_code', 'count_pound']
     assert count['count_code'] == 5
 
 
 def test_count_php_line():
-    count = Detection.count_php_line(examples_path+'/cloc.php')
+    count = Detection.count_php_line(EXAMPLES_PATH+'/cloc.php')
     type_count = ['count_blank', 'count_code', 'count_pound']
     assert count['count_code'] == 2
 
 
 def test_count_java_line():
-    count = Detection.count_java_line(examples_path+'/cloc.java')
+    count = Detection.count_java_line(EXAMPLES_PATH+'/cloc.java')
     type_count = ['count_blank', 'count_code', 'count_pound']
     assert count['count_code'] == 1
 
 
 def test_count_data_line():
-    count = Detection.count_data_line(examples_path+'/param_xml.xml')
+    count = Detection.count_data_line(EXAMPLES_PATH+'/param_xml.xml')
     type_count = ['count_blank', 'count_code', 'count_pound']
     assert count['count_code'] == 81
 
@@ -112,4 +112,4 @@ def test_count_total_num():
 
 
 def test_cloc():
-    assert Detection(examples_path, '.').cloc()
+    assert Detection(EXAMPLES_PATH, '.').cloc()

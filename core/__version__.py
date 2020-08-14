@@ -22,7 +22,11 @@ __introduction__ = """
 
 GitHub: https://github.com/LoRexxar/Kunlun-M
 
-KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.""".format(version=__version__)
+KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
+
+{{detail}}
+
+""".format(version=__version__)
 __epilog__ = """Usage:
   python {m} scan -t {td}
   python {m} scan -t {td} -r 1000, 1001

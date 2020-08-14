@@ -38,12 +38,18 @@ class Rules(models.Model):
     svid = models.CharField(max_length=10)
     language = models.CharField(max_length=20)
     author = models.CharField(max_length=20)
-    vulnerability = models.CharField(max_length=30)
-    description = models.TextField()
+    description = models.TextField(null=True)
     status = models.BooleanField(default=True)
     match_mode = models.CharField(max_length=50)
-    match = models.CharField(max_length=200)
-    vul_function = models.CharField(max_length=30, default=None)
+    match = models.CharField(max_length=500)
+    # for solidity
+    match_name = models.CharField(max_length=100, default=None, null=True)
+    black_list = models.CharField(max_length=100, default=None, null=True)
+    # for chrome ext
+    keyword = models.CharField(max_length=200, default=None, null=True)
+    # for regex
+    unmatch = models.CharField(max_length=200, default=None, null=True)
+    vul_function = models.CharField(max_length=30, default=None, null=True)
     main_function = models.TextField()
 
 

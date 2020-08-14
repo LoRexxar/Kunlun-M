@@ -16,7 +16,7 @@ from prettytable import PrettyTable
 import xml.etree.ElementTree as eT
 from .dependencies import Dependencies
 from utils.log import logger
-from Kunlun_M.settings import rules_path
+from Kunlun_M.settings import RULES_PATH
 
 try:  # for pip >= 10
     from pip._internal.req import parse_requirements
@@ -41,7 +41,7 @@ class Detection(object):
         self.frame_data = {}
         self.language_data = {}
         self.project_data = []
-        self.rules_path = rules_path
+        self.rules_path = RULES_PATH
 
     @property
     def language(self):
@@ -200,7 +200,7 @@ class Detection(object):
 
     @staticmethod
     def rule():
-        framework_path = os.path.join(rules_path, 'frameworks.xml')
+        framework_path = os.path.join(RULES_PATH, 'frameworks.xml')
         tree = eT.ElementTree(file=framework_path)
         return tree
 

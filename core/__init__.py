@@ -41,14 +41,14 @@ def main():
     try:
         # arg parse
         t1 = time.time()
-        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__, epilog=__epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS)
+        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__.format(detail="Main Program"), epilog=__epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS)
 
         subparsers = parser.add_subparsers()
 
-        parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description='config for rule&tamper', usage=argparse.SUPPRESS, add_help=True)
-        parser_group_core.add_argument('load', action='store_true', default=False, help='load rule&tamper')
+        parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
+        parser_group_core.add_argument('load', choices=['load', 'recover'], default=False, help='operate for rule&tamper')
 
-        parser_group_scan = subparsers.add_parser('scan', help='scan target path', description='scan target path', epilog=__scan_epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, add_help=True)
+        parser_group_scan = subparsers.add_parser('scan', help='scan target path', description=__introduction__.format(detail='scan target path'), epilog=__scan_epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, add_help=True)
         parser_group_scan.add_argument('-t', '--target', dest='target', action='store', default='', metavar='<target>', help='file, folder, compress, or repository address')
         parser_group_scan.add_argument('-f', '--format', dest='format', action='store', default='csv', metavar='<format>', choices=['html', 'json', 'csv', 'xml'], help='vulnerability output format (formats: %(choices)s)')
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
@@ -61,10 +61,10 @@ def main():
 
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
 
-        parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
-        parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
+        parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_false', default=False, help='show unconfirmed vuls')
+        parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_false', default=False, help='without Precompiled')
 
-        parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description='show rule&tamper', usage=argparse.SUPPRESS, add_help=True)
+        parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description=__introduction__.format(detail='show rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
 
         parser_group_show.add_argument('-list', '--list', dest='list', action='store', default=None, help='show all rules')
         parser_group_show.add_argument('-listt', '--listtamper', dest='listtamper', action='store', default=None,
@@ -73,36 +73,47 @@ def main():
         args = parser.parse_args()
 
         # log
-        if args.log:
+        if hasattr(args, "log") and args.log:
             log(logging.INFO, args.log)
         else:
             log(logging.INFO, str(time.time()))
 
-        if args.debug:
+        if hasattr(args, "debug") and args.debug:
             logger.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
 
-        RuleCheck().run()
-        if args.load:
-            logger.info("[INIT] RuleCheck finished.")
-            exit()
+        if hasattr(args, "load"):
+            if args.load == "load":
+                logger.info("[INIT] RuleCheck start.")
+                RuleCheck().load()
 
-        if args.list or args.listtamper:
-            if args.list:
-                logger.info("Show List:\n{}".format(show_info('rule', args.list.strip(""))))
+                logger.info("[INIT] RuleCheck finished.")
+                exit()
 
-            if args.listtamper:
-                logger.info("Show Tamper List:\n{}".format(show_info('tamper', args.listtamper.strip(""))))
+            elif args.load == "recover":
+                logger.info("[INIT] RuleRecover start.")
+                RuleCheck().recover()
 
-            exit()
+                logger.info("[INIT] RuleRecover finished.")
+                exit()
 
-        if args.target == '' and args.output == '':
+        if hasattr(args, "list"):
+            if args.list or args.listtamper:
+                if args.list:
+                    logger.info("Show List:\n{}".format(show_info('rule', args.list.strip(""))))
+
+                if args.listtamper:
+                    logger.info("Show Tamper List:\n{}".format(show_info('tamper', args.listtamper.strip(""))))
+
+                exit()
+
+        if (not hasattr(args, "target") or args.target == '') or (not hasattr(args, "output") or args.output == ''):
             parser.print_help()
             exit()
 
         logger.debug('[INIT] start scanning...')
 
-        if args.sid:
+        if hasattr(args, "sid") and args.sid:
             a_sid = args.sid
         else:
             a_sid = get_sid(args.target, True)

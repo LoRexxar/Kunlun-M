@@ -12,12 +12,12 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 import os
-from Kunlun_M.settings import project_directory
+from Kunlun_M.settings import PROJECT_DIRECTORY
 from utils.file import Directory
 
 
 def test_file():
-    absolute_path = os.path.join(project_directory, 'kunlun.py')
+    absolute_path = os.path.join(PROJECT_DIRECTORY, 'kunlun.py')
     files, file_sum, time_consume = Directory(absolute_path).collect_files()
     ext, ext_info = files[0]
     assert '.py' == ext
@@ -28,6 +28,6 @@ def test_file():
 
 
 def test_directory():
-    absolute_path = project_directory
+    absolute_path = PROJECT_DIRECTORY
     files, file_sum, time_consume = Directory(absolute_path).collect_files()
     assert len(files) > 1

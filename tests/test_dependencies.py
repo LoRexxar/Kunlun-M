@@ -15,11 +15,11 @@
 import os
 import xml.etree.ElementTree as eT
 from core.dependencies import Dependencies
-from Kunlun_M.settings import project_directory
+from Kunlun_M.settings import PROJECT_DIRECTORY
 
 
-requirements = project_directory+'/tests/vulnerabilities/requirements.txt'
-pom = project_directory+'/tests/vulnerabilities/pom.xml'
+requirements = PROJECT_DIRECTORY+'/tests/vulnerabilities/requirements.txt'
+pom = PROJECT_DIRECTORY+'/tests/vulnerabilities/pom.xml'
 
 
 def test_find_file():

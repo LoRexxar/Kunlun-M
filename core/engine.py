@@ -29,7 +29,7 @@ from .cast import CAST
 
 from rules.autorule import autorule
 from Kunlun_M import const
-from Kunlun_M.settings import running_path
+from Kunlun_M.settings import RUNNING_PATH
 from Kunlun_M.const import ext_dict
 from Kunlun_M.const import VulnerabilityResult
 
@@ -48,7 +48,7 @@ class Running:
         :param data: list or a string
         :return:
         """
-        file_path = os.path.join(running_path, '{sid}_list'.format(sid=self.sid))
+        file_path = os.path.join(RUNNING_PATH, '{sid}_list'.format(sid=self.sid))
         if not os.path.exists(file_path):
             if isinstance(data, list):
                 with open(file_path, 'w') as f:
@@ -66,7 +66,7 @@ class Running:
                     }))
 
     def list(self, data=None):
-        file_path = os.path.join(running_path, '{sid}_list'.format(sid=self.sid))
+        file_path = os.path.join(RUNNING_PATH, '{sid}_list'.format(sid=self.sid))
         if data is None:
             with open(file_path, 'r') as f:
                 portalocker.lock(f, portalocker.LOCK_EX)
@@ -86,7 +86,7 @@ class Running:
                 f.write(json.dumps(result))
 
     def status(self, data=None):
-        file_path = os.path.join(running_path, '{sid}_status'.format(sid=self.sid))
+        file_path = os.path.join(RUNNING_PATH, '{sid}_status'.format(sid=self.sid))
         if data is None:
             with open(file_path) as f:
                 portalocker.lock(f, portalocker.LOCK_EX)
@@ -100,7 +100,7 @@ class Running:
 
     def data(self, data=None):
 
-        file_path = os.path.abspath(running_path + '/{sid}_data'.format(sid=self.sid))
+        file_path = os.path.abspath(RUNNING_PATH + '/{sid}_data'.format(sid=self.sid))
 
         if data is None:
             with open(file_path) as f:
@@ -118,7 +118,7 @@ class Running:
             ext = 'data'
         else:
             ext = 'status'
-        file_path = os.path.join(running_path, '{sid}_{ext}'.format(sid=self.sid, ext=ext))
+        file_path = os.path.join(RUNNING_PATH, '{sid}_{ext}'.format(sid=self.sid, ext=ext))
         return os.path.isfile(file_path)
 
 

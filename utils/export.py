@@ -19,7 +19,7 @@ from codecs import open
 
 from prettytable import PrettyTable
 
-from Kunlun_M.settings import running_path, export_path, default_result_path
+from Kunlun_M.settings import RUNNING_PATH, EXPORT_PATH, DEFAULT_RESULT_PATH
 from utils.log import logger
 
 import html
@@ -133,10 +133,10 @@ def write_to_file(target, sid, output_format='', filename=None):
             filename = targetlist[-2]
         else:
             filename = targetlist[-1]
-        filename = default_result_path + filename + "." + output_format
+        filename = DEFAULT_RESULT_PATH + filename + "." + output_format
     #     return False
 
-    scan_data_file = os.path.join(running_path, '{sid}_data'.format(sid=sid))
+    scan_data_file = os.path.join(RUNNING_PATH, '{sid}_data'.format(sid=sid))
 
     if not os.path.exists(scan_data_file):
         logger.warn("[EXPORT] {} not found".format(scan_data_file))
@@ -149,7 +149,7 @@ def write_to_file(target, sid, output_format='', filename=None):
         logger.info("[EXPORT] Not found vulnerability, break export...")
         return False
 
-    os.chdir(export_path)
+    os.chdir(EXPORT_PATH)
     scan_data['target'] = target
 
     if output_format == '' or output_format == 'stream':

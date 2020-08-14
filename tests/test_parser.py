@@ -12,18 +12,18 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from Kunlun_M.settings import project_directory
+from Kunlun_M.settings import PROJECT_DIRECTORY
 from core.core_engine.php.parser import anlysis_params
 from core.core_engine.php.parser import scan_parser
 from core.pretreatment import ast_object
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
-ast_object.init_pre(project_directory + '/tests/vulnerabilities/', files)
+ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
 ast_object.pre_ast_all(['php'])
 
 
-target_projects = project_directory + '/tests/vulnerabilities/v_parser.php'
-target_projects2 = project_directory + '/tests/vulnerabilities/v.php'
+target_projects = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_parser.php'
+target_projects2 = PROJECT_DIRECTORY + '/tests/vulnerabilities/v.php'
 
 with open(target_projects, 'r') as fi:
     code_contents = fi.read()
