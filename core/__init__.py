@@ -28,7 +28,7 @@ from .__version__ import __title__, __introduction__, __url__, __version__
 from .__version__ import __author__, __author_email__, __license__
 from .__version__ import __copyright__, __epilog__, __scan_epilog__
 
-from core.rule import RuleCheck
+from core.rule import RuleCheck, TamperCheck
 
 try:
     reload(sys)
@@ -46,7 +46,7 @@ def main():
         subparsers = parser.add_subparsers()
 
         parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
-        parser_group_core.add_argument('load', choices=['load', 'recover'], default=False, help='operate for rule&tamper')
+        parser_group_core.add_argument('load', choices=['load', 'recover', 'loadtamper', 'retamper'], default=False, help='operate for rule&tamper')
 
         parser_group_scan = subparsers.add_parser('scan', help='scan target path', description=__introduction__.format(detail='scan target path'), epilog=__scan_epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, add_help=True)
         parser_group_scan.add_argument('-t', '--target', dest='target', action='store', default='', metavar='<target>', help='file, folder, compress, or repository address')
@@ -97,6 +97,20 @@ def main():
                 logger.info("[INIT] RuleRecover finished.")
                 exit()
 
+            elif args.load == "loadtamper":
+                logger.info("[INIT] TamperCheck start.")
+                TamperCheck().load()
+
+                logger.info("[INIT] TamperCheck finished.")
+                exit()
+
+            elif args.load == "retamper":
+                logger.info("[INIT] TamperRecover start.")
+                TamperCheck().recover()
+
+                logger.info("[INIT] TamperRecover finished.")
+                exit()
+
         if hasattr(args, "list"):
             if args.list or args.listtamper:
                 if args.list:
@@ -128,6 +142,11 @@ def main():
 
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))
+
+    except KeyboardInterrupt:
+        logger.warning("[KunLun-M] Stop KunLun-M.")
+        sys.exit(0)
+
     except Exception as e:
         exc_msg = traceback.format_exc()
         logger.warning(exc_msg)

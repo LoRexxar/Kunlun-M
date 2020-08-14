@@ -56,7 +56,7 @@ class Rules(models.Model):
 # roundcube "Filter-Function" show [1000, 10001, 10002]
 class Tampers(models.Model):
     tam_name = models.CharField(max_length=30)
-    tam_type = models.IntegerField()
+    tam_type = models.CharField(max_length=100)
     tam_key = models.CharField(max_length=200)
     tam_value = models.CharField(max_length=200)
 

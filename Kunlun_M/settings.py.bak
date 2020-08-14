@@ -127,39 +127,38 @@ STATIC_URL = '/static/'
 
 # 全局变量配置
 
-project_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-code_path = './tmp'
-if os.path.isdir(code_path) is not True:
-    os.mkdir(code_path)
-running_path = os.path.join(project_directory, code_path, 'running')
-if os.path.isdir(running_path) is not True:
-    os.mkdir(running_path)
-package_path = os.path.join(project_directory, code_path, 'package')
-if os.path.isdir(package_path) is not True:
-    os.mkdir(package_path)
-source_path = os.path.join(project_directory, code_path, 'git')
+PROJECT_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+TMP_PATH = './tmp'
+if os.path.isdir(TMP_PATH) is not True:
+    os.mkdir(TMP_PATH)
+RUNNING_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'running')
+if os.path.isdir(RUNNING_PATH) is not True:
+    os.mkdir(RUNNING_PATH)
+PACKAGE_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'package')
+if os.path.isdir(PACKAGE_PATH) is not True:
+    os.mkdir(PACKAGE_PATH)
+SOURCE_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'git')
 
-if os.path.isdir(source_path) is not True:
-    os.mkdir(source_path)
+if os.path.isdir(SOURCE_PATH) is not True:
+    os.mkdir(SOURCE_PATH)
 
-issue_path = os.path.join(project_directory, code_path, 'issue')
-if os.path.isdir(issue_path) is not True:
-    os.mkdir(issue_path)
+ISSUE_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'issue')
+if os.path.isdir(ISSUE_PATH) is not True:
+    os.mkdir(ISSUE_PATH)
 
-export_path = os.path.join(project_directory, code_path, 'export')
-if not os.path.exists(export_path):
-    os.mkdir(export_path)
+EXPORT_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'export')
+if not os.path.exists(EXPORT_PATH):
+    os.mkdir(EXPORT_PATH)
 
 if os.path.isdir('./result') is not True:
     os.mkdir('./result')
-default_result_path = os.path.join(project_directory, 'result/')
+DEFAULT_RESULT_PATH = os.path.join(PROJECT_DIRECTORY, 'result/')
 
-issue_history_path = os.path.join(issue_path, 'history')
-kunlun_main = os.path.join(project_directory, 'kunlun.py')
-core_path = os.path.join(project_directory, 'core')
-tests_path = os.path.join(project_directory, 'tests')
-examples_path = os.path.join(tests_path, 'examples')
-rules_path = os.path.join(project_directory, 'rules')
-config_path = os.path.join(project_directory, 'config')
-rule_path = os.path.join(project_directory, 'rule')
+KUNLUN_MAIN = os.path.join(PROJECT_DIRECTORY, 'kunlun.py')
+CORE_PATH = os.path.join(PROJECT_DIRECTORY, 'core')
+TESTS_PATH = os.path.join(PROJECT_DIRECTORY, 'tests')
+EXAMPLES_PATH = os.path.join(TESTS_PATH, 'examples')
+RULES_PATH = os.path.join(PROJECT_DIRECTORY, 'rules')
+CONFIG_PATH = os.path.join(PROJECT_DIRECTORY, 'config')
+
 

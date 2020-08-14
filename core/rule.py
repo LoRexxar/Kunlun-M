@@ -17,7 +17,7 @@ import codecs
 from Kunlun_M.settings import RULES_PATH
 from utils.log import logger
 
-from web.index.models import Rules
+from web.index.models import Rules, Tampers
 
 
 def block(index):
@@ -109,6 +109,30 @@ class Rule(object):
         return vul_list
 
 
+def list_parse(rules_path, istamp=False):
+
+    files = os.listdir(rules_path)
+    result = []
+
+    for f in files:
+
+        if f.startswith("_") or f.endswith("pyc"):
+            continue
+
+        if os.path.isdir(os.path.join(rules_path, f)):
+            if f not in ['test', 'tamper']:
+                result.append(f)
+
+        if f.startswith("CVI_"):
+            result.append(f)
+
+        if istamp:
+            if f not in ['test.py', 'demo.py', 'none.py']:
+                result.append(f)
+
+    return result
+
+
 class RuleCheck:
     """
     规则检查，并读取所有的规则
@@ -126,37 +150,14 @@ class RuleCheck:
         self.REGEX_CONFIG_LIST = ['unmatch']
         self.CHROME_CONFIG_LIST = ['keyword', 'unmatch']
 
-    def list_parse(self, rules_path, istamp=False):
-
-        files = os.listdir(rules_path)
-        result = []
-
-        for f in files:
-
-            if f.startswith("_") or f.endswith("pyc"):
-                continue
-
-            if os.path.isdir(os.path.join(rules_path, f)):
-                if f not in ['test', 'tamper']:
-                    result.append(f)
-
-            if f.startswith("CVI_"):
-                result.append(f)
-
-            if istamp:
-                if f not in ['test.py', 'demo.py', 'none.py']:
-                    result.append(f)
-
-        return result
-
     def get_all_rules(self):
-        rule_lan_list = self.list_parse(self.rule_base_path)
+        rule_lan_list = list_parse(self.rule_base_path)
 
         for lan in rule_lan_list:
             self.rule_dict[lan] = []
             rule_lan_path = os.path.join(self.rule_base_path, lan)
 
-            self.rule_dict[lan] = self.list_parse(rule_lan_path)
+            self.rule_dict[lan] = list_parse(rule_lan_path)
 
     def load_rules(self, ruleclass):
 
@@ -324,3 +325,134 @@ class RuleCheck:
 
             rule_file.close()
 
+
+class TamperCheck:
+    """
+    tamper检查
+    """
+    def __init__(self):
+        self.tamper_list = []
+        self.tamper_dict = {}
+
+        self.tamper_base_path = os.path.join(RULES_PATH, "tamper")
+
+    def check_and_update_tamper(self, tamperclass, new_tamper_value):
+
+        tam_name = tamperclass.tam_name
+        tam_key = tamperclass.tam_key
+        tam_value = tamperclass.tam_value
+
+        if str(tam_value) != str(new_tamper_value):
+            logger.warning("[INIT][Tamper Check] Tamper for {} function {} has changed:".format(tam_name, tam_key))
+            logger.warning("[INIT][Tamper Check] {} in Tamper File is {}".format(tam_key, tam_value))
+            logger.warning("[INIT][Tamper Check] {} in Database is {}".format(tam_key, new_tamper_value))
+
+            logger.warning("[INIT][Tamper Check] whether load new {} from Tamper File(Y/N):".format(tam_key))
+            if input().lower() != 'n':
+                tamperclass.tam_value = new_tamper_value
+
+        tamperclass.save()
+        return True
+
+    def load(self):
+
+        self.tamper_list = list_parse(self.tamper_base_path, True)
+
+        for tamper in self.tamper_list:
+            tamper_name = tamper.split('.')[0]
+            tamper_file = "rules.tamper." + tamper_name
+
+            tamper_obj = __import__(tamper_file, fromlist=tamper_name)
+
+            filter_func = getattr(tamper_obj, tamper_name)
+            input_control = getattr(tamper_obj, tamper_name + "_controlled")
+
+            if filter_func:
+                for function in filter_func:
+                    t = Tampers.objects.filter(tam_name=tamper_name, tam_type="Filter-Function",
+                                               tam_key=function).first()
+
+                    if not t:
+                        logger.info("[INIT][Load Tamper] New Tamper for {} function {}.".format(tamper_name, function))
+
+                        t1 = Tampers(tam_name=tamper_name, tam_type="Filter-Function",
+                                     tam_key=function, tam_value=filter_func[function])
+
+                        t1.save()
+
+                    else:
+                        logger.info("[INIT][Load Tamper] Check Tamper for {} function {}.".format(tamper_name, function))
+
+                        self.check_and_update_tamper(t, filter_func[function])
+
+            if input_control:
+                for input in input_control:
+                    t = Tampers.objects.filter(tam_name=tamper_name, tam_type="Input-Control",
+                                               tam_key=tamper_name, tam_value=input).first()
+
+                    if not t:
+                        logger.info("[INIT][Load Tamper] New Tamper for {} Input {}.".format(tamper_name, input))
+
+                        t1 = Tampers(tam_name=tamper_name, tam_type="Input-Control",
+                                     tam_key=tamper_name, tam_value=input)
+
+                        t1.save()
+
+                    else:
+                        logger.info("[INIT][Load Tamper] Check Tamper for {} Input {}.".format(tamper_name, input))
+
+                        self.check_and_update_tamper(t, input)
+
+        return True
+
+    def recover(self):
+
+        self.tamper_dict = {}
+        tampers = Tampers.objects.all()
+
+        for tamper in tampers:
+            if tamper.tam_name not in self.tamper_dict:
+                self.tamper_dict[tamper.tam_name] = {"Input-Control": [], "Filter-Function": {}}
+
+            if tamper.tam_type == "Input-Control":
+                self.tamper_dict[tamper.tam_name][tamper.tam_type].append(tamper.tam_value)
+
+            if tamper.tam_type == "Filter-Function":
+                self.tamper_dict[tamper.tam_name][tamper.tam_type][tamper.tam_key] = tamper.tam_value
+
+        # mkdir tamper
+        if not os.path.isdir(os.path.join(RULES_PATH, 'tamper')):
+            os.mkdir(os.path.join(RULES_PATH, "tamper"))
+
+        tampers_path = os.path.join(RULES_PATH, "tamper")
+
+        for tamper_name in self.tamper_dict:
+
+            tamper_path = os.path.join(tampers_path, "{}.py".format(tamper_name))
+
+            if os.path.exists(tamper_path):
+                logger.warning("[INIT][Recover] Tamper file {}.py exist. whether overwrite file? (Y/N)".format(tamper_name))
+
+                if input().lower() == 'n':
+                    continue
+
+            logger.info("[INIT][Recover] Recover new Tamper file {}.py".format(tamper_name))
+
+            template_file = codecs.open(os.path.join(RULES_PATH, 'tamper.template'), 'rb+', encoding='utf-8',
+                                        errors='ignore')
+            template_file_content = template_file.read()
+            template_file.close()
+
+            tamper_file = codecs.open(tamper_path, "wb+", encoding='utf-8', errors='ignore')
+
+            tam_name = tamper_name
+            filter_function = self.tamper_dict[tamper_name]["Filter-Function"]
+            input_control = self.tamper_dict[tamper_name]["Input-Control"]
+
+            tamper_file.write(template_file_content.format(tam_name=tam_name,
+                                                           filter_function=filter_function,
+                                                           input_control=input_control))
+
+            tamper_file.close()
+
+        return True
