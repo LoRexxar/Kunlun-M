@@ -88,13 +88,13 @@ tests/*
 
 # new rule for test
 rules/tamper/*
-!rules/tamper.template
 !rules/tamper/demo.py
 !rules/tamper/wordpress.py
 !rules/tamper/__init__.py
 
 rules/*
 !rules/rule.template
+!rules/tamper.template
 !rules/*/demo.py
 !rules/javascript/CVI_3003.py
 !rules/solidity/CVI_2001.py
@@ -115,4 +115,5 @@ bin/*
 ghostdriver.log
 debug.log
 
-#
+# db
+*.db
