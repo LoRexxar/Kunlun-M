@@ -33,7 +33,7 @@ __epilog__ = """Usage:
   python {m} scan -t {td} -tp wordpress
   python {m} scan -t {td} -d -uc
   
-  python {m} --list php
+  python {m} list rule -k php
 """.format(m='kunlun.py', td='tests/vulnerabilities')
 __scan_epilog__ = """Usage:
   python {m} scan -t {td}

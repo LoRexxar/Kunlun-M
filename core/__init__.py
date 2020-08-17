@@ -66,9 +66,14 @@ def main():
 
         parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description=__introduction__.format(detail='show rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
 
-        parser_group_show.add_argument('-list', '--list', dest='list', action='store', default=None, help='show all rules')
-        parser_group_show.add_argument('-listt', '--listtamper', dest='listtamper', action='store', default=None,
-                                       help='show all tamper')
+        parser_group_show.add_argument('list', choices=['rule', "tamper"], action='store', default=None,
+                                       help='show all rules & tanmpers')
+
+        parser_group_show.add_argument('-k', '--key', dest='listkey', action='store', default="all",
+                                       help='key for show rule & tamper')
+        # parser_group_show.add_argument('-list', '--list', dest='list', action='store', default=None, help='show all rules')
+        # parser_group_show.add_argument('-listt', '--listtamper', dest='listtamper', action='store', default=None,
+        #                                help='show all tamper')
 
         args = parser.parse_args()
 
@@ -112,13 +117,8 @@ def main():
                 exit()
 
         if hasattr(args, "list"):
-            if args.list or args.listtamper:
-                if args.list:
-                    logger.info("Show List:\n{}".format(show_info('rule', args.list.strip(""))))
-
-                if args.listtamper:
-                    logger.info("Show Tamper List:\n{}".format(show_info('tamper', args.listtamper.strip(""))))
-
+            if args.list:
+                logger.info("Show {}:\n{}".format(args.list, show_info(args.list, args.listkey.strip(""))))
                 exit()
 
         if (not hasattr(args, "target") or args.target == '') or (not hasattr(args, "output") or args.output == ''):
