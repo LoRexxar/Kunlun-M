@@ -13,9 +13,6 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 import os
-import xml.etree.ElementTree as eT
-from core.detection import Detection
-from Kunlun_M.settings import PROJECT_DIRECTORY
 
 # for django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
@@ -23,6 +20,10 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
 import django
 
 django.setup()
+
+import xml.etree.ElementTree as eT
+from core.detection import Detection
+from Kunlun_M.settings import PROJECT_DIRECTORY
 
 vul_path = PROJECT_DIRECTORY+'/tests/vulnerabilities/'
 EXAMPLES_PATH = PROJECT_DIRECTORY+'/tests/examples'

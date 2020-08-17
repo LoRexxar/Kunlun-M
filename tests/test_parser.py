@@ -14,17 +14,17 @@
 """
 import os
 
-from Kunlun_M.settings import PROJECT_DIRECTORY
-from core.core_engine.php.parser import anlysis_params
-from core.core_engine.php.parser import scan_parser
-from core.pretreatment import ast_object
-
 # for django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
 
 import django
 
 django.setup()
+
+from Kunlun_M.settings import PROJECT_DIRECTORY
+from core.core_engine.php.parser import anlysis_params
+from core.core_engine.php.parser import scan_parser
+from core.pretreatment import ast_object
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
 ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)

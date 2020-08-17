@@ -1,9 +1,4 @@
 import os
-from core.engine import scan
-from core.engine import init_match_rule
-from Kunlun_M.settings import EXAMPLES_PATH
-from utils.log import logger
-from phply import phpast as php
 
 # for django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
@@ -11,6 +6,12 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
 import django
 
 django.setup()
+
+from core.engine import scan
+from core.engine import init_match_rule
+from Kunlun_M.settings import EXAMPLES_PATH
+from utils.log import logger
+from phply import phpast as php
 
 def test_scan():
     logger.info('Examples Path: {path}'.format(path=EXAMPLES_PATH))
