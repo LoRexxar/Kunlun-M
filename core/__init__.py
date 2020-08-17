@@ -19,6 +19,7 @@ import logging
 import traceback
 
 from utils.log import log, logger
+from utils.utils import get_mainstr_from_filename
 
 from . import cli
 from .cli import get_sid, show_info
@@ -29,6 +30,7 @@ from .__version__ import __author__, __author_email__, __license__
 from .__version__ import __copyright__, __epilog__, __scan_epilog__
 
 from core.rule import RuleCheck, TamperCheck
+from web.index.models import ScanTask
 
 try:
     reload(sys)
@@ -54,7 +56,6 @@ def main():
         parser_group_scan.add_argument('-o', '--output', dest='output', action='store', default='', metavar='<output>', help='vulnerability output STREAM, FILE')
         parser_group_scan.add_argument('-r', '--rule', dest='special_rules', action='store', default=None, metavar='<rule_id>', help='specifies rules e.g: 1000, 1001')
         parser_group_scan.add_argument('-tp', '--tamper', dest='tamper_name', action='store', default=None, metavar='<tamper_name>', help='tamper repair function e.g: wordpress')
-        parser_group_scan.add_argument('-i', '--sid', dest='sid', action='store', default=None, metavar='<sid>', help='set sid')
         parser_group_scan.add_argument('-l', '--log', dest='log', action='store', default=None, metavar='<log>', help='log name')
         parser_group_scan.add_argument('-lan', '--language', dest='language', action='store', default=None, help='set target language')
         parser_group_scan.add_argument('-b', '--blackpath', dest='black_path', action='store', default=None, help='black path list')
@@ -71,9 +72,6 @@ def main():
 
         parser_group_show.add_argument('-k', '--key', dest='listkey', action='store', default="all",
                                        help='key for show rule & tamper')
-        # parser_group_show.add_argument('-list', '--list', dest='list', action='store', default=None, help='show all rules')
-        # parser_group_show.add_argument('-listt', '--listtamper', dest='listtamper', action='store', default=None,
-        #                                help='show all tamper')
 
         args = parser.parse_args()
 
@@ -127,19 +125,24 @@ def main():
 
         logger.debug('[INIT] start scanning...')
 
-        if hasattr(args, "sid") and args.sid:
-            a_sid = args.sid
-        else:
-            a_sid = get_sid(args.target, True)
+        # new scan task
+        task_name = get_mainstr_from_filename(args.target)
+        s = ScanTask(task_name=task_name, target_path=args.target, parameter_config=sys.argv)
+        s.save()
+
+        # 标识任务id
+        sid = str(s.id)
 
         data = {
             'status': 'running',
             'report': ''
         }
-        Running(a_sid).status(data)
+        Running(sid).status(data)
 
-        cli.start(args.target, args.format, args.output, args.special_rules, a_sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom)
+        cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom)
 
+        s.is_finished = True
+        s.save()
         t2 = time.time()
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))
 

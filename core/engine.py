@@ -32,10 +32,13 @@ from Kunlun_M import const
 from Kunlun_M.settings import RUNNING_PATH
 from Kunlun_M.const import ext_dict
 from Kunlun_M.const import VulnerabilityResult
+from Kunlun_M.const import match_modes
 
 from utils.file import FileParseAll
 from utils.log import logger
 from utils.utils import Tool
+
+from web.index.models import ScanResultTask
 
 
 class Running:
@@ -228,6 +231,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit,
                code_content.replace('\r\n', ' ').replace('\n', ' '), x.analysis]
         row2 = [idx + 1, x.chain]
+
+        # save to database
+        sr = ScanResultTask(scan_task_id=s_sid, result_id=idx + 1, cvi_id=x.id, language=x.language,
+                            vulfile_path=trigger, source_code=code_content.replace('\r\n', ' ').replace('\n', ' '),
+                            rule_type=match_modes.index(x.analysis))
+
+        sr.save()
 
         data.append(row)
         data2.append(row2)

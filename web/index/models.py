@@ -26,11 +26,11 @@ class ScanResultTask(models.Model):
     scan_task_id = models.IntegerField()
     result_id = models.IntegerField()
     cvi_id = models.CharField(max_length=20)
-    rule_id = models.IntegerField()
     language = models.CharField(max_length=20)
     vulfile_path = models.CharField(max_length=200)
     source_code = models.CharField(max_length=200)
     rule_type = models.IntegerField()
+    is_active = models.BooleanField(default=True)
 
 
 class Rules(models.Model):

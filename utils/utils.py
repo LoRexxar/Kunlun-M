@@ -21,6 +21,7 @@ import time
 
 from Kunlun_M.settings import RULES_PATH
 from utils.log import logger
+from web.index.models import ScanTask
 
 TARGET_MODE_GIT = 'git'
 TARGET_MODE_FILE = 'file'
@@ -688,3 +689,17 @@ def pretty_code_js(code):
         formatted.append("\t" * indent + "".join(newline))
 
     return "".join(formatted)
+
+
+def get_mainstr_from_filename(filename):
+
+    mainstr = filename.replace('\\', '/').split('/')
+    mainstr = mainstr[-1] if mainstr[-1] else mainstr[-2]
+    mainstr = mainstr.split('.')[0].split("")
+
+    s = ScanTask.objects.filter(task_name=mainstr)
+
+    if s:
+        mainstr = "{}_{}".format(mainstr, len(s))
+
+    return mainstr
