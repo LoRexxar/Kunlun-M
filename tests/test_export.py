@@ -17,6 +17,13 @@ import os
 from Kunlun_M.settings import RUNNING_PATH, EXPORT_PATH
 from utils.export import write_to_file, dict_to_pretty_table
 
+# for django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
+
+import django
+
+django.setup()
+
 scan_data_file = os.path.join(RUNNING_PATH, 'abcdefg_data')
 if not os.path.exists(scan_data_file):
     with open(scan_data_file, 'w') as f:

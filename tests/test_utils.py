@@ -12,6 +12,14 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 from utils.utils import *
+import os
+
+# for django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
+
+import django
+
+django.setup()
 
 
 def test_convert_time():

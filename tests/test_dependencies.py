@@ -17,6 +17,12 @@ import xml.etree.ElementTree as eT
 from core.dependencies import Dependencies
 from Kunlun_M.settings import PROJECT_DIRECTORY
 
+# for django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
+
+import django
+
+django.setup()
 
 requirements = PROJECT_DIRECTORY+'/tests/vulnerabilities/requirements.txt'
 pom = PROJECT_DIRECTORY+'/tests/vulnerabilities/pom.xml'
