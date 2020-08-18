@@ -99,17 +99,17 @@ def get_dataflow_class(name, isnew=False):
 
 
 # 结果流模板表
-def get_resultflow_table():
-    prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
+def get_resultflow_table(prefix):
+    # prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
 
-    table_name = "ResultFlow{}".format(prefix)
+    table_name = "ResultFlow_{:04d}".format(prefix)
 
     class ResultFlowTemplate(models.Model):
         vul_id = models.IntegerField()
-        node_type = models.IntegerField()
+        node_type = models.CharField(max_length=50)
         node_content = models.CharField(max_length=500)
         node_path = models.CharField(max_length=300)
-        node_lineno = models.IntegerField()
+        node_lineno = models.CharField(max_length=20, null=True)
 
         @staticmethod
         def is_exists():
@@ -121,9 +121,9 @@ def get_resultflow_table():
     return ResultFlowTemplate
 
 
-def get_resultflow_class():
+def get_resultflow_class(prefix):
 
-    ResultflowObject = get_resultflow_table()
+    ResultflowObject = get_resultflow_table(prefix)
 
     if not ResultflowObject.is_exists():
         with connection.schema_editor() as schema_editor:

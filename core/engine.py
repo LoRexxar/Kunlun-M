@@ -39,6 +39,7 @@ from utils.log import logger
 from utils.utils import Tool
 
 from web.index.models import ScanResultTask
+from web.index.models import get_resultflow_class
 
 
 class Running:
@@ -242,6 +243,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             result_type=x.analysis, is_unconfirm=is_unconfirm_result)
 
         sr.save()
+
+        for chain in x.chain:
+            if type(chain) == tuple:
+
+                ResultFlow = get_resultflow_class(int(a_sid))
+                rf = ResultFlow(vul_id=idx + 1, node_type=chain[0], node_content=chain[1],
+                                node_path=chain[2], node_lineno=chain[3])
+                rf.save()
 
         data.append(row)
         data2.append(row2)
