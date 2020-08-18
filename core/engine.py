@@ -232,10 +232,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                code_content.replace('\r\n', ' ').replace('\n', ' '), x.analysis]
         row2 = [idx + 1, x.chain]
 
+        is_unconfirm_result = False
+        if "unconfirmed" in x.analysis.lower():
+            is_unconfirm_result = True
+
         # save to database
         sr = ScanResultTask(scan_task_id=a_sid, result_id=idx + 1, cvi_id=x.id, language=x.language,
                             vulfile_path=trigger, source_code=code_content.replace('\r\n', ' ').replace('\n', ' '),
-                            result_type=x.analysis)
+                            result_type=x.analysis, is_unconfirm=is_unconfirm_result)
 
         sr.save()
 

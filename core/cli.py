@@ -59,7 +59,12 @@ def check_scantask(task_name, target_path, parameter_config):
                  'Commit(Author)', 'Source Code Content', 'Analysis'])
             table.align = 'l'
 
-            srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=1)
+            # check unconfirm
+            logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
+            if input().lower() != 'n':
+                srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=True)
+            else:
+                srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=False)
 
             if srs:
                 logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))

@@ -30,6 +30,7 @@ class ScanResultTask(models.Model):
     vulfile_path = models.CharField(max_length=200)
     source_code = models.CharField(max_length=200)
     result_type = models.CharField(max_length=100)
+    is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
 
