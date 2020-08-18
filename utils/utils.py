@@ -695,11 +695,8 @@ def get_mainstr_from_filename(filename):
 
     mainstr = filename.replace('\\', '/').split('/')
     mainstr = mainstr[-1] if mainstr[-1] else mainstr[-2]
-    mainstr = mainstr.split('.')[0].split("")
+    mainstr = mainstr.split('.')[0].strip("")
 
     s = ScanTask.objects.filter(task_name=mainstr)
-
-    if s:
-        mainstr = "{}_{}".format(mainstr, len(s))
 
     return mainstr

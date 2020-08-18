@@ -18,12 +18,15 @@ from prettytable import PrettyTable
 
 from .detection import Detection
 from .engine import scan, Running
+from core.pretreatment import ast_object
 from utils.export import write_to_file
 from utils.log import logger
 from utils.file import Directory
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
 from Kunlun_M.settings import RULES_PATH
+
+from web.index.models import ScanTask, ScanResultTask, Rules
 
 
 def get_sid(target, is_a_sid=False):
@@ -37,6 +40,50 @@ def get_sid(target, is_a_sid=False):
         pre = 's'
     sid = '{p}{sid}{r}'.format(p=pre, sid=sid, r=random_generator())
     return sid.lower()
+
+
+def check_scantask(task_name, target_path, parameter_config):
+    s = ScanTask.objects.filter(task_name=task_name, target_path=target_path, parameter_config=parameter_config, is_finished=1).order_by("-id").first()
+
+    if s:
+        logger.warning("[INIT] ScanTask for {} has been executed.".format(task_name))
+        logger.warning("[INIT] whether rescan Task {}?(Y/N) (Default N)".format(task_name))
+
+    if input().lower() != 'y':
+        logger.warning("[INIT] whether Show Last Scan Result?(Y/N) (Default Y)")
+
+        if input().lower() != 'n':
+            scan_id = s.id
+            table = PrettyTable(
+                ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
+                 'Commit(Author)', 'Source Code Content', 'Analysis'])
+            table.align = 'l'
+
+            srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=1)
+
+            if srs:
+                logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))
+
+            else:
+                logger.info("[MainThread] Last Scan id {} has no Result.")
+
+            for sr in srs:
+                rule = Rules.objects.filter(svid=sr.cvi_id).first()
+                rule_name = rule.rule_name
+                author = rule.author
+
+                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
+                       author, sr.source_code, sr.result_type]
+
+                table.add_row(row)
+
+            logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
+
+    else:
+        s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
+        s.save()
+
+    return s
 
 
 def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False):

@@ -119,7 +119,7 @@ def main():
                 logger.info("Show {}:\n{}".format(args.list, show_info(args.list, args.listkey.strip(""))))
                 exit()
 
-        if (not hasattr(args, "target") or args.target == '') or (not hasattr(args, "output") or args.output == ''):
+        if not hasattr(args, "target") or args.target == '':
             parser.print_help()
             exit()
 
@@ -127,8 +127,11 @@ def main():
 
         # new scan task
         task_name = get_mainstr_from_filename(args.target)
-        s = ScanTask(task_name=task_name, target_path=args.target, parameter_config=sys.argv)
-        s.save()
+        s = cli.check_scantask(task_name=task_name, target_path=args.target, parameter_config=sys.argv)
+
+        if s.is_finished:
+            logger.info("[INIT] Finished Task.")
+            exit()
 
         # 标识任务id
         sid = str(s.id)

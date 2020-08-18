@@ -29,7 +29,7 @@ class ScanResultTask(models.Model):
     language = models.CharField(max_length=20)
     vulfile_path = models.CharField(max_length=200)
     source_code = models.CharField(max_length=200)
-    rule_type = models.IntegerField()
+    result_type = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 
 
@@ -101,7 +101,7 @@ def get_dataflow_class(name, isnew=False):
 def get_resultflow_table():
     prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
 
-    table_name = "DataFlow{}".format(prefix)
+    table_name = "ResultFlow{}".format(prefix)
 
     class ResultFlowTemplate(models.Model):
         vul_id = models.IntegerField()

@@ -879,7 +879,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     if is_co == 3 and hasattr(nodes, "type") and nodes.type == "BreakStatement":
         return is_co, cp, expr_lineno
 
-    if len(nodes) != 0 and is_co != 1 and is_co != -1:
+    if type(nodes) == list and len(nodes) != 0 and is_co != 1 and is_co != -1:
         node = nodes[len(nodes) - 1]
 
         if node.type == "VariableDeclaration":  # 变量定义
