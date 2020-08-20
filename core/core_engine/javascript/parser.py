@@ -110,7 +110,7 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
             value += " } "
 
         elif type == "BinaryExpression":
-            value = "Litreal"
+            value = ""
 
             if node.operator == "+":
                 data_left = get_member_data(node.left, check=True, isclean_prototype=isclean_prototype)
@@ -118,8 +118,10 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
 
                 if data_left != 1:
                     value = data_left
-                if data_right != 1:
+                if data_right != 1 and value:
                     value = value + " + " + data_right
+                if data_right != 1 and not value:
+                    value = data_right
 
         elif type == "NewExpression":
             callee_name = get_member_data(node.callee)
@@ -1127,11 +1129,19 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             elif expression.type == "CallExpression":
                 callee_name = get_member_data(expression.callee)
+                expr_lineno = expression.loc.start.line
 
                 if callee_name == vul_function or callee_name == "this." + vul_function.split(".")[-1]:
                     callee_params = expression.arguments
+                    param_name = get_member_data(callee_params)
 
                     logger.debug("[AST] call param from self object method {}".format(callee_name))
+                    logger.debug(
+                        "[AST] Find {} in {} param in line {}".format(param_name, callee_name, expr_lineno))
+
+                    file_path = os.path.normpath(file_path)
+                    code = "{} in function {} param".format(param_name, callee_name)
+                    scan_chain.append(('NewParam', code, file_path, expr_lineno))
 
                     # 恶意函数调用
                     for param in callee_params:

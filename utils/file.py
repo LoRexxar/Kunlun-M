@@ -157,7 +157,7 @@ class FileParseAll:
 
                     for m in matchs:
 
-                        data = m.group(0)
+                        data = m.group(0).strip()
 
                         split_data = content.split(data)[0]
                         # enddata = content.split(data)[1]
@@ -179,7 +179,7 @@ class FileParseAll:
                     matchs = p.finditer(content)
 
                     for m in matchs:
-                        data = m.group(0)
+                        data = m.group(0).strip()
 
                         split_data = content.split(data)[0]
                         # enddata = content.split(data)[1]

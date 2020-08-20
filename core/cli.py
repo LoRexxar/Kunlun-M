@@ -49,40 +49,43 @@ def check_scantask(task_name, target_path, parameter_config):
         logger.warning("[INIT] ScanTask for {} has been executed.".format(task_name))
         logger.warning("[INIT] whether rescan Task {}?(Y/N) (Default N)".format(task_name))
 
-    if input().lower() != 'y':
-        logger.warning("[INIT] whether Show Last Scan Result?(Y/N) (Default Y)")
+        if input().lower() != 'y':
+            logger.warning("[INIT] whether Show Last Scan Result?(Y/N) (Default Y)")
 
-        if input().lower() != 'n':
-            scan_id = s.id
-            table = PrettyTable(
-                ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
-                 'Commit(Author)', 'Source Code Content', 'Analysis'])
-            table.align = 'l'
-
-            # check unconfirm
-            logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
             if input().lower() != 'n':
-                srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=True)
-            else:
-                srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=False)
+                scan_id = s.id
+                table = PrettyTable(
+                    ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
+                     'Commit(Author)', 'Source Code Content', 'Analysis'])
+                table.align = 'l'
 
-            if srs:
-                logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))
+                # check unconfirm
+                logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
+                if input().lower() != 'n':
+                    srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=True)
+                else:
+                    srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=False)
 
-            else:
-                logger.info("[MainThread] Last Scan id {} has no Result.")
+                if srs:
+                    logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))
 
-            for sr in srs:
-                rule = Rules.objects.filter(svid=sr.cvi_id).first()
-                rule_name = rule.rule_name
-                author = rule.author
+                else:
+                    logger.info("[MainThread] Last Scan id {} has no Result.")
 
-                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
-                       author, sr.source_code, sr.result_type]
+                for sr in srs:
+                    rule = Rules.objects.filter(svid=sr.cvi_id).first()
+                    rule_name = rule.rule_name
+                    author = rule.author
 
-                table.add_row(row)
+                    row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
+                           author, sr.source_code, sr.result_type]
 
-            logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
+                    table.add_row(row)
+
+                logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
+        else:
+            s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
+            s.save()
 
     else:
         s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
