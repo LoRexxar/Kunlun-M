@@ -62,6 +62,14 @@ class Tampers(models.Model):
     tam_value = models.CharField(max_length=200)
 
 
+class NewEvilFunc(models.Model):
+    svid = models.IntegerField()
+    scan_task_id = models.IntegerField()
+    func_name = models.CharField(max_length=200)
+    origin_func_name = models.CharField(max_length=200, null=True)
+    is_active = models.BooleanField(default=True)
+
+
 # 数据流模板表
 def get_dataflow_table(name, isnew=False):
 

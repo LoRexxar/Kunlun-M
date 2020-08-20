@@ -28,6 +28,12 @@ def init_match_rule(data):
 
         type = data[1]
         match = ""
+        if data[3]:
+            origin_func_name = data[3]
+        elif data[2]:
+            origin_func_name = data[2]
+        else:
+            origin_func_name = ""
 
         # for evalobject
         if type == "evalobject":
@@ -153,4 +159,4 @@ def init_match_rule(data):
         match2 = None
         index = 0
 
-    return match, match2, vul_function, index
+    return match, match2, vul_function, index, origin_func_name

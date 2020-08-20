@@ -436,7 +436,7 @@ def function_back(function_node, function_params, back_nodes=None, file_path=Non
                     scan_chain.append(('NewFunction', code, file_path, function_lineno))
 
                     is_co = 4
-                    cp = tuple([function_node.id, cp])
+                    cp = tuple([function_node.id, cp, vul_function])
                     return is_co, cp, 0
 
     return is_co, cp, expr_lineno
@@ -951,7 +951,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 scan_chain.append(('NewFunction', code, file_path, new_function_name))
 
                 is_co = 4
-                cp = tuple([node.id, param])
+                cp = tuple([node.id, param, vul_function])
                 return is_co, cp, 0
 
         elif node.type == "ExpressionStatement":  # 赋值操作
@@ -972,7 +972,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     # 处理"prototype"问题
 
                     is_co = 4
-                    cp = tuple([get_member_data(expression.left, isclean_prototype=True), "evalobject"])
+                    cp = tuple([get_member_data(expression.left, isclean_prototype=True), "evalobject", vul_function])
                     return is_co, cp, 0
 
                 if get_member_data(expression.left, isparam=True) == param_name:
@@ -1091,7 +1091,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     scan_chain.append(('NewFunction', code, file_path, new_function_name))
 
                     is_co = 4
-                    cp = tuple([expression.left.name, "evalobject"])
+                    cp = tuple([expression.left.name, "evalobject", vul_function])
                     return is_co, cp, 0
 
                 elif expression.right.type == "ObjectExpression":
@@ -1272,7 +1272,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                     cp))
 
                             is_co = 4
-                            cp = tuple([node, param])
+                            cp = tuple([node, param, vul_function])
                             return is_co, cp, 0
                         else:
                             logger.info(
@@ -1292,7 +1292,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 scan_chain.append(('NewEvalObject', code, file_path, function_lineno))
 
                 is_co = 4
-                cp = tuple([function_name, "evalobject"])
+                cp = tuple([function_name, "evalobject", vul_function])
 
                 return is_co, cp, 0
 
@@ -1527,7 +1527,7 @@ def analysis_objectexpression(node, vul_function, back_node, vul_lineno, file_pa
             scan_chain.append(('NewFunction', code, file_path, vul_lineno))
 
             is_co = 4
-            cp = tuple([new_eval_function, "evalmethod"])
+            cp = tuple([new_eval_function, "evalmethod", vul_function])
             set_scan_results(is_co, cp, 1, vul_function, "", vul_lineno)
 
 

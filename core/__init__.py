@@ -19,7 +19,7 @@ import logging
 import traceback
 
 from utils.log import log, logger
-from utils.utils import get_mainstr_from_filename
+from utils.utils import get_mainstr_from_filename, get_scan_id
 
 from . import cli
 from .cli import get_sid, show_info
@@ -135,6 +135,7 @@ def main():
 
         # 标识任务id
         sid = str(s.id)
+        get_scan_id()
 
         data = {
             'status': 'running',

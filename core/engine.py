@@ -36,9 +36,9 @@ from Kunlun_M.const import match_modes
 
 from utils.file import FileParseAll
 from utils.log import logger
-from utils.utils import Tool
+from utils.utils import Tool, SCAN_ID
 
-from web.index.models import ScanResultTask
+from web.index.models import ScanResultTask, NewEvilFunc
 from web.index.models import get_resultflow_class
 
 
@@ -246,7 +246,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
         for chain in x.chain:
             if type(chain) == tuple:
-
                 ResultFlow = get_resultflow_class(int(a_sid))
                 rf = ResultFlow(vul_id=idx + 1, node_type=chain[0], node_content=chain[1],
                                 node_path=chain[2], node_lineno=chain[3])
@@ -292,12 +291,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     # show detail about newcore function list
     table2 = PrettyTable(
-        ['#', 'NewFunction', 'Related Rules id'])
+        ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
 
     table2.align = 'l'
     idy = 0
     for new_function_name in newcore_function_list:
-        table2.add_row([idy + 1, new_function_name, newcore_function_list[new_function_name]])
+        # add new evil func in database
+        for svid in newcore_function_list[new_function_name]["svid"]:
+            nf = NewEvilFunc(svid=svid, scan_task_id=SCAN_ID, func_name=new_function_name,
+                             origin_func_name=newcore_function_list[new_function_name]["origin_func_name"])
+            nf.save()
+
+        table2.add_row([idy + 1, new_function_name, newcore_function_list[new_function_name]["origin_func_name"], newcore_function_list[new_function_name]["svid"]])
         idy += 1
 
     if len(newcore_function_list) > 0:
@@ -781,7 +786,6 @@ class Core(object):
             if self.single_rule.svid in self.repair_dict[key]:
                 self.repair_functions.append(key)
 
-
     def scan(self):
         """
         Scan vulnerabilities
@@ -855,7 +859,7 @@ class Core(object):
                         # code_contents = fi.read()
                         result = php_scan_parser(rule_match, self.line_number, self.file_path,
                                                  repair_functions=self.repair_functions,
-                                                 controlled_params=self.controlled_list)
+                                                 controlled_params=self.controlled_list, svid=self.cvi)
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
                             if result[0]['code'] == 1:  # 函数参数可控
@@ -1118,7 +1122,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
     match_mode = "New rule to Vustomize-Match"
     logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=match_mode))
 
-    match, match2, vul_function, index = init_match_rule(new_rules, lan=old_single_rule.language)
+    match, match2, vul_function, index, origin_func_name = init_match_rule(new_rules, lan=old_single_rule.language)
     logger.debug('[ENGINE] [New Rule] new match_rule: {}'.format(match))
 
     # 想办法传递新函数类型
@@ -1140,12 +1144,15 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
     if vul_function in newcore_function_list:
         logger.debug('[CVI-{cvi}] [NEW-VUL] New Rules {macth} exist.'.format(cvi=svid, macth=vul_function))
 
-        if svid not in newcore_function_list[vul_function]:
-            newcore_function_list[vul_function].append(svid)
+        if svid not in newcore_function_list[vul_function]["svid"]:
+            newcore_function_list[vul_function]["svid"].append(svid)
+
+        if origin_func_name not in newcore_function_list[vul_function]["origin_func_name"]:
+            newcore_function_list[vul_function]["origin_func_name"].append(origin_func_name)
 
         return []
     else:
-        newcore_function_list[vul_function] = [svid]
+        newcore_function_list[vul_function] = {"svid": [svid], "origin_func_name": [origin_func_name]}
 
     # grep
 

@@ -34,6 +34,20 @@ OUTPUT_MODE_FILE = 'file'
 OUTPUT_MODE_STREAM = 'stream'
 PY2 = sys.version_info[0] == 2
 
+SCAN_ID = -1
+
+
+def get_scan_id():
+    global SCAN_ID
+
+    if SCAN_ID > 0:
+        return SCAN_ID
+    else:
+        s = ScanTask.objects.order_by("-id").first()
+        SCAN_ID = s.id
+
+    return SCAN_ID
+
 
 class ParseArgs(object):
     def __init__(self, target, formatter, output, special_rules=None, language=None, black_path=None, a_sid=None):

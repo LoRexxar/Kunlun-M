@@ -14,12 +14,18 @@
 from phply import phpast as php
 import re
 import os
+import asyncio
 import traceback
+from asgiref.sync import sync_to_async, async_to_sync
 
 from utils.log import logger
+from utils.utils import SCAN_ID
+
 from core.pretreatment import ast_object
 from core.internal_defines.php.functions import function_dict as php_function_dict
 from core.internal_defines.php.class_functions import function_dict as php_magic_function_dict
+
+from web.index.models import NewEvilFunc
 
 with_line = True
 scan_results = []  # 结果存放列表初始化
@@ -538,7 +544,7 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
                                     class_name, cp.name))
 
                             is_co = 4
-                            cp = tuple([node, param, class_node_params])
+                            cp = tuple([node, param, class_node_params, vul_function])
                             return is_co, cp, 0
 
     return is_co, cp, expr_lineno
@@ -855,7 +861,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                                                                cp.name))
 
                                 is_co = 4
-                                cp = tuple([node, param])
+                                cp = tuple([node, param, vul_function])
                                 return is_co, cp, 0
                             else:
                                 logger.info(
@@ -1677,10 +1683,11 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         back_node.append(node)
 
 
-def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], controlled_params=[]):
+def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], controlled_params=[], svid=0):
     """
     开始检测函数
-    :param controlled_params: 
+    :param svid:
+    :param controlled_params:
     :param repair_functions: 
     :param sensitive_func: 要检测的敏感函数,传入的为函数列表
     :param vul_lineno: 漏洞函数所在行号
@@ -1702,6 +1709,13 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
 
             # 如果检测到一次，那么就可以退出了
             if len(scan_results) > 0:
+
+                # 记录newcore
+                # if scan_results[0]['code'] == 4:
+                #     nf = sync_to_async(NewEvilFunc(svid=svid, scan_task_id=SCAN_ID, func_name=scan_results[0]['source'][0].name,
+                #                                    origin_func_name=func).save)
+                #     nf()
+
                 logger.debug("[AST] Scan parser end for {}".format(scan_results))
                 break
 
