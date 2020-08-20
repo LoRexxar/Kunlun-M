@@ -26,7 +26,8 @@ from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
 from Kunlun_M.settings import RULES_PATH
 
-from web.index.models import ScanTask, ScanResultTask, Rules
+from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc
+from web.index.models import get_resultflow_class
 
 
 def get_sid(target, is_a_sid=False):
@@ -62,27 +63,58 @@ def check_scantask(task_name, target_path, parameter_config):
                 # check unconfirm
                 logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
                 if input().lower() != 'n':
-                    srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=True)
+                    srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True)
                 else:
                     srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=False)
 
                 if srs:
                     logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))
 
+                    for sr in srs:
+                        rule = Rules.objects.filter(svid=sr.cvi_id).first()
+                        rule_name = rule.rule_name
+                        author = rule.author
+
+                        row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
+                               author, sr.source_code, sr.result_type]
+
+                        table.add_row(row)
+
+                        # show Vuls Chain
+                        ResultFlow = get_resultflow_class(scan_id)
+                        rfs = ResultFlow.objects.filter(vul_id=sr.id)
+
+                        logger.info("[Chain] Vul {}".format(sr.id))
+                        for rf in rfs:
+                            logger.info("[Chain] {}, {}, {}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
+
+                        logger.info(
+                            "[SCAN] ending\r\n -------------------------------------------------------------------------")
+
+                    logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
+
+                    # show New evil Function
+                    nfs = NewEvilFunc.objects.filter(scan_task_id=scan_id, is_active=1)
+
+                    if nfs:
+
+                        table2 = PrettyTable(
+                            ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
+
+                        table2.align = 'l'
+                        idy = 1
+
+                        for nf in nfs:
+                            row = [idy, nf.func_name, nf.origin_func_name, nf.svid]
+
+                            table2.add_row(row)
+                            idy += 1
+
+                        logger.info("[MainThread] New evil Function list by NewCore:\r\n{table}".format(table=table2))
+
                 else:
-                    logger.info("[MainThread] Last Scan id {} has no Result.")
+                    logger.info("[MainThread] Last Scan id {} has no Result.".format(scan_id))
 
-                for sr in srs:
-                    rule = Rules.objects.filter(svid=sr.cvi_id).first()
-                    rule_name = rule.rule_name
-                    author = rule.author
-
-                    row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
-                           author, sr.source_code, sr.result_type]
-
-                    table.add_row(row)
-
-                logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
         else:
             s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
             s.save()

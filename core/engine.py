@@ -36,7 +36,7 @@ from Kunlun_M.const import match_modes
 
 from utils.file import FileParseAll
 from utils.log import logger
-from utils.utils import Tool, SCAN_ID
+from utils.utils import Tool, SCAN_ID, get_scan_id
 
 from web.index.models import ScanResultTask, NewEvilFunc
 from web.index.models import get_resultflow_class
@@ -298,7 +298,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     for new_function_name in newcore_function_list:
         # add new evil func in database
         for svid in newcore_function_list[new_function_name]["svid"]:
-            nf = NewEvilFunc(svid=svid, scan_task_id=SCAN_ID, func_name=new_function_name,
+            nf = NewEvilFunc(svid=svid, scan_task_id=get_scan_id(), func_name=new_function_name,
                              origin_func_name=newcore_function_list[new_function_name]["origin_func_name"])
             nf.save()
 
