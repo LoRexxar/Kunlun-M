@@ -82,11 +82,11 @@ def check_scantask(task_name, target_path, parameter_config):
 
                         # show Vuls Chain
                         ResultFlow = get_resultflow_class(scan_id)
-                        rfs = ResultFlow.objects.filter(vul_id=sr.id)
+                        rfs = ResultFlow.objects.filter(vul_id=sr.result_id)
 
                         logger.info("[Chain] Vul {}".format(sr.result_id))
                         for rf in rfs:
-                            logger.info("[Chain] {}, {}, {}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
+                            logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
 
                         logger.info(
                             "[SCAN] ending\r\n -------------------------------------------------------------------------")
