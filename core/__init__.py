@@ -30,6 +30,7 @@ from .__version__ import __author__, __author_email__, __license__
 from .__version__ import __copyright__, __epilog__, __scan_epilog__
 
 from core.rule import RuleCheck, TamperCheck
+from core.console import KunlunInterpreter
 from web.index.models import ScanTask
 
 try:
@@ -71,7 +72,14 @@ def main():
                                        help='show all rules & tanmpers')
 
         parser_group_show.add_argument('-k', '--key', dest='listkey', action='store', default="all",
-                                       help='key for show rule & tamper')
+                                       help='key for show rule & tamper. eg: 1001/wordpress')
+
+        parser_group_console = subparsers.add_parser('console', help='enter console mode',
+                                                     description=__introduction__.format(detail='enter console mode'),
+                                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                     usage=argparse.SUPPRESS, add_help=True)
+        parser_group_console.add_argument('console', action='store_true', default=True,
+                                          help='enter console mode')
 
         args = parser.parse_args()
 
@@ -114,10 +122,23 @@ def main():
                 logger.info("[INIT] TamperRecover finished.")
                 exit()
 
+            else:
+                parser_group_core.print_help()
+                exit()
+
         if hasattr(args, "list"):
             if args.list:
                 logger.info("Show {}:\n{}".format(args.list, show_info(args.list, args.listkey.strip(""))))
                 exit()
+            else:
+                parser_group_show.print_help()
+                exit()
+
+        if hasattr(args, "console"):
+            logger.info("[INIT] Enter KunLun-M console mode.")
+            shell = KunlunInterpreter()
+            shell.start()
+            exit()
 
         if not hasattr(args, "target") or args.target == '':
             parser.print_help()

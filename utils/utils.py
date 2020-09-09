@@ -53,7 +53,7 @@ class ParseArgs(object):
     def __init__(self, target, formatter, output, special_rules=None, language=None, black_path=None, a_sid=None):
         self.target = target
         self.formatter = formatter
-        self.output = output
+        self.output = output if output else ""
 
         if special_rules != None and special_rules != '':
             self.special_rules = []
@@ -113,11 +113,11 @@ class ParseArgs(object):
 
     @staticmethod
     def _check_rule_name(name):
-        paths = os.listdir(rules_path)
+        paths = os.listdir(RULES_PATH)
 
         for p in paths:
             try:
-                if name in os.listdir(rules_path + "/" + p):
+                if name in os.listdir(RULES_PATH + "/" + p):
                     return True
             except:
                 continue

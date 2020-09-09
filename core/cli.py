@@ -14,6 +14,7 @@
 
 import os
 import codecs
+import pprint
 from prettytable import PrettyTable
 
 from .detection import Detection
@@ -332,11 +333,11 @@ Tamper Name:
     {}
 
 Filter Func:
-    {}
+{}
     
 Input Control:
-    {}
-""".format(tampname, filter_func, input_control)
+{}
+""".format(tampname, pprint.pformat(filter_func, indent=4), pprint.pformat(input_control, indent=4))
         else:
             logger.error("[Info] no tamper name {]".format(key))
 

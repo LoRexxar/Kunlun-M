@@ -21,6 +21,7 @@ import time
 # Copyright (C) 2010-2012 Vinay Sajip. All rights reserved. Licensed under the new BSD license.
 #
 logger = logging.getLogger('KunlunLog')
+logger_console = logging.getLogger('KunlunConsoleLog')
 log_path = 'logs'
 
 
@@ -33,7 +34,7 @@ def log(loglevel, log_name):
     handler = colorlog.StreamHandler()
     handler.setFormatter(
         colorlog.ColoredFormatter(
-            fmt='%(log_color)s[%(levelname)s] [%(threadName)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s',
+            fmt='%(log_color)s[%(levelname)s][%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt="%H:%M:%S",
             log_colors={
                 'DEBUG': 'cyan',
@@ -47,12 +48,32 @@ def log(loglevel, log_name):
     f = open(logfile, 'a+')
     handler2 = logging.StreamHandler(f)
     formatter = logging.Formatter(
-        "[%(levelname)s] [%(threadName)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s")
+        "[%(levelname)s][%(threadName)s][%(asctime)s][%(filename)s:%(lineno)d] %(message)s")
     handler2.setFormatter(formatter)
     logger.addHandler(handler2)
     logger.addHandler(handler)
 
     logger.setLevel(logging.INFO)
+
+
+def log_console():
+    handler = colorlog.StreamHandler()
+    handler.setFormatter(
+        colorlog.ColoredFormatter(
+            fmt='%(log_color)s %(message)s',
+            datefmt="%H:%M:%S",
+            log_colors={
+                'DEBUG': 'cyan',
+                'INFO': 'white',
+                'WARNING': 'yellow',
+                'ERROR': 'red',
+                'CRITICAL': 'red,bg_white',
+            },
+        )
+    )
+    logger_console.addHandler(handler)
+
+    logger_console.setLevel(logging.DEBUG)
 
 
 class DLogger:
@@ -84,4 +105,6 @@ class DLogger:
         self.logger.critical(message)
         self.logger2.critical(message)
 
+
 # logger = DLogger(logger1, logger2)
+log_console()

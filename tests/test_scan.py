@@ -13,6 +13,7 @@ from Kunlun_M.settings import EXAMPLES_PATH
 from utils.log import logger
 from phply import phpast as php
 
+
 def test_scan():
     logger.info('Examples Path: {path}'.format(path=EXAMPLES_PATH))
     assert scan(EXAMPLES_PATH)
