@@ -162,6 +162,10 @@ EXAMPLES_PATH = os.path.join(TESTS_PATH, 'examples')
 RULES_PATH = os.path.join(PROJECT_DIRECTORY, 'rules')
 CONFIG_PATH = os.path.join(PROJECT_DIRECTORY, 'config')
 
+# history
+HISTORY_FILE_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, '.history')
+MAX_HISTORY_LENGTH = 1000
+
 # check platform
 PLATFORM = "Linux"
 if "Windows" in platform_pack.system():
