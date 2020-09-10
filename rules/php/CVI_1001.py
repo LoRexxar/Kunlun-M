@@ -42,7 +42,7 @@ class CVI_1001():
         # for regex
         self.unmatch = None
 
-        self.vul_function = None
+        self.vul_function = "curl_setopt"
 
     def main(self, regex_string):
         """
