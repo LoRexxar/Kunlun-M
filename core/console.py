@@ -26,7 +26,7 @@ from django.db.models.aggregates import Max
 
 from utils.log import logger, logger_console
 from utils import readlineng as readline
-from utils.utils import get_mainstr_from_filename, get_scan_id
+from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format
 
 from Kunlun_M.settings import HISTORY_FILE_PATH, MAX_HISTORY_LENGTH
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
@@ -322,7 +322,9 @@ class KunlunInterpreter(BaseInterpreter):
         self.config_mode = ""
         self.config_keyword = ""
         self.config_dict = {}
+        self.config_obj = None
         self.last_config = {}
+        self.rule_filecontent = ""
         self.configurable_options = ['status', 'match_mode', 'match', 'match_name', 'black_list', 'keyword', 'unmatch', 'vul_function']
 
         self.result_task_id = None
@@ -566,9 +568,22 @@ class KunlunInterpreter(BaseInterpreter):
 
     def load_rule_dict_by_id(self, rule_id):
         rule = Rules.objects.filter(svid=rule_id).first()
-        rule_dict = {}
+        # rule_dict = {}
 
+        if not rule:
+            logger.error("[Console] Please check Rule id or or use the command 'show rule' to view")
+            return False
+
+        return rule
+
+    def show_rule_by_dict(self, rule):
         if rule:
+            template_file = codecs.open(os.path.join(RULES_PATH, 'rule.template'), 'rb+', encoding='utf-8',
+                                        errors='ignore')
+            template_file_content = template_file.read()
+            template_file.close()
+            # for rule
+            rule_dict = {}
 
             rule_dict['rule_name'] = rule.rule_name
             rule_dict['svid'] = rule.svid
@@ -577,29 +592,15 @@ class KunlunInterpreter(BaseInterpreter):
             rule_dict['description'] = rule.description
             rule_dict['status'] = "True" if rule.status else "False"
             rule_dict['match_mode'] = rule.match_mode
-            rule_dict['match'] = '"{}"'.format(rule.match) if rule.match and "[" != rule.match[0] else rule.match
-            rule_dict['match_name'] = '"{}"'.format(rule.match_name) if rule.match_name and "[" != rule.match_name[
-                0] else rule.match_name
-            rule_dict['black_list'] = '"{}"'.format(rule.black_list) if rule.black_list and "[" != rule.black_list[
-                0] else rule.black_list
-            rule_dict['keyword'] = '"{}"'.format(rule.keyword) if rule.keyword and "[" != rule.keyword[0] else rule.keyword
-            rule_dict['unmatch'] = '"{}"'.format(rule.unmatch) if rule.unmatch and "[" != rule.unmatch[0] else rule.unmatch
-            rule_dict['vul_function'] = rule.vul_function if rule.vul_function else "None"
+            rule_dict['match'] = file_output_format(rule.match)
+            rule_dict['match_name'] = file_output_format(rule.match_name)
+            rule_dict['black_list'] = file_output_format(rule.black_list)
+            rule_dict['keyword'] = file_output_format(rule.keyword)
+            rule_dict['unmatch'] = file_output_format(rule.unmatch)
+            rule_dict['vul_function'] = file_output_format(rule.vul_function)
             rule_dict['main_function'] = rule.main_function
 
-        else:
-            logger.error("[Console] Please check Rule id or or use the command 'show rule' to view")
-
-        return rule_dict
-
-    def show_rule_by_dict(self, rule_dict):
-        if rule_dict:
-            template_file = codecs.open(os.path.join(RULES_PATH, 'rule.template'), 'rb+', encoding='utf-8',
-                                        errors='ignore')
-            template_file_content = template_file.read()
-            template_file.close()
-
-            logger.info("[Console] Rule CVI_{} Detail:\n{}".format(rule_dict['svid'], template_file_content.format(
+            self.rule_filecontent = template_file_content.format(
                 rule_name=rule_dict['rule_name'], svid=rule_dict['svid'], language=rule_dict['language'],
                 author=rule_dict['author'], description=rule_dict['description'], status=rule_dict['status'],
                 match_mode=rule_dict['match_mode'], match=rule_dict['match'],
@@ -607,7 +608,9 @@ class KunlunInterpreter(BaseInterpreter):
                 black_list=rule_dict['black_list'], keyword=rule_dict['keyword'],
                 unmatch=rule_dict['unmatch'],
                 vul_function=rule_dict['vul_function'],
-                main_function=rule_dict['main_function'])))
+                main_function=rule_dict['main_function'])
+
+            logger.info("[Console] Rule CVI_{} Detail:\n{}".format(rule_dict['svid'], self.rule_filecontent))
 
             logger.warn("[Console] This is currently a temporary file, you must use Command 'save' to save")
             return
@@ -636,6 +639,30 @@ Input Control:
 
         else:
             logger.error("[Console] Not Found Tampers, Please check command or execute config load.")
+
+    def save_rule_to_file(self):
+        """
+        save rule content info rule file
+        :return:
+        """
+        self.show_rule_by_dict(self.config_obj)
+        lan = self.config_obj.language
+
+        if not os.path.isdir(os.path.join(RULES_PATH, lan)):
+            os.mkdir(os.path.join(RULES_PATH, lan))
+
+        rule_lan_path = os.path.join(RULES_PATH, lan)
+        svid = self.config_obj.svid
+
+        rule_path = os.path.join(rule_lan_path, "CVI_{}.py".format(svid))
+
+        logger.info("[Console] new Rule file CVI_{}.py init.".format(svid))
+
+        rule_file = codecs.open(rule_path, "wb+", encoding='utf-8', errors='ignore')
+
+        rule_file.write(self.rule_filecontent)
+        rule_file.close()
+        return True
 
     def get_scan_results_by_config(self):
 
@@ -768,17 +795,20 @@ Input Control:
                 option_name = param[0]
                 option_value = param[1]
 
+                option_value = eval(option_value) if option_value in ['True', 'False', 'None'] else option_value
+
                 if option_name not in self.configurable_options:
                     logger.warn("[Console] You can't edit option {}.".format(option_name))
                     return
 
                 # load last profile
-                if self.config_dict[option_name] == option_value:
+                if getattr(self.config_obj, option_name) == option_value:
                     logger.warn("[Console] The options you set have not been changed.")
                     return
 
-                self.last_config[option_name] = self.config_dict[option_name]
-                self.config_dict[option_name] = option_value
+                self.last_config[option_name] = getattr(self.config_obj, option_name)
+                # self.config_dict[option_name] = option_value
+                setattr(self.config_obj, option_name, option_value)
 
                 logger.info("[Console] Update {}={}. Use 'showit' to view Detail.".format(option_name, option_value))
                 logger.warn("[Console] Use Command 'cancel' to cancel last set or Command 'save' to save rule." )
@@ -898,7 +928,8 @@ Input Control:
 
                 for option_name in self.last_config:
                     logger.info("[Console] Restore config {}={}".format(option_name, self.last_config[option_name]))
-                    self.config_dict[option_name] = self.last_config[option_name]
+                    # self.config_dict[option_name] = self.last_config[option_name]
+                    setattr(self.config_obj, option_name, self.last_config[option_name])
 
                 self.last_config = {}
                 return
@@ -929,13 +960,15 @@ Input Control:
         if self.current_mode == 'config':
             if self.config_mode == 'rule':
 
-                rule = Rules.objects.filter(svid=self.config_dict['svid']).first()
+                # rule = Rules.objects.filter(svid=self.config_dict['svid']).first()
+                #
+                # for option_name in self.configurable_options:
+                #     setattr(rule, option_name, self.config_dict[option_name])
 
-                for option_name in self.configurable_options:
-                    setattr(rule, option_name, self.config_dict[option_name])
+                self.config_obj.save()
+                self.save_rule_to_file()
 
-                rule.save()
-                logger.info("[Console] Rule CVI_{} change has be saved.".format(self.config_dict['svid']))
+                logger.info("[Console] Rule CVI_{} change has be saved.".format(self.config_obj.svid))
                 return
 
             elif self.config_mode == 'tamper':
@@ -1225,7 +1258,7 @@ Input Control:
             return
 
         if self.config_mode == 'rule':
-            self.show_rule_by_dict(self.config_dict)
+            self.show_rule_by_dict(self.config_obj)
 
         elif self.config_mode == 'tamper':
             self.show_tamper_by_dict(self.config_dict)
@@ -1254,7 +1287,7 @@ Input Control:
                 self.current_mode = "config"
                 self.config_mode = "rule"
                 self.config_keyword = keyword
-                self.config_dict = self.load_rule_dict_by_id(keyword)
+                self.config_obj = self.load_rule_dict_by_id(keyword)
 
                 logger_console.info(self.config_rule_help)
             else:

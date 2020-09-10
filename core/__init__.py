@@ -135,6 +135,17 @@ def main():
                 exit()
 
         if hasattr(args, "console"):
+            # check rule and tamper
+            logger.info("[INIT] RuleCheck start.")
+            RuleCheck().load()
+
+            logger.info("[INIT] RuleCheck finished.")
+
+            logger.info("[INIT] TamperCheck start.")
+            TamperCheck().load()
+
+            logger.info("[INIT] TamperCheck finished.")
+
             logger.info("[INIT] Enter KunLun-M console mode.")
             shell = KunlunInterpreter()
             shell.start()

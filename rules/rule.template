@@ -9,6 +9,8 @@
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
 
+from utils.api import *
+
 
 class CVI_{svid}():
     """

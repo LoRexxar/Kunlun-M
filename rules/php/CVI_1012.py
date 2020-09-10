@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1012
+    auto rule template
     ~~~~
-
-    Information Disclosure
-
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
+
+from utils.api import *
 
 
 class CVI_1012():
@@ -21,7 +20,7 @@ class CVI_1012():
     def __init__(self):
 
         self.svid = 1012
-        self.language = "PHP"
+        self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Information Disclosure"
         self.description = "Information Disclosure"
@@ -31,7 +30,18 @@ class CVI_1012():
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = "(print_r|var_dump|show_source|highlight_file)\s*\("
+        self.match = r"(print_r|var_dump|show_source|highlight_file)\s*\("
+
+        # for solidity
+        self.match_name = None
+        self.black_list = None
+
+        # for chrome ext
+        self.keyword = None
+
+        # for regex
+        self.unmatch = None
+
         self.vul_function = None
 
     def main(self, regex_string):

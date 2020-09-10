@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 
 """
-    CVI-1008
+    auto rule template
     ~~~~
-
-    xml injection
-
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
 """
+
+from utils.api import *
 
 
 class CVI_1008():
@@ -21,7 +20,7 @@ class CVI_1008():
     def __init__(self):
 
         self.svid = 1008
-        self.language = "PHP"
+        self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Xml injection"
         self.description = "Xml injection"
@@ -31,7 +30,18 @@ class CVI_1008():
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = "simplexml_load_file|simplexml_load_string"
+        self.match = r"simplexml_load_file|simplexml_load_string"
+
+        # for solidity
+        self.match_name = None
+        self.black_list = None
+
+        # for chrome ext
+        self.keyword = None
+
+        # for regex
+        self.unmatch = None
+
         self.vul_function = None
 
     def main(self, regex_string):

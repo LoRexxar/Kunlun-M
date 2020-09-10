@@ -714,3 +714,18 @@ def get_mainstr_from_filename(filename):
     s = ScanTask.objects.filter(task_name=mainstr)
 
     return mainstr
+
+
+def file_output_format(content):
+    """
+    检查输出到文件的规则格式
+    :param content:
+    :return:
+    """
+    if content:
+        if "[" == content[0]:
+            return content
+        else:
+            return 'r"{}"'.format(content.replace('"', r'\"'))
+    else:
+        return 'None'

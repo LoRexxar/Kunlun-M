@@ -15,7 +15,9 @@ import os
 import inspect
 import codecs
 from Kunlun_M.settings import RULES_PATH
+
 from utils.log import logger
+from utils.utils import file_output_format
 
 from web.index.models import Rules, Tampers
 
@@ -161,7 +163,7 @@ class RuleCheck:
 
     def load_rules(self, ruleclass):
 
-        main_function_content = inspect.getsourcelines(ruleclass.main)
+        main_function_content = inspect.getsource(ruleclass.main)
         match_name = ""
         black_list = ""
         unmatch = ""
@@ -191,9 +193,9 @@ class RuleCheck:
     def check_and_update_rule_database(self, ruleconfig_content, nowrule, config):
 
         svid = nowrule.svid
-        ruleconfig_content = str(ruleconfig_content).lower()
+        ruleconfig_content = str(ruleconfig_content)
 
-        if ruleconfig_content != str(getattr(nowrule, config)).lower():
+        if ruleconfig_content.lower() != str(getattr(nowrule, config)).lower():
             logger.warning("[INIT][Rule Check] CVI_{} config {} has changed:".format(svid, config))
             logger.warning("[INIT][Rule Check] {} in Rule File is {}".format(config, ruleconfig_content))
             logger.warning("[INIT][Rule Check] {} in Database is {}".format(config, getattr(nowrule, config)))
@@ -309,12 +311,12 @@ class RuleCheck:
             description = rule.description
             status = "True" if rule.status else "False"
             match_mode = rule.match_mode
-            match = '"{}"'.format(rule.match) if rule.match and "[" != rule.match[0] else rule.match
-            match_name = '"{}"'.format(rule.match_name) if rule.match_name and "[" != rule.match_name[0] else rule.match_name
-            black_list = '"{}"'.format(rule.black_list) if rule.black_list and "[" != rule.black_list[0] else rule.black_list
-            keyword = '"{}"'.format(rule.keyword) if rule.keyword and "[" != rule.keyword[0] else rule.keyword
-            unmatch = '"{}"'.format(rule.unmatch) if rule.unmatch and "[" != rule.unmatch[0] else rule.unmatch
-            vul_function = rule.vul_function if rule.vul_function else "None"
+            match = file_output_format(rule.match)
+            match_name = file_output_format(rule.match_name)
+            black_list = file_output_format(rule.black_list)
+            keyword = file_output_format(rule.keyword)
+            unmatch = file_output_format(rule.unmatch)
+            vul_function = file_output_format(rule.vul_function)
             main_function = rule.main_function
 
             rule_file.write(template_file_content.format(rule_name=rule_name, svid=svid, language=language,
