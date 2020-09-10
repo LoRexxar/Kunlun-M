@@ -216,7 +216,9 @@ class RuleCheck:
                 else:
                     config1 = config
 
-                self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config1)
+                ruleconfig_content = str(getattr(ruleclass, config)).replace(r'\"', '"')
+
+                self.check_and_update_rule_database(ruleconfig_content, nowrule, config1)
 
             else:
                 main_function_content = inspect.getsource(ruleclass.main)

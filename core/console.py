@@ -753,15 +753,17 @@ Input Control:
         return True
 
     def get_sacn_parameters(self):
-        parameter_config = "./kunlun.py"
+        parameter_config = ["./kunlun.py"]
 
         for option_name in self.scan_options:
             if self.scan_options[option_name] is None or self.scan_options[option_name] == 'all' or self.scan_options[option_name] is False:
                 continue
             if self.scan_options[option_name] is True:
-                parameter_config = parameter_config + " -" + self.scan_short_options[option_name]
+                parameter_config.append(" -" + self.scan_short_options[option_name])
+                continue
 
-            parameter_config = parameter_config + " -" + self.scan_short_options[option_name] + " {}".format(self.scan_options[option_name])
+            parameter_config.append(" -" + self.scan_short_options[option_name])
+            parameter_config.append(" {}".format(self.scan_options[option_name]))
 
         return parameter_config
 
