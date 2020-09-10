@@ -1667,7 +1667,7 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         elif isinstance(node, php.If):  # 函数调用在if-else语句中时
             analysis_if_else(node, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
 
-        elif isinstance(node, php.While) or isinstance(node, php.For):  # 函数调用在循环中
+        elif isinstance(node, php.While) or isinstance(node, php.DoWhile) or isinstance(node, php.For):  # 函数调用在循环中
             if isinstance(node.node, php.Block):
                 analysis(node.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 

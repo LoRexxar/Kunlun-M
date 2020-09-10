@@ -685,9 +685,9 @@ Input Control:
                     if self.result_options[option_name] == True:
                         continue
                     elif self.result_options[option_name] == 'only':
-                        orm_limit['is_uncomfirm'] = True
+                        orm_limit['is_unconfirm'] = True
                     else:
-                        orm_limit['is_uncomfirm'] = False
+                        orm_limit['is_unconfirm'] = False
 
             q = Q()
             for i in orm_limit:
