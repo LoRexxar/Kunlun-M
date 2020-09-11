@@ -420,11 +420,11 @@ class SingleRule(object):
             # param controllable
             if '|' in self.sr.match:
                 match = const.fpc_multi.replace('[f]', self.sr.match)
-                if hasattr(self.sr, "is_echo_statement") and self.sr.is_echo_statement:
+                if self.sr.keyword == 'is_echo_statement':
                     match = const.fpc_echo_statement_multi.replace('[f]', self.sr.match)
             else:
                 match = const.fpc_single.replace('[f]', self.sr.match)
-                if hasattr(self.sr, "is_echo_statement") and self.sr.is_echo_statement:
+                if self.sr.keyword == 'is_echo_statement':
                     match = const.fpc_echo_statement_single.replace('[f]', self.sr.match)
 
             # 垃圾js毁一生，动态类型一时爽，静态分析火葬厂
