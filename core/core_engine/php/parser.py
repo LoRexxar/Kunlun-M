@@ -898,7 +898,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if is_co != 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
-                logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.lineno))
+                logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.elseifs.lineno))
 
                 for node_elseifs_node in node.elseifs:
                     if isinstance(node_elseifs_node.node, php.Block):
@@ -938,6 +938,82 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
                 return is_co, cp, expr_lineno
+
+        elif isinstance(node, php.While) or isinstance(node, php.DoWhile):
+            logger.debug(
+                "[AST] param {} line {} in while, start ast in while".format(param_name, node.lineno))
+
+            if isinstance(node.node, php.Block):
+                while_nodes = node.node.nodes
+            elif node.node is not None:
+                while_nodes = [node.node]
+            else:
+                while_nodes = []
+
+            is_co, cp, expr_lineno = parameters_back(param, while_nodes, function_params, lineno,
+                                                     function_flag=1, vul_function=vul_function, file_path=file_path,
+                                                     isback=isback, parent_node=node)
+
+            if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                return is_co, cp, expr_lineno
+
+        elif isinstance(node, php.Switch):
+            logger.debug(
+                "[AST] param {} line {} in Switch, start ast in Switch".format(param_name, node.lineno))
+
+            case_nodes = node.nodes
+
+            for case_node in case_nodes:
+                is_co, cp, expr_lineno = parameters_back(param, case_node.nodes, function_params, lineno,
+                                                         function_flag=1, vul_function=vul_function,
+                                                         file_path=file_path,
+                                                         isback=isback, parent_node=node)
+
+                if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                    return is_co, cp, expr_lineno
+
+        elif isinstance(node, php.Try):
+            logger.debug(
+                "[AST] param {} line {} in Try, start ast in Try node".format(param_name, node.lineno))
+
+            try_nodes = node.nodes
+            catch_nodes = node.catches
+            finally_nodes = getattr(node, 'finally')
+
+            # ast in try
+            if finally_nodes is not None:
+                # finally 是一定会执行的, 且顺序执行, 所以先分析finally
+                logger.debug("[AST] param {} line {} in new branch for finnally".format(param, finally_nodes.lineno))
+
+                is_co, cp, expr_lineno = parameters_back(param, finally_nodes.nodes, function_params, lineno,
+                                                         function_flag=1, vul_function=vul_function,
+                                                         file_path=file_path,
+                                                         isback=isback, parent_node=node)
+
+                if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                    return is_co, cp, expr_lineno
+
+            # try catch 暂时被认定为分支性质，因为很难确定报错的位置，所以暂时为互不干扰
+            logger.debug(
+                "[AST] param {} line {} in Try, start ast in Try node".format(cp, node.lineno))
+
+            is_co, cp, expr_lineno = parameters_back(cp, try_nodes, function_params, lineno,
+                                                     function_flag=1, vul_function=vul_function,
+                                                     file_path=file_path,
+                                                     isback=isback, parent_node=node)
+
+            if is_co != 1 and catch_nodes is not None:
+
+                for catch_node in catch_nodes:
+                    logger.debug("[AST] param {} line {} in new branch for catch".format(cp, catch_node.lineno))
+
+                    is_co, cp, expr_lineno = parameters_back(cp, catch_node.nodes, function_params, lineno,
+                                                             function_flag=1, vul_function=vul_function,
+                                                             file_path=file_path,
+                                                             isback=isback, parent_node=node)
+
+                    if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                        return is_co, cp, expr_lineno
 
         elif isinstance(node, php.For):
             for_nodes = node.node.nodes
@@ -1415,6 +1491,18 @@ def analysis_if_else(node, back_node, vul_function, vul_lineno, function_params=
                     analysis(nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
 
+def analysis_try(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
+    # for try
+    analysis(node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
+
+    if node.catches is not None:
+        for catch in node.catches:
+            analysis(catch.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
+
+    if getattr(node, 'finally') is not None:
+        analysis(getattr(node, 'finally').nodes, vul_function, back_node, vul_lineno, file_path, function_params)
+
+
 def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
     处理echo/print类型节点-->判断节点类型-->不同If分支回溯判断参数是否可控-->输出结果
@@ -1632,6 +1720,8 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         if vul_lineno < node.lineno:
             break
 
+        print(node)
+
         if isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall) or isinstance(node, php.StaticMethodCall):
             # 函数直接调用，不进行赋值
             anlysis_function(node, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
@@ -1670,6 +1760,13 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         elif isinstance(node, php.While) or isinstance(node, php.DoWhile) or isinstance(node, php.For):  # 函数调用在循环中
             if isinstance(node.node, php.Block):
                 analysis(node.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
+
+        elif isinstance(node, php.Switch):
+            for case in node.nodes:
+                analysis(case.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
+
+        elif isinstance(node, php.Try):
+            analysis_try(node, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_body = []
