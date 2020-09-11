@@ -185,5 +185,6 @@
     - secret更名为tamper
     - 添加config的load和recover功能
     - 修复了js parser的一些已知bug
-    - **添加了console模式，更方便的使用以及扫描.** fixed #73
+    - 再次完善了php的相关语法 #75
+    - **添加了console模式，更方便的使用以及扫描.** #73
     
