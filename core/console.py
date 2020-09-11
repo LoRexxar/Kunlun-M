@@ -540,14 +540,12 @@ class KunlunInterpreter(BaseInterpreter):
             description = rule.description
             status = "True" if rule.status else "False"
             match_mode = rule.match_mode
-            match = '"{}"'.format(rule.match) if rule.match and "[" != rule.match[0] else rule.match
-            match_name = '"{}"'.format(rule.match_name) if rule.match_name and "[" != rule.match_name[
-                0] else rule.match_name
-            black_list = '"{}"'.format(rule.black_list) if rule.black_list and "[" != rule.black_list[
-                0] else rule.black_list
-            keyword = '"{}"'.format(rule.keyword) if rule.keyword and "[" != rule.keyword[0] else rule.keyword
-            unmatch = '"{}"'.format(rule.unmatch) if rule.unmatch and "[" != rule.unmatch[0] else rule.unmatch
-            vul_function = rule.vul_function if rule.vul_function else "None"
+            match = file_output_format(rule.match)
+            match_name = file_output_format(rule.match_name)
+            black_list = file_output_format(rule.black_list)
+            keyword = file_output_format(rule.keyword)
+            unmatch = file_output_format(rule.unmatch)
+            vul_function = file_output_format(rule.vul_function)
             main_function = rule.main_function
 
             logger.info("[Console] Rule CVI_{} Detail:\n{}".format(svid, template_file_content.format(
@@ -1063,7 +1061,7 @@ Input Control:
                         return
 
                     rules_table = PrettyTable(
-                        ['#', 'CVI', 'Lang/CVE-id', 'Rule(ID/Name)', 'Author', 'Status'])
+                        ['#', 'CVI', 'Lang/CVE-id', 'Rule(ID/Name)', 'Author', 'Status', 'MatchMode'])
                     rules_table.align = 'l'
 
                     if key == 'all':
@@ -1073,7 +1071,7 @@ Input Control:
 
                     if rs:
                         for r in rs:
-                            rules_table.add_row([r.id, r.svid, r.language, r.rule_name, r.author, r.status])
+                            rules_table.add_row([r.id, r.svid, r.language, r.rule_name, r.author, r.status, r.match_mode])
 
                         logger.info("[Console] Show {} Rules:\n{}".format(key, rules_table))
                         logger.warn("[Console] Use Command 'get <rule_svid>' to get detail of rule")
