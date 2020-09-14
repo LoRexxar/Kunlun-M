@@ -369,7 +369,7 @@ class KunlunInterpreter(BaseInterpreter):
             "is_without_precom": [False, True],
         }
         self.scan_option_help = {
-            "target": "file, folder, compress, or repository address",
+            "target": "file, folder",
             "format": "vulnerability output format",
             "output": "vulnerability output STREAM, FILE",
             "rule_id": "specifies rules ",
