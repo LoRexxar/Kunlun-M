@@ -1221,6 +1221,8 @@ def anlysis_params(param, file_path, vul_lineno, vul_function=None, repair_funct
         param = php.Variable(param)
 
     logger.debug("[AST] AST to find param {}".format(param))
+
+    file_path = os.path.normpath(file_path)
     code = "find param {}".format(param)
     scan_chain.append(('NewFind', code, file_path, vul_lineno))
 
@@ -1719,8 +1721,6 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         # 检查line范围，以快速锁定参数
         if vul_lineno < node.lineno:
             break
-
-        print(node)
 
         if isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall) or isinstance(node, php.StaticMethodCall):
             # 函数直接调用，不进行赋值

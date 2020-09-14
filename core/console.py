@@ -478,6 +478,8 @@ class KunlunInterpreter(BaseInterpreter):
 
     def command_scan(self, *args, **kwargs):
         self.current_mode = 'scan'
+        os.chdir(PROJECT_DIRECTORY)
+
         logger_console.info(self.scan_help)
 
     def command_exit(self, *args, **kwargs):
@@ -1354,12 +1356,12 @@ Input Control:
             if self.scan_options[option_name] is None:
                 if option_name in self.scan_required_options_list:
                     logger_console.error(
-                        "    {}: {} {}    e.g.:{}".format(option_name.ljust(20, ' '), str(self.scan_options[option_name]).ljust(30, ' '), self.scan_option_help[option_name].ljust(40, ' '), self.scan_option_list[option_name]))
+                        "    {}: {} {}    e.g.:{}".format(option_name.ljust(20, ' '), str(self.scan_options[option_name]).ljust(18, ' '), self.scan_option_help[option_name].ljust(40, ' '), self.scan_option_list[option_name]))
                 else:
                     logger_console.warn(
-                        "    {}: {} {}    e.g.:{}".format(option_name.ljust(20, ' '), str(self.scan_options[option_name]).ljust(30, ' '), self.scan_option_help[option_name].ljust(40, ' '), self.scan_option_list[option_name]))
+                        "    {}: {} {}    e.g.:{}".format(option_name.ljust(20, ' '), str(self.scan_options[option_name]).ljust(18, ' '), self.scan_option_help[option_name].ljust(40, ' '), self.scan_option_list[option_name]))
             else:
-                logger_console.debug("    {}: {} {}    e.g.:{}".format(option_name.ljust(20, ' '), str(self.scan_options[option_name]).ljust(30, ' '), self.scan_option_help[option_name].ljust(40, ' '), self.scan_option_list[option_name]))
+                logger_console.debug("    {}: {} {}    e.g.:{}".format(option_name.ljust(20, ' '), str(self.scan_options[option_name]).ljust(18, ' '), self.scan_option_help[option_name].ljust(40, ' '), self.scan_option_list[option_name]))
 
         logger.warn("[Console] Red Options is required. Yellow Option is Optional.")
         logger.warn("[Console] Use Command Set to set option. e.g.: set rule_id 1000,1001")
