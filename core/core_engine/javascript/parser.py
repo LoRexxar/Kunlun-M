@@ -1620,14 +1620,15 @@ def analysis(all_nodes, vul_function, back_node, vul_lineno, file_path, function
         if node.type == "VariableDeclaration":  # 函数赋值表达式
             for child_node in node.declarations:
 
-                if child_node.init.type == "CallExpression":
-                    analysis_callexpression(child_node.init, vul_function, back_node, vul_lineno, file_path,
-                                            function_params)
+                if child_node:
+                    if child_node.init.type == "CallExpression":
+                        analysis_callexpression(child_node.init, vul_function, back_node, vul_lineno, file_path,
+                                                function_params)
 
-                elif child_node.init.type == "ObjectExpression":
-                    object_name = get_member_data(child_node.id)
-                    analysis_objectexpression(child_node.init, vul_function, back_node, vul_lineno, file_path,
-                                              function_params, object_name)
+                    elif child_node.init.type == "ObjectExpression":
+                        object_name = get_member_data(child_node.id)
+                        analysis_objectexpression(child_node.init, vul_function, back_node, vul_lineno, file_path,
+                                                  function_params, object_name)
 
         if node.type == "WhileStatement":
             analysis_while(node, vul_function, back_node, vul_lineno, file_path, function_params)
