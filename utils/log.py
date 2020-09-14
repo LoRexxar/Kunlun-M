@@ -14,7 +14,7 @@
 import os
 import logging
 import colorlog
-import time
+from Kunlun_M.settings import LOGS_PATH
 
 # stream handle
 #
@@ -22,19 +22,20 @@ import time
 #
 logger = logging.getLogger('KunlunLog')
 logger_console = logging.getLogger('KunlunConsoleLog')
-log_path = 'logs'
+log_path = LOGS_PATH
 
 
-def log(loglevel, log_name):
+def log(loglevel):
     if os.path.isdir(log_path) is not True:
         os.mkdir(log_path, 0o755)
 
+    log_name = 'main'
     logfile = os.path.join(log_path, log_name + '.log')
 
     handler = colorlog.StreamHandler()
     handler.setFormatter(
         colorlog.ColoredFormatter(
-            fmt='[%(levelname)s][%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
+            fmt='%(log_color)s [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt="%H:%M:%S",
             log_colors={
                 'DEBUG': 'cyan',
@@ -52,6 +53,28 @@ def log(loglevel, log_name):
     handler2.setFormatter(formatter)
     logger.addHandler(handler2)
     logger.addHandler(handler)
+
+    logger.setLevel(logging.INFO)
+
+
+def log_add(loglevel, log_name):
+    if os.path.isdir(log_path) is not True:
+        os.mkdir(log_path, 0o755)
+
+    # rm old handler
+    mainlogfile = os.path.join(log_path, 'main.log')
+    f = open(mainlogfile, 'a+')
+    handler = logging.StreamHandler(f)
+    logger.removeHandler(handler)
+
+    # new handler
+    logfile = os.path.join(log_path, log_name + '.log')
+    f2 = open(logfile, 'a+')
+    handler2 = logging.StreamHandler(f2)
+    formatter = logging.Formatter(
+        "[%(levelname)s][%(threadName)s][%(asctime)s][%(filename)s:%(lineno)d] %(message)s")
+    handler2.setFormatter(formatter)
+    logger.addHandler(handler2)
 
     logger.setLevel(logging.INFO)
 
@@ -76,35 +99,4 @@ def log_console():
     logger_console.setLevel(logging.DEBUG)
 
 
-class DLogger:
-    def __init__(self, logger, logger2):
-        self.logger = logger
-        self.logger2 = logger2
-
-    def info(self, message):
-        self.logger.info(message)
-        self.logger2.info(message)
-
-    def debug(self, message):
-        self.logger.debug(message)
-        self.logger2.debug(message)
-
-    def warn(self, message):
-        self.logger.warn(message)
-        self.logger2.warn(message)
-
-    def warning(self, message):
-        self.logger.warn(message)
-        self.logger2.warn(message)
-
-    def error(self, message):
-        self.logger.error(message)
-        self.logger2.error(message)
-
-    def critical(self, message):
-        self.logger.critical(message)
-        self.logger2.critical(message)
-
-
-# logger = DLogger(logger1, logger2)
 log_console()

@@ -18,7 +18,7 @@ import argparse
 import logging
 import traceback
 
-from utils.log import log, logger
+from utils.log import log, logger, log_add
 from utils.utils import get_mainstr_from_filename, get_scan_id
 
 from . import cli
@@ -84,10 +84,7 @@ def main():
         args = parser.parse_args()
 
         # log
-        if hasattr(args, "log") and args.log:
-            log(logging.INFO, args.log)
-        else:
-            log(logging.INFO, str(time.time()))
+        log(logging.INFO)
 
         if hasattr(args, "debug") and args.debug:
             logger.setLevel(logging.DEBUG)
@@ -155,7 +152,7 @@ def main():
             parser.print_help()
             exit()
 
-        logger.debug('[INIT] start scanning...')
+        logger.debug('[INIT] start Scan Task...')
 
         # new scan task
         task_name = get_mainstr_from_filename(args.target)
@@ -168,6 +165,17 @@ def main():
         # 标识任务id
         sid = str(s.id)
         get_scan_id()
+
+        if hasattr(args, "log") and args.log:
+            logger.info("[INIT] New Log file {}.log .".format(args.log))
+            log_add(logging.INFO, args.log)
+        else:
+            logger.info("[INIT] New Log file {}.log .".format(sid))
+            log(logging.INFO, "ScanTask_{}".format(sid))
+
+        if hasattr(args, "debug") and args.debug:
+            logger.setLevel(logging.DEBUG)
+            logger.debug('[INIT] set logging level: debug')
 
         data = {
             'status': 'running',

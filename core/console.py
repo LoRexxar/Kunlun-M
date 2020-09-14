@@ -24,12 +24,12 @@ from prettytable import PrettyTable
 from django.db.models import Q, QuerySet
 from django.db.models.aggregates import Max
 
-from utils.log import logger, logger_console
+from utils.log import logger, logger_console, log, log_add
 from utils import readlineng as readline
 from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format
 
 from Kunlun_M.settings import HISTORY_FILE_PATH, MAX_HISTORY_LENGTH
-from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
+from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY, LOGS_PATH
 
 from core.__version__ import __introduction__
 from core import cli
@@ -295,6 +295,7 @@ class KunlunInterpreter(BaseInterpreter):
                                               Show result vuls/new evil func with option or show display option
     del [vuls, newevilfunc] <result_id>       Del result id
     set <option_name> <option_value>          Config for show mode
+    check_log                                 Open log file
     back                                      Back to the root list 
     """
 
@@ -353,7 +354,7 @@ class KunlunInterpreter(BaseInterpreter):
             "log_name": None,
             "language": None,
             "black_path": None,
-            "is_debug": False,
+            "is_debug": True,
             "is_without_precom": False,
         }
         self.scan_option_list = {
@@ -479,6 +480,9 @@ class KunlunInterpreter(BaseInterpreter):
     def command_scan(self, *args, **kwargs):
         self.current_mode = 'scan'
         os.chdir(PROJECT_DIRECTORY)
+
+        # set log
+        self.scan_options['log_name'] = self.check_scan_log_file()
 
         logger_console.info(self.scan_help)
 
@@ -751,6 +755,20 @@ Input Control:
                 self.scan_options[option_name] = None
 
         return True
+
+    def check_scan_log_file(self):
+        last_scantask = ScanTask.objects.all().order_by('-id').first()
+
+        logfile_name = 'ScanTask_{}'.format(last_scantask.id+1)
+
+        i = 1
+        while os.path.exists(os.path.join(LOGS_PATH, logfile_name+'.log')):
+            if '-' not in logfile_name:
+                logfile_name += '-{}'.format(i)
+            else:
+                logfile_name = logfile_name[:-2] + '-{}'.format(i)
+
+        return logfile_name
 
     def get_sacn_parameters(self):
         parameter_config = ["./kunlun.py"]
@@ -1339,6 +1357,8 @@ Input Control:
                 self.result_task_id = scan_id
                 self.result_obj = st
 
+                self.scan_options['log_name'] = "ScanTask_{}".format(st.id)
+
                 logger_console.info(self.result_help)
             else:
                 logger.error("[Console] ScanTask {} is not completed, the results cannot be loaded.".format(scan_id))
@@ -1373,6 +1393,11 @@ Input Control:
             return
 
         if self.check_scan_options():
+
+            if self.scan_options['log_name']:
+                logger.info("[INIT] New Log file {}.log .".format(self.scan_options['log_name']))
+                log_add(logging.INFO, self.scan_options['log_name'])
+
             if self.scan_options['is_debug']:
                 logger.setLevel(logging.DEBUG)
                 logger.debug('[INIT] set logging level: debug')
@@ -1411,6 +1436,19 @@ Input Control:
             self.result_task_id = s.id
             self.current_mode = "result"
             logger_console.info(self.result_help)
+
+    def command_check_log(self, *args, **kwargs):
+        if self.current_mode != 'result':
+            logger.warn("[Console] Command Status only for result mode")
+            return
+
+        log_file_path = os.path.join(LOGS_PATH, self.scan_options['log_name']+'.log')
+
+        if os.path.exists(log_file_path):
+            os.system(log_file_path)
+        else:
+            logger.error("[Console] Log File {} does not exist.".format(log_file_path))
+            return
 
     @stop_after(2)
     def complete_show(self, text, *args, **kwargs):
