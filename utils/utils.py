@@ -410,31 +410,6 @@ def get_safe_ex_string(ex, encoding=None):
     return get_unicode(ret or "", encoding=encoding).strip()
 
 
-class Tool:
-    def __init__(self):
-
-        # `grep` (`ggrep` on Mac)
-        if os.path.isfile('/bin/grep'):
-            self.grep = '/bin/grep'
-        elif os.path.isfile('/usr/bin/grep'):
-            self.grep = '/usr/bin/grep'
-        elif os.path.isfile('/usr/local/bin/grep'):
-            self.grep='/usr/local/bin/grep'
-        else:
-            self.grep = 'grep'
-
-
-        # `find` (`gfind` on Mac)
-        if os.path.isfile('/bin/find'):
-            self.find = '/bin/find'
-        elif os.path.isfile('/usr/bin/find'):
-            self.find = '/usr/bin/find'
-        elif os.path.isfile('/usr/local/bin/find'):
-            self.find='/usr/local/bin/find'
-        else:
-            self.find = 'find'
-
-
 def secure_filename(filename):
     _filename_utf8_strip_re = re.compile(u"[^\u4e00-\u9fa5A-Za-z0-9_.\-\+]")
     _windows_device_files = ('CON', 'AUX', 'COM1', 'COM2', 'COM3', 'COM4', 'LPT1', 'LPT2', 'LPT3', 'PRN', 'NUL')

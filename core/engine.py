@@ -36,7 +36,7 @@ from Kunlun_M.const import match_modes
 
 from utils.file import FileParseAll
 from utils.log import logger
-from utils.utils import Tool, SCAN_ID, get_scan_id
+from utils.utils import get_scan_id
 
 from web.index.models import ScanResultTask, NewEvilFunc
 from web.index.models import get_resultflow_class
@@ -331,8 +331,6 @@ class SingleRule(object):
     def __init__(self, target_directory, single_rule, files, language=None, tamper_name=None, is_unconfirm=False,
                  newcore_function_list=[]):
         self.target_directory = target_directory
-        self.find = Tool().find
-        self.grep = Tool().grep
         self.sr = single_rule
         self.files = files
         self.languages = language
