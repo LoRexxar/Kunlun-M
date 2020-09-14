@@ -49,7 +49,7 @@ class Detection(object):
         language_extensions = {}
         xml_languages = self._read_xml('languages.xml')
         if xml_languages is None:
-            logger.critical('languages read failed!!!')
+            logger.error('languages read failed!!!')
             languages = None
         for language in xml_languages:
             l_name = language.get('name').lower()

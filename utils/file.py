@@ -496,7 +496,7 @@ class Directory(object):
                         self.file_info(directory, filename)
         except OSError as e:
             logger.error("[PICKUP] {}".format(traceback.format_exc()))
-            logger.critical('[PICKUP] {msg}'.format(msg=e))
+            logger.error('[PICKUP] {msg}'.format(msg=e))
             exit()
 
     def file_info(self, path, filename):

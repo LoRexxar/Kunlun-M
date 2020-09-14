@@ -194,7 +194,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
              language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
              files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm)
     except KeyboardInterrupt as e:
-        logger.critical("[!] KeyboardInterrupt, exit...")
+        logger.error("[!] KeyboardInterrupt, exit...")
         exit()
     except Exception:
         result = {

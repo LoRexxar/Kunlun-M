@@ -34,7 +34,7 @@ def log(loglevel, log_name):
     handler = colorlog.StreamHandler()
     handler.setFormatter(
         colorlog.ColoredFormatter(
-            fmt='%(log_color)s[%(levelname)s][%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
+            fmt='[%(levelname)s][%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt="%H:%M:%S",
             log_colors={
                 'DEBUG': 'cyan',

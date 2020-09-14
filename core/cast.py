@@ -157,7 +157,7 @@ class CAST(object):
         """
         if block_position == 2:
             if self.line is None or self.line == 0:
-                logger.critical("[AST] Line exception: {0}".format(self.line))
+                logger.error("[AST] Line exception: {0}".format(self.line))
                 return False
             line_rule = '{0}p'.format(self.line)
             code = File(self.file_path).lines(line_rule)
