@@ -44,6 +44,16 @@ def export(items):
     return result
 
 
+def trim(params):
+    result = []
+
+    for param in params:
+        if param:
+            result.append(param)
+
+    return result
+
+
 def export_list(params, export_params):
     """
     将params中嵌套的多个列表，导出为一个列表
@@ -190,6 +200,25 @@ def get_binaryop_deep_params(node, params, real_back=False):  # 取出right，le
     return params
 
 
+def get_array_name(nodes):
+    """
+    获取字典、数组元素
+    :param nodes:
+    :return:
+    """
+    params = []
+
+    for node in nodes:
+        value = get_node_name(node)
+
+        if type(value) is list:
+            params.extend(trim(value))
+        else:
+            params.append(value)
+
+    return params
+
+
 def get_expr_name(node):  # expr为'expr'中的值
     """
     获取赋值表达式的表达式部分中的参数名-->返回用来进行回溯
@@ -201,6 +230,10 @@ def get_expr_name(node):  # expr为'expr'中的值
     if isinstance(node, php.ArrayOffset):  # 当赋值表达式为数组
         param_expr = get_node_name(node.node)  # 返回数组名
         param_lineno = node.node.lineno
+
+    elif isinstance(node, php.Array):  # 当赋值表达式为字典
+        param_expr = get_array_name(node.nodes)  # 返回数组名
+        param_lineno = node.lineno
 
     elif isinstance(node, php.Variable):  # 当赋值表达式为变量
         param_expr = node.name  # 返回变量名
@@ -215,11 +248,17 @@ def get_expr_name(node):  # expr为'expr'中的值
         param_expr = get_binaryop_params(node)
         param_lineno = node.lineno
 
-    elif isinstance(node, php.MethodCall): # 当赋值表达式为类方法时
+    elif isinstance(node, php.MethodCall):  # 当赋值表达式为类方法时
         param_expr = get_all_params(node.params)  # 返回该方法参数列表
         param_lineno = node.lineno
 
+    elif isinstance(node, php.ArrayElement):  # 字典的键值对
+        params = []
+        params.append(get_node_name(node.key))
+        params.append(get_node_name(node.value))
 
+        param_expr = params
+        param_lineno = node.lineno
     else:
         param_expr = node
 
@@ -243,6 +282,14 @@ def get_node_name(node):  # node为'node'中的元组
 
     if isinstance(node, php.ArrayOffset):
         return get_node_name(node.node)
+
+    if isinstance(node, php.ArrayElement):  # 字典的键值对
+        params = []
+        params.append(get_node_name(node.key))
+        params.append(get_node_name(node.value))
+
+        param_expr = params
+        return param_expr
 
     return node
 
@@ -332,7 +379,7 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
     controlled_params += is_controlled_params
 
     if isinstance(expr, php.ObjectProperty):
-        return 3, php.Variable(expr)
+        return 3, expr
 
     if isinstance(expr, php.New) or isinstance(expr, php.MethodCall) or isinstance(expr, php.FunctionCall) or isinstance(expr, php.StaticMethodCall):
         # 一个新的问题，输入可能不来自全局变量，可能来自函数，加入一次check
@@ -345,7 +392,7 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
             logger.debug('[AST] is_controllable --> {expr}'.format(expr=expr.name))
             return 1, expr
 
-        return 3, php.Variable(expr)
+        return 3, expr
 
     if isinstance(expr, php.Variable):
         expr = expr.name
@@ -617,7 +664,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     else:
         param_name = param
 
-    is_co, cp = is_controllable(param_name)
+    is_co, cp = is_controllable(param)
 
     if not nodes and type(nodes) is bool:
         logger.warning("[AST] AST analysis error, return back.")
@@ -642,6 +689,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     if len(nodes) != 0 and is_co not in [-1, 1, 2]:
         node = nodes[-1]
+
+        # temp var
+        _is_co = 0
+        _cp = None
 
         # 加入扫描范围check, 如果当前行数大于目标行数，直接跳过(等于会不会有问题呢？)
         if node.lineno >= int(lineno):
@@ -670,14 +721,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
 
-                if is_co == 1:
-                    return is_co, cp, expr_lineno
-
                 if is_co != 1 and is_co != 3:
                     is_co, cp = is_sink_function(param_expr, function_params)
 
                 if is_co == -1 and isback is True:
                     cp = param_expr
+
+                if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                    return is_co, cp, expr_lineno
 
                 if isinstance(node.expr, php.ArrayOffset):
                     param = node.expr
@@ -687,7 +738,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
 
-                # 由于函数式变成的关系，为了不在函数回溯中走入歧途，这里优先检查一次函数名是否和可控函数相等
+                # 由于函数式编程的关系，为了不在函数回溯中走入歧途，这里优先检查一次函数名是否和可控函数相等
                 is_co, cp = is_controllable(function_name)
                 if is_co == 1:
                     logger.debug("[AST] Function {} is controllable.".format(function_name))
@@ -751,6 +802,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 is_co = 3
 
             if param_name == param_node and isinstance(param_expr, list):
+
+                # 这里检测的是函数参数列表...如果为空不一定不可控？
+                if len(param_expr) <= 0 and not (isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall)):
+                    _is_co = -1
+                    cp = param
+                    return is_co, cp, 0
+
                 logger.debug(
                     "[AST] Find {} from list for {} in line {}, start ast for list {}".format(param_name,
                                                                                               param_expr,
@@ -759,12 +817,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 file_path = os.path.normpath(file_path)
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('ListAssignment', code, file_path, node.lineno))
-
-                # 这里检测的是函数参数列表...如果为空不一定不可控？
-                if len(param_expr) <= 0 and not (isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall)):
-                    _is_co = -1
-                    cp = param
-                    return is_co, cp, 0
 
                 # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
                 if param_name in param_expr:
@@ -781,15 +833,27 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                         if is_co == -1:
                             continue
 
+                        file_path = os.path.normpath(file_path)
+                        code = "find param {}".format(param)
+                        scan_chain.append(('NewFind', code, file_path, node.lineno))
+
                         param = php.Variable(param)
                         _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                    function_flag=1, vul_function=vul_function,
                                                                    file_path=file_path,
                                                                    isback=isback)
 
-                        if _is_co != -1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
+                        if _is_co == 1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
                             is_co = _is_co
                             cp = _cp
+                            break
+                        else:
+                            file_path = os.path.normpath(file_path)
+                            code = "param {} find fail.continue".format(param)
+                            scan_chain.append(('FindEnd', code, file_path, node.lineno))
+
+                            logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
+                            continue
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_nodes = node.nodes
@@ -800,7 +864,6 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             # 如果仅仅是函数定义，如果上一次赋值语句不在函数内，那么不应进去函数里分析，应该直接跳过这部分
             # test1 尝试使用行数叠加的方式
             # 目前测试结果中，这里会出现严重的bug
-            # print(parent_node)
             # if function_flag == 0 and not isinstance(parent_node, php.Function):
             #     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
             #                                              function_flag=0, vul_function=vul_function,
@@ -828,7 +891,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             scan_chain.append(('Function', code, file_path, node.lineno))
 
             for function_node in function_nodes:
-                if function_node is not None and int(function_lineno) < function_node.lineno < int(lineno):
+                if function_node is not None and int(function_lineno) <= function_node.lineno <= int(lineno):
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
@@ -838,47 +901,59 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          isback=isback, parent_node=None)
                 function_flag = 0
 
-            if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
+                if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
 
-                # 检查函数是不是魔术方法
-                if node.name in php_magic_function_dict:
-                    logger.debug("[AST] param {} found in php magic funtion {}, continue.".format(param_name, node.name))
+                    # 检查函数是不是魔术方法
+                    if node.name in php_magic_function_dict:
+                        logger.debug("[AST] param {} found in php magic funtion {}, continue.".format(param_name, node.name))
 
-                else:
-                    for node_param in node.params:
-                        if hasattr(node_param, 'name') and node_param.name == cp.name:
-                            logger.debug(
-                                "[AST] param {} line {} in function_params, start new rule for function {}".format(
-                                    param_name, node.lineno, node.name))
+                    else:
+                        for node_param in node.params:
+                            if hasattr(node_param, 'name') and node_param.name == cp.name:
+                                logger.debug(
+                                    "[AST] param {} line {} in function_params, start new rule for function {}".format(
+                                        param_name, node.lineno, node.name))
 
-                            file_path = os.path.normpath(file_path)
-                            code = "param {} in NewFunction {}".format(param_name, node.name)
-                            scan_chain.append(('NewFunction', code, file_path, node.lineno))
+                                file_path = os.path.normpath(file_path)
+                                code = "param {} in NewFunction {}".format(param_name, node.name)
+                                scan_chain.append(('NewFunction', code, file_path, node.lineno))
 
-                            if vul_function is None or node.name != vul_function:
-                                logger.info(
-                                    "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
-                                                                                                               cp.name))
+                                if vul_function is None or node.name != vul_function:
+                                    logger.info(
+                                        "[Deep AST] Now vulnerability function from function {}() param {}".format(node.name,
+                                                                                                                   cp.name))
 
-                                is_co = 4
-                                cp = tuple([node, param, vul_function])
-                                return is_co, cp, 0
-                            else:
-                                logger.info(
-                                    "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
-                                )
-                                # 无法解决递归，直接退出
-                                is_co = -1
-                                return is_co, cp, 0
+                                    is_co = 4
+                                    cp = tuple([node, param, vul_function])
+                                    return is_co, cp, 0
+                                else:
+                                    logger.info(
+                                        "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
+                                    )
+                                    # 无法解决递归，直接退出
+                                    is_co = -1
+                                    return is_co, cp, 0
 
-                # 从函数中出来的变量，如果参数列表中没有，也不能继续递归
-                is_co = -1
+                    # 从函数中出来的变量，如果参数列表中没有，也不能继续递归
+                    is_co = -1
+
+                    file_path = os.path.normpath(file_path)
+                    code = "param {} does not found in function {}".format(param_name, node.name)
+                    scan_chain.append(('EndFunction', code, file_path, node.lineno))
+
+                    return is_co, cp, expr_lineno
+
+            if is_co in [-1, 1, 2]:  # 目标确定直接返回
                 return is_co, cp, expr_lineno
 
         elif isinstance(node, php.Class):
             is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
                                                 isback=isback, parent_node=node)
-            return is_co, cp, expr_lineno
+
+            if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                return is_co, cp, expr_lineno
+            else:
+                param = cp
 
         elif isinstance(node, php.If):
             logger.debug(
@@ -895,6 +970,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path, isback=isback, parent_node=node)
+
+            # 如果是3 应该传递cp
+            if is_co == 3:
+                _is_co = is_co
+                _cp = cp
 
             if is_co != 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
@@ -913,6 +993,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
 
+                if _is_co != 3 and is_co == 3:
+                    _is_co = is_co
+                    _cp = cp
+
             if is_co != 1 and node.else_ != [] and node.else_ is not None:
 
                 logger.debug("[AST] param {} line {} in new branch for else".format(param, node.else_.lineno))
@@ -928,16 +1012,22 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)
 
-                if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                    return is_co, cp, expr_lineno
+                if _is_co != 3 and is_co == 3:
+                    _is_co = is_co
+                    _cp = cp
 
-            # 添加一种情况，如果只有if没有else，则会考虑不进入循环的特殊情况
-            if is_co != 1 and (node.else_ == [] or node.else_ is None):
-
-                logger.debug("[AST] param {} line {} in new branch skip if/else".format(param, node.lineno))
-
-            if is_co in [-1, 1, 2]:  # 目标确定直接返回
+            if is_co == 1:  # 目标确定直接返回
                 return is_co, cp, expr_lineno
+
+            if _is_co == 3 and _cp != param:
+                # 如果不等于，说明在if/else块中产生了变化
+                is_co = _is_co
+                cp = _cp
+                param = _cp
+
+                file_path = os.path.normpath(file_path)
+                code = "New {} param back from if/else".format(param)
+                scan_chain.append(('NewIFBack', code, file_path, node.lineno))
 
         elif isinstance(node, php.While) or isinstance(node, php.DoWhile):
             logger.debug(
@@ -957,6 +1047,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
                 return is_co, cp, expr_lineno
 
+            if is_co == 3 and cp != param:
+                # 如果不等于，说明在if/else块中产生了变化
+                param = cp
+
+                file_path = os.path.normpath(file_path)
+                code = "New {} param back from while".format(param)
+                scan_chain.append(('NewWhileBack', code, file_path, node.lineno))
+
         elif isinstance(node, php.Switch):
             logger.debug(
                 "[AST] param {} line {} in Switch, start ast in Switch".format(param_name, node.lineno))
@@ -969,8 +1067,21 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=node)
 
-                if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                if is_co == 1:  # 目标确定直接返回
                     return is_co, cp, expr_lineno
+
+                if cp == 3:
+                    _is_co = is_co
+                    _cp = cp
+
+            if _is_co == 3 and _cp != param:
+                is_co = _is_co
+                cp = _cp
+                param = _cp
+
+                file_path = os.path.normpath(file_path)
+                code = "New {} param back from Switch".format(param)
+                scan_chain.append(('NewSwitchBack', code, file_path, node.lineno))
 
         elif isinstance(node, php.Try):
             logger.debug(
@@ -1002,6 +1113,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                      file_path=file_path,
                                                      isback=isback, parent_node=node)
 
+            # 如果是3 应该传递cp
+            if is_co == 3:
+                _is_co = is_co
+                _cp = cp
+
             if is_co != 1 and catch_nodes is not None:
 
                 for catch_node in catch_nodes:
@@ -1012,8 +1128,18 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
 
-                    if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                    if is_co == 1:  # 目标确定直接返回
                         return is_co, cp, expr_lineno
+
+            if _is_co == 3 and _cp != param:
+                # 如果不等于，说明在if/else块中产生了变化
+                is_co = _is_co
+                cp = _cp
+                param = _cp
+
+                file_path = os.path.normpath(file_path)
+                code = "New {} param back from Try".format(param)
+                scan_chain.append(('NewTryBack', code, file_path, node.lineno))
 
         elif isinstance(node, php.For):
             for_nodes = node.node.nodes
@@ -1029,6 +1155,16 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
                 return is_co, cp, expr_lineno
+
+            if _is_co == 3 and _cp != param:
+                # 如果不等于，说明在if/else块中产生了变化
+                is_co = _is_co
+                cp = _cp
+                param = _cp
+
+                file_path = os.path.normpath(file_path)
+                code = "New {} param back from For".format(param)
+                scan_chain.append(('NewForBack', code, file_path, node.lineno))
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,

@@ -170,8 +170,8 @@ def main():
             logger.info("[INIT] New Log file {}.log .".format(args.log))
             log_add(logging.INFO, args.log)
         else:
-            logger.info("[INIT] New Log file {}.log .".format(sid))
-            log(logging.INFO, "ScanTask_{}".format(sid))
+            logger.info("[INIT] New Log file ScanTask_{}.log .".format(sid))
+            log_add(logging.INFO, "ScanTask_{}".format(sid))
 
         if hasattr(args, "debug") and args.debug:
             logger.setLevel(logging.DEBUG)
