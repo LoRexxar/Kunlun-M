@@ -61,7 +61,7 @@ def get_line(file_path, line_rule):
     :return: 
     """
     s_line = int(line_rule.split(',')[0])
-    e_line = int(line_rule.split(',')[1][:-1])
+    e_line = int(line_rule.split(',')[1])
     result = []
 
     # with open(file_path) as file:

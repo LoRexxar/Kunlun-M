@@ -34,7 +34,7 @@ from Kunlun_M.const import ext_dict
 from Kunlun_M.const import VulnerabilityResult
 from Kunlun_M.const import match_modes
 
-from utils.file import FileParseAll
+from utils.file import FileParseAll, get_line
 from utils.log import logger
 from utils.utils import get_scan_id
 
@@ -1175,7 +1175,8 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
 
     for index, origin_vulnerability in enumerate(origin_vulnerabilities):
 
-        code = origin_vulnerability[2]
+        code = get_line(origin_vulnerability[0], "{line},{line}".format(line=origin_vulnerability[1]))
+        code = "".join(code)
         if match2 is not None:
             if re.search(match2, code, re.I):
                 continue
