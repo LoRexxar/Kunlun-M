@@ -297,9 +297,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     for new_function_name in newcore_function_list:
         # add new evil func in database
         for svid in newcore_function_list[new_function_name]["svid"]:
-            nf = NewEvilFunc(svid=svid, scan_task_id=get_scan_id(), func_name=new_function_name,
-                             origin_func_name=newcore_function_list[new_function_name]["origin_func_name"])
-            nf.save()
+            if new_function_name:
+
+                nf = NewEvilFunc(svid=svid, scan_task_id=get_scan_id(), func_name=new_function_name,
+                                 origin_func_name=newcore_function_list[new_function_name]["origin_func_name"])
+                nf.save()
 
         table2.add_row([idy + 1, new_function_name, newcore_function_list[new_function_name]["origin_func_name"], newcore_function_list[new_function_name]["svid"]])
         idy += 1
@@ -816,7 +818,7 @@ class Core(object):
             return False, 'Annotation(注释)'
 
         if not self.is_target():
-            logger.error("[SCAN] file {} ext is not support, something error...".format(self.file_path))
+            # logger.warn("[SCAN] file {} ext is not support, something error...".format(self.file_path))
             return False, 'Unsupport File'
 
         #

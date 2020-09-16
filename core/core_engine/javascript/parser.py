@@ -1657,7 +1657,11 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
         scan_results = []
         is_repair_functions = repair_functions
         is_controlled_params = controlled_params.copy()
-        all_nodes = ast_object.get_nodes(file_path).body
+
+        if type(ast_object.get_nodes(file_path)) is list:
+            all_nodes = []
+        else:
+            all_nodes = ast_object.get_nodes(file_path).body
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
