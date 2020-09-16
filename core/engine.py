@@ -1158,7 +1158,7 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
             f = FileParseAll(files, target_directory)
             result = f.grep(match)
         else:
-            result = None
+            result = {}
     except Exception as e:
         traceback.print_exc()
         logger.debug('match exception ({e})'.format(e=e))

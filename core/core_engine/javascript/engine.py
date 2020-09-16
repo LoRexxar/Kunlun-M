@@ -28,9 +28,8 @@ def init_match_rule(data):
 
         type = data[1]
         match = ""
-        if data[3]:
-            origin_func_name = data[3]
-        elif data[2]:
+
+        if data[2]:
             origin_func_name = data[2]
         else:
             origin_func_name = ""
@@ -157,6 +156,8 @@ def init_match_rule(data):
         traceback.print_exc()
         match = None
         match2 = None
+        vul_function = None
         index = 0
+        origin_func_name = None
 
     return match, match2, vul_function, index, origin_func_name

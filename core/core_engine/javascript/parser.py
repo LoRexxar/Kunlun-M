@@ -93,7 +93,7 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
             if isparam:
                 value = data_left
             else:
-                value = data_left + "." + data_right
+                value = str(data_left) + "." + str(data_right)
 
         elif type == "CallExpression":
             value = get_member_data(node.callee, isclean_prototype=isclean_prototype)
@@ -119,7 +119,7 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
                 if data_left != 1:
                     value = data_left
                 if data_right != 1 and value:
-                    value = value + " + " + data_right
+                    value = str(value) + " + " + str(data_right)
                 if data_right != 1 and not value:
                     value = data_right
 
@@ -185,7 +185,7 @@ def get_param(param, is_eval=False, is_function_regex=False):
         data_object = get_member_data(param.object)
         data_property = get_member_data(param.property)
 
-        value = data_object + "." + data_property
+        value = str(data_object) + "." + str(data_property)
         param_list.append(value)
 
     return param_list
@@ -712,33 +712,37 @@ def function_call_back(param, nodes, function_params, file_path=None, isback=Fal
         # call 后为member目前是特殊语法
         # 原理为调用了某个对象的属性函数，目前只见过"a".split()
         expression_object = expression.object
-        expression.property = expression.property
+        expression_property = expression.property
 
-        method_name = get_member_data(expression.property)
+        method_name = get_member_data(expression_property)
 
         if method_name in string_function:
             logger.debug(
-                "[AST] param {} use internal defines {}, pass".format(get_member_data(expression), method_name))
-
-            param = expression_object
+                "[AST] param {} use internal function {}, pass".format(get_member_data(expression), method_name))
 
             # 特殊处理
             if method_name == "reverse":
-                is_co, cp, expr_lineno = parameters_back(param, nodes, function_params, lineno,
+                logger.debug("[AST] param {} use special internal function {}, continue found param.".format(get_member_data(expression), method_name))
+
+                is_co, cp, expr_lineno = parameters_back(expression_object, nodes, function_params, lineno,
                                                          function_flag=0, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=True, method_name=method_name)
 
                 cp = get_member_data(cp, isreverse=True)
                 logger.debug(
-                    "[AST] param {} use special internal function {}, reverseing...".format(get_member_data(expression),
-                                                                                            method_name))
+                    "[AST] param {} use special internal function {}, reverse result is {}...".format(get_member_data(expression),
+                                                                                                      method_name, cp))
+
+                file_path = os.path.normpath(file_path)
+                code = "param reverse result is {}".format(cp)
+                scan_chain.append(('ReverseParam', code, file_path, lineno))
 
                 is_co, cp = is_controllable(cp)
 
                 return is_co, cp, expr_lineno
 
-        is_co, cp, expr_lineno = parameters_back(expression, nodes, function_params, lineno,
+        is_co, cp, expr_lineno = parameters_back(expression_object, nodes, function_params, lineno,
                                                  function_flag=0, vul_function=vul_function,
                                                  file_path=file_path,
                                                  isback=True, method_name=method_name)
@@ -906,13 +910,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr_name)
                 scan_chain.append(('Assignment', code, file_path, node.lineno))
 
-                is_co, cp = is_controllable(param_expr_name)
+                is_co, cp = is_controllable(param_expr)
 
                 if is_co == 1:
                     return is_co, cp, expr_lineno
 
-                if is_co == -1 and isback is True:
-                    cp = param_expr_name
+                if isback is True:
+                    return is_co, cp, expr_lineno
 
                 if is_memberexp(param_expr):
                     # 尝试isback获取
@@ -1115,7 +1119,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                                 object_name = get_member_data(expression.left)
 
-                                new_eval_function = object_name + "." + get_member_data(property_key)
+                                new_eval_function = str(object_name) + "." + str(get_member_data(property_key))
 
                                 logger.debug("[AST] new eval function {}".format(new_eval_function))
                                 file_path = os.path.normpath(file_path)
@@ -1401,7 +1405,7 @@ def analysis_params(expression, back_node, vul_function, vul_lineno, file_path, 
         scan_chain = ['start']
         param_list = [check_param(expression, vul_lineno=vul_lineno)]
 
-        back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript')
+        back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript').body
 
     elif is_function:
         param_list = [check_param(expression, vul_lineno=vul_lineno)]
@@ -1519,7 +1523,7 @@ def analysis_objectexpression(node, vul_function, back_node, vul_lineno, file_pa
         if get_member_data(property_value) == vul_function and property_value.loc.start.line == vul_lineno:
             logger.debug("[AST] object.method transfer found {}".format(vul_function))
 
-            new_eval_function = object_name + "." + get_member_data(property_key)
+            new_eval_function = str(object_name) + "." + str(get_member_data(property_key))
 
             logger.debug("[AST] new eval function {}".format(new_eval_function))
             file_path = os.path.normpath(file_path)
@@ -1653,7 +1657,7 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
         scan_results = []
         is_repair_functions = repair_functions
         is_controlled_params = controlled_params.copy()
-        all_nodes = ast_object.get_nodes(file_path).bodych
+        all_nodes = ast_object.get_nodes(file_path).body
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []

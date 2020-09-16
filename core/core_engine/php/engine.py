@@ -92,6 +92,7 @@ def init_match_rule(data):
         match = None
         match2 = None
         index = 0
+        vul_function = None
         origin_func_name = "None"
 
     return match, match2, vul_function, index, origin_func_name
