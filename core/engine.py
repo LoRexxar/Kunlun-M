@@ -187,9 +187,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     push_rules = []
     scan_list = []
 
-    # async start task
-    loop = asyncio.get_event_loop()
-
     for idx, single_rule in enumerate(sorted(rules.keys())):
 
         # init rule class
@@ -210,8 +207,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         scan_list.append(start_scan(target_directory, rule, files, language, tamper_name))
         # store(result)
 
+    loop = asyncio.get_event_loop()
     loop.run_until_complete(asyncio.gather(*scan_list))
-    loop.close()
+
+    loop.stop()
 
     # print
     data = []

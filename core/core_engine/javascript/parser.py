@@ -1620,7 +1620,7 @@ def analysis(all_nodes, vul_function, back_node, vul_lineno, file_path, function
         if node.type == "VariableDeclaration":  # 函数赋值表达式
             for child_node in node.declarations:
 
-                if child_node:
+                if child_node.init:
                     if child_node.init.type == "CallExpression":
                         analysis_callexpression(child_node.init, vul_function, back_node, vul_lineno, file_path,
                                                 function_params)
@@ -1653,7 +1653,7 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
         scan_results = []
         is_repair_functions = repair_functions
         is_controlled_params = controlled_params.copy()
-        all_nodes = ast_object.get_nodes(file_path).body
+        all_nodes = ast_object.get_nodes(file_path).bodych
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []

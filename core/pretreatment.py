@@ -127,7 +127,9 @@ class Pretreatment:
         # 设置标志位标识跳过预编译阶段
         self.is_unprecom = is_unprecom
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         scan_list = (self.pre_ast() for i in range(10))
         loop.run_until_complete(asyncio.gather(*scan_list))
 
