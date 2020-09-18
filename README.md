@@ -1,19 +1,61 @@
-<big>**写在最前，Cobra-W就像手中的一把剑，这把剑好不好用是Cobra-W的事，如何使用是你的事，希望能有更多的人参与到Cobra-W的变化中来...**</big>
+<big>**自Cobra-W 2.0版本起，Cobra-W正式更名为Kunlun-M(昆仑镜)，**</big>
 
 **请使用python3.6+运行该工具，已停止维护python2.7环境**
 
-# Cobra-W
-[![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Cobra-W/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
+# Kunlun-Mirror
+[![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
-[![Build Status](https://travis-ci.org/LoRexxar/Cobra-W.svg?branch=master)](https://travis-ci.org/LoRexxar/Cobra-W)
+[![Build Status](https://travis-ci.org/LoRexxar/Kunlun-M.svg?branch=master)](https://travis-ci.org/LoRexxar/Cobra-W)
 ![](https://img.shields.io/badge/language-python3.6-orange.svg)
+
+```
+ _   __            _                      ___  ___
+| | / /           | |                     |  \/  |
+| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
+|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
+| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
+\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0 beta1
+
+GitHub: https://github.com/LoRexxar/Kunlun-M
+
+KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
+
+Main Program
+
+positional arguments:
+  {init,config,scan,show,console}
+    init                Kunlun-M init before use.
+    config              config for rule&tamper
+    scan                scan target path
+    show                show rule&tamper
+    console             enter console mode
+
+optional arguments:
+  -h, --help            show this help message and exit
+
+Usage:
+  python kunlun.py scan -t tests/vulnerabilities
+  python kunlun.py scan -t tests/vulnerabilities -r 1000, 1001
+  python kunlun.py scan -t tests/vulnerabilities -tp wordpress
+  python kunlun.py scan -t tests/vulnerabilities -d -uc
+
+  python kunlun.py list rule -k php
+```
 
 ## Introduction
 Cobra是一款**源代码安全审计**工具，支持检测多种开发语言源代码中的**大部分显著**的安全问题和漏洞。
 [https://github.com/wufeifei/cobra](https://github.com/wufeifei/cobra)
 
 Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发现威胁转变为提高发现漏洞的准确率以及精度。
+[https://github.com/LoRexxar/Kunlun-M/tree/cobra-w](https://github.com/LoRexxar/Kunlun-M/tree/cobra-w)
 
+Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原工具之后，昆仑镜将工具的发展重心放在安全研究员的使用上，将会围绕工具化使用不断改进使用体验。
+
+目前工具主要支持**php、javascript**的语义分析，以及**chrome ext, solidity**的基础扫描.
+
+## why KunLun-M
+
+KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计工具，希望开源工具可以推动白盒审计的发展:>.
 
 ## 特点
 
@@ -23,13 +65,16 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
 - 多种语言支持。
 - 开源python实现，更易于二次开发。
 
-
 与Cobra相比：
 - 深度重写AST，大幅度减少漏洞误报率。
-- 提供更易于从代码层面定制审计思路的规则书写方式，更易于白帽子使用，易于拓展。
 - 底层api重写，支持windows、linux等多平台。
 - 多层语义解析、函数回溯，secret机制，新增多种机制应用于语义分析。
 - 新增javascript语义分析，用于扫描包含js相关代码。
+
+与Cobra-W相比(todo):
+- 深度优化AST分析流程，使其更符合QL的概念，便于下一阶段的优化。
+- 深度优化辅助审计的流程，使其更符合人类安全研究员审计辅助的习惯。
+- 深度重构代码结构，使其更符合可拓展，可优化的开源理念。
 
 ## TODO
 - <del>改写grep以及find，提供更好的底层支持</del>
@@ -48,39 +93,19 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
     - 添加区分前端js与nodejs功能，并为node_js添加专门的扫描
     - 未知语法待解析
 - 完成关于java的静态分析
+- 完善AST分析的路径记录以及分析流程，使其更符合QL的概念
+- <del>添加Sqlite3作为灵活数据库用于记录以及管理扫描任务以及结果</del>
+- 重构tamper部分，使其更符合人类的配置文件思路
+- <del>添加console模式，使其更符合日常使用的工具逻辑</del>
+- 重构rule模式，使其更符合可扩展，可编辑的概念
+- 重构Cobra-WA
+    - 集成到Kunlun-M中的web管理平台
+    - 提供平台化的漏洞管理方案
+    - 添加图关系的审计分析流程
 
 ## 更新日志
 
 [changelog.md](./docs/changelog.md)
-
-
-# README
-
-```
-cobra-w
-├─cobra
-│  ├─core_engine
-│  └─internal_defines
-├─docs
-├─logs
-├─result
-├─rules
-│  └─php
-├─tests
-   ├─ast
-   │  └─test
-   ├─examples
-   └─vulnerabilities
-```
-
-- cobra: 核心代码目录
-    - core_engine 核心语义分析代码
-    - internal_defines 部分内置变量
-- docs: cobra-W文档目录
-- logs: 扫描log储存位置
-- result: 扫描结果储存位置（默认为.csv）
-- rules: 规则目录
-- tests： 测试代码目录
 
 
 ## 安装
@@ -90,11 +115,72 @@ cobra-w
 pip install -r requirements.txt
 ```
 
-然后扫描测试样例查看结果
+初始化数据库，默认采用sqlite作为数据库
 ```
-python cobra.py -t ./tests/vulnerabilities/
+python kunlun.py init
 ```
+
+## Usage
+
+### cli mode
+
+使用scan模式扫描各类源代码
+```
+python3 kunlun.py scan -t ./tests/vulnerabilities/
+```
+
+使用config模式加载本地的rule/tamper
+```
+python3 kunlun.py config load         # 加载rule进数据库
+python3 kunlun.py config recover      # 将数据库中的rule恢复到文件
+python3 kunlun.py config loadtamper   # 加载tamper进数据库
+python3 kunlun.py config retamper     # 将数据库中的tamper恢复到文件
+
+```
+
+使用show模式查看目前的所有rule/tamper
+```
+python3 kunlun.py show rule           # 展示所有的rule
+python3 kunlun.py show rule -k php    # 展示所有php的rule
+python3 kunlun.py show tamper         # 展示所有的tamper
+```
+
+使用不同子模式的-h可以查看详细的帮助文档。
+
+### console mode
+
+**建议使用console模式**
+```
+python3 kunlun.py console
+
+
+ _   __            _                      ___  ___
+| | / /           | |                     |  \/  |
+| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
+|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
+| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
+\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0 beta1
+
+GitHub: https://github.com/LoRexxar/Kunlun-M
+
+KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
+
+Global commands:
+    help                                             Print this help menu
+    scan                                             Enter the scan mode
+    load <scan_id>                                   Load Scan task
+    showt                                            Show all Scan task list
+    show [rule, tamper] <key>                        Show rules or tampers
+    config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
+    exit                                             Exit KunLun-M & save Config
+
+
+KunLun-M (root) >
+```
+
 ## 开发文档
+
+开发文档还未更新.
 
 [dev.md](./docs/dev.md)
 

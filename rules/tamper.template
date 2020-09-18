@@ -1,0 +1,17 @@
+# -*- coding: utf-8 -*-
+
+"""
+    {tam_name}
+    ~~~~
+
+    tamper for {tam_name}
+
+    :author:    LoRexxar <LoRexxar@gmail.com>
+    :homepage:  https://github.com/LoRexxar/Kunlun-M
+    :license:   MIT, see LICENSE for more details.
+    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
+"""
+
+{tam_name} = {filter_function}
+
+{tam_name}_controlled = {input_control}

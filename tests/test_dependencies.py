@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-    cobra
+    core
     ~~~~~
 
-    Implements cobra main
+    Implements core main
 
     :author:    BlBana <635373043@qq.com>
     :homepage:  https://github.com/wufeifei/cobra
@@ -13,13 +13,20 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 import os
+
+# for django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
+
+import django
+
+django.setup()
+
 import xml.etree.ElementTree as eT
-from cobra.dependencies import Dependencies
-from cobra.config import project_directory
+from core.dependencies import Dependencies
+from Kunlun_M.settings import PROJECT_DIRECTORY
 
-
-requirements = project_directory+'/tests/vulnerabilities/requirements.txt'
-pom = project_directory+'/tests/vulnerabilities/pom.xml'
+requirements = PROJECT_DIRECTORY+'/tests/vulnerabilities/requirements.txt'
+pom = PROJECT_DIRECTORY+'/tests/vulnerabilities/pom.xml'
 
 
 def test_find_file():

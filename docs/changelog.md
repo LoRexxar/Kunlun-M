@@ -179,3 +179,13 @@
     - 添加.inc为php后缀
     - 修复了部分错误的代码标准
     - 修复了在行数计算中出现的算法错误 #76
+- 2020-09-09
+    - KunLun-M 2.0.0
+    - 底层重构采用django框架，依靠orm实现策略
+    - secret更名为tamper
+    - 添加config的load和recover功能
+    - 修复了js parser的一些已知bug
+    - 公开了js相关的多个rules
+    - 再次完善了php的相关语法 #75
+    - **添加了console模式，更方便的使用以及扫描.** #73
+    

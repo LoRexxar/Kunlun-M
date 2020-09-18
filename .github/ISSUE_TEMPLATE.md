@@ -4,7 +4,7 @@
 |---|---|---|
 |System|`uname -a`||
 |Python|`python -V`||
-|Cobra|`python cobra.py`||
+|Cobra|`python kunlun.py`||
 
 ### Description
 

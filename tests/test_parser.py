@@ -2,28 +2,37 @@
 # -*- coding: utf-8 -*-
 
 """
-    cobra
+    core
     ~~~~~
 
-    Implements cobra main
+    Implements core main
 
     :author:    BlBana <635373043@qq.com>
     :homepage:  https://github.com/wufeifei/cobra
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from cobra.config import project_directory
-from cobra.core_engine.php.parser import anlysis_params
-from cobra.core_engine.php.parser import scan_parser
-from cobra.pretreatment import ast_object
+import os
+
+# for django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
+
+import django
+
+django.setup()
+
+from Kunlun_M.settings import PROJECT_DIRECTORY
+from core.core_engine.php.parser import anlysis_params
+from core.core_engine.php.parser import scan_parser
+from core.pretreatment import ast_object
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
-ast_object.init_pre(project_directory + '/tests/vulnerabilities/', files)
+ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
 ast_object.pre_ast_all(['php'])
 
 
-target_projects = project_directory + '/tests/vulnerabilities/v_parser.php'
-target_projects2 = project_directory + '/tests/vulnerabilities/v.php'
+target_projects = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_parser.php'
+target_projects2 = PROJECT_DIRECTORY + '/tests/vulnerabilities/v.php'
 
 with open(target_projects, 'r') as fi:
     code_contents = fi.read()

@@ -11,7 +11,16 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from cobra.utils import *
+import os
+
+# for django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Kunlun_M.settings')
+
+import django
+
+django.setup()
+
+from utils.utils import *
 
 
 def test_convert_time():
