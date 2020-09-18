@@ -18,6 +18,7 @@ import argparse
 import logging
 import traceback
 
+from django.core.management import call_command
 from utils.log import log, logger, log_add
 from utils.utils import get_mainstr_from_filename, get_scan_id
 
@@ -47,6 +48,9 @@ def main():
         parser = argparse.ArgumentParser(prog=__title__, description=__introduction__.format(detail="Main Program"), epilog=__epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS)
 
         subparsers = parser.add_subparsers()
+
+        parser_group_init = subparsers.add_parser('init', help='Kunlun-M init before use.')
+        parser_group_init.add_argument('-init', action='store_true', default=False)
 
         parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
         parser_group_core.add_argument('load', choices=['load', 'recover', 'loadtamper', 'retamper'], default=False, help='operate for rule&tamper')
@@ -89,6 +93,13 @@ def main():
         if hasattr(args, "debug") and args.debug:
             logger.setLevel(logging.DEBUG)
             logger.debug('[INIT] set logging level: debug')
+
+        if hasattr(args, "init"):
+            logger.info('Init Database for KunLun-M.')
+            call_command('makemigrations')
+            call_command('migrate')
+            logger.info('Init Database Finished.')
+            exit()
 
         if hasattr(args, "load"):
             if args.load == "load":
