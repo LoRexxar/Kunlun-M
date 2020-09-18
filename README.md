@@ -1,7 +1,5 @@
 <big>**自Cobra-W 2.0版本起，Cobra-W正式更名为Kunlun-M(昆仑镜)，**</big>
 
-<big>**写在最前，Cobra-W就像手中的一把剑，这把剑好不好用是Cobra-W的事，如何使用是你的事，希望能有更多的人参与到Cobra-W的变化中来...**</big>
-
 **请使用python3.6+运行该工具，已停止维护python2.7环境**
 
 # Kunlun-Mirror
@@ -13,15 +11,35 @@
 ```
  _   __            _                      ___  ___
 | | / /           | |                     |  \/  |
-| |/ / _   _ _ __ | |    _   _ _ __ ______| .  . |
-|    \| | | | '_ \| |   | | | | '_ \______| |\/| |
-| |\  \ |_| | | | | |___| |_| | | | |     | |  | |
+| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
+|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
+| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
 \_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0 beta1
 
 GitHub: https://github.com/LoRexxar/Kunlun-M
 
 KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
 
+Main Program
+
+positional arguments:
+  {init,config,scan,show,console}
+    init                Kunlun-M init before use.
+    config              config for rule&tamper
+    scan                scan target path
+    show                show rule&tamper
+    console             enter console mode
+
+optional arguments:
+  -h, --help            show this help message and exit
+
+Usage:
+  python kunlun.py scan -t tests/vulnerabilities
+  python kunlun.py scan -t tests/vulnerabilities -r 1000, 1001
+  python kunlun.py scan -t tests/vulnerabilities -tp wordpress
+  python kunlun.py scan -t tests/vulnerabilities -d -uc
+
+  python kunlun.py list rule -k php
 ```
 
 ## Introduction
@@ -34,6 +52,10 @@ Cobra-W是从Cobra2.0发展而来的分支，将工具重心从尽可能的发�
 Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原工具之后，昆仑镜将工具的发展重心放在安全研究员的使用上，将会围绕工具化使用不断改进使用体验。
 
 目前工具主要支持**php、javascript**的语义分析，以及**chrome ext, solidity**的基础扫描.
+
+## why KunLun-M
+
+KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计工具，希望开源工具可以推动白盒审计的发展:>.
 
 ## 特点
 
@@ -72,7 +94,7 @@ Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原
     - 未知语法待解析
 - 完成关于java的静态分析
 - 完善AST分析的路径记录以及分析流程，使其更符合QL的概念
-- 添加Sqlite3作为灵活数据库用于记录以及管理扫描任务以及结果
+- <del>添加Sqlite3作为灵活数据库用于记录以及管理扫描任务以及结果</del>
 - 重构tamper部分，使其更符合人类的配置文件思路
 - <del>添加console模式，使其更符合日常使用的工具逻辑</del>
 - 重构rule模式，使其更符合可扩展，可编辑的概念
@@ -93,11 +115,72 @@ Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原
 pip install -r requirements.txt
 ```
 
-然后扫描测试样例查看结果
+初始化数据库，默认采用sqlite作为数据库
 ```
-python kunlun.py -t ./tests/vulnerabilities/
+python kunlun.py init
 ```
+
+## Usage
+
+### cli mode
+
+使用scan模式扫描各类源代码
+```
+python3 kunlun.py scan -t ./tests/vulnerabilities/
+```
+
+使用config模式加载本地的rule/tamper
+```
+python3 kunlun.py config load         # 加载rule进数据库
+python3 kunlun.py config recover      # 将数据库中的rule恢复到文件
+python3 kunlun.py config loadtamper   # 加载tamper进数据库
+python3 kunlun.py config retamper     # 将数据库中的tamper恢复到文件
+
+```
+
+使用show模式查看目前的所有rule/tamper
+```
+python3 kunlun.py show rule           # 展示所有的rule
+python3 kunlun.py show rule -k php    # 展示所有php的rule
+python3 kunlun.py show tamper         # 展示所有的tamper
+```
+
+使用不同子模式的-h可以查看详细的帮助文档。
+
+### console mode
+
+**建议使用console模式**
+```
+python3 kunlun.py console
+
+
+ _   __            _                      ___  ___
+| | / /           | |                     |  \/  |
+| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
+|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
+| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
+\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0 beta1
+
+GitHub: https://github.com/LoRexxar/Kunlun-M
+
+KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
+
+Global commands:
+    help                                             Print this help menu
+    scan                                             Enter the scan mode
+    load <scan_id>                                   Load Scan task
+    showt                                            Show all Scan task list
+    show [rule, tamper] <key>                        Show rules or tampers
+    config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
+    exit                                             Exit KunLun-M & save Config
+
+
+KunLun-M (root) >
+```
+
 ## 开发文档
+
+开发文档还未更新.
 
 [dev.md](./docs/dev.md)
 
