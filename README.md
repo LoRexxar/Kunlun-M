@@ -184,8 +184,15 @@ KunLun-M (root) >
 
 [dev.md](./docs/dev.md)
 
+## 交流社区
+
+KunLun-M是404Team 星链机会中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
+
+- [https://github.com/knownsec/404StarLink-Project#community](https://github.com/knownsec/404StarLink-Project#community)
+
 ## Contributors
 
 感谢如下贡献者对本工具发展过程中的贡献：
 - Knownsec 404 Team [LoRexxar](https://github.com/LoRexxar)
 - 北邮天枢 [Sissel](https://github.com/boke1208)
+- [@jax777](https://github.com/jax777)
