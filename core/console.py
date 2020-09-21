@@ -759,7 +759,10 @@ Input Control:
     def check_scan_log_file(self):
         last_scantask = ScanTask.objects.all().order_by('-id').first()
 
-        logfile_name = 'ScanTask_{}'.format(last_scantask.id+1)
+        if last_scantask:
+            logfile_name = 'ScanTask_{}'.format(last_scantask.id+1)
+        else:
+            logfile_name = 'ScanTask_1'
 
         i = 1
         while os.path.exists(os.path.join(LOGS_PATH, logfile_name+'.log')):

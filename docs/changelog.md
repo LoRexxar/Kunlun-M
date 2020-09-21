@@ -188,4 +188,9 @@
     - 公开了js相关的多个rules
     - 再次完善了php的相关语法 #75
     - **添加了console模式，更方便的使用以及扫描.** #73
-    
+- 2020-09-21
+    - KunLun-M 2.0.0 beta2
+    - 更新了部分PHP的rule和1个Solidity rule样例
+    - 更新了部分模板tamper
+    - 修复了一个mac下的bug
+    - 添加了演示视频在文档中
