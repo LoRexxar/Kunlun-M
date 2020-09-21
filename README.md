@@ -115,6 +115,12 @@ KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计
 pip install -r requirements.txt
 ```
 
+配置文件迁移
+```
+cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
+```
+
+
 初始化数据库，默认采用sqlite作为数据库
 ```
 python kunlun.py init
@@ -159,7 +165,7 @@ python3 kunlun.py console
 | |/ / _   _ _ __ | |    _   _ _ __       | .  . |
 |    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
 | |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
-\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0 beta1
+\_| \_/\__,_|_| |_\_____/\__,_|_| |_|     \_|  |_/  -v2.0
 
 GitHub: https://github.com/LoRexxar/Kunlun-M
 
@@ -178,6 +184,18 @@ Global commands:
 KunLun-M (root) >
 ```
 
+#### 使用KunLun-M 查看 rules 和 tampers
+
+[![asciicast](https://asciinema.org/a/360842.svg)](https://asciinema.org/a/360842)
+
+#### 使用KunLun-M 扫描漏洞
+
+[![asciicast](https://asciinema.org/a/360843.svg)](https://asciinema.org/a/360843)
+
+#### 使用KunLun-M 查看扫描结果
+
+[![asciicast](https://asciinema.org/a/360845.svg)](https://asciinema.org/a/360845)
+
 ## 开发文档
 
 开发文档还未更新.
@@ -195,4 +213,4 @@ KunLun-M是404Team 星链机会中的一环，如果对KunLun-M有任何疑问�
 感谢如下贡献者对本工具发展过程中的贡献：
 - Knownsec 404 Team [LoRexxar](https://github.com/LoRexxar)
 - 北邮天枢 [Sissel](https://github.com/boke1208)
-- [@jax777](https://github.com/jax777)
+- [#jax777](https://github.com/jax777)
