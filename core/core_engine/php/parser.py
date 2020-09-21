@@ -805,7 +805,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 # 这里检测的是函数参数列表...如果为空不一定不可控？
                 if len(param_expr) <= 0 and not (isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall)):
-                    _is_co = -1
+                    is_co = -1
                     cp = param
                     return is_co, cp, 0
 
@@ -1156,10 +1156,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
                 return is_co, cp, expr_lineno
 
-            if _is_co == 3 and _cp != param:
+            if _is_co == 3 and cp != param:
                 # 如果不等于，说明在if/else块中产生了变化
-                is_co = _is_co
-                cp = _cp
                 param = _cp
 
                 file_path = os.path.normpath(file_path)
