@@ -41,9 +41,9 @@ if PLATFORM == 'windows' and _readline:
 uses_libedit = False
 
 if PLATFORM == 'mac' and _readline:
-    import commands
+    import subprocess
 
-    (status, result) = commands.getstatusoutput("otool -L %s | grep libedit" % _readline.__file__)
+    (status, result) = subprocess.getstatusoutput("otool -L %s | grep libedit" % _readline.__file__)
 
     if status == 0 and len(result) > 0:
         # We are bound to libedit - new in Leopard
