@@ -75,6 +75,9 @@ WSGI_APPLICATION = 'Kunlun_M.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/3.0/ref/settings/#databases
 
+if os.path.isdir(os.path.join(BASE_DIR, 'db')) is not True:
+    os.mkdir(os.path.join(BASE_DIR, 'db'))
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
