@@ -267,7 +267,7 @@ def is_memberexp(node):
 
 
 def is_thisexp(node):
-    if hasattr(node, "type"):
+    if hasattr(node.object, "type"):
         # member的this
         if node.object.type == "ThisExpression":
             return True
