@@ -1135,7 +1135,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 callee_name = get_member_data(expression.callee)
                 expr_lineno = expression.loc.start.line
 
-                if callee_name == vul_function or callee_name == "this." + vul_function.split(".")[-1]:
+                if callee_name and callee_name == vul_function or callee_name == "this." + vul_function.split(".")[-1]:
                     callee_params = expression.arguments
                     param_name = get_member_data(callee_params)
 
@@ -1155,7 +1155,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                  isback=True, method_name=method_name)
                         return is_co, cp, expr_lineno
 
-                elif expression.callee.type == "FunctionExpression":
+                elif expression.callee and expression.callee.type == "FunctionExpression":
                     # 这个分支代表处理在js中特有的一种常见语义结构
                     # (function(a){return a})(c)
                     # 闭包
