@@ -387,10 +387,10 @@ def function_back(function_node, function_params, back_nodes=None, file_path=Non
 
     logger.debug("[AST] Sounds like found a new function define {}".format(function_name))
 
-    for node in function_body[::-1]:
+    param = vul_function
+    nodes = function_body
 
-        param = vul_function
-        nodes = function_body
+    for node in function_body[::-1]:
 
         if hasattr(node, "type") and node.type == "ReturnStatement":
             param = node.argument
