@@ -29,7 +29,7 @@ def init_match_rule(data):
         type = data[1]
         match = ""
 
-        if data[2]:
+        if len(data) > 2 and data[2]:
             origin_func_name = data[2]
         else:
             origin_func_name = ""
