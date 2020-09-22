@@ -900,7 +900,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 # 获取右值
                 param_expr = node.init
                 param_expr_name = get_member_data(param_expr)
-                expr_lineno = node.init.loc.start.line
+                expr_lineno = node.init.loc.start.line if param_expr else 0
 
                 # log
                 logger.debug(
