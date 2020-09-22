@@ -414,7 +414,7 @@ class Pretreatment:
                         logger.warning('[AST] [ERROR] Invalid regular expression in {}...'.format(filepath))
 
                     except KeyboardInterrupt:
-                        logger.log('[AST] stop...')
+                        logger.stop('[AST] stop...')
                         exit()
 
                     except:
