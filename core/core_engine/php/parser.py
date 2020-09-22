@@ -495,6 +495,9 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
     param_name = param.node.name
     param_expr = param.expr
 
+    print(param_name)
+    print(param_expr)
+
     is_co = 3
     cp = param
     expr_lineno = param.lineno
@@ -666,6 +669,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     is_co, cp = is_controllable(param)
 
+    print(param)
+    print(nodes)
+
     if not nodes and type(nodes) is bool:
         logger.warning("[AST] AST analysis error, return back.")
         return is_co, cp, expr_lineno
@@ -676,9 +682,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         return is_co, cp, expr_lineno
 
     if isinstance(param, php.ArrayOffset):  # 当污点为数组时，递归进入寻找数组声明或赋值
-        logger.debug("[AST] AST analysis for ArrayOffset  in line {}".format(param.lineno))
-        is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
-        return is_co, cp, expr_lineno
+        logger.debug("[AST] AST analysis for ArrayOffset in line {}".format(param.lineno))
+        # is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
+
+        param = param.node
+        param_name = param.name
+
+        # return is_co, cp, expr_lineno
 
     if isinstance(param, php.New) or (
                 hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
@@ -700,6 +710,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                    function_flag=0, vul_function=vul_function,
                                    file_path=file_path,
                                    isback=isback, parent_node=0)
+
+        print(get_node_name(node.node))
 
         if isinstance(node, php.Assignment) and param_name == get_node_name(node.node):  # 回溯的过程中，对出现赋值情况的节点进行跟踪
             param_node = get_node_name(node.node)  # param_node为被赋值的变量
