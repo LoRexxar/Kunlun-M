@@ -68,7 +68,7 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
         if type == "Literal":  # 数组位移
             value = node.value
             if check:
-                value = 1
+                value = "1"
 
             if isreverse:
                 value = node.value[::-1]
@@ -116,11 +116,11 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
                 data_left = get_member_data(node.left, check=True, isclean_prototype=isclean_prototype)
                 data_right = get_member_data(node.right, check=True, isclean_prototype=isclean_prototype)
 
-                if data_left != 1:
+                if data_left != "1":
                     value = data_left
-                if data_right != 1 and value:
+                if data_right != "1" and value:
                     value = str(value) + " + " + str(data_right)
-                if data_right != 1 and not value:
+                if data_right != "1" and not value:
                     value = data_right
 
         elif type == "NewExpression":
