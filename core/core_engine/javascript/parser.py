@@ -1405,7 +1405,10 @@ def analysis_params(expression, back_node, vul_function, vul_lineno, file_path, 
         scan_chain = ['start']
         param_list = [check_param(expression, vul_lineno=vul_lineno)]
 
-        back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript').body
+        if type(ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript')) is list:
+            back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript')
+        else:
+            back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript').body
 
     elif is_function:
         param_list = [check_param(expression, vul_lineno=vul_lineno)]
