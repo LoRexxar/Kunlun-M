@@ -68,7 +68,7 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
         if type == "Literal":  # 数组位移
             value = node.value
             if check:
-                value = 1
+                value = "1"
 
             if isreverse:
                 value = node.value[::-1]
@@ -116,11 +116,11 @@ def get_member_data(node, check=False, isparam=False, isclean_prototype=False, i
                 data_left = get_member_data(node.left, check=True, isclean_prototype=isclean_prototype)
                 data_right = get_member_data(node.right, check=True, isclean_prototype=isclean_prototype)
 
-                if data_left != 1:
+                if data_left != "1":
                     value = data_left
-                if data_right != 1 and value:
+                if data_right != "1" and value:
                     value = str(value) + " + " + str(data_right)
-                if data_right != 1 and not value:
+                if data_right != "1" and not value:
                     value = data_right
 
         elif type == "NewExpression":
@@ -267,7 +267,7 @@ def is_memberexp(node):
 
 
 def is_thisexp(node):
-    if hasattr(node, "type"):
+    if hasattr(node.object, "type"):
         # member的this
         if node.object.type == "ThisExpression":
             return True
@@ -387,10 +387,10 @@ def function_back(function_node, function_params, back_nodes=None, file_path=Non
 
     logger.debug("[AST] Sounds like found a new function define {}".format(function_name))
 
-    for node in function_body[::-1]:
+    param = vul_function
+    nodes = function_body
 
-        param = vul_function
-        nodes = function_body
+    for node in function_body[::-1]:
 
         if hasattr(node, "type") and node.type == "ReturnStatement":
             param = node.argument
@@ -900,7 +900,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 # 获取右值
                 param_expr = node.init
                 param_expr_name = get_member_data(param_expr)
-                expr_lineno = node.init.loc.start.line
+                expr_lineno = node.init.loc.start.line if param_expr else 0
 
                 # log
                 logger.debug(
@@ -1135,7 +1135,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 callee_name = get_member_data(expression.callee)
                 expr_lineno = expression.loc.start.line
 
-                if callee_name == vul_function or callee_name == "this." + vul_function.split(".")[-1]:
+                if callee_name and callee_name == vul_function or callee_name == "this." + vul_function.split(".")[-1]:
                     callee_params = expression.arguments
                     param_name = get_member_data(callee_params)
 
@@ -1155,7 +1155,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                                  isback=True, method_name=method_name)
                         return is_co, cp, expr_lineno
 
-                elif expression.callee.type == "FunctionExpression":
+                elif expression.callee and expression.callee.type == "FunctionExpression":
                     # 这个分支代表处理在js中特有的一种常见语义结构
                     # (function(a){return a})(c)
                     # 闭包
@@ -1405,7 +1405,10 @@ def analysis_params(expression, back_node, vul_function, vul_lineno, file_path, 
         scan_chain = ['start']
         param_list = [check_param(expression, vul_lineno=vul_lineno)]
 
-        back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript').body
+        if type(ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript')) is list:
+            back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript')
+        else:
+            back_node = ast_object.get_nodes(file_path, vul_lineno=vul_lineno, lan='javascript').body
 
     elif is_function:
         param_list = [check_param(expression, vul_lineno=vul_lineno)]

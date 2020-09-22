@@ -495,6 +495,9 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
     param_name = param.node.name
     param_expr = param.expr
 
+    # print(param_name)
+    # print(param_expr)
+
     is_co = 3
     cp = param
     expr_lineno = param.lineno
@@ -676,9 +679,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         return is_co, cp, expr_lineno
 
     if isinstance(param, php.ArrayOffset):  # 当污点为数组时，递归进入寻找数组声明或赋值
-        logger.debug("[AST] AST analysis for ArrayOffset  in line {}".format(param.lineno))
-        is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
-        return is_co, cp, expr_lineno
+        logger.debug("[AST] AST analysis for ArrayOffset in line {}".format(param.lineno))
+        # is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
+
+        param = param.node
+        param_name = param.name
+
+        is_co, cp = is_controllable(param)
 
     if isinstance(param, php.New) or (
                 hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析

@@ -24,13 +24,13 @@ from Kunlun_M.settings import PROJECT_DIRECTORY
 from utils.file import Directory
 
 def test_file():
-    absolute_path = os.path.join(PROJECT_DIRECTORY, 'kunlun.py')
+    absolute_path = os.path.join(PROJECT_DIRECTORY, 'tests', 'vulnerabilities')
     files, file_sum, time_consume = Directory(absolute_path).collect_files()
     ext, ext_info = files[0]
-    assert '.py' == ext
-    assert 1 == ext_info['count']
-    assert 'kunlun.py' in ext_info['list']
-    assert 1 == file_sum
+    assert '.php' == ext
+    assert 2 == ext_info['count']
+    assert '/v.php' in ext_info['list']
+    assert 2 == file_sum
     assert time_consume < 1
 
 

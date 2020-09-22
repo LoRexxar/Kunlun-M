@@ -424,11 +424,21 @@ class FileParseAll:
 
 
 class Directory(object):
-    def __init__(self, absolute_path, black_path_list=[]):
+    def __init__(self, absolute_path, black_path_list=[], lans=None):
         self.absolute_path = absolute_path
         self.black_path_list = default_black_list
 
         self.black_path_list.extend(black_path_list)
+
+        self.ext_list = []
+
+        if lans and lans in ext_dict:
+            for lan in lans:
+                self.ext_list.extend(ext_dict[lan])
+
+        else:
+            for lan in ext_dict:
+                self.ext_list.extend(ext_dict[lan])
 
     file_sum = 0
     type_nums = {}
@@ -502,11 +512,15 @@ class Directory(object):
     def file_info(self, path, filename):
         # Statistic File Type Count
         file_name, file_extension = os.path.splitext(path)
-        self.type_nums.setdefault(file_extension.lower(), []).append(filename)
 
-        path = path.replace(self.absolute_path, '')
-        self.file.append(path)
-        self.file_sum += 1
+        # 当设定了lan时加入检查
+        if file_extension.lower() in self.ext_list:
+
+            self.type_nums.setdefault(file_extension.lower(), []).append(filename)
+
+            path = path.replace(self.absolute_path, '')
+            self.file.append(path)
+            self.file_sum += 1
 
 
 class File(object):

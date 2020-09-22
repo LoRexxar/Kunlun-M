@@ -414,7 +414,7 @@ class Pretreatment:
                         logger.warning('[AST] [ERROR] Invalid regular expression in {}...'.format(filepath))
 
                     except KeyboardInterrupt:
-                        logger.log('[AST] stop...')
+                        logger.stop('[AST] stop...')
                         exit()
 
                     except:
@@ -436,7 +436,7 @@ class Pretreatment:
                 if lan == 'javascript':
                     backnodes = lambda: None
                     backnodes.body = []
-                    allnodes = self.pre_result[filepath]['ast_nodes'].body
+                    allnodes = self.pre_result[filepath]['ast_nodes'].body if self.pre_result[filepath]['ast_nodes'] else []
 
                     for node in allnodes:
                         if node.loc.start.line <= int(vul_lineno):
