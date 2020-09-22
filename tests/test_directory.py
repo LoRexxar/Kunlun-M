@@ -29,7 +29,7 @@ def test_file():
     ext, ext_info = files[0]
     assert '.php' == ext
     assert 2 == ext_info['count']
-    assert 'v.php' in ext_info['list']
+    assert '/v.php' in ext_info['list']
     assert 1 == file_sum
     assert time_consume < 1
 
