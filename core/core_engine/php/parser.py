@@ -16,7 +16,7 @@ import re
 import os
 import asyncio
 import traceback
-from asgiref.sync import sync_to_async, async_to_sync
+# from asgiref.sync import sync_to_async, async_to_sync
 
 from utils.log import logger
 from utils.utils import SCAN_ID
