@@ -1857,7 +1857,11 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
     :return:
     """
     buffer_ = []
+
     for node in nodes:
+
+        if not node:
+            continue
 
         # 检查line范围，以快速锁定参数
         if vul_lineno < node.lineno:
