@@ -16,7 +16,7 @@ import re
 import os
 import asyncio
 import traceback
-from asgiref.sync import sync_to_async, async_to_sync
+# from asgiref.sync import sync_to_async, async_to_sync
 
 from utils.log import logger
 from utils.utils import SCAN_ID
@@ -683,7 +683,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         # is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
 
         param = param.node
-        param_name = param.name
+        param_name = get_node_name(param)
 
         is_co, cp = is_controllable(param)
 
@@ -985,15 +985,18 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if is_co != 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
-                logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.elseifs.lineno))
-
                 for node_elseifs_node in node.elseifs:
                     if isinstance(node_elseifs_node.node, php.Block):
                         elif_nodes = node_elseifs_node.node.nodes
+                        elseif_lineno = node_elseifs_node.node.lineno
                     elif node_elseifs_node.node is not None:
                         elif_nodes = [node_elseifs_node.node]
+                        elseif_lineno = node_elseifs_node.node.lineno
                     else:
                         elif_nodes = []
+                        elseif_lineno = lineno
+
+                    logger.debug("[AST] param {} line {} in new branch for else if".format(param, elseif_lineno))
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
@@ -1857,7 +1860,11 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
     :return:
     """
     buffer_ = []
+
     for node in nodes:
+
+        if not node:
+            continue
 
         # 检查line范围，以快速锁定参数
         if vul_lineno < node.lineno:
