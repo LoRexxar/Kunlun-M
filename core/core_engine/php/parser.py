@@ -985,15 +985,18 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
             if is_co != 1 and node.elseifs != []:  # elseif可能有多个，所以需要列表
 
-                logger.debug("[AST] param {} line {} in new branch for else if".format(param, node.elseifs.lineno))
-
                 for node_elseifs_node in node.elseifs:
                     if isinstance(node_elseifs_node.node, php.Block):
                         elif_nodes = node_elseifs_node.node.nodes
+                        elseif_lineno = node_elseifs_node.node.lineno
                     elif node_elseifs_node.node is not None:
                         elif_nodes = [node_elseifs_node.node]
+                        elseif_lineno = node_elseifs_node.node.lineno
                     else:
                         elif_nodes = []
+                        elseif_lineno = lineno
+
+                    logger.debug("[AST] param {} line {} in new branch for else if".format(param, elseif_lineno))
 
                     is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
