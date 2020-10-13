@@ -683,7 +683,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         # is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
 
         param = param.node
-        param_name = param.name
+        param_name = get_node_name(param)
 
         is_co, cp = is_controllable(param)
 
