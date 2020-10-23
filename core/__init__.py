@@ -34,6 +34,8 @@ from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
 from web.index.models import ScanTask
 
+from . import plugins
+
 try:
     reload(sys)
     sys.setdefaultencoding('utf-8')
@@ -85,10 +87,29 @@ def main():
         parser_group_console.add_argument('console', action='store_true', default=True,
                                           help='enter console mode')
 
-        args = parser.parse_args()
+        # 加载插件参数列表以及帮助
+
+        parser_group_plugin = subparsers.add_parser('plugin', help='Load plugins',
+                                                    description=__introduction__.format(detail='Load plugins'),
+                                                    formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                    usage=argparse.SUPPRESS, add_help=True)
+        parser_group_plugin.add_argument('plugin_name', choices=plugins.PLUGIN_LIST, default=False,
+                                         help='enter plugin name')
+
+        # args = parser.parse_args()
+        args = parser.parse_known_args()[0]
 
         # log
         log(logging.INFO)
+
+        # 插件需要提前声明
+        if hasattr(args, "plugin_name") and args.plugin_name:
+            logger.info('[INIT] Load Plugin {}.'.format(args.plugin_name))
+            plugins.PLUGIN_DICT[args.plugin_name](parser, parser_group_plugin)
+            exit()
+
+        # 其余需要验证
+        args = parser.parse_args()
 
         if hasattr(args, "debug") and args.debug:
             logger.setLevel(logging.DEBUG)

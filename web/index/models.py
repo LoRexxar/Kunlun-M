@@ -81,10 +81,11 @@ def get_dataflow_table(name, isnew=False):
     table_name = "DataFlow_{}{}".format(name, prefix)
 
     class DataFlowTemplate(models.Model):
+        node_locate = models.CharField(max_length=1000)
+        node_sort = models.IntegerField()
         source_node = models.CharField(max_length=500)
-        sink_node = models.CharField(max_length=500)
-        issue_type = models.IntegerField()
-        issue_content = models.CharField(max_length=500)
+        node_type = models.CharField(max_length=500)
+        sink_node = models.CharField(max_length=500, null=True)
 
         @staticmethod
         def is_exists():
