@@ -1,13 +1,10 @@
-# 插件 phpunserializechain
+# Plugins
 
-基于.QL概念完成的demo，现在完成了自动化寻找php反序列化链的简单模型
+基于KunLun-M产出的一些新东西，有的可能会逐渐演化为KunLun-M本身的功能，希望能从一些激进的角度探索白盒的可能。
 
-## Usage
 
-```
-python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_pash}
-```
+## phpunserializechain
 
-## tests
+基于.QL的概念探索出的一套CodeDB，探索性的完成了一个针对寻找PHP反序列化链的demo，目前还是demo性质的，还有很多问题需要解决。
 
-![](docs/phpunserchain.png)
+[](./phpunserializechain/)
