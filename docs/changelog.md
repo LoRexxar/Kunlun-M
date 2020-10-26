@@ -200,3 +200,7 @@
     - 修复了PHP扫描中有关数组变量传递的问题 #85
     - 修复了mac下console模式的bug #82
     - 修复了一部分bug
+- 2020-10-26
+    - KunLun-M 2.0.0 beta4
+    - 修复了数个扫描过程中可能产生的bug
+    - 更新了[KunLun-M - phpunserializechain](https://github.com/LoRexxar/Kunlun-M/tree/master/core/plugins)
