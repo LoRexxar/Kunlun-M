@@ -130,7 +130,6 @@ def stop_after(space_number):
     return _outer_wrapper
 
 
-
 class BaseInterpreter(object):
     global_help = ""
 

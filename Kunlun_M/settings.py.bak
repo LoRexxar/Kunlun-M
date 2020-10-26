@@ -165,6 +165,7 @@ EXAMPLES_PATH = os.path.join(TESTS_PATH, 'examples')
 RULES_PATH = os.path.join(PROJECT_DIRECTORY, 'rules')
 CONFIG_PATH = os.path.join(PROJECT_DIRECTORY, 'config')
 LOGS_PATH = os.path.join(PROJECT_DIRECTORY, 'logs')
+PLUGIN_PATH = os.path.join(PROJECT_DIRECTORY, 'core', 'plugins')
 
 # history
 HISTORY_FILE_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, '.history')

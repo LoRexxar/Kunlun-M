@@ -38,6 +38,8 @@ $A->eval_function2();
 $A->eval_function3();
 $A->eval_function4();
 
+$A::eval_function4();
+
 $z = $A;
 eval($z);
 
