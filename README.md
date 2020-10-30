@@ -201,6 +201,8 @@ KunLun-M (root) >
 
 #### phpunserializechain
 
+一个自动化寻找php反序列化链的简单模型
+
 ```
 python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ```
