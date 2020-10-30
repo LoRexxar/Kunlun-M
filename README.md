@@ -196,6 +196,18 @@ KunLun-M (root) >
 
 [![asciicast](https://asciinema.org/a/360845.svg)](https://asciinema.org/a/360845)
 
+
+### plugin mode
+
+#### phpunserializechain
+
+```
+python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
+```
+
+![](docs/phpunserchain.png)
+
+
 ## 开发文档
 
 开发文档还未更新.
