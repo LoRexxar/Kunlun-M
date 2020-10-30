@@ -9,7 +9,7 @@
 ## Usage
 
 ```
-python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_pash}
+python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ```
 
 ## tests
