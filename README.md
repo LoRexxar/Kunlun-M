@@ -218,7 +218,7 @@ python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 
 ## 交流社区
 
-KunLun-M是404Team 星链机会中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
+KunLun-M 是 404Team 星链计划中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
 
 - [https://github.com/knownsec/404StarLink-Project#community](https://github.com/knownsec/404StarLink-Project#community)
 
