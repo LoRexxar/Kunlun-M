@@ -17,6 +17,7 @@ from utils.log import logger
 from Kunlun_M.settings import PLUGIN_PATH
 
 PLUGIN_DICT = {}
+PLUGIN_DESC_DICT = {}
 
 try:
     files = os.listdir(PLUGIN_PATH)
@@ -32,9 +33,14 @@ try:
 
         if plugin_class.PLUGIN_STATUS:
             PLUGIN_DICT[plugin_class.PLUGIN_NAME] = plugin_class.PLUGIN_OBJECT
+            PLUGIN_DESC_DICT[plugin_class.PLUGIN_NAME] = plugin_class.PLUGIN_DESCRIPTION
 
 except:
     logger.error("[Plugin init] Something error...{}".format(traceback.format_exc()))
 
 PLUGIN_LIST = list(PLUGIN_DICT)
 
+PLUGIN_DESCS = "Plugins list:\n"
+
+for plugin_name in PLUGIN_DESC_DICT:
+    PLUGIN_DESCS += '  {}{}\n'.format(plugin_name.ljust(50, ' '), PLUGIN_DESC_DICT[plugin_name])

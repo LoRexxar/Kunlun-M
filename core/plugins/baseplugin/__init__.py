@@ -28,7 +28,7 @@ class BasePluginClass:
         parser_group_plugin.add_argument('-d', '--debug', dest='debug', action='store_false', default=False,
                                          help='open debug mode')
 
-        self.args = parser.parse_args()
+        # self.args = parser.parse_args()
         self.parser = parser
         self.parser_group_plugin = parser_group_plugin
         self.plugin_name = 'BasePlugin'
@@ -48,6 +48,8 @@ class BasePluginClass:
             setattr(self, arg, getattr(self.args, arg))
 
     def check_args(self):
+        self.args = self.parser.parse_args()
+
         for required_argument in self.required_arguments_list:
             if not hasattr(self.args, required_argument) or not getattr(self.args, required_argument):
                 self.parser_group_plugin.print_help()

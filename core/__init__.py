@@ -89,8 +89,8 @@ def main():
 
         # 加载插件参数列表以及帮助
 
-        parser_group_plugin = subparsers.add_parser('plugin', help='Load plugins',
-                                                    description=__introduction__.format(detail='Load plugins'),
+        parser_group_plugin = subparsers.add_parser('plugin', help=plugins.PLUGIN_DESCS,
+                                                    description=__introduction__.format(detail=plugins.PLUGIN_DESCS),
                                                     formatter_class=argparse.RawDescriptionHelpFormatter,
                                                     usage=argparse.SUPPRESS, add_help=True)
         parser_group_plugin.add_argument('plugin_name', choices=plugins.PLUGIN_LIST, default=False,
