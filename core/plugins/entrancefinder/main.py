@@ -39,7 +39,7 @@ class EntranceFinder(BasePluginClass):
                                               help='limit node number(default 2)')
 
         self.parser_group_plugin.add_argument('-b', '--blackwords', dest='blackwords', action='store', default="",
-                                              help='set blacklist for scan')
+                                              help='set blacklist for scan(use \',\' split string)')
 
         # 参数列表
         self.required_arguments_list = ['target']
