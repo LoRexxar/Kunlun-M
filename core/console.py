@@ -133,8 +133,8 @@ def stop_after(space_number):
 
 
 def show_context(filename, line_number):
-    if filename.startswith("."):
-        filename = os.path.join(PROJECT_DIRECTORY,filename)
+    if not filename.startswith("/"):
+        filename = os.path.join(PROJECT_DIRECTORY, filename)
     line_start = int(line_number) - 5
     line_end = int(line_number) + 5
     with open(filename) as f:
