@@ -256,4 +256,4 @@ class EntranceFinder(BasePluginClass):
             self.black_list = self.blackwords.split(',')
 
         else:
-            self.black_list = self.blackwords
+            self.black_list = [self.blackwords]

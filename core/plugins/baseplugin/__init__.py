@@ -25,7 +25,7 @@ class BasePluginClass:
         # 设置参数
 
         parser_group_plugin.add_argument('-t', '--target', dest='target', action='store', default='', metavar='<target>', help='file, folder')
-        parser_group_plugin.add_argument('-d', '--debug', dest='debug', action='store_false', default=False,
+        parser_group_plugin.add_argument('-d', '--debug', dest='debug', action='store_true', default=False,
                                          help='open debug mode')
 
         # self.args = parser.parse_args()
