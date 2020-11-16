@@ -26,7 +26,7 @@ from django.db.models.aggregates import Max
 
 from utils.log import logger, logger_console, log, log_add
 from utils import readlineng as readline
-from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format
+from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format, show_context
 
 from Kunlun_M.settings import HISTORY_FILE_PATH, MAX_HISTORY_LENGTH
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY, LOGS_PATH
@@ -130,22 +130,6 @@ def stop_after(space_number):
         return _wrapper
 
     return _outer_wrapper
-
-
-def show_context(filename, line_number):
-    if not filename.startswith("/"):
-        filename = os.path.join(PROJECT_DIRECTORY, filename)
-    line_start = int(line_number) - 5
-    line_end = int(line_number) + 5
-    with open(filename) as f:
-        lines = f.readlines()
-        line_start = line_start if line_start > 1 else 1
-        line_end = line_end if line_end <= len(lines) else len(lines)
-        for i in range(line_start, line_end + 1):
-            if i == int(line_number):
-                print("%4d: \033[1;35;47m%s\033[0m" % (i, lines[i - 1].replace("\n", "")))
-            else:
-                print("%4d: %s" % (i, lines[i - 1].replace("\n", "")))
 
 
 class BaseInterpreter(object):
@@ -1226,7 +1210,7 @@ Input Control:
                                     for rf in rfs:
                                         logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
                                                                                    rf.node_path, rf.node_lineno))
-                                        show_context(rf.node_path,rf.node_lineno)
+                                        show_context(rf.node_path, rf.node_lineno)
                                     logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
                                     logger.warn("[Console] Use 'del vuls <result_id>' could delete Wrong vul.")
                                     return

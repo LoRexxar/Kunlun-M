@@ -89,7 +89,7 @@ def log_console():
             log_colors={
                 'DEBUG': 'cyan',
                 'INFO': 'white',
-                'WARNING': 'yellow',
+                'WARNING': 'bold_yellow',
                 'ERROR': 'red',
                 'CRITICAL': 'red,bg_white',
             },

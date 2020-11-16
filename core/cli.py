@@ -23,6 +23,7 @@ from core.pretreatment import ast_object
 from utils.export import write_to_file
 from utils.log import logger
 from utils.file import Directory
+from utils.utils import show_context
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
 from Kunlun_M.settings import RULES_PATH
@@ -88,6 +89,7 @@ def check_scantask(task_name, target_path, parameter_config):
                         logger.info("[Chain] Vul {}".format(sr.result_id))
                         for rf in rfs:
                             logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
+                            show_context(rf.node_path, rf.node_lineno)
 
                         logger.info(
                             "[SCAN] ending\r\n -------------------------------------------------------------------------")
