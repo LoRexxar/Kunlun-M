@@ -48,6 +48,7 @@ def readline_available():
     return readline._readline is not None
 
 
+
 def clear_history():
     if not readline_available():
         return
@@ -102,6 +103,7 @@ def auto_completion(completion=None, console=None):
     load_history()
     atexit.register(save_history)
 
+
 def stop_after(space_number):
     """ Decorator that determines when to stop tab-completion
     Decorator that tells command specific complete function
@@ -128,6 +130,22 @@ def stop_after(space_number):
         return _wrapper
 
     return _outer_wrapper
+
+
+def show_context(filename, line_number):
+    if not filename.startswith("/"):
+        filename = os.path.join(PROJECT_DIRECTORY, filename)
+    line_start = int(line_number) - 5
+    line_end = int(line_number) + 5
+    with open(filename) as f:
+        lines = f.readlines()
+        line_start = line_start if line_start > 1 else 1
+        line_end = line_end if line_end <= len(lines) else len(lines)
+        for i in range(line_start, line_end + 1):
+            if i == int(line_number):
+                print("%4d: \033[1;35;47m%s\033[0m" % (i, lines[i - 1].replace("\n", "")))
+            else:
+                print("%4d: %s" % (i, lines[i - 1].replace("\n", "")))
 
 
 class BaseInterpreter(object):
@@ -1208,6 +1226,7 @@ Input Control:
                                     for rf in rfs:
                                         logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
                                                                                    rf.node_path, rf.node_lineno))
+                                        show_context(rf.node_path,rf.node_lineno)
                                     logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
                                     logger.warn("[Console] Use 'del vuls <result_id>' could delete Wrong vul.")
                                     return
