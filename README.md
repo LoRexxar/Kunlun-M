@@ -220,7 +220,7 @@ python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 
 [dev.md](./docs/dev.md)
 
-## StarLink Project
+## 404StarLink Project
 ![](https://github.com/knownsec/404StarLink-Project/raw/master/logo.png)
 
 KunLun-M 是 404Team 星链计划中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
