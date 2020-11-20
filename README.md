@@ -53,6 +53,10 @@ Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原
 
 目前工具主要支持**php、javascript**的语义分析，以及**chrome ext, solidity**的基础扫描.
 
+## Stargazers 
+
+[![Stargazers over time](https://starchart.cc/LoRexxar/Kunlun-M.svg)](https://starchart.cc/LoRexxar/Kunlun-M)
+
 ## why KunLun-M
 
 KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计工具，希望开源工具可以推动白盒审计的发展:>.
@@ -216,7 +220,8 @@ python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 
 [dev.md](./docs/dev.md)
 
-## 交流社区
+## StarLink Project
+![](https://github.com/knownsec/404StarLink-Project/raw/master/logo.png)
 
 KunLun-M 是 404Team 星链计划中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
 
