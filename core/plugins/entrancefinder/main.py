@@ -56,6 +56,11 @@ class EntranceFinder(BasePluginClass):
         self.black_function_name = ['define']
         self.import_node = ['Include', 'Require', 'Assignment', 'ListAssignment']
         self.filter_node = ['InlineHTML', 'header']
+        self.switch_node = ['If', 'ElseIf', 'Else', 'Try', 'While', 'DoWhile', 'For', 'Foreach', 'Switch', 'Case',
+                            'Default']
+        self.import_node = self.import_node + ['UseDeclarations', 'UseDeclaration', 'ClassVariables', 'ClassVariable', 'Static',
+                            'StaticVariable', 'AssignOp', 'PreIncDecOp', 'PostIncDecOp',
+                            'ClassConstants', 'ClassConstant', 'ConstantDeclarations', 'ConstantDeclaration']
 
         self.filedata_dict = {}
         self.black_list = []
@@ -220,6 +225,9 @@ class EntranceFinder(BasePluginClass):
             elif node_typename == 'FunctionCall' and node.name in self.black_function_name:
                 nodes_count -= 1
                 black_nodes_count += 1
+
+            elif node_typename in self.switch_node:
+                nodes_count += 2
 
             # else:
             #     print(node_typename)

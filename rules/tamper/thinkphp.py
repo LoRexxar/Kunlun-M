@@ -13,4 +13,5 @@ thinkphp_controlled = [
     "Input",
     "request",
     "I",
+    'input',
 ]
