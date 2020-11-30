@@ -204,3 +204,8 @@
     - KunLun-M 2.0.0 beta4
     - 修复了数个扫描过程中可能产生的bug
     - 更新了[KunLun-M - phpunserializechain](https://github.com/LoRexxar/Kunlun-M/tree/master/core/plugins)
+- 2020-11-30
+    - KunLun-M 2.0.0 beta5
+    - 添加了执行流中相应代码的显示功能
+    - 更新了[KunLun-M - EntranceFinder](https://github.com/LoRexxar/Kunlun-M/tree/master/core/plugins)
+
