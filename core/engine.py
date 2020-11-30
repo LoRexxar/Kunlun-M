@@ -34,6 +34,7 @@ from Kunlun_M.const import ext_dict
 from Kunlun_M.const import VulnerabilityResult
 from Kunlun_M.const import match_modes
 
+from utils.utils import show_context
 from utils.file import FileParseAll, get_line
 from utils.log import logger
 from utils.utils import get_scan_id
@@ -277,6 +278,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.info("[SCAN] Vul {}".format(d[0]))
             for c in d[1]:
                 logger.info("[Chain] {}".format(c))
+                if type(c) is not tuple:
+                    continue
+                show_context(c[2], c[3])
 
             if hasattr(os, 'get_terminal_size'):
                 logger.info("[SCAN] ending\r\n" + '-' * (os.get_terminal_size().columns - 16))

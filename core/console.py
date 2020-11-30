@@ -26,7 +26,7 @@ from django.db.models.aggregates import Max
 
 from utils.log import logger, logger_console, log, log_add
 from utils import readlineng as readline
-from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format
+from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format, show_context
 
 from Kunlun_M.settings import HISTORY_FILE_PATH, MAX_HISTORY_LENGTH
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY, LOGS_PATH
@@ -46,6 +46,7 @@ def readline_available():
     """
 
     return readline._readline is not None
+
 
 
 def clear_history():
@@ -101,6 +102,7 @@ def auto_completion(completion=None, console=None):
 
     load_history()
     atexit.register(save_history)
+
 
 def stop_after(space_number):
     """ Decorator that determines when to stop tab-completion
@@ -1208,6 +1210,7 @@ Input Control:
                                     for rf in rfs:
                                         logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
                                                                                    rf.node_path, rf.node_lineno))
+                                        show_context(rf.node_path, rf.node_lineno)
                                     logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
                                     logger.warn("[Console] Use 'del vuls <result_id>' could delete Wrong vul.")
                                     return

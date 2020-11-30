@@ -53,6 +53,10 @@ Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原
 
 目前工具主要支持**php、javascript**的语义分析，以及**chrome ext, solidity**的基础扫描.
 
+## Stargazers 
+
+[![Stargazers over time](https://starchart.cc/LoRexxar/Kunlun-M.svg)](https://starchart.cc/LoRexxar/Kunlun-M)
+
 ## why KunLun-M
 
 KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计工具，希望开源工具可以推动白盒审计的发展:>.
@@ -216,9 +220,10 @@ python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 
 [dev.md](./docs/dev.md)
 
-## 交流社区
+## 404StarLink Project
+![](https://github.com/knownsec/404StarLink-Project/raw/master/logo.png)
 
-KunLun-M是404Team 星链机会中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
+KunLun-M 是 404Team [星链计划](https://github.com/knownsec/404StarLink-Project)中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
 
 - [https://github.com/knownsec/404StarLink-Project#community](https://github.com/knownsec/404StarLink-Project#community)
 
@@ -226,5 +231,6 @@ KunLun-M是404Team 星链机会中的一环，如果对KunLun-M有任何疑问�
 
 感谢如下贡献者对本工具发展过程中的贡献：
 - Knownsec 404 Team [LoRexxar](https://github.com/LoRexxar)
-- 北邮天枢 [Sissel](https://github.com/boke1208)
+- Dubhe [Sissel](https://github.com/boke1208)
+- Dubhe [Sndav](https://github.com/Sndav)
 - [#jax777](https://github.com/jax777)

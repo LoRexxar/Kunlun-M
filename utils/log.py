@@ -35,7 +35,8 @@ def log(loglevel):
     handler = colorlog.StreamHandler()
     handler.setFormatter(
         colorlog.ColoredFormatter(
-            fmt='%(log_color)s [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
+            # fmt='%(log_color)s [%(asctime)s][%(filename)s:%(lineno)d] %(message)s',
+            fmt='%(log_color)s [%(asctime)s] %(message)s',
             datefmt="%H:%M:%S",
             log_colors={
                 'DEBUG': 'cyan',
@@ -88,7 +89,7 @@ def log_console():
             log_colors={
                 'DEBUG': 'cyan',
                 'INFO': 'white',
-                'WARNING': 'yellow',
+                'WARNING': 'bold_yellow',
                 'ERROR': 'red',
                 'CRITICAL': 'red,bg_white',
             },

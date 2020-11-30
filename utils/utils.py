@@ -19,9 +19,11 @@ import string
 import sys
 import time
 
-from Kunlun_M.settings import RULES_PATH
-from utils.log import logger
+from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
 from web.index.models import ScanTask
+
+from utils.log import logger, logger_console
+from utils.file import check_filepath, get_line
 
 TARGET_MODE_GIT = 'git'
 TARGET_MODE_FILE = 'file'
@@ -699,3 +701,20 @@ def file_output_format(content):
             return 'r"{}"'.format(content.replace('"', r'\"'))
     else:
         return 'None'
+
+
+def show_context(filename, line_number, show_line=3):
+    filename = check_filepath(PROJECT_DIRECTORY, filename)
+    line_start = int(line_number) - show_line
+    line_end = int(line_number) + show_line
+
+    lines = get_line(filename, "{},{}".format(line_start, line_end))
+
+    i = 0
+    for line in lines:
+        i += 1
+
+        if i == (show_line+1):
+            logger_console.warning("%4d: %s" % (line_start+i-1, line.replace("\n", "")))
+        else:
+            logger_console.info("%4d: %s" % (line_start+i-1, line.replace("\n", "")))

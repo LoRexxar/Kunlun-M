@@ -453,15 +453,19 @@ class Pretreatment:
             logger.warning("[AST] file {} parser not found...".format(filepath))
             return False
 
-    # def get_content(self, filepath):
-    #     filepath = os.path.normpath(filepath)
-    #
-    #     if filepath in self.pre_result:
-    #         return self.pre_result[filepath]['content']
-    #
-    #     else:
-    #         logger.warning("[AST] file {} parser not found...".format(filepath))
-    #         return False
+    def get_content(self, filepath):
+        filepath = os.path.normpath(self.get_path(filepath))
+
+        if filepath in self.pre_result:
+            f = codecs.open(filepath, 'r+', encoding='utf-8', errors='ignore')
+            content = f.read()
+            f.close()
+
+            return content
+
+        else:
+            logger.warning("[AST] file {} parser not found...".format(filepath))
+            return False
 
     def get_object(self, filepath):
         filepath = os.path.normpath(filepath)
