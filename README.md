@@ -214,6 +214,16 @@ python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ![](docs/phpunserchain.png)
 
 
+#### EntranceFinder
+
+一个有趣的小工具，用于解决在审计大量的php代码时，快速发现存在可能的入口页面（或是开发者都遗漏的）。
+
+```
+python3 .\kunlun.py plugin entrance_finder -t {target_path} -l 3
+```
+
+![](docs/entrancefinder.png)
+
 ## 开发文档
 
 开发文档还未更新.
