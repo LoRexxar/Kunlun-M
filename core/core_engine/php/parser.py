@@ -1242,7 +1242,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                                                                            isback=True)
 
                             if is_co == -1:
-                                padding[param.name] = ccp
+                                padding[get_node_name(param)] = ccp
 
                 # 拼接路径
                 filename = get_filename(node, file_path)

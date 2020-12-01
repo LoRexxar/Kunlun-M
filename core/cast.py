@@ -320,8 +320,7 @@ class CAST(object):
                 raise
 
             except:
-                logger.warning("[AST] Can't get `param`, check built-in rule")
-                traceback.print_exc()
+                logger.warning("[AST] Can't get `param`, check built-in rule..error details:\n{}".format(traceback.format_exc()))
                 return False, -1, self.data, []
 
         if _is_co == 3:
