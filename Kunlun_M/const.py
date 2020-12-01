@@ -61,6 +61,11 @@ ext_dict = {
     "html": ['.html'],
 }
 
+ext_comment_dict = {
+    "php": ['//', '/*'],
+    "javascript": ['//', '/*'],
+}
+
 default_black_list = ['.crx_files', 'vendor']
 
 # base result class

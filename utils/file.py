@@ -113,10 +113,64 @@ def check_filepath(target, filepath):
 
 
 class FileParseAll:
-    def __init__(self, filelist, target, language=None):
+    def __init__(self, filelist, target, language='php'):
         self.filelist = filelist
         self.t_filelist = file_list_parse(filelist, language)
         self.target = target
+        self.language = language
+
+    def check_comment(self, content):
+        backstr = ""
+
+        if self.language in ['php', 'javascript']:
+
+            lastchar = ""
+            isinlinecomment = False
+            isduolinecomment = False
+
+            for char in content:
+                if char == '/' and lastchar == '/':
+                    backstr = backstr[:-1]
+                    isinlinecomment = True
+                    lastchar = ""
+                    continue
+
+                if isinlinecomment:
+                    if char == '\n':
+                        isinlinecomment = False
+
+                    lastchar = ''
+                    backstr += '\n'
+                    continue
+
+                if char == '\n':
+                    backstr += '\n'
+                    continue
+
+                # 多行注释
+                if char == '*' and lastchar == '/':
+                    isduolinecomment = True
+                    backstr = backstr[:-1]
+                    lastchar = ""
+                    continue
+
+                if isduolinecomment:
+
+                    if char == '/' and lastchar == '*':
+                        isduolinecomment = False
+                        lastchar = ""
+                        continue
+
+                    lastchar = char
+                    continue
+
+                lastchar = char
+                backstr += char
+
+            return backstr
+
+        else:
+            return content
 
     def grep(self, reg):
         """
@@ -143,8 +197,10 @@ class FileParseAll:
                 line_number += 1
                 content += line
 
-                if i < 5:
+                if i < 10:
                     continue
+
+                content = self.check_comment(content)
 
                 i = 0
                 # print line, line_number
@@ -164,11 +220,13 @@ class FileParseAll:
 
                         LRnumber = " ".join(split_data).count('\n')
 
-                        match_numer = line_number - 5 + LRnumber
+                        match_numer = line_number - 10 + LRnumber
 
                         result.append((filepath, str(match_numer), data))
 
                 content = ""
+
+            content = self.check_comment(content)
 
             # 如果退出循环的时候没有清零，则还要检查一次
             if i > 0:
