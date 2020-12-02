@@ -714,7 +714,7 @@ def show_context(filename, line_number, show_line=3):
     for line in lines:
         i += 1
 
-        if i == (show_line+1):
-            logger_console.warning("%4d: %s" % (line_start+i-1, line.replace("\n", "")))
+        if i == (show_line):
+            logger_console.warning("%4d: %s" % (line_start+i, line.replace("\n", "")))
         else:
-            logger_console.info("%4d: %s" % (line_start+i-1, line.replace("\n", "")))
+            logger_console.info("%4d: %s" % (line_start+i, line.replace("\n", "")))
