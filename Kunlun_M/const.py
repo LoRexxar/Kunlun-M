@@ -67,6 +67,7 @@ ext_comment_dict = {
 }
 
 default_black_list = ['.crx_files', 'vendor']
+IGNORE_LIST = []
 
 # base result class
 

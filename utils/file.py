@@ -19,7 +19,8 @@ import codecs
 import traceback
 from utils.log import logger
 from core.pretreatment import ast_object
-from Kunlun_M.const import ext_dict, default_black_list
+from Kunlun_M.const import ext_dict, default_black_list, IGNORE_LIST
+from Kunlun_M.settings import IGNORE_PATH
 
 try:
     from urllib import quote
@@ -110,6 +111,54 @@ def check_filepath(target, filepath):
         return target
     else:
         return False
+
+
+def load_kunlunmignore():
+    """
+    加载.kunlunmignore文件
+    :return:
+    """
+    global IGNORE_LIST
+
+    if not os.path.exists(IGNORE_PATH):
+        return False
+
+    ignore_file = codecs.open(IGNORE_PATH, "r", encoding='utf-8', errors='ignore')
+
+    for line in ignore_file:
+
+        line = line.strip()
+
+        if line.startswith('#') or len(line) < 1:
+            continue
+
+        regex_rule = re.escape(line)
+
+        regex_rule = regex_rule.replace('\*', '\w+')
+        regex_rule = regex_rule.replace('/', '[\/\\\\]')
+
+        # if regex_rule.startswith('!'):
+        #     regex_rule = "[^({})]".format(regex_rule[1:])
+
+        logger.debug('[INIT][IGNORE] New ignore regex {}'.format(regex_rule))
+        IGNORE_LIST.append(regex_rule)
+
+    return True
+
+
+def check_kunlunignore(filename):
+
+    is_not_ignore = True
+
+    for ignore_reg in IGNORE_LIST:
+
+        # ignore_reg_obj = re.match(ignore_reg, filename, re.I)
+
+        if re.search(ignore_reg, filename, re.I):
+            logger.debug('[INIT][IGNORE] File {} filter by {}'.format(filename, ignore_reg))
+            return False
+
+    return True
 
 
 class FileParseAll:
@@ -548,12 +597,11 @@ class Directory(object):
                     flag = 0
 
                     # check black path list
-                    if self.black_path_list:
-                        for black_path in self.black_path_list:
-                            if black_path in filename:
-                                flag = 1
-
-                    if flag:
+                    # if self.black_path_list:
+                    #     for black_path in self.black_path_list:
+                    #         if black_path in filename:
+                    #             flag = 1
+                    if not check_kunlunignore(directory):
                         continue
 
                     # Directory Structure

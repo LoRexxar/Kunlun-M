@@ -21,6 +21,7 @@ import traceback
 from django.core.management import call_command
 from utils.log import log, logger, log_add
 from utils.utils import get_mainstr_from_filename, get_scan_id
+from utils.file import load_kunlunmignore
 
 from . import cli
 from .cli import get_sid, show_info
