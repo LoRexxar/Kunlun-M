@@ -226,9 +226,28 @@ python3 .\kunlun.py plugin entrance_finder -t {target_path} -l 3
 
 ## 开发文档
 
-开发文档还未更新.
+开发文档还未更新.相应的文档内容仅供参考。
 
 [dev.md](./docs/dev.md)
+
+### 规则插件开发
+
+规则插件开发遵循
+```
+rules/{语言类型}/CVI_xxxx.py
+```
+
+在规则目录下，只有命名符合规定的规则会被成功加载，命名格式严格为`CVI_编号.py`
+
+规则模板可以参考rules/rule.template
+
+### .kunlunmignore
+
+.kunlunmignore是新引入的用于黑名单扫描目录的功能。目前只支持*语法，可以用来匹配相应的目录以及文件类型。
+
+相匹配到的文件不会被扫描。
+
+当然，可以通过-b来实现
 
 ## 404StarLink Project
 ![](https://github.com/knownsec/404StarLink-Project/raw/master/logo.png)
