@@ -46,8 +46,6 @@ class TaskDetailView(View):
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)
 
-
-
         if not task:
             return HttpResponseNotFound('Task Not Found.')
         else:

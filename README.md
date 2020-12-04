@@ -200,6 +200,19 @@ KunLun-M (root) >
 
 [![asciicast](https://asciinema.org/a/360845.svg)](https://asciinema.org/a/360845)
 
+### web mode
+KunLun-M Dashbroad
+
+删除了相关的动态操作，仅保留了查看扫描结果日志等功能（不建议使用
+
+默认9999端口
+```
+python3 .\kunlun.py web 9999
+```
+
+
+![](docs/web.png)
+
 
 ### plugin mode
 
