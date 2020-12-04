@@ -1,0 +1,184 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block title %}Task Log{% endblock %}
+
+{% block body %}
+<link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<div class="row">
+    <div class="col-xs-12">
+    <div class="box box-warning">
+    <div class="box-header with-border">
+      <h3 class="box-title">Task Setting</h3>
+    </div>
+    <!-- /.box-header -->
+    <div class="box-body">
+        <!-- text input -->
+        <div class="form-group">
+
+          <label>Task Name:</label>
+          <div class="checkbox" id="rule">
+            {{ task.task_name }}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Parameter Config:</label>
+          <textarea class="form-control" rows="3" placeholder="Some details about task" name="parameter_config" disabled>{{ task.parameter_config }}</textarea>
+        </div>
+
+    </div>
+    </div>
+
+    <div class="box box-success">
+        <div class="box-header">
+          <h3 class="box-title">Vulnerabilities</h3>
+        </div>
+        <!-- /.box-header -->
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>CVI ID</th>
+                  <th>Language</th>
+                  <th>VulFile Path</th>
+                  <th>Source</th>
+                  <th>Type</th>
+                  <th>Is Confirm</th>
+                </tr>
+                {% for taskresult in taskresults %}
+                <tr>
+                    <td>{{ taskresult.result_id }}</td>
+                    <td>{{ taskresult.cvi_id }}</td>
+                    <td>{{ taskresult.language }}</td>
+                    <td>{{ taskresult.vulfile_path }}</td>
+                    <td>{{ taskresult.source_code }}</td>
+                    <td>{{ taskresult.result_type }}</td>
+
+                      <td>
+                      {% if taskresult.is_unconfirm == 0 %}
+                      <span class="label label-success">Yes</span>
+                      {% elif  taskresult.is_unconfirm  == -1 %}
+                      <span class="label label-danger">No</span>
+                      {% else %}
+                      <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
+                      {% endif %}
+                      </td>
+
+                  </tr>
+                  <tr>
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+        </div>
+        <!-- /.box-body -->
+        <div class="box-footer">
+        <button id="dlog" type="button" class="btn btn-primary">View Debug Log</button>
+        <button id="ddlog" type="button" class="btn btn-primary">Download Debug Log</button>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">Vuls Details</h3>
+        </div>
+          <div class="box-body">
+              <div class="box-group" id="accordion">
+                <!-- we are adding the .panel class so bootstrap.js collapse plugin detects it -->
+                {% for rfds in resultflowdict.items %}
+                <div class="panel box box-primary">
+                  <div class="box-header with-border">
+                    <h4 class="box-title">
+                      <a data-toggle="collapse" data-parent="#accordion" href="#collapse{{ rfds.1.id }}" aria-expanded="false" class="collapsed">
+                        Vul {{ rfds.0 }}  #{{ rfds.1.id }}
+                      </a>
+                    </h4>
+                  </div>
+                  <div id="collapse{{ rfds.1.id }}" class="panel-collapse collapse" aria-expanded="false" style="">
+                    <div class="box-body">
+
+                        {% for rf in rfds.1.flow %}
+                        <div class="box">
+                            <h5 class="box-title">{{ rf.type }} {{ rf.content }} {{ rf.path }}:{{ rf.lineno }}</h5>
+<pre class="language-python">
+<code class="language-python">
+{{ rf.details }}
+</code>
+</pre>
+                            </div>
+                        {% endfor %}
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+
+              </div>
+            </div>
+        <!-- /.box-body -->
+      </div>
+
+    <div class="box box-success">
+        <div class="box-header">
+          <h3 class="box-title">New Evil Functions</h3>
+        </div>
+        <!-- /.box-header -->
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>CVI ID</th>
+                  <th>New Function</th>
+                  <th>Origin Function</th>
+                  <th>Is Active</th>
+                </tr>
+                {% for newevilfunc in newevilfuncs %}
+                <tr>
+                    <td>{{ newevilfunc.id }}</td>
+                    <td>{{ newevilfunc.svid }}</td>
+                    <td>{{ newevilfunc.func_name }}</td>
+                    <td>{{ newevilfunc.origin_func_name }}</td>
+
+                      <td>
+                      {% if newevilfunc.is_active %}
+                      <span class="label label-success">Yes</span>
+                      {% elif not newevilfunc.is_active %}
+                      <span class="label label-danger">No</span>
+                      {% else %}
+                      <span class="label label-success">{{ newevilfunc.is_active }}</span>
+                      {% endif %}
+                      </td>
+
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+        </div>
+        <!-- /.box-body -->
+      </div>
+
+      <!-- /.box -->
+    </div>
+    </div>
+{% endblock %}
+
+{% block script %}
+
+<script src="{% static 'js/prism.js' %}"></script>
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#tasks").addClass("menu-open");
+          $("#tasks").find("ul").find("li#task_list").addClass("active");
+          $("#tasks").find("ul").css("display","block");
+
+          $("button#dlog").click(function () {
+              location.href="{% url 'backend:debuglog' task.id %}";
+          })
+
+          $("button#ddlog").click(function () {
+              location.href="{% url 'backend:downloadlog' task.id %}";
+          })
+      });
+</script>
+
+
+{% endblock %}

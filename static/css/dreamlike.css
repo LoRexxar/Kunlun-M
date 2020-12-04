@@ -1,0 +1,185 @@
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  perspective-origin: 50% 50%;
+  perspective: 1000px;
+  background-color: #141D22;
+  background: radial-gradient(ellipse at center, #082037 0%, #0a141a 50%);
+}
+
+.atome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 300px;
+  height: 300px;
+  right: 0;
+  bottom: 0;
+  margin: auto;
+  transform-style: preserve-3d;
+  animation: AtomeRotate 8s linear infinite;
+}
+.atome .circle {
+  -webkit-border-radius: 100%;
+  -moz-border-radius: 100%;
+  -ms-border-radius: 100%;
+  border-radius: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: circleColor 20s linear infinite;
+}
+.atome .circle:after {
+  -webkit-border-radius: 100%;
+  -moz-border-radius: 100%;
+  -ms-border-radius: 100%;
+  border-radius: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 15px;
+  height: 15px;
+  box-shadow: 0px 0px 30px rgba(191, 255, 0, 0.7), 0px 0px 20px rgba(191, 255, 0, 0.5), 0px 0px 10px rgba(191, 255, 0, 0.3), 0px 0px 5px rgba(191, 255, 0, 0.1), 0px 0px 15px rgba(191, 255, 0, 0.5) inset, 0px 0px 10px rgba(191, 255, 0, 0.3) inset, 0px 0px 5px rgba(191, 255, 0, 0.1) inset;
+  bottom: 0;
+  right: 0;
+  margin: auto;
+  background-color: white;
+  content: "";
+  animation: circleRotate 8s linear infinite;
+}
+.atome .circle .dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  animation: dotRotate 4s linear infinite;
+  transform-style: preserve-3d;
+}
+.atome .circle .dot:before, .atome .circle .dot:after {
+  -webkit-border-radius: 100%;
+  -moz-border-radius: 100%;
+  -ms-border-radius: 100%;
+  border-radius: 100%;
+  box-shadow: 0px 0px 30px rgba(0, 222, 255, 0.7), 0px 0px 20px rgba(0, 222, 255, 0.5), 0px 0px 10px rgba(0, 222, 255, 0.3), 0px 0px 5px rgba(0, 222, 255, 0.1), 0px 0px 15px rgba(0, 222, 255, 0.5) inset, 0px 0px 10px rgba(0, 222, 255, 0.3) inset, 0px 0px 5px rgba(0, 222, 255, 0.1) inset;
+  content: "";
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  background-color: #d3fcf2;
+  background-color: white;
+  top: 50%;
+  left: -7px;
+  transform-style: preserve-3d;
+  transform: rotateX(90deg);
+}
+.atome .circle .dot:before {
+  transform: rotateY(90deg);
+}
+.atome .circle:nth-child(1) {
+  transform: rotateY(0deg);
+}
+.atome .circle:nth-child(1) .dot {
+  animation-delay: 0s;
+}
+.atome .circle:nth-child(2) {
+  transform: rotateY(18deg);
+}
+.atome .circle:nth-child(2) .dot {
+  animation-delay: 0.2s;
+}
+.atome .circle:nth-child(3) {
+  transform: rotateY(36deg);
+}
+.atome .circle:nth-child(3) .dot {
+  animation-delay: 0.4s;
+}
+.atome .circle:nth-child(4) {
+  transform: rotateY(54deg);
+}
+.atome .circle:nth-child(4) .dot {
+  animation-delay: 0.6s;
+}
+.atome .circle:nth-child(5) {
+  transform: rotateY(72deg);
+}
+.atome .circle:nth-child(5) .dot {
+  animation-delay: 0.8s;
+}
+.atome .circle:nth-child(6) {
+  transform: rotateY(90deg);
+}
+.atome .circle:nth-child(6) .dot {
+  animation-delay: 1s;
+}
+.atome .circle:nth-child(7) {
+  transform: rotateY(108deg);
+}
+.atome .circle:nth-child(7) .dot {
+  animation-delay: 1.2s;
+}
+.atome .circle:nth-child(8) {
+  transform: rotateY(126deg);
+}
+.atome .circle:nth-child(8) .dot {
+  animation-delay: 1.4s;
+}
+.atome .circle:nth-child(9) {
+  transform: rotateY(144deg);
+}
+.atome .circle:nth-child(9) .dot {
+  animation-delay: 1.6s;
+}
+.atome .circle:nth-child(10) {
+  transform: rotateY(162deg);
+}
+.atome .circle:nth-child(10) .dot {
+  animation-delay: 1.8s;
+}
+
+@keyframes AtomeRotate {
+  0% {
+    transform: rotateX(0deg) rotateY(15deg);
+  }
+  100% {
+    transform: rotateX(360deg) rotateY(15deg);
+  }
+}
+@keyframes circleRotate {
+  0% {
+    transform: rotateX(0deg);
+  }
+  100% {
+    transform: rotateX(360deg);
+  }
+}
+@keyframes circleColor {
+  0% {
+    border: solid 1px rgba(191, 255, 0, 0);
+  }
+  80% {
+    border: solid 1px rgba(191, 255, 0, 0);
+  }
+  90% {
+    border: solid 1px rgba(191, 255, 0, 0.3);
+  }
+  100% {
+    border: solid 1px rgba(191, 255, 0, 0);
+  }
+}
+@keyframes dotRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

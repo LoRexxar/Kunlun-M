@@ -1,0 +1,69 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Rules list{% endblock %}
+
+{% block body %}
+<div class="pad margin no-print" style="padding-left: 0px;margin-left: 0px;">
+  <div class="callout callout-info" style="margin-bottom: 0!important;">
+    <h4><i class="fa fa-info"></i> Notice:</h4>
+      When the rule status is close, the rule will still be skipped whether the rule is checked or not.</br>
+      当规则状态为close时，无论是否勾选了该规则都仍然会跳过该规则。
+  </div>
+</div>
+<div class="row">
+        <div class="col-xs-12">
+          <div class="box">
+            <div class="box-header">
+              <h3 class="box-title">Rules List</h3>
+            </div>
+            <!-- /.box-header -->
+            <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>Rule Name</th>
+                  <th>Svid</th>
+                  <th>Language</th>
+                  <th>Author</th>
+                  <th>Description</th>
+                  <th>Status</th>
+                  <th>Match_mode</th>
+                </tr>
+                {% for rule in rules %}
+                <tr>
+                  <td>{{ rule.id }}</td>
+                  <td><a href="{% url 'dashboard:rule_detail' rule.id %}">{{ rule.rule_name }}</a></td>
+                  <td>{{ rule.svid }}</td>
+                  <td>{{ rule.language }}</td>
+                  <td>{{ rule.author }}</td>
+                  <td>{{ rule.description }}</td>
+                  {% if rule.status %}
+                  <td><span class="label label-success">Open</span></td>
+                  {% else %}
+                  <td><span class="label label-info">Close</span></td>
+                  {% endif %}
+                  <td>{{ rule.match_mode }}</td>
+                </tr>
+                {% endfor %}
+              </tbody></table>
+            </div>
+            <!-- /.box-body -->
+          </div>
+          <!-- /.box -->
+        </div>
+      </div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#rules").addClass("menu-open");
+          $("#rules").find("ul").find("li#rule_list").addClass("active");
+          $("#rules").find("ul").css("display","block");
+      });
+</script>
+
+
+{% endblock %}

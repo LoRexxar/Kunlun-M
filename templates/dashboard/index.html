@@ -1,0 +1,125 @@
+{% extends "dashboard/base.html" %}
+{% block body %}
+<div class="row">
+        <div class="col-lg-3 col-xs-6">
+          <!-- small box -->
+          <div class="small-box bg-aqua">
+            <div class="inner">
+              <h3>{% if request.session.tasks_count %}{{ request.session.tasks_count }}{% else %}0{% endif %}</h3>
+
+              <p>Tasks</p>
+            </div>
+            <div class="icon">
+              <i class="ion ion-filing"></i>
+            </div>
+            <a href="{% url 'dashboard:tasks_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+          </div>
+        </div>
+        <!-- ./col -->
+        <div class="col-lg-3 col-xs-6">
+          <!-- small box -->
+          <div class="small-box bg-green">
+            <div class="inner">
+              <h3>{% if  request.session.tasks_finished_count %}{{  request.session.tasks_finished_count }}{% else %}0{% endif %}</h3>
+
+              <p>Completed Task</p>
+            </div>
+            <div class="icon">
+              <i class="ion ion-stats-bars"></i>
+            </div>
+            <a href="{% url 'dashboard:tasks_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+          </div>
+        </div>
+        <!-- ./col -->
+        <div class="col-lg-3 col-xs-6">
+          <!-- small box -->
+          <div class="small-box bg-red">
+            <div class="inner">
+              <h3>{% if request.session.vul_count %}{{ request.session.vul_count }}{% else %}0{% endif %}</h3>
+
+              <p>Vuls</p>
+            </div>
+            <div class="icon">
+              <i class="ion ion-ios-pricetags-outline"></i>
+            </div>
+            <a href="{% url 'dashboard:tasks_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+          </div>
+        </div>
+
+
+        <div class="col-lg-3 col-xs-6">
+          <!-- small box -->
+          <div class="small-box bg-yellow">
+            <div class="inner">
+              <h3>{% if request.session.rules_count %}{{ request.session.rules_count }}{% else %}0{% endif %}</h3>
+
+              <p>Rules</p>
+            </div>
+            <div class="icon">
+              <i class="ion ion-document-text"></i>
+            </div>
+            <a href="{% url 'dashboard:rules_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+          </div>
+        </div>
+      </div>
+      <div class="box box-info">
+            <div class="box-header with-border">
+              <h3 class="box-title">Latest Tasks</h3>
+
+              <div class="box-tools pull-right">
+                <button type="button" class="btn btn-box-tool" data-widget="collapse"><i class="fa fa-minus"></i>
+                </button>
+                <button type="button" class="btn btn-box-tool" data-widget="remove"><i class="fa fa-times"></i></button>
+              </div>
+            </div>
+            <!-- /.box-header -->
+            <div class="box-body">
+              <div class="table-responsive">
+                <table class="table no-margin">
+                  <thead>
+                  <tr>
+                    <th>Task ID</th>
+                    <th>Task Path</th>
+                    <th>Item</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                  </tr>
+                  </thead>
+                  <tbody>
+                  {% for task in tasks %}
+                  <tr>
+                    <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }} {{ task.task_name }}</a></td>
+                      <td>{{ task.target_path }}</td>
+                      <td>{{ task.last_scan_time }}</td>
+                      <td>
+                      {% if task.is_finished == 0 %}
+                      <span class="label label-danger">Error</span>
+                      {% elif task.is_finished == -1 %}
+                      <span class="label label-danger">Error</span>
+                      {% elif task.is_finished == 2 %}
+                      <span class="label label-warning">Running</span>
+                      {% elif task.is_finished == 1 %}
+                      <span class="label label-success">Success</span>
+                      {% else %}
+                      <span class="label label-success">{{ task.is_finished }}</span>
+                      {% endif %}
+                      </td>
+                      <td>
+                      <div class="sparkbar" data-color="#00a65a" data-height="20">{{ task.parameter_config }}</div>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <!-- /.table-responsive -->
+            </div>
+            <!-- /.box-body -->
+            <div class="box-footer clearfix">
+              <a href="{% url 'dashboard:tasks_list' %}" class="btn btn-sm btn-default btn-flat pull-right">View All Tasks</a>
+            </div>
+            <!-- /.box-footer -->
+          </div>
+
+
+{% endblock %}

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>{{ title }}</title>
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/bulma.css' %}">
+    <link rel="stylesheet" href="{% static 'css/default.css' %}">
+
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+</head>
+
+<body>
+<section class="hero is-info is-large">
+  <div class="hero-head">
+    <nav class="navbar">
+      <div class="container">
+        <div class="navbar-brand">
+          <a class="navbar-item">
+            <h3>{{ title }}</h3>
+          </a>
+          <span class="navbar-burger burger" data-target="navbarMenuHeroB">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </div>
+        <div id="navbarMenuHeroB" class="navbar-menu">
+          <div class="navbar-end">
+            <a class="navbar-item is-active" href="/">
+              Home
+            </a>
+
+{% if user.is_authenticated %}
+    <a class="navbar-item" href="{% url 'dashboard:index' %}">
+      Dashboard
+    </a>
+    <a class="navbar-item">
+      Loading
+    </a>
+    <span class="navbar-item">
+      <h3>{{ user }} </h3>
+      <a class="button is-success is-outlined" style="margin-left: 10px" href="{% url 'index:logout' %}">  logout</a>
+    </span>
+{% else %}
+            <span class="navbar-item">
+              <a class="button is-info is-inverted" href="{% url 'index:register' %}">
+                <span class="icon">
+                  <i class="fa fa-sign-in"></i>
+                </span>
+                <span>SignUp</span>
+              </a>
+            </span>
+            <span class="navbar-item">
+              <a class="button is-info is-inverted" href="{% url 'index:login' %}">
+                <span class="icon">
+                  <i class="fa fa-sign-in"></i>
+                </span>
+                <span>SignIn</span>
+              </a>
+            </span>
+{% endif %}
+
+          </div>
+        </div>
+      </div>
+    </nav>
+  </div>
+
+  <div class="hero-body">
+    <div class="container has-text-centered">
+      <p class="title">
+        {{ title }}
+      </p>
+      <p class="subtitle">
+        Power by LoRexxar
+      </p>
+      <div class="content">
+        {{ description }}
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="{% static 'js/jquery.min.js' %}"></script>
+<script src="{% static 'js/bootstrap.min.js' %}"></script>
+</body>
+</html>

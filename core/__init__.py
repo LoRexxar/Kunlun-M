@@ -97,6 +97,16 @@ def main():
         parser_group_plugin.add_argument('plugin_name', choices=plugins.PLUGIN_LIST, default=False,
                                          help='enter plugin name')
 
+        # web
+
+        parser_group_web = subparsers.add_parser('web', help='KunLun-m Web mode',
+                                                 description=__introduction__.format(detail='KunLun-m Web mode'),
+                                                 formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                 usage=argparse.SUPPRESS, add_help=True)
+
+        parser_group_web.add_argument('-p', '--port', dest='port', action='store', default='9999',
+                                      help='port for web')
+
         # args = parser.parse_args()
         args = parser.parse_known_args()[0]
 
@@ -122,6 +132,10 @@ def main():
             call_command('migrate')
             logger.info('Init Database Finished.')
             exit()
+
+        if hasattr(args, "port"):
+            logger.info('Start KunLun-M Web in Port: {}'.format(args.port))
+            call_command('runserver', args.port)
 
         if hasattr(args, "load"):
             if args.load == "load":

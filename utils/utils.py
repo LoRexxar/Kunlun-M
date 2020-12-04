@@ -703,13 +703,15 @@ def file_output_format(content):
         return 'None'
 
 
-def show_context(filename, line_number, show_line=3):
+def show_context(filename, line_number, show_line=3, is_back=False):
     filename = check_filepath(PROJECT_DIRECTORY, filename)
     line_start = int(line_number) - show_line
     line_start = line_start if line_start else 1
     line_end = int(line_number) + show_line
 
     lines = get_line(filename, "{},{}".format(line_start, line_end))
+
+    contents = ""
 
     i = 0
     for line in lines:
@@ -719,4 +721,7 @@ def show_context(filename, line_number, show_line=3):
         else:
             logger_console.info("%4d: %s" % (line_start+i, line.replace("\n", "")))
 
+        contents += "%4d: %s" % (line_start+i, line)
         i += 1
+
+    return contents

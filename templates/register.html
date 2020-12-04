@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>{{ title }}</title>
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/bulma.css' %}">
+    <link rel="stylesheet" href="{% static 'css/default.css' %}">
+
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+</head>
+
+<body>
+  <section class="hero is-medium is-primary is-bold">
+
+  <div class="hero-head">
+    <nav class="navbar">
+      <div class="container">
+        <div class="navbar-brand">
+          <a class="navbar-item">
+            <h3>{{ title }}</h3>
+          </a>
+          <span class="navbar-burger burger" data-target="navbarMenuHeroB">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </div>
+        <div id="navbarMenuHeroB" class="navbar-menu">
+          <div class="navbar-end">
+            <a class="navbar-item is-active" href="/">
+              Home
+            </a>
+
+{% block index %}
+            <span class="navbar-item">
+              <a class="button is-info is-inverted" href="{% url 'index:register' %}">
+                <span class="icon">
+                  <i class="fa fa-sign-in"></i>
+                </span>
+                <span>SignUp</span>
+              </a>
+            </span>
+            <span class="navbar-item">
+              <a class="button is-info is-inverted" href="{% url 'index:login' %}">
+                <span class="icon">
+                  <i class="fa fa-sign-in"></i>
+                </span>
+                <span>SignIn</span>
+              </a>
+            </span>
+{% endblock %}
+
+            </div>
+        </div>
+      </div>
+    </nav>
+  </div>
+
+    <div class="hero-body">
+    	<div class="container">
+	      <h1 class="title">
+	        {{ title }}
+	      </h1>
+	      <p class="subtitle">
+	        Register pages for <strong>{{ title }}</strong>!
+	      </p>
+
+<div class="back box is-half is-offset-one-fifth">
+
+<form id="reg" method="post" class="form-signin" action="{% url 'index:register' %}">
+
+{% csrf_token %}
+
+<div class="field">
+  <label class="label">Username</label>
+  <div class="control">
+    <input id="user" class="input" type="text" placeholder="name" name="username" autofocus>
+  </div>
+</div>
+
+<div class="field">
+  <label class="label">Password</label>
+  <div class="control">
+    <input id="pass" class="input" type="password" placeholder="password" name="password1" value="">
+  </div>
+</div>
+
+<div class="field">
+  <label class="label">Password confirmation</label>
+  <div class="control">
+    <input id="pass" class="input" type="password" placeholder="password" name="password2" value="">
+  </div>
+</div>
+
+<div class="field">
+  <label class="label">Email</label>
+  <div class="control">
+    <input id="email" class="input" type="email" placeholder="email" name="email" value="">
+  </div>
+</div>
+
+<div class="field">
+    {% if messages %}
+    <ul class="messages">
+        {% for message in messages %}
+        <li{% if message.tags %} class="notification is-danger is-{{ message.tags }}"{% endif %}>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+
+<div class="field is-grouped columns">
+  <div class="control column">
+    <button id="reg-btn" class="button is-link">Submit</button>
+  </div>
+  <div class="control column">
+    <button id="cancel-btn" class="button is-text">Cancel</button>
+  </div>
+</div>
+
+</form>
+
+</div>
+
+</div>
+</div>
+</section>
+
+<script>
+
+document.getElementById("reg-btn").addEventListener("click", function(e){
+	e.preventDefault();
+	e.stopPropagation();
+	document.getElementById("reg").submit();
+	return false;
+});
+
+document.getElementById("cancel-btn").addEventListener("click", function(e){
+	e.preventDefault();
+	e.stopPropagation();
+	location.href = '{% url 'index:index' %}';
+	return false;
+});
+
+
+</script>
+
+<script src="{% static 'js/jquery.min.js' %}"></script>
+<script src="{% static 'js/bootstrap.min.js' %}"></script>
+</body>
+</html>

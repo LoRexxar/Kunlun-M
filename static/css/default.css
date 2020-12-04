@@ -1,0 +1,9 @@
+html{
+	height: 100%;
+}
+ul.messages{
+    padding-left: 0px !important;
+}
+ul.reset_messages{
+    padding-left: 0px !important;
+}
