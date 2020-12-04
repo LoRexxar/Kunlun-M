@@ -37,7 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'web.index'
+    'web.index',
+    'web.dashboard',
+    'web.backend'
 ]
 
 MIDDLEWARE = [
@@ -48,6 +50,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'Kunlun_M.middleware.SDataMiddleware',
 ]
 
 ROOT_URLCONF = 'Kunlun_M.urls'
@@ -123,10 +126,18 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/3.0/howto/static-files/
 
 STATIC_URL = '/static/'
-
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, "static")
+]
 
 # templates
 # 占位
+
+# web setting
+TITLE = 'KunLun-M Dashbroad'
+DESCRIPTION = 'KunLun-Mirror 专注于白帽子的静态代码审计工具'
+SUPER_ADMIN = []
+IS_OPEN_REGISTER = True
 
 
 # 全局变量配置
@@ -166,6 +177,7 @@ RULES_PATH = os.path.join(PROJECT_DIRECTORY, 'rules')
 CONFIG_PATH = os.path.join(PROJECT_DIRECTORY, 'config')
 LOGS_PATH = os.path.join(PROJECT_DIRECTORY, 'logs')
 PLUGIN_PATH = os.path.join(PROJECT_DIRECTORY, 'core', 'plugins')
+IGNORE_PATH = os.path.join(PROJECT_DIRECTORY, 'Kunlun_M', '.kunlunmignore')
 
 # history
 HISTORY_FILE_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, '.history')

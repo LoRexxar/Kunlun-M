@@ -1,0 +1,69 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block title %}Tampers list{% endblock %}
+
+{% block body %}
+<link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<div class="row">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">Tamper List</h3>
+        </div>
+          <div class="box-body">
+              <div class="box-group" id="accordion">
+                <!-- we are adding the .panel class so bootstrap.js collapse plugin detects it -->
+                {% for tamper in tampers.items %}
+                <div class="panel box box-primary">
+                  <div class="box-header with-border">
+                    <h4 class="box-title">
+                      <a data-toggle="collapse" data-parent="#accordion" href="#collapse{{ tamper.1.id }}" aria-expanded="false" class="collapsed">
+                        {{ tamper.0 }}  #{{ tamper.1.id }}
+                      </a>
+                    </h4>
+                  </div>
+                  <div id="collapse{{ tamper.1.id }}" class="panel-collapse collapse" aria-expanded="false" style="">
+                    <div class="box-body">
+<pre class="language-python line-numbers">
+<code class="language-python">
+TamperName:
+    {{ tamper.0 }}
+
+FilterFunction:
+    {{ tamper.1.FilterFunction }}
+
+InputControl:
+    {{ tamper.1.InputControl }}
+
+</code>
+</pre>
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+
+              </div>
+            </div>
+        <!-- /.box-body -->
+      </div>
+      <!-- /.box -->
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+
+<script src="{% static 'js/prism.js' %}"></script>
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#tampers").addClass("menu-open");
+          $("#tampers").find("ul").find("li#tamper_list").addClass("active");
+          $("#tampers").find("ul").css("display","block");
+      });
+</script>
+
+
+{% endblock %}

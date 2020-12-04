@@ -19,7 +19,8 @@ import codecs
 import traceback
 from utils.log import logger
 from core.pretreatment import ast_object
-from Kunlun_M.const import ext_dict, default_black_list
+from Kunlun_M.const import ext_dict, default_black_list, IGNORE_LIST
+from Kunlun_M.settings import IGNORE_PATH
 
 try:
     from urllib import quote
@@ -112,11 +113,113 @@ def check_filepath(target, filepath):
         return False
 
 
+def load_kunlunmignore():
+    """
+    加载.kunlunmignore文件
+    :return:
+    """
+    global IGNORE_LIST
+
+    if not os.path.exists(IGNORE_PATH):
+        return False
+
+    ignore_file = codecs.open(IGNORE_PATH, "r", encoding='utf-8', errors='ignore')
+
+    for line in ignore_file:
+
+        line = line.strip()
+
+        if line.startswith('#') or len(line) < 1:
+            continue
+
+        regex_rule = re.escape(line)
+
+        regex_rule = regex_rule.replace('\*', '\w+')
+        regex_rule = regex_rule.replace('/', '[\/\\\\]')
+
+        # if regex_rule.startswith('!'):
+        #     regex_rule = "[^({})]".format(regex_rule[1:])
+
+        logger.debug('[INIT][IGNORE] New ignore regex {}'.format(regex_rule))
+        IGNORE_LIST.append(regex_rule)
+
+    return True
+
+
+def check_kunlunignore(filename):
+
+    is_not_ignore = True
+
+    for ignore_reg in IGNORE_LIST:
+
+        # ignore_reg_obj = re.match(ignore_reg, filename, re.I)
+
+        if re.search(ignore_reg, filename, re.I):
+            logger.debug('[INIT][IGNORE] File {} filter by {}'.format(filename, ignore_reg))
+            return False
+
+    return True
+
+
 class FileParseAll:
-    def __init__(self, filelist, target, language=None):
+    def __init__(self, filelist, target, language='php'):
         self.filelist = filelist
         self.t_filelist = file_list_parse(filelist, language)
         self.target = target
+        self.language = language
+
+    def check_comment(self, content):
+        backstr = ""
+
+        if self.language in ['php', 'javascript']:
+
+            lastchar = ""
+            isinlinecomment = False
+            isduolinecomment = False
+
+            for char in content:
+                if char == '/' and lastchar == '/':
+                    backstr = backstr[:-1]
+                    isinlinecomment = True
+                    lastchar = ""
+                    continue
+
+                if isinlinecomment:
+                    if char == '\n':
+                        isinlinecomment = False
+
+                    lastchar = ''
+                    backstr += '\n'
+                    continue
+
+                if char == '\n':
+                    backstr += '\n'
+                    continue
+
+                # 多行注释
+                if char == '*' and lastchar == '/':
+                    isduolinecomment = True
+                    backstr = backstr[:-1]
+                    lastchar = ""
+                    continue
+
+                if isduolinecomment:
+
+                    if char == '/' and lastchar == '*':
+                        isduolinecomment = False
+                        lastchar = ""
+                        continue
+
+                    lastchar = char
+                    continue
+
+                lastchar = char
+                backstr += char
+
+            return backstr
+
+        else:
+            return content
 
     def grep(self, reg):
         """
@@ -143,8 +246,10 @@ class FileParseAll:
                 line_number += 1
                 content += line
 
-                if i < 5:
+                if i < 10:
                     continue
+
+                content = self.check_comment(content)
 
                 i = 0
                 # print line, line_number
@@ -164,11 +269,13 @@ class FileParseAll:
 
                         LRnumber = " ".join(split_data).count('\n')
 
-                        match_numer = line_number - 5 + LRnumber
+                        match_numer = line_number - 10 + LRnumber
 
                         result.append((filepath, str(match_numer), data))
 
                 content = ""
+
+            content = self.check_comment(content)
 
             # 如果退出循环的时候没有清零，则还要检查一次
             if i > 0:
@@ -490,12 +597,11 @@ class Directory(object):
                     flag = 0
 
                     # check black path list
-                    if self.black_path_list:
-                        for black_path in self.black_path_list:
-                            if black_path in filename:
-                                flag = 1
-
-                    if flag:
+                    # if self.black_path_list:
+                    #     for black_path in self.black_path_list:
+                    #         if black_path in filename:
+                    #             flag = 1
+                    if not check_kunlunignore(directory):
                         continue
 
                     # Directory Structure

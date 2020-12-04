@@ -32,6 +32,11 @@ scan_results = []  # 结果存放列表初始化
 is_repair_functions = []  # 修复函数初始化
 is_controlled_params = []
 scan_chain = []  # 回溯链变量
+BASE_FUNCTIONCALL_LIST = ['FunctionCall', 'MethodCall', 'StaticMethodCall', 'ObjectProperty']
+SPECIAL_FUNCTIONCALL_LIST = ['Eval', 'Echo', 'Print', 'Return', 'Break', 'Include',
+                         'Require', 'Exit', 'Throw', 'Unset', 'Continue', 'Yield', 'Silence']
+
+FUNCTIONCALL_LIST = BASE_FUNCTIONCALL_LIST + SPECIAL_FUNCTIONCALL_LIST
 
 
 def export(items):
@@ -104,6 +109,32 @@ def get_all_params(nodes):  # 用来获取调用函数的参数列表，nodes为
                 params.append(param)
 
     return params
+
+
+def get_all_functioncall_params(node):
+    """
+    获取特殊类型的函数调用参数
+    :param node:
+    :return:
+    """
+    node_typename = node.__class__.__name__
+    return_params = []
+
+    if node_typename in SPECIAL_FUNCTIONCALL_LIST:
+        if node_typename in ['Empty', 'Eval', 'Include', 'Require', 'Exit', 'Silence']:
+            return_params.append(node.expr)
+
+        elif node_typename in ['Echo', 'Unset', 'IsSet']:
+            for p in node.nodes:
+                return_params.append(p)
+        else:
+            return_params.append(node.node)
+
+    elif node_typename in BASE_FUNCTIONCALL_LIST:
+        for p in node.params:
+            return_params.append(p.node)
+
+    return return_params
 
 
 def get_silence_params(node):
@@ -1242,7 +1273,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                                                                            isback=True)
 
                             if is_co == -1:
-                                padding[param.name] = ccp
+                                padding[get_node_name(param)] = ccp
 
                 # 拼接路径
                 filename = get_filename(node, file_path)
@@ -1394,23 +1425,51 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
     """
     global scan_results
     try:
-        if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 函数体中存在敏感函数，开始对敏感函数前的代码进行检测
+        node_typename = node.__class__.__name__
 
-            for param in node.params:
-                if isinstance(param.node, php.Variable):
-                    analysis_variable_node(param.node, back_node, vul_function, vul_lineno, function_params,
-                                           file_path=file_path)
+        if node_typename in BASE_FUNCTIONCALL_LIST:
+            function_name = node.name
+        else:
+            function_name = node_typename.lower()
 
-                if isinstance(param.node, php.FunctionCall):
-                    analysis_functioncall_node(param.node, back_node, vul_function, vul_lineno, function_params,
+        if int(node.lineno) == int(vul_lineno):
+            if function_name == vul_function:  # 函数体中存在敏感函数，开始对敏感函数前的代码进行检测
+
+                function_params = get_all_functioncall_params(node)
+
+                for param in function_params:
+                    param_node_typename = param.__class__.__name__
+
+                    if isinstance(param, php.Variable):
+                        analysis_variable_node(param, back_node, vul_function, vul_lineno, function_params,
                                                file_path=file_path)
 
-                if isinstance(param.node, php.BinaryOp):
-                    analysis_binaryop_node(param.node, back_node, vul_function, vul_lineno, function_params,
-                                           file_path=file_path)
+                    if isinstance(param, php.FunctionCall):
+                        analysis_functioncall_node(param, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
 
-                if isinstance(param.node, php.ArrayOffset):
-                    analysis_arrayoffset_node(param.node, vul_function, vul_lineno)
+                    if isinstance(param, php.BinaryOp):
+                        analysis_binaryop_node(param, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
+                    if isinstance(param, php.ArrayOffset):
+                        analysis_arrayoffset_node(param, vul_function, vul_lineno)
+
+                    if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+                        analysis_special_functioncall_node(param, back_node, vul_function, vul_lineno, function_params,
+                                                           file_path=file_path)
+
+            elif node_typename in SPECIAL_FUNCTIONCALL_LIST:
+                # 如果在目标同行，但是当前node函数名不是目标函数名，则递归再进一次
+
+                function_params = get_all_functioncall_params(node)
+
+                for param in function_params:
+                    param_node_typename = param.__class__.__name__
+
+                    if param_node_typename in FUNCTIONCALL_LIST:
+
+                        anlysis_function(param, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
 
     except Exception as e:
         logger.debug(traceback.format_exc())
@@ -1429,6 +1488,8 @@ def analysis_functioncall(node, back_node, vul_function, vul_lineno):
     try:
         if node.name == vul_function and int(node.lineno) == int(vul_lineno):  # 定位到敏感函数
             for param in node.params:
+                param_node_typename = param.__class__.__name__
+
                 if isinstance(param.node, php.Variable):
                     analysis_variable_node(param.node, back_node, vul_function, vul_lineno)
 
@@ -1440,6 +1501,9 @@ def analysis_functioncall(node, back_node, vul_function, vul_lineno):
 
                 if isinstance(param.node, php.ArrayOffset):
                     analysis_arrayoffset_node(param.node, vul_function, vul_lineno)
+
+                if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+                    analysis_special_functioncall_node(param, back_node, vul_function, vul_lineno)
 
     except Exception as e:
         logger.debug(e)
@@ -1543,6 +1607,38 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
 
     for param in params:
         param = php.Variable(param)
+        param_lineno = node.lineno
+
+        if file_path is not None:
+            is_co, cp, expr_lineno, chain = anlysis_params(param, file_path, param_lineno, vul_function=vul_function)
+        else:
+            count = 0
+            is_co, cp, expr_lineno = deep_parameters_back(node, back_node, function_params, count, file_path,
+                                                          vul_function=vul_function)
+
+        set_scan_results(is_co, cp, expr_lineno, vul_function, param, vul_lineno)
+
+
+def analysis_special_functioncall_node(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
+    """
+    处理FunctionCall类型节点-->取出参数-->回溯判断参数是否可控-->输出结果
+    :param file_path:
+    :param node:
+    :param back_node:
+    :param vul_function:
+    :param vul_lineno:
+    :param function_params:
+    :return:
+    """
+    logger.debug('[AST] vul_function:{v}'.format(v=vul_function))
+    function_params = get_all_functioncall_params(node)
+    function_name = node.__class__.__name__
+
+    if is_repair(function_name):
+        logger.info("[AST] Function {} is repair func. fail control back.".format(function_name))
+        return False
+
+    for param in function_params:
         param_lineno = node.lineno
 
         if file_path is not None:
@@ -1664,6 +1760,8 @@ def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_para
 
     if int(vul_lineno) == int(node.lineno):
         if isinstance(node, php.Print):
+            param_node_typename = node.node.__class__.__name__
+
             if isinstance(node.node, php.FunctionCall) or isinstance(node.node, php.MethodCall) or isinstance(node.node,
                                                                                                               php.StaticMethodCall):
                 analysis_functioncall_node(node.node, back_node, vul_function, vul_lineno, function_params,
@@ -1684,8 +1782,14 @@ def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_para
                 analysis_ternaryop_node(node.node, back_node, vul_function, vul_lineno, function_params,
                                         file_path=file_path)
 
+            if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+                analysis_special_functioncall_node(node.node, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
         elif isinstance(node, php.Echo):
             for k_node in node.nodes:
+                param_node_typename = k_node.__class__.__name__
+
                 if isinstance(k_node, php.FunctionCall) or isinstance(k_node, php.MethodCall) or isinstance(
                         k_node, php.StaticMethodCall):
                     # 判断节点中是否有函数调用节点
@@ -1707,6 +1811,10 @@ def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_para
                     analysis_ternaryop_node(k_node, back_node, vul_function, vul_lineno, function_params,
                                             file_path=file_path)
 
+                if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+                    analysis_special_functioncall_node(k_node, back_node, vul_function, vul_lineno, function_params,
+                                                       file_path=file_path)
+
 
 def analysis_return(node, back_node, vul_function, vul_lineno, function_params=None, file_path=None):
     """
@@ -1722,6 +1830,8 @@ def analysis_return(node, back_node, vul_function, vul_lineno, function_params=N
     global scan_results
 
     if int(vul_lineno) == int(node.lineno) and isinstance(node, php.Return):
+        param_node_typename = node.node.__class__.__name__
+
         if isinstance(node.node, php.FunctionCall) or isinstance(node.node, php.MethodCall) or isinstance(node.node,
                                                                                                           php.StaticMethodCall):
             analysis_functioncall_node(node.node, back_node, vul_function, vul_lineno, function_params,
@@ -1746,6 +1856,10 @@ def analysis_return(node, back_node, vul_function, vul_lineno, function_params=N
             nodes = get_silence_params(node.node)
             analysis(nodes, vul_function, back_node, vul_lineno, file_path)
 
+        if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+            analysis_special_functioncall_node(node.node, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
 
 def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=None, file_path=None):
     """
@@ -1761,6 +1875,7 @@ def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=Non
     global scan_results
 
     if vul_function == 'eval' and int(node.lineno) == int(vul_lineno):
+        param_node_typename = node.expr.__class__.__name__
 
         if isinstance(node.expr, php.Variable):
             analysis_variable_node(node.expr, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
@@ -1783,6 +1898,10 @@ def analysis_eval(node, vul_function, back_node, vul_lineno, function_params=Non
             nodes = get_silence_params(node.expr)
             analysis(nodes, vul_function, back_node, vul_lineno, file_path)
 
+        if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+            analysis_special_functioncall_node(node.expr, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
 
 def analysis_file_inclusion(node, vul_function, back_node, vul_lineno, function_params=None, file_path=None):
     """
@@ -1800,6 +1919,7 @@ def analysis_file_inclusion(node, vul_function, back_node, vul_lineno, function_
 
     if vul_function in include_fs and int(node.lineno) == int(vul_lineno):
         logger.debug('[AST-INCLUDE] {l}-->{r}'.format(l=vul_function, r=vul_lineno))
+        param_node_typename = node.expr.__class__.__name__
 
         if isinstance(node.expr, php.Variable):
             analysis_variable_node(node.expr, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
@@ -1818,6 +1938,10 @@ def analysis_file_inclusion(node, vul_function, back_node, vul_lineno, function_
         if isinstance(node.expr, php.ObjectProperty):
             analysis_objectproperry_node(node.expr, back_node, vul_function, vul_lineno, function_params,
                                          file_path=file_path)
+
+        if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
+            analysis_special_functioncall_node(node.expr, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
 
 
 def set_scan_results(is_co, cp, expr_lineno, sink, param, vul_lineno):
@@ -1870,7 +1994,9 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         if vul_lineno < node.lineno:
             break
 
-        if isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall) or isinstance(node, php.StaticMethodCall):
+        node_typename = node.__class__.__name__
+
+        if isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall) or isinstance(node, php.StaticMethodCall) or node_typename in SPECIAL_FUNCTIONCALL_LIST:
             # 函数直接调用，不进行赋值
             anlysis_function(node, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
 
@@ -1925,6 +2051,9 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         elif isinstance(node, php.Class):
             analysis(node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
+        elif node_typename in FUNCTIONCALL_LIST:
+            anlysis_function(node, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
+
         back_node.append(node)
 
 
@@ -1950,6 +2079,7 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
 
         for func in sensitive_func:  # 循环判断代码中是否存在敏感函数，若存在，递归判断参数是否可控;对文件内容循环判断多次
             back_node = []
+
             analysis(all_nodes, func, back_node, int(vul_lineno), file_path, function_params=None)
 
             # 如果检测到一次，那么就可以退出了

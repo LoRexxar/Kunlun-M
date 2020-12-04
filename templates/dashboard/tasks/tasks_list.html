@@ -1,0 +1,66 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Tasks list{% endblock %}
+
+{% block body %}
+<div class="row">
+        <div class="col-xs-12">
+          <div class="box">
+            <div class="box-header">
+              <h3 class="box-title">Tasks List</h3>
+            </div>
+            <!-- /.box-header -->
+            <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Time</th>
+                  <th>Status</th>
+                  <th>Detail</th>
+                </tr>
+                {% for task in tasks %}
+                <tr>
+                    <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }} {{ task.task_name }}</a></td>
+                      <td>{{ task.target_path }}</td>
+                      <td>{{ task.last_scan_time }}</td>
+                      <td>
+                      {% if task.is_finished == 0 %}
+                      <span class="label label-danger">Error</span>
+                      {% elif task.is_finished == -1 %}
+                      <span class="label label-danger">Error</span>
+                      {% elif task.is_finished == 2 %}
+                      <span class="label label-warning">Running</span>
+                      {% elif task.is_finished == 1 %}
+                      <span class="label label-success">Success</span>
+                      {% else %}
+                      <span class="label label-success">{{ task.is_finished }}</span>
+                      {% endif %}
+                      </td>
+                      <td>
+                      <div class="sparkbar" data-color="#00a65a" data-height="20">{{ task.parameter_config }}</div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+            </div>
+            <!-- /.box-body -->
+          </div>
+          <!-- /.box -->
+        </div>
+      </div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#tasks").addClass("menu-open");
+          $("#tasks").find("ul").find("li#task_list").addClass("active");
+          $("#tasks").find("ul").css("display","block");
+      });
+</script>
+
+
+{% endblock %}

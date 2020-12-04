@@ -1,0 +1,193 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Tasks Detail{% endblock %}
+
+{% block body %}
+<div>
+
+<div class="box box-primary">
+<div class="box-header with-border
+">
+  <h3 class="box-title">Task Details</h3>
+</div>
+<div class="box-body">
+  <!-- Date -->
+  <!-- Date and time range -->
+  <div class="form-group">
+    <label>Path:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
+      </div>
+      <input type="text" class="form-control pull-right" name="filename" value="{{ task.target_path }}" disabled>
+    </div>
+    <!-- /.input group -->
+  </div>
+  <!-- /.form group -->
+</div>
+<!-- /.box-body -->
+</div>
+
+<div class="box box-info">
+<div class="box-header with-border">
+  <h3 class="box-title">Task</h3>
+</div>
+<div class="box-body">
+
+  <div class="form-group">
+    <label>Task Name:</label>
+    <input type="text" class="form-control my-colorpicker1 colorpicker-element" name="task_name" value="{{ task.task_name }}" disabled>
+  </div>
+  <!-- /.form group -->
+<div class="form-group">
+    <label>Task Create Time:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-calendar"></i>
+      </div>
+      <input type="text" class="form-control" data-inputmask="'alias': 'dd/mm/yyyy'" value="{{ task.last_scan_time }}" disabled>
+    </div>
+    <!-- /.input group -->
+</div>
+
+<div class="form-group">
+    <label>Task Status:</label>
+
+    <div class="input-group">
+      {% if task.is_finished == 0 %}
+      <span class="label label-danger">Error</span>
+      {% elif task.is_finished == 2 %}
+      <span class="label label-warning">Running</span>
+      {% elif task.is_finished == 1 %}
+      <span class="label label-success">Success</span>
+      {% else %}
+      <span class="label label-success">{{ task.is_finished }}</span>
+      {% endif %}
+    </div>
+    <!-- /.input group -->
+</div>
+
+<div class="form-group">
+  <label>Parameter Config:</label>
+  <textarea class="form-control" rows="3" placeholder="Some details about task" name="parameter_config" disabled>{{ task.parameter_config }}</textarea>
+</div>
+
+<!-- /.box-body -->
+</div>
+</div>
+
+{% if task.is_finished == 1 %}
+
+<div class="box box-warning">
+<div class="box-header with-border">
+  <h3 class="box-title">Result</h3>
+</div>
+<!-- /.box-header -->
+<div class="box-body">
+    <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>CVI ID</th>
+                  <th>Language</th>
+                  <th>VulFile Path</th>
+                  <th>Source</th>
+                  <th>Type</th>
+                  <th>Is Confirm</th>
+                </tr>
+                {% for taskresult in taskresults %}
+                <tr>
+                    <td>{{ taskresult.result_id }}</td>
+                    <td>{{ taskresult.cvi_id }}</td>
+                    <td>{{ taskresult.language }}</td>
+                    <td>{{ taskresult.vulfile_path }}</td>
+                    <td>{{ taskresult.source_code }}</td>
+                    <td>{{ taskresult.result_type }}</td>
+
+                      <td>
+                      {% if taskresult.is_unconfirm == 0 %}
+                      <span class="label label-success">Yes</span>
+                      {% elif  taskresult.is_unconfirm  == -1 %}
+                      <span class="label label-danger">No</span>
+                      {% else %}
+                      <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
+                      {% endif %}
+                      </td>
+
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+    </div>
+
+    {% csrf_token %}
+
+</div>
+
+
+<div class="box-footer">
+    <button id="result" type="button" class="btn btn-primary">View Result</button>
+</div>
+
+<!-- /.box-body -->
+</div>
+
+<div class="box box-success">
+    <div class="box-header with-border">
+      <h3 class="box-title">New Evil Functions</h3>
+    </div>
+    <!-- /.box-header -->
+    <div class="box-body table-responsive no-padding">
+      <table class="table table-hover">
+            <tbody><tr>
+              <th>ID</th>
+              <th>CVI ID</th>
+              <th>New Function</th>
+              <th>Origin Function</th>
+              <th>Is Active</th>
+            </tr>
+            {% for newevilfunc in newevilfuncs %}
+            <tr>
+                <td>{{ newevilfunc.id }}</td>
+                <td>{{ newevilfunc.svid }}</td>
+                <td>{{ newevilfunc.func_name }}</td>
+                <td>{{ newevilfunc.origin_func_name }}</td>
+
+                  <td>
+                  {% if newevilfunc.is_active %}
+                  <span class="label label-success">Yes</span>
+                  {% elif not newevilfunc.is_active %}
+                  <span class="label label-danger">No</span>
+                  {% else %}
+                  <span class="label label-success">{{ newevilfunc.is_active }}</span>
+                  {% endif %}
+                  </td>
+
+              </tr>
+            {% endfor %}
+          </tbody></table>
+    </div>
+<!-- /.box-body -->
+</div>
+{% endif %}
+
+</form>
+</div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+$(document).ready(function(){
+  $("#dashboard").removeClass("active menu-open");
+  $("#dashboard").find("ul li").removeClass("active");
+  $("#tasks").addClass("menu-open");
+  $("#tasks").find("ul").find("li#task_list").addClass("active");
+  $("#tasks").find("ul").css("display","block");
+
+  $("button#result").click(function () {
+      location.href = "{% url 'backend:tasklog' task.id %}";
+    });
+});
+</script>
+{% endblock %}

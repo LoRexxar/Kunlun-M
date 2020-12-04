@@ -15,6 +15,14 @@ Including another URLconf
 """
 # from django.contrib import admin
 from django.urls import path
+from django.contrib import admin
+from django.urls import path, include
+from django.conf.urls.static import static
+from Kunlun_M import settings
+
 
 urlpatterns = [
-]
+    path('', include('web.index.urls')),
+    path('dashboard/', include('web.dashboard.urls')),
+    path('backend/', include('web.backend.urls')),
+] + static(settings.STATIC_URL,document_root=settings.STATICFILES_DIRS)

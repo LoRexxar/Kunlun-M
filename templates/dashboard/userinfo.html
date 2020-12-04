@@ -1,0 +1,45 @@
+{% extends "dashboard/base.html" %}
+{% block title %} UserInfo {% endblock %}
+
+{% block body %}
+
+ <div class="box box-warning">
+    <div class="box-header with-border">
+      <h3 class="box-title">User Profile</h3>
+    </div>
+    <!-- /.box-header -->
+    <div class="box-body">
+      <form role="form">
+        <!-- text input -->
+        <div class="form-group">
+          <label>User</label>
+          <input type="text" class="form-control" value="{{ request.user.username }}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="text" class="form-control" value="{{ request.user.email }}" disabled>
+        </div>
+
+        <!-- textarea -->
+        <div class="form-group">
+          <label>Profile</label>
+          <textarea class="form-control" rows="3" placeholder="Enter ..." disabled></textarea>
+        </div>
+      </form>
+    </div>
+    <!-- /.box-body -->
+  </div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#user").addClass("active");
+      });
+</script>
+
+
+{% endblock %}

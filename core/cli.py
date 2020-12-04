@@ -22,7 +22,7 @@ from .engine import scan, Running
 from core.pretreatment import ast_object
 from utils.export import write_to_file
 from utils.log import logger
-from utils.file import Directory
+from utils.file import Directory, load_kunlunmignore
 from utils.utils import show_context
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
@@ -154,6 +154,9 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
     d = r.status()
     d['report'] = report
     r.status(d)
+
+    # 加载 kunlunmignore
+    load_kunlunmignore()
 
     # parse target mode and output mode
     pa = ParseArgs(target, formatter, output, special_rules, language, black_path, a_sid=None)

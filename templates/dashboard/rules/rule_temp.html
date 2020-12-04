@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+
+from utils.api import *
+
+
+class CVI_{{ rule.svid }}():
+    """
+    rule class
+    """
+
+    def __init__(self):
+
+        self.svid = {{ rule.svid }}
+        self.language = "{{ rule.language }}"
+        self.author = "{{ rule.author }}"
+        self.vulnerability = "{{ rule.rule_name }}"
+        self.description = "{{ rule.description }}"
+
+        # status
+        self.status = {{ rule.status }}
+
+        # 部分配置
+        self.match_mode = "{{ rule.match_mode }}"
+        self.match = {{ rule.match }}
+
+        # for solidity
+        self.match_name = {{ rule.match_name }}
+        self.black_list = {{ rule.black_list }}
+
+        # for chrome ext
+        self.keyword = {{ rule.keyword }}
+
+        # for regex
+        self.unmatch = {{ rule.unmatch }}
+
+        self.vul_function = {{ rule.vul_function }}
+
+{{ rule.main_function }}
