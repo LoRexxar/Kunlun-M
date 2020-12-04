@@ -208,4 +208,9 @@
     - KunLun-M 2.0.0 beta5
     - 添加了执行流中相应代码的显示功能
     - 更新了[KunLun-M - EntranceFinder](https://github.com/LoRexxar/Kunlun-M/tree/master/core/plugins)
-
+- 2020-12-04
+    - KunLun-M 2.1.0
+    - 更新了仅用于查看任务结果的http dashboard功能
+    - 更新了针对注释语句的扫描bug #115
+    - 更新了多级引用导致的扫描误报 #105 #118
+    - 添加了.kunlunmignore文件用于批量忽略目录，目前仅支持*语法
