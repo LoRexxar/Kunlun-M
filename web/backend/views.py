@@ -39,6 +39,7 @@ def tasklog(req, task_id):
     ResultFlow = get_resultflow_class(task_id)
     rfs = ResultFlow.objects.all()
 
+    task.parameter_config = " ".join(eval(task.parameter_config)).replace('\\', '/')
     resultflowdict = {}
 
     for rf in rfs:

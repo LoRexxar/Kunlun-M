@@ -16,6 +16,7 @@ def index(req):
     tasks = ScanTask.objects.all().order_by("-id")
     for task in tasks:
         task.is_finished = int(task.is_finished)
+        task.parameter_config = " ".join(eval(task.parameter_config)).replace('\\', '/')
 
     data = {'tasks': tasks}
 

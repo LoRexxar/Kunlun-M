@@ -103,9 +103,17 @@ KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计
 - <del>添加console模式，使其更符合日常使用的工具逻辑</del>
 - 重构rule模式，使其更符合可扩展，可编辑的概念
 - 重构Cobra-WA
+    - <del>添加http dashboard形式的漏洞任务管理界面</del> （短时间内不会继续做web管理界面，不符合目前对工具的定义
     - 集成到Kunlun-M中的web管理平台
     - 提供平台化的漏洞管理方案
     - 添加图关系的审计分析流程
+
+## 社区化工具
+
+社区成员完成的拓展（不保证安全性，参考使用）
+
+- [Kunlun-M-GUI](https://github.com/mark0smith/Kunlun-M-GUI)
+- [docker-kunlun-mirror](https://github.com/lazychanger/docker-kunlun-mirror)
 
 ## 更新日志
 
