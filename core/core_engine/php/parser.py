@@ -860,6 +860,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if param_name in param_expr:
                     logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
 
+                    is_co = 3
+                    cp = param
+
                 else:
                     for expr in param_expr:
                         param = expr
@@ -887,7 +890,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             break
                         else:
                             file_path = os.path.normpath(file_path)
-                            code = "param {} find fail.continue".format(param)
+                            code = "param {} find fail. continue".format(param)
                             scan_chain.append(('FindEnd', code, file_path, node.lineno))
 
                             logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
