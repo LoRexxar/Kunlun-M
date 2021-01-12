@@ -25,4 +25,4 @@ urlpatterns = [
     path('', include('web.index.urls')),
     path('dashboard/', include('web.dashboard.urls')),
     path('backend/', include('web.backend.urls')),
-] + static(settings.STATIC_URL,document_root=settings.STATICFILES_DIRS)
+] + static(settings.STATIC_URL,document_root=settings.STATICFILES_DIRS[0])
