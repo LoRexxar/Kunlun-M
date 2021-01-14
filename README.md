@@ -228,6 +228,8 @@ python3 .\kunlun.py web 9999
 
 一个自动化寻找php反序列化链的简单模型
 
+** 如果是旧版本更新并使用该插件扫描同一目标，请使用-r参数renew数据库 **
+
 ```
 python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ```
@@ -284,3 +286,4 @@ KunLun-M 是 404Team [星链计划](https://github.com/knownsec/404StarLink-Proj
 - Dubhe [Sissel](https://github.com/boke1208)
 - Dubhe [Sndav](https://github.com/Sndav)
 - [#jax777](https://github.com/jax777)
+- [akkuman](https://github.com/akkuman)
