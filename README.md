@@ -228,7 +228,7 @@ python3 .\kunlun.py web 9999
 
 一个自动化寻找php反序列化链的简单模型
 
-** 如果是旧版本更新并使用该插件扫描同一目标，请使用-r参数renew数据库 **
+**如果是旧版本更新并使用该插件扫描同一目标，请使用-r参数renew数据库**
 
 ```
 python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
