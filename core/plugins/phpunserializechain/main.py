@@ -13,7 +13,7 @@
 import re
 import traceback
 
-from utils.log import logger
+from utils.log import logger, logger_console
 
 from .dataflowgenerate import DataflowGenerate
 from core.plugins.baseplugin import BasePluginClass
@@ -28,9 +28,12 @@ class PhpUnSerChain(BasePluginClass):
 
         self.plugin_name = 'php_unserialize_chain_tools'
 
+        self.parser_group_plugin.add_argument('-r', '--renew', dest='renew', action='store_true', default=False,
+                                              help='renew DataFlow DB')
+
         # 参数列表
         self.required_arguments_list = ['target']
-        self.arguments_list = ['target', 'debug']
+        self.arguments_list = ['target', 'debug', 'renew']
 
         # 检查参数
         self.check_args()
@@ -39,21 +42,36 @@ class PhpUnSerChain(BasePluginClass):
         self.eval_args()
 
         # 常量类型定义
-        self.Object_define = ['Class', 'Function', 'Method']
-        self.method_call = ['FunctionCall', 'MethodCall', 'StaticMethodCall', 'ObjectProperty']
-        self.special_function = ['Eval', 'Echo', 'Print', 'Return', 'Break', 'Include',
-                                 'Require', 'Exit', 'Throw', 'Unset', 'Continue', 'Yield']
-        self.switch_node = ['If', 'ElseIf', 'Else', 'Try', 'While', 'DoWhile', 'For', 'Foreach', 'Switch', 'Case', 'Default']
-        self.import_node = ['UseDeclarations', 'UseDeclaration', 'ClassVariables', 'ClassVariable', 'Static',
-                            'StaticVariable', 'AssignOp', 'PreIncDecOp', 'PostIncDecOp',
-                            'ClassConstants', 'ClassConstant', 'ConstantDeclarations', 'ConstantDeclaration']
-        self.white_node = ['InlineHTML', 'Declare']
+        self.Object_define = ['Class', 'Function', 'Method', 'Trait']
+        self.new_object_define = ['New', 'Array']
+        self.method_call = ['FunctionCall', 'MethodCall', 'StaticMethodCall', 'ObjectProperty', 'StaticProperty']
+
+        self.special_function_single = ['Clone', 'Break', 'Continue', 'Return', 'Yield', 'Print', 'Throw']
+        self.special_function_multi = ['Echo', 'Unset', 'IsSet']
+        self.special_function_expr = ['Empty', 'Eval', 'Include', 'Require', 'Exit']
+        self.special_function = self.special_function_single + self.special_function_multi + self.special_function_expr
+
+        self.switch_node = ['If', 'ElseIf', 'Else', 'Try', 'While', 'DoWhile', 'For', 'Foreach', 'Switch', 'Case',
+                            'Default']
+
+        self.import_node = ['UseDeclarations', 'UseDeclaration', 'ClassVariables', 'ClassVariable',
+                            'StaticVariable', 'MagicConstant', 'Constant', 'LexicalVariable'
+                                                                           'ClassConstants', 'ClassConstant',
+                            'ConstantDeclarations', 'ConstantDeclaration', 'TraitUse']
+
+        self.variable_type_node = ['Global', 'Static', 'Cast']
+        self.op_node = ['AssignOp', 'PreIncDecOp', 'PostIncDecOp', 'BinaryOp', 'UnaryOp', 'TernaryOp']
+
+        self.white_node = ['InlineHTML', 'Declare', 'Variable']
         self.define_node = ['Interface', 'Namespace']
         self.check_node = ['IsSet', 'Empty']
+        self.child_node = ['Block', 'Silence', 'Namespace']
+        self.assign_node = ['Assignment', 'ListAssignment']
+        self.param_node = ['FormalParameter', 'Parameter', 'ArrayElement', 'ArrayOffset', 'StringOffset']
 
         # 临时全局变量
         self.dataflows = []
-        self.dataflow_db = DataflowGenerate().main(self.target)
+        self.dataflow_db = DataflowGenerate().main(self.target, self.renew)
 
         # core
         self.main()
@@ -76,16 +94,17 @@ class PhpUnSerChain(BasePluginClass):
             method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
 
             # for mnode in method_nodes:
-            #     print(mnode.source_node, mnode.node_type, mnode.sink_node)
+            #     print
+            logger.info("[PhpUnSerChain] New Chain Start in __destruct in {}".format(node.node_locate))
             status = self.deep_search_chain(method_nodes, class_locate, unserchain)
 
             if status:
                 logger.info("[PhpUnSerChain] New Source __destruct{} in {}".format(node.sink_node, node.node_locate))
 
                 for unsernode in unserchain:
-                    logger.info("[PhpUnSerChain] {} {} {} in {}".format(unsernode.source_node, unsernode.node_type,
-                                                                        unsernode.sink_node, unsernode.node_locate))
-
+                    logger.info("{}".format(unsernode.node_locate.ljust(100,' ')))
+                    logger_console.warn("{}   {}{}".format(unsernode.node_type.ljust(30,' '), unsernode.source_node,
+                                                           self.deep_get_node_name(unsernode.sink_node)))
                 logger.info("[PhpUnSerChain] UnSerChain is available.")
 
     def get___get(self, var_name, unserchain=[], define_param=(), deepth=0):
@@ -102,7 +121,37 @@ class PhpUnSerChain(BasePluginClass):
             logger.debug("[PhpUnSerChain] Found New __get{} in {}".format(node.sink_node, node.node_locate))
 
             # 为了不影响数据，要先生成新的
-            newunserchain = []
+            newunserchain = [node]
+
+            class_locate = node.node_locate
+
+            new_locate = node.node_locate + '.' + node.source_node
+
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+
+            status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param, deepth=deepth)
+
+            if status:
+                unserchain.extend(newunserchain)
+                return True
+
+        return False
+
+    def get___tostring(self, var_name, unserchain=[], define_param=(), deepth=0):
+        """
+        获取所有内置__toString方法
+        :return:
+        """
+        deepth += 1
+        define_param = (var_name, *define_param)
+        get_nodes = self.dataflow_db.objects.filter(node_type='newMethod', source_node__startswith='Method-__toString')
+        logger.debug("[PhpUnSerChain] trigger __tostring('{}'). try to found it.".format(var_name))
+
+        for node in get_nodes:
+            logger.debug("[PhpUnSerChain] Found New __tostring{} in {}".format(node.sink_node, node.node_locate))
+
+            # 为了不影响数据，要先生成新的
+            newunserchain = [node]
 
             class_locate = node.node_locate
 
@@ -132,7 +181,7 @@ class PhpUnSerChain(BasePluginClass):
             logger.debug("[PhpUnSerChain] Found New __set{} in {}".format(node.sink_node, node.node_locate))
 
             # 为了不影响数据，要先生成新的
-            newunserchain = []
+            newunserchain = [node]
 
             class_locate = node.node_locate
 
@@ -162,7 +211,7 @@ class PhpUnSerChain(BasePluginClass):
             logger.debug("[PhpUnSerChain] Found New __call{} in {}".format(node.sink_node, node.node_locate))
 
             # 为了不影响数据，要先生成新的
-            newunserchain = []
+            newunserchain = [node]
 
             class_locate = node.node_locate
 
@@ -192,7 +241,7 @@ class PhpUnSerChain(BasePluginClass):
             logger.debug("[PhpUnSerChain] Found New __callStatic{} in {}".format(node.sink_node, node.node_locate))
 
             # 为了不影响数据，要先生成新的
-            newunserchain = []
+            newunserchain = [node]
 
             class_locate = node.node_locate
 
@@ -230,13 +279,52 @@ class PhpUnSerChain(BasePluginClass):
             logger.debug("[PhpUnSerChain] Found New () in {}".format(method_node_name, node.node_locate))
 
             # 为了不影响数据，要先生成新的
-            newunserchain = []
+            newunserchain = [node]
 
             class_locate = node.node_locate
 
             new_locate = node.node_locate + '.' + node.source_node
 
             method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+
+            status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param,
+                                            deepth=deepth)
+
+            if status:
+                unserchain.extend(newunserchain)
+                return True
+
+        return False
+
+    def get_any_class_methodcall(self, method_name, call_params, unserchain=[], define_param=(), deepth=0):
+        """
+        可以调用任意类的任意个方法，跟踪分析
+        :param method_name:
+        :param call_params:
+        :param unserchain:
+        :param define_param:
+        :param deepth:
+        :return:
+        """
+        deepth += 1
+        define_param = (*call_params, *define_param)
+        call_nodes = self.dataflow_db.objects.filter(node_type='newMethod')
+
+        logger.debug("[PhpUnSerChain] trigger any class method. try to found all method in class with {}.".format(call_params))
+        for node in call_nodes:
+
+            # 为了不影响数据，要先生成新的
+            newunserchain = [node]
+
+            class_locate = node.node_locate
+
+            new_locate = node.node_locate + '.' + node.source_node
+
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+            params_count = self.dataflow_db.objects.filter(node_locate__startswith=new_locate, node_type='newMethodparams')
+
+            if params_count != len(define_param):
+                continue
 
             status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param,
                                             deepth=deepth)
@@ -328,8 +416,8 @@ class PhpUnSerChain(BasePluginClass):
                 for i in self.danger_function[node.source_node]:
                     if self.check_param_controllable(sink_node[i], node):
                         continue
-                    return False
 
+                    return False
                 return True
 
         # 剩下的都直接对sink_node做处理
@@ -355,6 +443,99 @@ class PhpUnSerChain(BasePluginClass):
 
         return False
 
+    def deep_get_node_name(self, node):
+        """
+        递归寻址获取最终node name
+        :param node:
+        :return:
+        """
+        if re.search(r'&[0-9]+', node, re.I):
+            address_list = re.findall(r'&[0-9]+', node, re.I)
+            for address in address_list:
+                address_id = address[1:]
+
+                chlid_node = self.dataflow_db.objects.filter(id=address_id).first()
+
+                final_name = ""
+
+                node_left = self.deep_get_node_name(chlid_node.source_node)
+                node_right = self.deep_get_node_name(chlid_node.sink_node)
+
+                if chlid_node.node_type.split('-')[0] in self.op_node:
+                    node_type = chlid_node.node_type.split('-')[0]
+                    node_op = chlid_node.node_type.split('-')[1]
+
+                    if node_type in ['BinaryOp', 'AssignOp', 'TernaryOp']:
+                        final_name = "{} {} {}".format(node_left, node_op, node_right)
+
+                    elif node_type in ['PostIncDecOp', 'PreIncDecOp']:
+                        final_name = "{} {}".format(node_left, node_op)
+
+                    elif node_type == 'UnaryOp':
+                        final_name = "{} {}".format(node_op, node_left)
+
+                elif chlid_node.node_type in ['FunctionCall', 'MethodCall', 'NewClass']:
+                    final_name = "{}-{}{}".format(chlid_node.node_type, node_left, node_right)
+
+                elif chlid_node.node_type in ['ObjectProperty', 'StaticProperty', 'StaticMethodCall']:
+                    final_name = node_left
+
+                elif chlid_node.node_type in self.switch_node or chlid_node.node_type in self.import_node:
+                    pass
+
+                elif chlid_node.node_type in ['Assignment']:
+                    final_name = "{} = {}".format(node_left, node_right)
+
+                else:
+                    print('---error-node---')
+                    print(chlid_node)
+
+                # replace
+                node = node.replace(address, final_name)
+
+            return node
+        else:
+            return node
+
+    def deep_get_function_back(self, nodes):
+        """
+        用于获取某个函数的返回值
+        :param return_node:
+        :param nodes:
+        :return:
+        """
+        return_node = False
+
+        for node in nodes[::-1]:
+            if node.source_node == 'return':
+                return_node = self.deep_get_node_name(node.sink_node)
+                now_node = node
+
+                # if not return_node.startswith('Variable-'):
+                #     return_node = False
+                #     continue
+
+        if return_node:
+
+            if self.check_param_controllable(return_node, now_node):
+                return True
+
+            else:
+                return return_node
+
+
+            # now_node = nodes.pop()
+            # now_source_node = self.deep_get_node_name(now_node.source_node)
+            # now_sink_node = self.deep_get_node_name(now_node.sink_node)
+            #
+            # if now_node.node_type == 'Assignment' and now_source_node == return_node:
+            #     return self.deep_get_function_back(nodes, now_sink_node)
+            #
+            #
+            # return return_node
+        else:
+            return False
+
     def check_param_controllable(self, param_name, now_node):
         """
         用于检查当前参数是否可控
@@ -362,6 +543,14 @@ class PhpUnSerChain(BasePluginClass):
         :param now_node: 参数所在的node
         :return:
         """
+        parent_node_list = [param_name]
+
+        if '->' in param_name:
+            parent_node = self.deep_get_node_name(param_name.split('->')[0])
+            child_node = self.deep_get_node_name(param_name.split('->')[1])
+
+            param_name = "{}->{}".format(parent_node, child_node)
+            parent_node_list.append(parent_node)
 
         if 'Variable-$this' in param_name:
             if param_name.startswith('Variable-$this->'):
@@ -375,30 +564,59 @@ class PhpUnSerChain(BasePluginClass):
                         return True
 
                 return False
-
         # 回溯变量
         now_id = now_node.id
         now_locate = now_node.node_locate
 
-        base_locate = "{}.{}".format(now_locate.split('.')[0], now_locate.split('.')[1])
-        back_nodes = self.dataflow_db.objects.filter(id__lt=now_id, node_locate__startswith=base_locate).order_by('-id')
+        if 'Method-' in now_locate:
+            base_locate = "{}.{}.{}".format(now_locate.split('.')[0], now_locate.split('.')[1],
+                                            now_locate.split('.')[2])
+        else:
+            base_locate = "{}.{}".format(now_locate.split('.')[0], now_locate.split('.')[1])
+
+        # check 赋值语句
+        back_nodes = self.dataflow_db.objects.filter(id__lt=now_id, node_locate__startswith=base_locate, node_type='Assignment').order_by('-id')
 
         for back_node in back_nodes:
-            if back_node.node_type == 'Assignment' and back_node.source_node == param_name:
+            if back_node.source_node in parent_node_list:
                 # 找到参数赋值
-                new_param_name = back_node.sink_node
+                new_param_name = self.deep_get_node_name(back_node.sink_node)
 
                 # 递归继续
                 return self.check_param_controllable(new_param_name, back_node)
 
-            elif back_node.node_type == 'Foreach':
-                foreach_params = eval(back_node.sink_node)
-                if param_name in foreach_params:
-                    # 找到参数赋值
-                    new_param_name = foreach_params[0]
+        # foreach 语句，没有找到很好的办法...
+        back_nodes = self.dataflow_db.objects.filter(id__lt=now_id, node_locate__startswith=base_locate,
+                                                     node_type='Foreach').order_by('-id')
 
-                    # 递归继续
-                    return self.check_param_controllable(new_param_name, back_node)
+        for back_node in back_nodes:
+            if param_name == eval(back_node.sink_node)[-1]:
+                # 找到参数赋值
+                new_param_name = self.deep_get_node_name(eval(back_node.sink_node)[0])
+
+                # 递归继续
+                return self.check_param_controllable(new_param_name, back_node)
+
+        # check 当param_name为方法调用
+        if param_name.split('-')[0] in ['MethodCall', 'StaticMethodCall']:
+            method_name = param_name.split('-')[1].split('(')[0]
+            base_locate = "{}.{}".format(now_locate.split('.')[0], now_locate.split('.')[1])
+
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=base_locate, node_type='newMethod',
+                                                           source_node=method_name)
+            if method_nodes:
+                return self.deep_get_function_back(method_nodes)
+
+        # check 在参数里
+        if param_name.startswith('Variable-'):
+            base_locate = "{}.{}.{}".format(now_locate.split('.')[0], now_locate.split('.')[1], now_locate.split('.')[2])
+
+            back_nodes = self.dataflow_db.objects.filter(id__lt=now_id, node_locate__startswith=base_locate,
+                                                         node_type='newMethodparams').order_by('-id')
+
+            for back_node in back_nodes:
+                if 'Variable-{}'.format(back_node.source_node) == param_name:
+                    return True
 
         return False
 
@@ -426,19 +644,20 @@ class PhpUnSerChain(BasePluginClass):
 
         return False
 
-    def deep_search_chain(self, nodes, class_locate, unserchain=[], define_param=(), deepth=0):
+    def deep_search_chain(self, nodes, class_locate, unserchain=[], define_param=(), deepth=0, parent_method=False):
         """
         递归深入反序列化链
-        :param deep: 递归深度
+        :param deepth: 递归深度
         :param define_param: 确定的参数列表
         :param class_locate: 当前class的locate
         :param nodes:   当前class下的nods
         :param unserchain:  全局变量反序列化链
+        :param parent_method:  父方法
         :return:
         """
 
-        if deepth > 20:
-            logger.error("[PhpUnSerChain] Too much deepth. return.")
+        if deepth > 10:
+            logger.warn("[PhpUnSerChain] Too much deepth. return.")
             return False
 
         deepth += 1
@@ -446,9 +665,9 @@ class PhpUnSerChain(BasePluginClass):
         for node in nodes:
             node_locate = node.node_locate
             node_sort = node.node_sort
-            source_node = node.source_node
-            node_type = node.node_type
-            sink_node = node.sink_node
+            source_node = self.deep_get_node_name(node.source_node)
+            node_type = node.node_type.split('-')[0]
+            sink_node = self.deep_get_node_name(node.sink_node)
 
             if self.check_danger_sink(node):
                 unserchain.append(node)
@@ -459,6 +678,10 @@ class PhpUnSerChain(BasePluginClass):
                 new_method_name = source_node[16:]
                 new_source_node = 'Method-' + new_method_name
 
+                # 如果call的方法和父方法相同，则跳出
+                if new_source_node == parent_method:
+                    continue
+
                 # 跟入method
                 unserchain.append(node)
                 logger.debug('[PhpUnSerChain] call new method {}{}'.format(source_node, sink_node))
@@ -467,7 +690,25 @@ class PhpUnSerChain(BasePluginClass):
                 if self.check_dynamic_class_var_exist(source_node, node):
                     # 有两条途径，1是可以调用其他类的b方法，2是可以调用任意类的_call
                     method_name = source_node.split('->')[-1]
-                    call_params = sink_node
+                    call_params = self.deep_get_node_name(sink_node)
+
+                    # 检查 $this->a->$b这种特殊情况
+                    if method_name.startswith('Variable-$'):
+
+                        if self.check_param_controllable(method_name, node):
+                            logger.debug('[PhpUnSerChain] Found Dynamic call in {}'.format(source_node))
+                            status = self.get_any_class_methodcall(method_name, call_params, unserchain=unserchain,
+                                                                   define_param=define_param, deepth=deepth)
+                            if status:
+                                return True
+                            else:
+                                unserchain.pop()
+                                continue
+                        else:
+                            # 这里 $b不为方法参数的情况太复杂了，所以这里直接跳出，忽略
+                            logger.warn('[PhpUnSerChain] Dynamic call in {} un control. continue.'.format(source_node))
+                            unserchain.pop()
+                            continue
 
                     status = self.get_any_methodcall(method_name, call_params, unserchain=unserchain, define_param=define_param, deepth=deepth)
 
@@ -490,12 +731,15 @@ class PhpUnSerChain(BasePluginClass):
 
                     if nmnodes:
                         # 递归进去子方法
-                        status = self.deep_search_chain(nmnodes, class_locate, unserchain, define_param=define_param, deepth=deepth)
+                        status = self.deep_search_chain(nmnodes, class_locate, unserchain, define_param=define_param, deepth=deepth, parent_method=new_source_node)
 
                         if status:
                             return True
 
+                        else:
+                            unserchain.pop()
                     else:
+                        unserchain.pop()
                         return False
                 else:
                     logger.debug('[PhpUnSerChain] Found Method {} Failed in {}'.format(new_source_node, class_locate))
@@ -521,15 +765,19 @@ class PhpUnSerChain(BasePluginClass):
                                 unserchain.extend(new_unserchain)
                                 return True
 
-                    # 去找当前class节点，寻找继承类
+                    # 去找当前class节点，寻找继承类/子类
                     now_class = class_locate.split('.')[-1]
                     find_method_name = new_source_node
 
-                    self.find_prototype_class(now_class, find_method_name, unserchain, define_param=define_param, deepth=deepth)
+                    status = self.find_prototype_class(now_class, find_method_name, unserchain, define_param=define_param, deepth=deepth)
+
+                    if status:
+                        return True
 
                     continue
 
             elif node_type == 'StaticMethodCall':
+                # 一般来说，涉及到staticmethodcall 都是外部调用，不适用于大部分反序列化调用链追溯的情况，暂不考虑优化
                 pass
 
             elif node_type in self.switch_node:
@@ -563,7 +811,14 @@ class PhpUnSerChain(BasePluginClass):
                     if self.follow_call_from_sink_node(node_right, unserchain=unserchain, define_param=define_param, deepth=deepth):
                         return True
 
-            elif node_type in ['FunctionCall', 'newMethodparams', 'MethodCall']:
+            elif node_type in ['FunctionCall', 'newMethodparams', 'MethodCall', 'NewClass']:
+                pass
+
+            elif node_type in self.op_node:
+                pass
+
+            elif node_type in ['ObjectProperty']:
+                # 表示内部变量调用，如$this->d
                 pass
 
             else:
@@ -616,7 +871,7 @@ class PhpUnSerChain(BasePluginClass):
 
                             if new_class_method_nodes:
                                 # 递归进去子方法
-                                status = self.deep_search_chain(new_class_method_nodes, new_class_locate, unserchain, define_param=define_param, deepth=deepth)
+                                status = self.deep_search_chain(new_class_method_nodes, new_class_locate, new_unserchain, define_param=define_param, deepth=deepth)
 
                                 if status:
                                     unserchain.extend(new_unserchain)
@@ -625,5 +880,52 @@ class PhpUnSerChain(BasePluginClass):
                             logger.debug('[PhpUnSerChain] Found Method {} Failed in Prototype Class {}.'.format(find_method_name, now_class_extend_class))
 
                             continue
+
+        # 如果向原型类寻找没有结果，那么尝试向子类寻找
+        now_class_name = now_class.split('-')[1]
+
+        nc2s = self.dataflow_db.objects.filter(node_type='newClass', sink_node__contains=now_class_name)
+
+        for nc2 in nc2s:
+            now_class_extend_classs = eval(nc2.sink_node)
+            if len(now_class_extend_classs) > 0 and now_class_name in now_class_extend_classs:
+                child_class = self.deep_get_node_name(nc2.source_node)
+                new_child_class_name = child_class
+
+                # 找到子类寻找对应方法
+                logger.debug('[PhpUnSerChain] Found Child Class {} in {}. '.format(child_class, nc2.node_locate))
+
+                # 向下寻找方法
+                new_class_locate = nc2.node_locate + '.' + new_child_class_name
+
+                # 先检查新的class中是否存在该method
+                new_class_method = self.dataflow_db.objects.filter(node_locate=new_class_locate,
+                                                                   source_node=find_method_name,
+                                                                   node_type='newMethod').first()
+
+                if new_class_method:
+                    # 子类中存在这个方法，递归分析
+                    new_unserchain = [nc]
+
+                    new_class_method_locate = new_class_locate + '.' + find_method_name
+
+                    new_class_method_nodes = self.dataflow_db.objects.filter(
+                        node_locate__startswith=new_class_method_locate,
+                        node_sort__gte=1)
+
+                    if new_class_method_nodes:
+                        # 递归进去子方法
+                        status = self.deep_search_chain(new_class_method_nodes, new_class_locate, new_unserchain,
+                                                        define_param=define_param, deepth=deepth)
+
+                        if status:
+                            unserchain.extend(new_unserchain)
+                            return True
+                else:
+                    logger.debug(
+                        '[PhpUnSerChain] Found Method {} Failed in Child Class {}.'.format(find_method_name,
+                                                                                               child_class))
+
+                    continue
 
         return False

@@ -97,8 +97,12 @@ def get_dataflow_table(name, isnew=False):
     return DataFlowTemplate
 
 
-def get_dataflow_class(name, isnew=False):
+def get_dataflow_class(name, isnew=False, isrenew=False):
     DateflowObject = get_dataflow_table(name, isnew)
+
+    if DateflowObject.is_exists() and isrenew:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.delete_model(DateflowObject)
 
     if not DateflowObject.is_exists():
         with connection.schema_editor() as schema_editor:
