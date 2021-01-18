@@ -531,16 +531,12 @@ class FileParseAll:
 
 
 class Directory(object):
-    file_sum = 0
-    type_nums = None
-    result = None
-    file = None
-
     def __init__(self, absolute_path, black_path_list=None, lans=None):
         black_path_list = black_path_list or []
-        self.type_nums = self.type_nums or {}
-        self.result = self.result or {}
-        self.file = self.file or []
+        self.file_sum = 0
+        self.type_nums = {}
+        self.result = {}
+        self.file = []
 
         self.absolute_path = absolute_path
         self.black_path_list = default_black_list
