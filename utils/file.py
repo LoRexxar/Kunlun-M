@@ -531,7 +531,17 @@ class FileParseAll:
 
 
 class Directory(object):
-    def __init__(self, absolute_path, black_path_list=[], lans=None):
+    file_sum = 0
+    type_nums = None
+    result = None
+    file = None
+
+    def __init__(self, absolute_path, black_path_list=None, lans=None):
+        black_path_list = black_path_list or []
+        self.type_nums = self.type_nums or {}
+        self.result = self.result or {}
+        self.file = self.file or []
+
         self.absolute_path = absolute_path
         self.black_path_list = default_black_list
 
@@ -546,11 +556,6 @@ class Directory(object):
         else:
             for lan in ext_dict:
                 self.ext_list.extend(ext_dict[lan])
-
-    file_sum = 0
-    type_nums = {}
-    result = {}
-    file = []
 
     """
     :return {'.php': {'count': 2, 'list': ['/path/a.php', '/path/b.php']}}, file_sum, time_consume
