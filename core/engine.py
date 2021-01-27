@@ -14,6 +14,7 @@
 import json
 import os
 import re
+import shutil
 import asyncio
 import traceback
 import portalocker
@@ -282,11 +283,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     continue
                 show_context(c[2], c[3])
 
-            if hasattr(os, 'get_terminal_size'):
-                logger.info("[SCAN] ending\r\n" + '-' * (os.get_terminal_size().columns - 16))
-            else:
-                logger.info(
-                    "[SCAN] ending\r\n -------------------------------------------------------------------------")
+            logger.info("[SCAN] ending\r\n" + '-' * (shutil.get_terminal_size().columns - 16))
 
         if len(diff_rules) > 0:
             logger.info(
