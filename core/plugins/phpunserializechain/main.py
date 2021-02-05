@@ -276,7 +276,7 @@ class PhpUnSerChain(BasePluginClass):
         logger.debug("[PhpUnSerChain] trigger {}{}. try to found it.".format(method_node_name, call_params))
 
         for node in call_nodes:
-            logger.debug("[PhpUnSerChain] Found New () in {}".format(method_node_name, node.node_locate))
+            logger.debug("[PhpUnSerChain] Found New {} in {}".format(method_node_name, node.node_locate))
 
             # 为了不影响数据，要先生成新的
             newunserchain = [node]
@@ -396,11 +396,11 @@ class PhpUnSerChain(BasePluginClass):
         :return:
         """
         self.danger_function = {'call_user_func': [0],
-                                'call_user_func_array': [0,1],
+                                'call_user_func_array': [0, 1],
                                 'eval': [0],
                                 'system': [0],
-                                'file_put_contents': [0,1],
-                                'create_function': [0,1],
+                                'file_put_contents': [0, 1],
+                                'create_function': [0, 1],
                                 }
 
         self.indirect_danger_function = {
