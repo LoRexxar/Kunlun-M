@@ -279,7 +279,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.info("[SCAN] Vul {}".format(d[0]))
             for c in d[1]:
                 logger.info("[Chain] {}".format(c))
-                if type(c) is not tuple:
+                if type(c) is not tuple and not c[3] is None:
                     continue
                 show_context(c[2], c[3])
 

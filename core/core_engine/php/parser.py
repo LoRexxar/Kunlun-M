@@ -1268,7 +1268,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                                 "[AST][INCLUDE] The include file name has an unknown parameter {}.".format(param))
 
                             file_path = os.path.normpath(file_path)
-                            code = "find {} in Include path".format(param, file_path)
+                            code = "find {} in Include path {}".format(param, file_path)
                             scan_chain.append(('IncludePath', code, file_path, node.lineno))
 
                             is_co, ccp, expr_lineno = deep_parameters_back(param, back_node[:back_node.index(node)],
