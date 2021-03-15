@@ -188,9 +188,9 @@ class FileParseAll:
                     if char == '\n':
                         isinlinecomment = False
 
-                    lastchar = ''
-                    backstr += '\n'
-                    continue
+                        lastchar = ''
+                        backstr += '\n'
+                        continue
 
                 if char == '\n':
                     backstr += '\n'
