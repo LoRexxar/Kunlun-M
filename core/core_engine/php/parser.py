@@ -505,8 +505,9 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
                 for function_node in function_nodes:
                     if isinstance(function_node, php.Return):
                         return_node = function_node.node
-                        return_param = return_node.node
-                        is_co, cp, expr_lineno = parameters_back(return_param, function_nodes, function_params,
+                        # return_param = return_node.node
+
+                        is_co, cp, expr_lineno = parameters_back(return_node, function_nodes, function_params,
                                                                  vul_function=vul_function, file_path=file_path,
                                                                  isback=isback, parent_node=parent_node)
 
@@ -733,7 +734,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         _cp = None
 
         # 加入扫描范围check, 如果当前行数大于目标行数，直接跳过(等于会不会有问题呢？)
-        if node.lineno >= int(lineno):
+        if node.lineno >= int(lineno) and int(lineno) != 0:
             return parameters_back(param, nodes[:-1], function_params, lineno,
                                    function_flag=0, vul_function=vul_function,
                                    file_path=file_path,
@@ -1267,7 +1268,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
                                 "[AST][INCLUDE] The include file name has an unknown parameter {}.".format(param))
 
                             file_path = os.path.normpath(file_path)
-                            code = "find {} in Include path".format(param, file_path)
+                            code = "find {} in Include path {}".format(param, file_path)
                             scan_chain.append(('IncludePath', code, file_path, node.lineno))
 
                             is_co, ccp, expr_lineno = deep_parameters_back(param, back_node[:back_node.index(node)],

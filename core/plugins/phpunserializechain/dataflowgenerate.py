@@ -688,7 +688,6 @@ class DataflowGenerate:
                         node_nodes = self.get_node_nodes(node.node)
 
                     else:
-                        print(node)
                         continue
 
                     # add now dataflow
@@ -856,7 +855,7 @@ class DataflowGenerate:
                     continue
 
                 else:
-                    print(node)
+                    pass
 
             except KeyboardInterrupt:
                 raise

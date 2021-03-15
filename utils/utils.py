@@ -705,9 +705,11 @@ def file_output_format(content):
 
 def show_context(filename, line_number, show_line=3, is_back=False):
     filename = check_filepath(PROJECT_DIRECTORY, filename)
-    line_start = int(line_number) - show_line
+
+    line_number = line_number if line_number else 0
+    line_start = int(line_number) - show_line if (int(line_number) - show_line) > 0 else 0
     line_start = line_start if line_start else 1
-    line_end = int(line_number) + show_line
+    line_end = int(line_start) + show_line + show_line
 
     lines = get_line(filename, "{},{}".format(line_start, line_end))
 
