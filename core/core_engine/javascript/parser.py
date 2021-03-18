@@ -581,7 +581,7 @@ def new_back(param, nodes, function_params, file_path=None, isback=False, vul_fu
 
                         file_path = os.path.normpath(file_path)
                         code = "{}={}".format(get_member_data(expression.left), get_member_data(member_right))
-                        scan_chain.append(('Assignment', code, file_path, node.lineno))
+                        scan_chain.append(('Assignment', code, file_path, expression.loc.start.line))
 
                         param = member_right
 
@@ -606,7 +606,7 @@ def new_back(param, nodes, function_params, file_path=None, isback=False, vul_fu
 
                         file_path = os.path.normpath(file_path)
                         code = "{}={}".format(get_member_data(expression.left), get_member_data(member_right))
-                        scan_chain.append(('Assignment', code, file_path, node.lineno))
+                        scan_chain.append(('Assignment', code, file_path, expression.loc.start.line))
 
                         param = member_right
 
@@ -908,7 +908,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 file_path = os.path.normpath(file_path)
                 code = "{}={}".format(param_name, param_expr_name)
-                scan_chain.append(('Assignment', code, file_path, node.lineno))
+                scan_chain.append(('Assignment', code, file_path, expr_lineno))
 
                 is_co, cp = is_controllable(param_expr)
 
@@ -934,7 +934,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     file_path = os.path.normpath(file_path)
                     code = "new merge param {}".format(get_member_data(param))
-                    scan_chain.append(('NewParam', code, file_path, node.lineno))
+                    scan_chain.append(('NewParam', code, file_path, expr_lineno))
 
                     is_co, cp = is_controllable(param)
                 else:
@@ -952,7 +952,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 file_path = os.path.normpath(file_path)
                 code = "New function object passing to {}".format(new_function_name)
-                scan_chain.append(('NewFunction', code, file_path, new_function_name))
+                scan_chain.append(('NewFunction', code, file_path, lineno))
 
                 is_co = 4
                 cp = tuple([node.id, param, vul_function])
@@ -971,7 +971,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     file_path = os.path.normpath(file_path)
                     code = "New function object transfer to {}".format(new_function_name)
-                    scan_chain.append(('NewFunction', code, file_path, new_function_name))
+                    scan_chain.append(('NewFunction', code, file_path, lineno))
 
                     # 处理"prototype"问题
 
@@ -990,7 +990,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     file_path = os.path.normpath(file_path)
                     code = "{}={}".format(param_name, param_expr_name)
-                    scan_chain.append(('Assignment', code, file_path, node.lineno))
+                    scan_chain.append(('Assignment', code, file_path, expr_lineno))
 
                     is_co, cp = is_controllable(param_expr_name)
 
@@ -1017,7 +1017,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                         file_path = os.path.normpath(file_path)
                         code = "new merge param {}".format(get_member_data(param))
-                        scan_chain.append(('NewParam', code, file_path, node.lineno))
+                        scan_chain.append(('NewParam', code, file_path, expr_lineno))
 
                         is_co, cp = is_controllable(param)
 
@@ -1059,7 +1059,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                             file_path = os.path.normpath(file_path)
                             code = "new merge Object method {}".format(get_member_data(param))
-                            scan_chain.append(('NewParam', code, file_path, node.lineno))
+                            scan_chain.append(('NewParam', code, file_path, expr_lineno))
 
                             is_co, cp = is_controllable(param)
 
@@ -1092,7 +1092,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     file_path = os.path.normpath(file_path)
                     code = "New function object transfer to {}".format(new_function_name)
-                    scan_chain.append(('NewFunction', code, file_path, new_function_name))
+                    scan_chain.append(('NewFunction', code, file_path, lineno))
 
                     is_co = 4
                     cp = tuple([expression.left.name, "evalobject", vul_function])
