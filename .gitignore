@@ -75,6 +75,7 @@ scheduler/reports/
 
 # venv
 cobra-venv/*
+venv/*
 
 # phply
 parsetab.py
@@ -120,3 +121,8 @@ debug.log
 
 # django
 manage.py
+
+# auto-generated-files
+web/backend/migrations/0002_delete_tasks.py
+web/dashboard/migrations/*_auto_*.py
+
