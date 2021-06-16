@@ -305,8 +305,11 @@ class DataflowGenerate:
         if type(node) is list:
             return node
 
-        if isinstance(node, php.Block):
+        elif isinstance(node, php.Block):
             result_nodes = node.nodes
+
+        else:
+            result_nodes = [node]
 
         return result_nodes
 

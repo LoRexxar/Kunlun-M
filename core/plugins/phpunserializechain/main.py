@@ -79,6 +79,7 @@ class PhpUnSerChain(BasePluginClass):
     def main(self):
 
         self.get_destruct()
+        # self.get_any_methodcall("YvGvAn", (), isnew=True)
 
     def get_destruct(self):
 
@@ -257,7 +258,7 @@ class PhpUnSerChain(BasePluginClass):
 
         return False
 
-    def get_any_methodcall(self, method_name, call_params, unserchain=[], define_param=(), deepth=0):
+    def get_any_methodcall(self, method_name, call_params, unserchain=[], define_param=(), deepth=0, isnew=False):
         """
         可以调用任意类的某个方法，跟踪分析
         :param method_name:
@@ -291,8 +292,19 @@ class PhpUnSerChain(BasePluginClass):
                                             deepth=deepth)
 
             if status:
-                unserchain.extend(newunserchain)
-                return True
+                if isnew:
+                    logger.info(
+                        "[PhpUnSerChain] New Source {}{} in {}".format(method_node_name, node.sink_node, node.node_locate))
+
+                    for unsernode in unserchain:
+                        logger.info("{}".format(unsernode.node_locate.ljust(100, ' ')))
+                        logger_console.warn(
+                            "{}   {}{}".format(unsernode.node_type.ljust(30, ' '), unsernode.source_node,
+                                               self.deep_get_node_name(unsernode.sink_node)))
+                    logger.info("[PhpUnSerChain] UnSerChain is available.")
+                else:
+                    unserchain.extend(newunserchain)
+                    return True
 
         return False
 
@@ -409,9 +421,10 @@ class PhpUnSerChain(BasePluginClass):
                                 }
 
         if node.node_type == 'FunctionCall' and node.source_node in self.danger_function:
-            sink_node = eval(node.sink_node)
+            sink_node = eval(node.sink_node) if node.sink_node.startswith('(') else (node.sink_node)
 
             if len(sink_node) >= len(self.danger_function[node.source_node]):
+
                 # 必须有更多参数
                 for i in self.danger_function[node.source_node]:
                     if self.check_param_controllable(sink_node[i], node):
@@ -656,7 +669,7 @@ class PhpUnSerChain(BasePluginClass):
         :return:
         """
 
-        if deepth > 10:
+        if deepth > 40:
             logger.warn("[PhpUnSerChain] Too much deepth. return.")
             return False
 
