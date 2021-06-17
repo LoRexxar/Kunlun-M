@@ -115,10 +115,9 @@ def get_dataflow_class(name, isnew=False, isrenew=False):
 
 
 # 结果流模板表
-def get_resultflow_table(prefix):
+def get_resultflow_table(table_name):
     # prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
 
-    table_name = "ResultFlow_{:04d}".format(prefix)
 
     class ResultFlowTemplate(models.Model):
         vul_id = models.IntegerField()
@@ -139,9 +138,17 @@ def get_resultflow_table(prefix):
 
 def get_resultflow_class(prefix):
 
-    ResultflowObject = get_resultflow_table(prefix)
+    table_name = "ResultFlow_{:08d}".format(prefix)
+
+    ResultflowObject = get_resultflow_table(table_name)
 
     if not ResultflowObject.is_exists():
+        old_table_name = "ResultFlow_{:04d}".format(prefix)
+        oldResultflowObject = get_resultflow_table(old_table_name)
+
+        if oldResultflowObject.is_exists():
+            return oldResultflowObject
+
         with connection.schema_editor() as schema_editor:
             schema_editor.create_model(ResultflowObject)
 
