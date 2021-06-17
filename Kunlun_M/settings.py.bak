@@ -191,3 +191,6 @@ elif "Linux" in platform_pack.system():
     PLATFORM = "linux"
 elif "Darwin" in platform_pack.system():
     PLATFORM = "mac"
+
+# api profile
+API_TOKEN = "secret_api_token"

@@ -186,7 +186,7 @@ $(document).ready(function(){
   $("#tasks").find("ul").css("display","block");
 
   $("button#result").click(function () {
-      location.href = "{% url 'backend:tasklog' task.id %}";
+      location.href = "{% url 'backend:tasklog' task.id %}?token={{ visit_token }}";
     });
 });
 </script>

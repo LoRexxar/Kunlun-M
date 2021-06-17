@@ -10,12 +10,15 @@ from django import db
 from Kunlun_M.const import TAMPER_TYPE
 from utils.log import logger
 
+import uuid
+
 
 class ScanTask(models.Model):
     task_name = models.CharField(max_length=50)
     target_path = models.CharField(max_length=300)
     parameter_config = models.CharField(max_length=100)
     last_scan_time = models.DateTimeField(auto_now=True)
+    visit_token = models.CharField(max_length=64, default=uuid.uuid4)
     is_finished = models.BooleanField(default=False)
 
 
