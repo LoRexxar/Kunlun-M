@@ -45,10 +45,10 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def check_scantask(task_name, target_path, parameter_config):
+def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
     s = ScanTask.objects.filter(task_name=task_name, target_path=target_path, parameter_config=parameter_config, is_finished=1).order_by("-id").first()
 
-    if s:
+    if s and not auto_yes:
         logger.warning("[INIT] ScanTask for {} has been executed.".format(task_name))
         logger.warning("[INIT] whether rescan Task {}?(Y/N) (Default N)".format(task_name))
 

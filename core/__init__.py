@@ -19,7 +19,7 @@ import logging
 import traceback
 
 from django.core.management import call_command
-from utils.log import log, logger, log_add
+from utils.log import log, logger, log_add, log_rm
 from utils.utils import get_mainstr_from_filename, get_scan_id
 from utils.file import load_kunlunmignore
 
@@ -68,8 +68,16 @@ def main():
         parser_group_scan.add_argument('-lan', '--language', dest='language', action='store', default=None, help='set target language')
         parser_group_scan.add_argument('-b', '--blackpath', dest='black_path', action='store', default=None, help='black path list')
 
+        # for api
+        parser_group_scan.add_argument('-a', '--api', dest='api', action='store_true', default=False,
+                                       help='without any output for shell')
+        parser_group_scan.add_argument('-y', '--yes', dest='yes', action='store_true', default=False,
+                                       help='without any output for shell')
+
+        # for log
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
 
+        # for scan profile
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
@@ -124,7 +132,6 @@ def main():
 
         if hasattr(args, "debug") and args.debug:
             logger.setLevel(logging.DEBUG)
-            logger.debug('[INIT] set logging level: debug')
 
         if hasattr(args, "init"):
             logger.info('Init Database for KunLun-M.')
@@ -199,11 +206,16 @@ def main():
             parser.print_help()
             exit()
 
+        # for api colse log
+        if hasattr(args, "api") and args.api:
+            log_rm()
+
         logger.debug('[INIT] start Scan Task...')
+        logger.debug('[INIT] set logging level: {}'.format(logger.level))
 
         # new scan task
         task_name = get_mainstr_from_filename(args.target)
-        s = cli.check_scantask(task_name=task_name, target_path=args.target, parameter_config=sys.argv)
+        s = cli.check_scantask(task_name=task_name, target_path=args.target, parameter_config=sys.argv, auto_yes=args.yes)
 
         if s.is_finished:
             logger.info("[INIT] Finished Task.")
@@ -211,7 +223,13 @@ def main():
 
         # 标识任务id
         sid = str(s.id)
-        get_scan_id()
+        task_id = get_scan_id()
+
+        #  for api
+        if hasattr(args, "api") and args.api:
+            print("TaskID: {}".format(task_id))
+        else:
+            logger.info("TaskID: {}".format(task_id))
 
         if hasattr(args, "log") and args.log:
             logger.info("[INIT] New Log file {}.log .".format(args.log))
@@ -219,10 +237,6 @@ def main():
         else:
             logger.info("[INIT] New Log file ScanTask_{}.log .".format(sid))
             log_add(logging.INFO, "ScanTask_{}".format(sid))
-
-        if hasattr(args, "debug") and args.debug:
-            logger.setLevel(logging.DEBUG)
-            logger.debug('[INIT] set logging level: debug')
 
         data = {
             'status': 'running',
