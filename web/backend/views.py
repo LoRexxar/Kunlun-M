@@ -59,7 +59,7 @@ def tasklog(req, task_id):
             'content': rf.node_content,
             'path': rf.node_path,
             'lineno': rf.node_lineno,
-            'details': show_context(rf.node_path, rf.node_lineno)
+            'details': show_context(rf.node_path, rf.node_lineno, is_back=True)
         }
 
         resultflowdict[rf.vul_id]['flow'].append(rfdict)
