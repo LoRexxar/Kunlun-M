@@ -25,7 +25,7 @@ RUN apt-get install -y libmysqlclient-dev
 RUN apt-get install -y nginx
 
 # install
-COPY ../ /home/kunlun-m
+COPY ./ /home/kunlun-m
 WORKDIR /home/kunlun-m
 
 RUN python3 -m pip install -r requirements.txt
