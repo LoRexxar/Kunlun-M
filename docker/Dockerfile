@@ -11,7 +11,7 @@ ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
 RUN apt-get update \
-    && apt-get install -y vim inetutils-ping curl ssh zip python3 python3-pip
+    && apt-get install -y vim inetutils-ping curl ssh zip python3 python3-pip gunicorn
 
 # python换源
 RUN mkdir /root/.pip
