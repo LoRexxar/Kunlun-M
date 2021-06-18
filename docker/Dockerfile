@@ -5,9 +5,7 @@ LABEL maintainer="LoRexxar <guoyinqi@xiaomi.com>"
 RUN sed -i "s/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g" /etc/apt/sources.list && sed -i "s/archive.ubuntu.com/ubuntu/g" /etc/apt/sources.list
 
 RUN apt-get update \
-    && apt-get install -y vim inetutils-ping curl ssh zip python3 python3-pip \
-    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
-    && locale-gen
+    && apt-get install -y vim inetutils-ping curl ssh zip python3 python3-pip
 
 # Set the locale
 ENV LANG en_US.UTF-8
