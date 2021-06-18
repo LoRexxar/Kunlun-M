@@ -35,9 +35,8 @@ RUN python3 kunlun.py init
 
 # nginx config
 COPY /docker/nginx.conf /etc/nginx/
+RUN mkdir /data && mkdir /data/log
 RUN /etc/init.d/nginx start
-
-RUN mkdir /data && mkdir /data/log && mkdir /data/log/
 
 RUN python3 -m pip install supervisor
 
