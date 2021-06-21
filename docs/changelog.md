@@ -222,3 +222,8 @@
 - 2021-05-13
     - KunLun-M 2.2.0
     - 更新了关于Chrome Ext的安全性扫描规则
+- 2021-06-21
+    - KunLun-M 2.3.0
+    - 增加了web模式的/api以及基于token的访问方式 #144
+    - 增加了--api/-y用于三方调用kunlun-M #144
+    - 增加了官方DockerFile允许kunlun-m以服务化的方案运行 #144

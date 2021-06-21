@@ -138,6 +138,16 @@ cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
 python kunlun.py init
 ```
 
+### docker安装
+
+通过docker安装，默认启动web模式
+
+```
+sudo docker build -t kunlun-m -f ./docker/Dockerfile .
+```
+
+配合链接同Mysql可以实现本地扫描，web端查看结果。
+
 ## Usage
 
 ### cli mode
@@ -164,6 +174,35 @@ python3 kunlun.py show tamper         # 展示所有的tamper
 ```
 
 使用不同子模式的-h可以查看详细的帮助文档。
+
+
+### web mode
+KunLun-M Dashbroad，并且允许通过apitoken来访问api获取数据
+
+默认9999端口
+```
+python3 .\kunlun.py web 9999
+```
+
+![](docs/web.png)
+
+修改`KunLun-M/settings.py`中的api-token，通过?token={api_token}访问api获取数据
+```
+# api profile
+API_TOKEN = "secret_api_token"
+```
+
+Api List
+```
+task/list                                       查看task列表
+task/<int:task_id>                              查看task详细信息
+task/<int:task_id>/result                       查看task扫描结果
+task/<int:task_id>/resultflow                   查看task扫描结果流
+task/<int:task_id>/newevilfunc                  查看task扫描后生成的新恶意函数
+
+rule/list                                       查看规则列表
+rule/<int:rule_id>                              查看规则细节
+```
 
 ### console mode
 
@@ -207,20 +246,6 @@ KunLun-M (root) >
 #### 使用KunLun-M 查看扫描结果
 
 [![asciicast](https://asciinema.org/a/360845.svg)](https://asciinema.org/a/360845)
-
-### web mode
-KunLun-M Dashbroad
-
-删除了相关的动态操作，仅保留了查看扫描结果日志等功能（不建议使用
-
-默认9999端口
-```
-python3 .\kunlun.py web 9999
-```
-
-
-![](docs/web.png)
-
 
 ### plugin mode
 
