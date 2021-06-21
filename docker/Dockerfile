@@ -40,7 +40,8 @@ RUN /etc/init.d/nginx start
 
 RUN python3 -m pip install supervisor
 
-RUN /usr/local/bin/supervisord -c /home/kunlun-m/docker/supervisord.conf
-RUN /usr/local/bin/supervisorctl -c /home/kunlun-m/docker/supervisord.conf start all
+COPY /docker/supervisord.conf /etc/
+RUN /usr/local/bin/supervisord
+RUN /usr/local/bin/supervisorctl start all
 
 EXPOSE 80
