@@ -4,13 +4,14 @@
 # @Author  : LoRexxar
 # @File    : tasks.py
 # @Contact : lorexxar@gmail.com
-
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseNotFound
 from django.views.generic import TemplateView
 from django.views import View
 from django.shortcuts import render, redirect
 
 from Kunlun_M.settings import SUPER_ADMIN
+from web.index.controller import login_or_token_required
 
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc
 
@@ -37,8 +38,14 @@ class TaskDetailView(View):
     """展示当前任务细节"""
 
     @staticmethod
+    @login_or_token_required
     def get(request, task_id):
         task = ScanTask.objects.filter(id=task_id).first()
+        visit_token = ""
+
+        if 'token' in request.GET:
+            visit_token = request.GET['token']
+
         taskresults = ScanResultTask.objects.filter(scan_task_id=task_id).all()
         newevilfuncs = NewEvilFunc.objects.filter(scan_task_id=task_id).all()
 
@@ -55,5 +62,6 @@ class TaskDetailView(View):
                 'task': task,
                 'taskresults': taskresults,
                 'newevilfuncs': newevilfuncs,
+                'visit_token': visit_token
             }
             return render(request, 'dashboard/tasks/task_detail.html', data)

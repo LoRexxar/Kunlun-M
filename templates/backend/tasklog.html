@@ -171,11 +171,11 @@
           $("#tasks").find("ul").css("display","block");
 
           $("button#dlog").click(function () {
-              location.href="{% url 'backend:debuglog' task.id %}";
+              location.href="{% url 'backend:debuglog' task.id %}?token={{ visit_token }}";
           })
 
           $("button#ddlog").click(function () {
-              location.href="{% url 'backend:downloadlog' task.id %}";
+              location.href="{% url 'backend:downloadlog' task.id %}?token={{ visit_token }}";
           })
       });
 </script>

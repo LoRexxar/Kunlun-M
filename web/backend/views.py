@@ -11,6 +11,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, HttpResponse
 
+from web.index.controller import login_or_token_required
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, get_resultflow_class
 from utils.utils import show_context
 
@@ -21,9 +22,13 @@ def index(request):
     return HttpResponse("Nothing here.")
 
 
-@login_required
+@login_or_token_required
 def tasklog(req, task_id):
     task = ScanTask.objects.filter(id=task_id).first()
+    visit_token = ""
+
+    if 'token' in req.GET:
+        visit_token = req.GET['token']
 
     # check task是否存在
     if not task:
@@ -54,7 +59,7 @@ def tasklog(req, task_id):
             'content': rf.node_content,
             'path': rf.node_path,
             'lineno': rf.node_lineno,
-            'details': show_context(rf.node_path, rf.node_lineno)
+            'details': show_context(rf.node_path, rf.node_lineno, is_back=True)
         }
 
         resultflowdict[rf.vul_id]['flow'].append(rfdict)
@@ -65,14 +70,19 @@ def tasklog(req, task_id):
         "taskresults": srts,
         "newevilfuncs": nefs,
         "resultflowdict": resultflowdict,
+        'visit_token': visit_token
     }
     return render(req, 'backend/tasklog.html', data)
 
 
-@login_required
+@login_or_token_required
 def debuglog(req, task_id):
 
     task = ScanTask.objects.filter(id=task_id).first()
+    visit_token = ""
+
+    if 'token' in req.GET:
+        visit_token = req.GET['token']
 
     # check task是否存在
     if not task:
@@ -94,11 +104,12 @@ def debuglog(req, task_id):
     data = {
         "task": task,
         "debuglog_content": debuglog_content,
+        'visit_token': visit_token
     }
     return render(req, 'backend/debuglog.html', data)
 
 
-@login_required
+@login_or_token_required
 def downloadlog(req, task_id):
     task = ScanTask.objects.filter(id=task_id).first()
 

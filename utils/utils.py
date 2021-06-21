@@ -718,10 +718,11 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     i = 0
     for line in lines:
 
-        if line_start + i == int(line_number):
-            logger_console.warning("%4d: %s" % (line_start+i, line.replace("\n", "")))
-        else:
-            logger_console.info("%4d: %s" % (line_start+i, line.replace("\n", "")))
+        if not is_back:
+            if line_start + i == int(line_number):
+                logger_console.warning("%4d: %s" % (line_start+i, line.replace("\n", "")))
+            else:
+                logger_console.info("%4d: %s" % (line_start+i, line.replace("\n", "")))
 
         contents += "%4d: %s" % (line_start+i, line)
         i += 1

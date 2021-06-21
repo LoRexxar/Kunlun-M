@@ -4,7 +4,7 @@
 # @Author  : LoRexxar
 # @File    : tamper.py
 # @Contact : lorexxar@gmail.com
-
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseNotFound
 from django.views.generic import TemplateView
 from django.views import View
@@ -49,6 +49,7 @@ class TamperDetailView(View):
     """展示当前任务细节"""
 
     @staticmethod
+    @login_required
     def get(request, task_id):
         tampers = Tampers.objects.all()
 

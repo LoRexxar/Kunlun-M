@@ -39,7 +39,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'web.index',
     'web.dashboard',
-    'web.backend'
+    'web.backend',
+    'web.api',
 ]
 
 MIDDLEWARE = [
@@ -191,3 +192,6 @@ elif "Linux" in platform_pack.system():
     PLATFORM = "linux"
 elif "Darwin" in platform_pack.system():
     PLATFORM = "mac"
+
+# api profile
+API_TOKEN = "secret_api_token"

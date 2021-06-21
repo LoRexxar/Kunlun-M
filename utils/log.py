@@ -100,4 +100,16 @@ def log_console():
     logger_console.setLevel(logging.DEBUG)
 
 
+def log_rm():
+    for handler in logger.handlers:
+        if handler.__str__() == colorlog.StreamHandler().__str__():
+            logger.removeHandler(handler)
+
+    for handler in logger_console.handlers:
+        if handler.__str__() == colorlog.StreamHandler().__str__():
+            logger_console.removeHandler(handler)
+
+    logger_console.setLevel(logging.ERROR)
+
+
 log_console()

@@ -4,7 +4,7 @@
 # @Author  : LoRexxar
 # @File    : rules.py
 # @Contact : lorexxar@gmail.com
-
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseNotFound
 from django.shortcuts import render
 from django.views import View
@@ -30,6 +30,7 @@ class RuleDetailView(View):
     """展示规则细节"""
 
     @staticmethod
+    @login_required
     def get(request, rule_id):
         row = Rules.objects.filter(id=rule_id).first()
 
