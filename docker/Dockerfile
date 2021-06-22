@@ -41,8 +41,9 @@ RUN /etc/init.d/nginx start
 RUN python3 -m pip install supervisor
 
 COPY /docker/supervisord.conf /etc/
+COPY /docker/start.sh /
 RUN /usr/local/bin/supervisord && /usr/local/bin/supervisorctl start all
 
-ENTRYPOINT ["service", "nginx", "start", "&&", "/usr/local/bin/supervisord", "-n"]
+ENTRYPOINT ["/start.sh"]
 
 EXPOSE 80
