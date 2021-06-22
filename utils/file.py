@@ -15,10 +15,12 @@
 import re
 import os
 import time
+import json
 import codecs
+import zipfile
 import traceback
+import jsbeautifier
 from utils.log import logger
-from core.pretreatment import ast_object
 from Kunlun_M.const import ext_dict, default_black_list, IGNORE_LIST
 from Kunlun_M.settings import IGNORE_PATH
 
@@ -52,6 +54,79 @@ def file_list_parse(filelist, language=None):
             result.extend(file[1]['list'])
 
     return result
+
+
+def un_zip(target_path):
+    """
+    解压缩目标压缩包
+    实现新需求，解压缩后相应的js文件做代码格式化
+    :return:
+    """
+
+    logger.info("[Pre][Unzip] Upzip file {}...".format(target_path))
+
+    if not os.path.isfile(target_path):
+        logger.warn("[Pre][Unzip] Target file {} is't exist...pass".format(target_path))
+        return False
+
+    zip_file = zipfile.ZipFile(target_path)
+    target_file_path = target_path + "_files/"
+
+    if os.path.isdir(target_file_path):
+        logger.debug("[Pre][Unzip] Target files {} is exist...continue".format(target_file_path))
+        return target_file_path
+    else:
+        os.mkdir(target_file_path)
+
+    for names in zip_file.namelist():
+        zip_file.extract(names, target_file_path)
+
+        # 对其中部分文件中为js的时候，将js代码格式化便于阅读
+        if names.endswith(".js"):
+            file_path = os.path.join(target_file_path, names)
+            file = codecs.open(file_path, 'r+', encoding='utf-8', errors='ignore')
+            file_content = file.read()
+            file.close()
+
+            new_file = codecs.open(file_path, 'w+', encoding='utf-8', errors='ignore')
+
+            opts = jsbeautifier.default_options()
+            opts.indent_size = 2
+
+            new_file.write(jsbeautifier.beautify(file_content, opts))
+            new_file.close()
+
+    zip_file.close()
+
+    return target_file_path
+
+
+def get_manifest_from_crt(file_path):
+    """
+    从chrome插件种获取manifest.json 文件内容
+    :param file_path:
+    :return:
+    """
+    target_files_path = un_zip(file_path)
+
+    # 分析manifest.json
+    manifest_path = os.path.join(target_files_path, "manifest.json")
+    manifest = ""
+
+    if os.path.isfile(manifest_path):
+        fi = codecs.open(manifest_path, "r", encoding='utf-8', errors='ignore')
+        manifest_content = fi.read()
+        fi.close()
+
+        try:
+            manifest = json.loads(manifest_content, encoding='utf-8')
+
+        except json.decoder.JSONDecodeError:
+            logger.warning(
+                "[Pretreatment][Chrome Ext] File {} parse error...".format(target_files_path))
+            return ""
+
+    return manifest
 
 
 def get_line(file_path, line_rule):
@@ -454,13 +529,11 @@ class FileParseAll:
             if not ffile_path:
                 continue
 
-            ffile_object = ast_object.get_object(ffile_path)
+            manifest = get_manifest_from_crt(ffile_path)
 
-            if not ffile_object or 'manifest' not in ffile_object:
+            if not manifest:
                 continue
 
-            manifest = ffile_object['manifest']
-            target_files_path = ffile_object['target_files_path']
             keywords = keyword.split('.')
             value_list = self.keyword_object_parse(keywords, manifest)
 

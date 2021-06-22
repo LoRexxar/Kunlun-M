@@ -17,6 +17,7 @@ import jsbeautifier
 
 from utils.log import logger
 from Kunlun_M.const import ext_dict
+from utils.file import un_zip
 
 import gc
 import os
@@ -29,51 +30,6 @@ import queue
 import asyncio
 
 could_ast_pase_lans = ["php", "chromeext", "javascript", "html"]
-
-
-def un_zip(target_path):
-    """
-    解压缩目标压缩包
-    实现新需求，解压缩后相应的js文件做代码格式化
-    :return: 
-    """
-
-    logger.info("[Pre][Unzip] Upzip file {}...".format(target_path))
-
-    if not os.path.isfile(target_path):
-        logger.warn("[Pre][Unzip] Target file {} is't exist...pass".format(target_path))
-        return False
-
-    zip_file = zipfile.ZipFile(target_path)
-    target_file_path = target_path + "_files/"
-
-    if os.path.isdir(target_file_path):
-        logger.debug("[Pre][Unzip] Target files {} is exist...continue".format(target_file_path))
-        return target_file_path
-    else:
-        os.mkdir(target_file_path)
-
-    for names in zip_file.namelist():
-        zip_file.extract(names, target_file_path)
-
-        # 对其中部分文件中为js的时候，将js代码格式化便于阅读
-        if names.endswith(".js"):
-            file_path = os.path.join(target_file_path, names)
-            file = codecs.open(file_path, 'r+', encoding='utf-8', errors='ignore')
-            file_content = file.read()
-            file.close()
-
-            new_file = codecs.open(file_path, 'w+', encoding='utf-8', errors='ignore')
-
-            opts = jsbeautifier.default_options()
-            opts.indent_size = 2
-
-            new_file.write(jsbeautifier.beautify(file_content, opts))
-            new_file.close()
-
-    zip_file.close()
-
-    return target_file_path
 
 
 class Pretreatment:
