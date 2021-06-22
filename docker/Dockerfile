@@ -42,6 +42,7 @@ RUN python3 -m pip install supervisor
 
 COPY /docker/supervisord.conf /etc/
 COPY /docker/start.sh /
+RUN chmod +x /start.sh
 RUN /usr/local/bin/supervisord && /usr/local/bin/supervisorctl start all
 
 ENTRYPOINT ["/start.sh"]
