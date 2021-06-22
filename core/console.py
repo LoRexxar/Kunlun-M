@@ -11,6 +11,7 @@
 
 import os
 import sys
+import ast
 import glob
 import time
 import codecs
@@ -505,7 +506,7 @@ class KunlunInterpreter(BaseInterpreter):
                 if st:
                     if self.show_index <= index < count:
                         self.show_index += 1
-                        parameter_config = " ".join(eval(st.parameter_config)).replace('\\', '/')
+                        parameter_config = " ".join(ast.literal_eval(st.parameter_config)).replace('\\', '/')
 
                         sts_table.add_row(
                             [st.id, st.task_name, parameter_config, str(st.last_scan_time)[:19], st.is_finished])
@@ -819,7 +820,7 @@ Input Control:
                 option_name = param[0]
                 option_value = param[1]
 
-                option_value = eval(option_value) if option_value in ['True', 'False', 'None'] else option_value
+                option_value = ast.literal_eval(option_value) if option_value in ['True', 'False', 'None'] else option_value
 
                 if option_name not in self.configurable_options:
                     logger.warn("[Console] You can't edit option {}.".format(option_name))
@@ -854,7 +855,7 @@ Input Control:
                 logger.error("[Console] you can only set option in {}.".format(option_list))
                 return
 
-            option_value = eval(option_value) if option_value in ['True', 'False'] else option_value
+            option_value = ast.literal_eval(option_value) if option_value in ['True', 'False'] else option_value
 
             if option_value in self.result_option_list[option_name]:
                 self.result_options[option_name] = option_value
@@ -882,7 +883,7 @@ Input Control:
                 logger.error("[Console] you can only set option in {}.".format(list(self.scan_options)))
                 return
 
-            option_value = eval(option_value) if option_value in ['True', 'False', 'None'] else option_value
+            option_value = ast.literal_eval(option_value) if option_value in ['True', 'False', 'None'] else option_value
 
             if option_value in self.scan_option_list[option_name]:
                 self.scan_options[option_name] = option_value
@@ -1140,7 +1141,7 @@ Input Control:
 
                             for t in ts:
                                 if t.tam_type == 'Filter-Function':
-                                    filter_func[t.tam_key] = eval(t.tam_value)
+                                    filter_func[t.tam_key] = ast.literal_eval(t.tam_value)
                                 elif t.tam_type == 'Input-Control':
                                     input_control.append(t.tam_value)
 
@@ -1333,7 +1334,7 @@ Input Control:
 
                 for t in ts:
                     if t.tam_type == 'Filter-Function':
-                        self.config_dict['filter_func'][t.tam_key] = eval(t.tam_value)
+                        self.config_dict['filter_func'][t.tam_key] = ast.literal_eval(t.tam_value)
                     elif t.tam_type == 'Input-Control':
                         self.config_dict['input_control'].append(t.tam_value)
 

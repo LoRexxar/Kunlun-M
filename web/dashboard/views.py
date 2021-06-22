@@ -5,6 +5,9 @@
 # @File    : views.py
 # @Contact : lorexxar@gmail.com
 
+
+import ast
+
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from web.index.models import ScanTask
@@ -16,7 +19,7 @@ def index(req):
     tasks = ScanTask.objects.all().order_by("-id")
     for task in tasks:
         task.is_finished = int(task.is_finished)
-        task.parameter_config = " ".join(eval(task.parameter_config)).replace('\\', '/')
+        task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
 
     data = {'tasks': tasks}
 

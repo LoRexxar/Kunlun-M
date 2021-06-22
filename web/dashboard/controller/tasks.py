@@ -4,6 +4,9 @@
 # @Author  : LoRexxar
 # @File    : tasks.py
 # @Contact : lorexxar@gmail.com
+
+import ast
+
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseNotFound
 from django.views.generic import TemplateView
@@ -29,7 +32,7 @@ class TaskListView(TemplateView):
 
         for task in context['tasks']:
             task.is_finished = int(task.is_finished)
-            task.parameter_config = " ".join(eval(task.parameter_config)).replace('\\', '/')
+            task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
 
         return context
 
@@ -50,7 +53,7 @@ class TaskDetailView(View):
         newevilfuncs = NewEvilFunc.objects.filter(scan_task_id=task_id).all()
 
         task.is_finished = int(task.is_finished)
-        task.parameter_config = " ".join(eval(task.parameter_config)).replace('\\', '/')
+        task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
 
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)
