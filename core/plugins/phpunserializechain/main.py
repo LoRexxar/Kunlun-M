@@ -11,6 +11,7 @@
 
 
 import re
+import ast
 import traceback
 
 from utils.log import logger, logger_console
@@ -355,10 +356,10 @@ class PhpUnSerChain(BasePluginClass):
             result = [node_name]
 
         elif node_name.startswith('Array-'):
-            result = eval(node_name[5:])
+            result = ast.literal_eval(node_name[5:])
 
         elif node_name[0] == '(' and node_name[0] == ')':
-            result = list(eval(result))
+            result = list(ast.literal_eval(result))
 
         return result
 
@@ -421,7 +422,7 @@ class PhpUnSerChain(BasePluginClass):
                                 }
 
         if node.node_type == 'FunctionCall' and node.source_node in self.danger_function:
-            sink_node = eval(node.sink_node) if node.sink_node.startswith('(') else (node.sink_node)
+            sink_node = ast.literal_eval(node.sink_node) if node.sink_node.startswith('(') else (node.sink_node)
 
             if len(sink_node) >= len(self.danger_function[node.source_node]):
 
@@ -570,7 +571,7 @@ class PhpUnSerChain(BasePluginClass):
                 # 暂时简单的认为这样可控
                 return True
             elif param_name.startswith('Array-'):
-                arraylist = eval(param_name[6:])
+                arraylist = ast.literal_eval(param_name[6:])
 
                 for key in arraylist:
                     if key.startswith('Variable-$this'):
@@ -603,9 +604,9 @@ class PhpUnSerChain(BasePluginClass):
                                                      node_type='Foreach').order_by('-id')
 
         for back_node in back_nodes:
-            if param_name == eval(back_node.sink_node)[-1]:
+            if param_name == ast.literal_eval(back_node.sink_node)[-1]:
                 # 找到参数赋值
-                new_param_name = self.deep_get_node_name(eval(back_node.sink_node)[0])
+                new_param_name = self.deep_get_node_name(ast.literal_eval(back_node.sink_node)[0])
 
                 # 递归继续
                 return self.check_param_controllable(new_param_name, back_node)
@@ -852,7 +853,7 @@ class PhpUnSerChain(BasePluginClass):
         deepth += 1
 
         if nc:
-            now_class_extend_classs = eval(nc.sink_node)
+            now_class_extend_classs = ast.literal_eval(nc.sink_node)
             if len(now_class_extend_classs) > 0:
                 # len > 0代表当前类存在原型类，所以向上寻找类的方法
 
@@ -900,7 +901,7 @@ class PhpUnSerChain(BasePluginClass):
         nc2s = self.dataflow_db.objects.filter(node_type='newClass', sink_node__contains=now_class_name)
 
         for nc2 in nc2s:
-            now_class_extend_classs = eval(nc2.sink_node)
+            now_class_extend_classs = ast.literal_eval(nc2.sink_node)
             if len(now_class_extend_classs) > 0 and now_class_name in now_class_extend_classs:
                 child_class = self.deep_get_node_name(nc2.source_node)
                 new_child_class_name = child_class

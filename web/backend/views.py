@@ -6,6 +6,7 @@
 # @Contact : lorexxar@gmail.com
 
 import os
+import ast
 import codecs
 import json
 from django.contrib.auth.decorators import login_required
@@ -44,7 +45,7 @@ def tasklog(req, task_id):
     ResultFlow = get_resultflow_class(task_id)
     rfs = ResultFlow.objects.all()
 
-    task.parameter_config = " ".join(eval(task.parameter_config)).replace('\\', '/')
+    task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
     resultflowdict = {}
 
     for rf in rfs:
