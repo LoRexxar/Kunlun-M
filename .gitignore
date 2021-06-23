@@ -126,3 +126,5 @@ manage.py
 web/backend/migrations/0002_delete_tasks.py
 web/dashboard/migrations/*_auto_*.py
 
+# dockerfile
+Dockerfile
