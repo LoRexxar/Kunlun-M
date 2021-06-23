@@ -6,11 +6,12 @@ RUN sed -i "s/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g" /etc/apt/source
 
 # Set the locale
 ENV DEBIAN_FRONTEND=noninteractive
-ENV LANG zh_CN.UTF-8
-ENV LC_ALL zh_CN.UTF-8
 
 RUN apt-get update \
-    && apt-get install -y vim inetutils-ping curl ssh zip python3 python3-pip gunicorn
+    && apt-get install -y vim inetutils-ping curl ssh zip python3 python3-pip gunicorn language-pack-zh-hans
+
+ENV LANG zh_CN.UTF-8
+ENV LC_ALL zh_CN.UTF-8
 
 # python换源
 RUN mkdir /root/.pip
