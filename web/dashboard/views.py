@@ -12,6 +12,8 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from web.index.models import ScanTask
 
+from Kunlun_M.settings import API_TOKEN
+
 
 @login_required
 def index(req):
@@ -33,7 +35,12 @@ def docs(req):
 
 @login_required
 def userinfo(req):
-    return render(req, 'dashboard/userinfo.html')
+
+    data = {
+        "apitoken": API_TOKEN
+    }
+
+    return render(req, 'dashboard/userinfo.html', data)
 
 
 

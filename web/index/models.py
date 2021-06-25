@@ -119,7 +119,6 @@ def get_dataflow_class(name, isnew=False, isrenew=False):
 def get_resultflow_table(table_name):
     # prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
 
-
     class ResultFlowTemplate(models.Model):
         vul_id = models.IntegerField()
         node_type = models.CharField(max_length=50)
