@@ -5,6 +5,7 @@ from datetime import datetime
 
 from django.db import models
 from django.db import connection
+from django.db.utils import OperationalError
 from django import db
 
 from Kunlun_M.const import TAMPER_TYPE
@@ -150,6 +151,11 @@ def get_resultflow_class(prefix):
             return oldResultflowObject
 
         with connection.schema_editor() as schema_editor:
-            schema_editor.create_model(ResultflowObject)
+
+            try:
+                schema_editor.create_model(ResultflowObject)
+
+            except OperationalError:
+                pass
 
     return ResultflowObject
