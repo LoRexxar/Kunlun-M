@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+import traceback
 from datetime import datetime
 
 from django.db import models
@@ -17,7 +18,7 @@ import uuid
 class ScanTask(models.Model):
     task_name = models.CharField(max_length=50)
     target_path = models.CharField(max_length=300)
-    parameter_config = models.CharField(max_length=100)
+    parameter_config = models.CharField(max_length=500)
     last_scan_time = models.DateTimeField(auto_now=True)
     visit_token = models.CharField(max_length=64, default=uuid.uuid4)
     is_finished = models.BooleanField(default=False)
@@ -54,7 +55,7 @@ class Rules(models.Model):
     keyword = models.CharField(max_length=200, default=None, null=True)
     # for regex
     unmatch = models.CharField(max_length=200, default=None, null=True)
-    vul_function = models.CharField(max_length=30, default=None, null=True)
+    vul_function = models.CharField(max_length=50, default=None, null=True)
     main_function = models.TextField()
 
 
@@ -124,6 +125,7 @@ def get_resultflow_table(table_name):
         node_type = models.CharField(max_length=50)
         node_content = models.CharField(max_length=500)
         node_path = models.CharField(max_length=300)
+        node_source = models.TextField(null=True)
         node_lineno = models.CharField(max_length=20, null=True)
 
         @staticmethod
@@ -156,5 +158,14 @@ def get_resultflow_class(prefix):
 
             except OperationalError:
                 pass
+
+    # 适配旧版本
+    with connection.schema_editor() as schema_editor:
+        try:
+            node_source = models.TextField(null=True, db_column="node_source")
+            node_source.set_attributes_from_name("node_source")
+            schema_editor.add_field(ResultflowObject, node_source)
+        except OperationalError:
+            pass
 
     return ResultflowObject

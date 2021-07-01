@@ -195,3 +195,9 @@ elif "Darwin" in platform_pack.system():
 
 # api profile
 API_TOKEN = "secret_api_token"
+
+
+# server profile
+IS_OPEN_REMOTE_SERVER = False
+REMOTE_URL = "http://127.0.0.1:9999"
+REMOTE_URL_APITOKEN = "secret_api_token_in_server"
