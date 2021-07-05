@@ -144,7 +144,7 @@ IS_OPEN_REGISTER = True
 # 全局变量配置
 
 PROJECT_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-TMP_PATH = './tmp'
+TMP_PATH = os.path.join(PROJECT_DIRECTORY, 'tmp')
 if os.path.isdir(TMP_PATH) is not True:
     os.mkdir(TMP_PATH)
 RUNNING_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'running')
