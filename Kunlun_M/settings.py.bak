@@ -166,9 +166,10 @@ EXPORT_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'export')
 if not os.path.exists(EXPORT_PATH):
     os.mkdir(EXPORT_PATH)
 
-if os.path.isdir('./result') is not True:
-    os.mkdir('./result')
-DEFAULT_RESULT_PATH = os.path.join(PROJECT_DIRECTORY, 'result/')
+RESULT_PATH = os.path.join(PROJECT_DIRECTORY, 'result')
+if os.path.isdir(RESULT_PATH) is not True:
+    os.mkdir(RESULT_PATH)
+DEFAULT_RESULT_PATH = RESULT_PATH
 
 KUNLUN_MAIN = os.path.join(PROJECT_DIRECTORY, 'kunlun.py')
 CORE_PATH = os.path.join(PROJECT_DIRECTORY, 'core')
