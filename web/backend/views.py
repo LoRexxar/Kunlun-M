@@ -11,8 +11,9 @@ import codecs
 import json
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 
-from web.index.controller import login_or_token_required
+from web.index.controller import login_or_token_required, api_token_required
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, get_resultflow_class
 from utils.utils import show_context
 
@@ -60,7 +61,7 @@ def tasklog(req, task_id):
             'content': rf.node_content,
             'path': rf.node_path,
             'lineno': rf.node_lineno,
-            'details': show_context(rf.node_path, rf.node_lineno, is_back=True)
+            'details': rf.node_source
         }
 
         resultflowdict[rf.vul_id]['flow'].append(rfdict)
@@ -137,3 +138,21 @@ def downloadlog(req, task_id):
     response['X-Sendfile'] = path_to_file
     return response
 
+
+@api_token_required
+def uploadlog(req):
+    if "file" not in req.FILES:
+        return HttpResponse("Ooooops, bad request...")
+
+    logfile = req.FILES.get("file", None)
+
+    logfile_name = logfile.name
+
+    if os.path.exists(os.path.join(LOGS_PATH, logfile_name)):
+        return HttpResponse("Ooooops, log file {} exist...".format(logfile_name))
+
+    with open(os.path.join(LOGS_PATH, logfile_name), 'wb') as f:
+        for chunk in logfile.chunks():
+            f.write(chunk)
+
+    return HttpResponse("Success")

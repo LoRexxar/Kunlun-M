@@ -132,7 +132,7 @@ class RuleDetailApiView(View):
 
     @staticmethod
     @api_token_required
-    def get(request, rule_id):
-        rules = Rules.objects.filter(id=rule_id).values()
+    def get(request, rule_cviid):
+        rules = Rules.objects.filter(svid=rule_cviid).values()
 
         return JsonResponse({"code": 200, "status": True, "message":  list(rules)})

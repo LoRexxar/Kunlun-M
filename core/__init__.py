@@ -12,6 +12,7 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
+import os
 import sys
 import time
 import argparse
@@ -21,6 +22,7 @@ import traceback
 from django.core.management import call_command
 from utils.log import log, logger, log_add, log_rm
 from utils.utils import get_mainstr_from_filename, get_scan_id
+from utils.web import upload_log
 from utils.file import load_kunlunmignore
 
 from . import cli
@@ -34,6 +36,8 @@ from .__version__ import __copyright__, __epilog__, __scan_epilog__
 from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
 from web.index.models import ScanTask
+
+from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER, REMOTE_URL, REMOTE_URL_APITOKEN
 
 from . import plugins
 
@@ -233,10 +237,12 @@ def main():
 
         if hasattr(args, "log") and args.log:
             logger.info("[INIT] New Log file {}.log .".format(args.log))
-            log_add(logging.INFO, args.log)
+            log_name = args.log
         else:
             logger.info("[INIT] New Log file ScanTask_{}.log .".format(sid))
-            log_add(logging.INFO, "ScanTask_{}".format(sid))
+            log_name = "ScanTask_{}".format(sid)
+
+        log_add(logging.DEBUG, log_name)
 
         data = {
             'status': 'running',
@@ -249,6 +255,13 @@ def main():
         s.is_finished = True
         s.save()
         t2 = time.time()
+
+        # 如果开启了上传日志到远程，则上传
+        if IS_OPEN_REMOTE_SERVER:
+            log_path = os.path.join(LOGS_PATH, "{}.log".format(log_name))
+
+            upload_log(log_path)
+
         logger.info('[INIT] Done! Consume Time:{ct}s'.format(ct=t2 - t1))
 
     except KeyboardInterrupt:

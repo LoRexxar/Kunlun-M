@@ -27,5 +27,5 @@ urlpatterns = [
     # rule list
     path("rule/list", views.RuleListApiView.as_view(), name="rule_list"),
     # rule details
-    path("rule/<int:rule_id>", views.RuleDetailApiView.as_view(), name="rule_detail"),
+    path("rule/<int:rule_cviid>", views.RuleDetailApiView.as_view(), name="rule_detail"),
 ]

@@ -144,7 +144,7 @@ IS_OPEN_REGISTER = True
 # 全局变量配置
 
 PROJECT_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-TMP_PATH = './tmp'
+TMP_PATH = os.path.join(PROJECT_DIRECTORY, 'tmp')
 if os.path.isdir(TMP_PATH) is not True:
     os.mkdir(TMP_PATH)
 RUNNING_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'running')
@@ -166,9 +166,10 @@ EXPORT_PATH = os.path.join(PROJECT_DIRECTORY, TMP_PATH, 'export')
 if not os.path.exists(EXPORT_PATH):
     os.mkdir(EXPORT_PATH)
 
-if os.path.isdir('./result') is not True:
-    os.mkdir('./result')
-DEFAULT_RESULT_PATH = os.path.join(PROJECT_DIRECTORY, 'result/')
+RESULT_PATH = os.path.join(PROJECT_DIRECTORY, 'result')
+if os.path.isdir(RESULT_PATH) is not True:
+    os.mkdir(RESULT_PATH)
+DEFAULT_RESULT_PATH = RESULT_PATH
 
 KUNLUN_MAIN = os.path.join(PROJECT_DIRECTORY, 'kunlun.py')
 CORE_PATH = os.path.join(PROJECT_DIRECTORY, 'core')
@@ -195,3 +196,9 @@ elif "Darwin" in platform_pack.system():
 
 # api profile
 API_TOKEN = "secret_api_token"
+
+
+# server profile
+IS_OPEN_REMOTE_SERVER = False
+REMOTE_URL = "http://127.0.0.1:9999"
+REMOTE_URL_APITOKEN = "secret_api_token_in_server"

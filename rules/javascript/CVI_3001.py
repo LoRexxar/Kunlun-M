@@ -26,7 +26,7 @@ class CVI_3001():
         self.description = "jQuery.extend 在3.4.0以下，"
 
         # status
-        self.status = True
+        self.status = False
 
         # 部分配置
         self.match_mode = "only-regex"
