@@ -242,7 +242,7 @@ def main():
             logger.info("[INIT] New Log file ScanTask_{}.log .".format(sid))
             log_name = "ScanTask_{}".format(sid)
 
-        log_add(logging.INFO, log_name)
+        log_add(logging.DEBUG, log_name)
 
         data = {
             'status': 'running',
