@@ -524,6 +524,7 @@ class SingleRule(object):
                              ['whitelist1', 'whitelist2'], test=is_test, index=index,
                              files=self.files, languages=self.languages, tamper_name=self.tamper_name,
                              is_unconfirm=self.is_unconfirm).scan()
+
                 data = ""
 
                 if len(datas) == 3:
@@ -820,9 +821,9 @@ class Core(object):
             logger.debug("[RET] Annotation")
             return False, 'Annotation(注释)'
 
-        if not self.is_target():
+        # if not self.is_target():
             # logger.warn("[SCAN] file {} ext is not support, something error...".format(self.file_path))
-            return False, 'Unsupport File'
+            # return False, 'Unsupport File'
 
         #
         # function-param-regex
@@ -1054,6 +1055,26 @@ class Core(object):
                     return True, 'Specail-crx-keyword-match'
                 else:
                     logger.warn("[CVI-{cvi} [OTHER-MATCH]] chrome ext rules not support it...".format(cvi=self.cvi))
+                    return False, 'Unsupport Match'
+
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                return False, 'Exception'
+
+        else:
+            try:
+                # only match
+                if self.rule_match_mode == const.mm_regex_only_match:
+
+                    logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
+                    return True, 'Regex-only-match'
+                elif self.rule_match_mode == const.mm_regex_return_regex:
+                    logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
+                    return True, 'Regex-return-regex'
+                else:
+                    logger.warn(
+                        "[CVI-{cvi} [OTHER-MATCH]] other rules only support for Regex-only-match and Regex-return-regex...".format(
+                            cvi=self.cvi))
                     return False, 'Unsupport Match'
 
             except Exception as e:

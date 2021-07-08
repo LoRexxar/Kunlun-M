@@ -51,14 +51,14 @@ def block(index):
 
 
 class Rule(object):
-    def __init__(self, lans=["php"]):
-        if not lans:
-            lans = ["php"]
+    def __init__(self, lans=[]):
+        origin_lans = ["base"]
+        origin_lans.extend(lans)
 
         self.rule_dict = {}
 
         # 逐个处理每一种lan
-        for lan in lans:
+        for lan in origin_lans:
             self.rules_path = RULES_PATH + "/" + lan
             if not os.path.exists(self.rules_path):
                 logger.error("[INIT][RULE] language {} can't found rules".format(self.rules_path))

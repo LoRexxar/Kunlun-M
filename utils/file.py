@@ -695,13 +695,13 @@ class Directory(object):
         file_name, file_extension = os.path.splitext(path)
 
         # 当设定了lan时加入检查
-        if file_extension.lower() in self.ext_list:
+        # if file_extension.lower() in self.ext_list:
 
-            self.type_nums.setdefault(file_extension.lower(), []).append(filename)
+        self.type_nums.setdefault(file_extension.lower(), []).append(filename)
 
-            path = path.replace(self.absolute_path, '')
-            self.file.append(path)
-            self.file_sum += 1
+        path = path.replace(self.absolute_path, '')
+        self.file.append(path)
+        self.file_sum += 1
 
 
 class File(object):
