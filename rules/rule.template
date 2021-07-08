@@ -24,6 +24,7 @@ class CVI_{svid}():
         self.author = "{author}"
         self.vulnerability = "{rule_name}"
         self.description = "{description}"
+        self.level = {level}
 
         # status
         self.status = {status}

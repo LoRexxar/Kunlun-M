@@ -45,6 +45,7 @@ class Rules(models.Model):
     language = models.CharField(max_length=20)
     author = models.CharField(max_length=20)
     description = models.TextField(null=True)
+    level = models.IntegerField(max_length=2, default=5)
     status = models.BooleanField(default=True)
     match_mode = models.CharField(max_length=50)
     match = models.CharField(max_length=500)

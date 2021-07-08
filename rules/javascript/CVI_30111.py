@@ -23,7 +23,8 @@ class CVI_30111():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "addEventListener message param 可控"
-        self.description = "addEventListener message param 可控, 可以通过windows.postMessage传递，有可能导致安全问题，这里主要假设为chrome contentjs场景"
+        self.description = "addEventListener message param 可控, 可以通过windows.postMessage传递，有可能导致安全问题，这里主要假设为chrome ext contentjs场景"
+        self.level = 7
 
         # status
         self.status = True

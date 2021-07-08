@@ -23,7 +23,8 @@ class CVI_1003():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "SSRF"
-        self.description = "get_headers SSRF"
+        self.description = "get_headers的参数可控，可能会导致SSRF漏洞"
+        self.level = 7
 
         # status
         self.status = False

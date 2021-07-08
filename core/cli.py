@@ -27,6 +27,7 @@ from utils.utils import show_context
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
 from Kunlun_M.settings import RULES_PATH
+from Kunlun_M.const import VUL_LEVEL
 
 from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc
 from web.index.models import get_resultflow_class
@@ -58,7 +59,7 @@ def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
             if input().lower() != 'n':
                 scan_id = s.id
                 table = PrettyTable(
-                    ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
+                    ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Level', 'Target-File:Line-Number',
                      'Commit(Author)', 'Source Code Content', 'Analysis'])
                 table.align = 'l'
 
@@ -76,8 +77,9 @@ def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
                         rule = Rules.objects.filter(svid=sr.cvi_id).first()
                         rule_name = rule.rule_name
                         author = rule.author
+                        level = VUL_LEVEL[rule.level]
 
-                        row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
+                        row = [sr.result_id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                                author, sr.source_code, sr.result_type]
 
                         table.add_row(row)

@@ -23,7 +23,8 @@ class CVI_1010():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "LDAPI"
-        self.description = "LDAP injection"
+        self.description = "LDAP注入可能导致ldap的账号信息泄露"
+        self.level = 3
 
         # status
         self.status = True

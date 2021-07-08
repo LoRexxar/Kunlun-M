@@ -51,14 +51,14 @@ def block(index):
 
 
 class Rule(object):
-    def __init__(self, lans=["php"]):
-        if not lans:
-            lans = ["php"]
+    def __init__(self, lans=[]):
+        origin_lans = ["base"]
+        origin_lans.extend(lans)
 
         self.rule_dict = {}
 
         # 逐个处理每一种lan
-        for lan in lans:
+        for lan in origin_lans:
             self.rules_path = RULES_PATH + "/" + lan
             if not os.path.exists(self.rules_path):
                 logger.error("[INIT][RULE] language {} can't found rules".format(self.rules_path))
@@ -145,7 +145,7 @@ class RuleCheck:
 
         self.rule_base_path = RULES_PATH
 
-        self.CONFIG_LIST = ["vulnerability", "language", "author", "description", "status", "match_mode",
+        self.CONFIG_LIST = ["vulnerability", "language", "level", "author", "description", "status", "match_mode",
                             "match", "vul_function", "main_function"]
 
         self.SOLIDITY_CONFIG_LIST = ['match_name', 'black_list', 'unmatch']
@@ -311,6 +311,7 @@ class RuleCheck:
             language = rule.language
             author = rule.author
             description = rule.description
+            level = rule.level
             status = "True" if rule.status else "False"
             match_mode = rule.match_mode
             match = file_output_format(rule.match)
@@ -322,7 +323,7 @@ class RuleCheck:
             main_function = rule.main_function
 
             rule_file.write(template_file_content.format(rule_name=rule_name, svid=svid, language=language,
-                                                         author=author, description=description, status=status,
+                                                         author=author, description=description, level=level, status=status,
                                                          match_mode=match_mode, match=match, match_name=match_name,
                                                          black_list=black_list, keyword=keyword, unmatch=unmatch,
                                                          vul_function=vul_function, main_function=main_function))

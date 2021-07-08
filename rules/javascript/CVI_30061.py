@@ -23,7 +23,8 @@ class CVI_30061():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "JQuery HTML attr injection"
-        self.description = "JQuery HTML attr injection"
+        self.description = "JQuery HTML attr injection可能会导致XSS漏洞"
+        self.level = 4
 
         # status
         self.status = True

@@ -24,6 +24,7 @@ class CVI_3010():
         self.author = "LoRexxar"
         self.vulnerability = "Handlebars XSS"
         self.description = "Handlebars 中 SafeString 可导致XSS"
+        self.level = 4
 
         # status
         self.status = True

@@ -31,6 +31,7 @@ from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_form
 
 from Kunlun_M.settings import HISTORY_FILE_PATH, MAX_HISTORY_LENGTH
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY, LOGS_PATH
+from Kunlun_M.const import VUL_LEVEL
 
 from core.__version__ import __introduction__
 from core import cli
@@ -546,6 +547,7 @@ class KunlunInterpreter(BaseInterpreter):
             language = rule.language
             author = rule.author
             description = rule.description
+            level = rule.level
             status = "True" if rule.status else "False"
             match_mode = rule.match_mode
             match = file_output_format(rule.match)
@@ -558,7 +560,7 @@ class KunlunInterpreter(BaseInterpreter):
 
             logger.info("[Console] Rule CVI_{} Detail:\n{}".format(svid, template_file_content.format(
                 rule_name=rule_name, svid=svid, language=language,
-                author=author, description=description, status=status,
+                author=author, description=description, level=level, status=status,
                 match_mode=match_mode, match=match,
                 match_name=match_name,
                 black_list=black_list, keyword=keyword,
@@ -596,6 +598,7 @@ class KunlunInterpreter(BaseInterpreter):
             rule_dict['language'] = rule.language
             rule_dict['author'] = rule.author
             rule_dict['description'] = rule.description
+            rule_dict['level'] = rule.level
             rule_dict['status'] = "True" if rule.status else "False"
             rule_dict['match_mode'] = rule.match_mode
             rule_dict['match'] = file_output_format(rule.match)
@@ -608,7 +611,7 @@ class KunlunInterpreter(BaseInterpreter):
 
             self.rule_filecontent = template_file_content.format(
                 rule_name=rule_dict['rule_name'], svid=rule_dict['svid'], language=rule_dict['language'],
-                author=rule_dict['author'], description=rule_dict['description'], status=rule_dict['status'],
+                author=rule_dict['author'], description=rule_dict['description'], level=rule_dict['level'], status=rule_dict['status'],
                 match_mode=rule_dict['match_mode'], match=rule_dict['match'],
                 match_name=rule_dict['match_name'],
                 black_list=rule_dict['black_list'], keyword=rule_dict['keyword'],
@@ -1086,7 +1089,7 @@ Input Control:
                         return
 
                     rules_table = PrettyTable(
-                        ['#', 'CVI', 'Lang/CVE-id', 'Rule(ID/Name)', 'Author', 'Status', 'MatchMode'])
+                        ['#', 'CVI', 'Lang/CVE-id', 'Level', 'Rule(ID/Name)', 'Author', 'Status', 'MatchMode'])
                     rules_table.align = 'l'
 
                     if key == 'all':
@@ -1096,7 +1099,9 @@ Input Control:
 
                     if rs:
                         for r in rs:
-                            rules_table.add_row([r.id, r.svid, r.language, r.rule_name, r.author, r.status, r.match_mode])
+                            level = VUL_LEVEL[r.level]
+
+                            rules_table.add_row([r.id, r.svid, r.language, level, r.rule_name, r.author, r.status, r.match_mode])
 
                         logger.info("[Console] Show {} Rules:\n{}".format(key, rules_table))
                         logger.warn("[Console] Use Command 'get <rule_svid>' to get detail of rule")
@@ -1168,7 +1173,7 @@ Input Control:
 
                     srs = self.get_scan_results_by_config()
                     table = PrettyTable(
-                        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
+                        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Level', 'Target-File:Line-Number',
                          'Commit(Author)', 'Source Code Content', 'Analysis'])
                     table.align = 'l'
 
@@ -1179,8 +1184,9 @@ Input Control:
                                 rule = Rules.objects.filter(svid=sr.cvi_id).first()
                                 rule_name = rule.rule_name
                                 author = rule.author
+                                level = VUL_LEVEL[rule.level]
 
-                                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
+                                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                                        author, sr.source_code, sr.result_type]
 
                                 table.add_row(row)
@@ -1194,8 +1200,9 @@ Input Control:
                                 rule = Rules.objects.filter(svid=sr.cvi_id).first()
                                 rule_name = rule.rule_name
                                 author = rule.author
+                                level = VUL_LEVEL[rule.level]
 
-                                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, sr.vulfile_path,
+                                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                                        author, sr.source_code, sr.result_type]
 
                                 table.add_row(row)

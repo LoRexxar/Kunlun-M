@@ -22,8 +22,9 @@ class CVI_3002():
         self.svid = 3002
         self.language = "javascript"
         self.author = "LoRexxar"
-        self.vulnerability = "XSS   "
-        self.description = "xss in javascript"
+        self.vulnerability = "XSS"
+        self.description = "可控内容被直接写入页面内，会导致XSS漏洞"
+        self.level = 5
 
         # status
         self.status = True

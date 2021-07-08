@@ -46,7 +46,8 @@ def file_list_parse(filelist, language=None):
         self_ext_list = ext_dict[language]
 
     for file in filelist:
-        if file[0] in self_ext_list:
+        # * for base
+        if file[0] in self_ext_list or '*' in self_ext_list:
             # if file[0] in ['.crx'] and language == "javascript":
             #     for filepath in file[1]['list']:
             #         result.extend(ast_object.get_child_files(filepath))
@@ -694,13 +695,13 @@ class Directory(object):
         file_name, file_extension = os.path.splitext(path)
 
         # 当设定了lan时加入检查
-        if file_extension.lower() in self.ext_list:
+        # if file_extension.lower() in self.ext_list:
 
-            self.type_nums.setdefault(file_extension.lower(), []).append(filename)
+        self.type_nums.setdefault(file_extension.lower(), []).append(filename)
 
-            path = path.replace(self.absolute_path, '')
-            self.file.append(path)
-            self.file_sum += 1
+        path = path.replace(self.absolute_path, '')
+        self.file.append(path)
+        self.file_sum += 1
 
 
 class File(object):

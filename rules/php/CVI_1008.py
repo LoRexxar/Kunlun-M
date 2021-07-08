@@ -23,7 +23,8 @@ class CVI_1008():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Xml injection"
-        self.description = "Xml injection"
+        self.description = "Xml injection可能会导致任意文件读取/SSRF，特殊坏境下还可能导致RCE"
+        self.level = 7
 
         # status
         self.status = True

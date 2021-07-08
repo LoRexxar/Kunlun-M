@@ -23,7 +23,8 @@ class CVI_1001():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "SSRF"
-        self.description = "cURL SSRF"
+        self.description = "cURL的函数相应函数可控，可能会造成SSRF漏洞。"
+        self.level = 7
 
         # status
         self.status = True

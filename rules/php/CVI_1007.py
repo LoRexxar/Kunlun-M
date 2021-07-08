@@ -23,7 +23,8 @@ class CVI_1007():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "RFI"
-        self.description = "remote file include"
+        self.description = "include等函数可能会导致任意文件包含，如果配置不当，甚至可能导致远程任意文件包含。"
+        self.level = 8
 
         # status
         self.status = True

@@ -24,6 +24,7 @@ class CVI_4003():
         self.author = "LoRexxar"
         self.vulnerability = "Manifest.json CSP Bypass"
         self.description = "Manifest.json CSP配置了不可信任的域导致可以被绕过"
+        self.level = 3
 
         # status
         self.status = True

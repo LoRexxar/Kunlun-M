@@ -23,7 +23,8 @@ class CVI_3001():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "JQuery 原型链污染"
-        self.description = "jQuery.extend 在3.4.0以下，"
+        self.description = "jQuery.extend 在3.4.0以下，调用extend并且为true，可能会导致原型链污染"
+        self.level = 5
 
         # status
         self.status = False

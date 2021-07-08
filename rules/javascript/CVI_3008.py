@@ -23,7 +23,8 @@ class CVI_3008():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "Chrome ext function XSS"
-        self.description = "Chrome ext function XSS"
+        self.description = "Chrome ext function XSS，chrome插件独有的XSS漏洞"
+        self.level = 4
 
         # status
         self.status = True

@@ -24,6 +24,7 @@ class CVI_2001():
         self.author = "LoRexxar"
         self.vulnerability = "假充值 vul"
         self.description = "开发人员没有遵循ERC20"
+        self.level = 3
 
         # status
         self.status = True

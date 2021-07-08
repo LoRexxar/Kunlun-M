@@ -23,7 +23,8 @@ class CVI_1014():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "variable shadowing"
-        self.description = "variable shadowing"
+        self.description = "variable 覆盖可能会导致潜在的安全问题，甚至可能导致远程代码执行漏洞"
+        self.level = 8
 
         # status
         self.status = True

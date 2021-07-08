@@ -23,7 +23,8 @@ class CVI_3004():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "URL Redirect"
-        self.description = "URL Redirect"
+        self.description = "URL Redirect，url重定向可能导致很多潜在的安全问题"
+        self.level = 3
 
         # status
         self.status = True
