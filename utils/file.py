@@ -46,7 +46,8 @@ def file_list_parse(filelist, language=None):
         self_ext_list = ext_dict[language]
 
     for file in filelist:
-        if file[0] in self_ext_list:
+        # * for base
+        if file[0] in self_ext_list or '*' in self_ext_list:
             # if file[0] in ['.crx'] and language == "javascript":
             #     for filepath in file[1]['list']:
             #         result.extend(ast_object.get_child_files(filepath))

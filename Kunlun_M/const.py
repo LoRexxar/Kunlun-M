@@ -59,6 +59,7 @@ ext_dict = {
     "javascript": ['.js'],
     "chromeext": ['.crx'],
     "html": ['.html'],
+    "base": ['*']
 }
 
 ext_comment_dict = {
