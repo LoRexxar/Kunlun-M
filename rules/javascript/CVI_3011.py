@@ -23,7 +23,8 @@ class CVI_3011():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "executeScript中参数拼接"
-        self.description = "executeScript中code或者file出现参数拼接，可能导致安全问题"
+        self.description = "executeScript中code或者file出现参数拼接，可能导致跨域XSS漏洞等"
+        self.level = 8
 
         # status
         self.status = True

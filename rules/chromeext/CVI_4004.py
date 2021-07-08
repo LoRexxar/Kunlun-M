@@ -24,6 +24,7 @@ class CVI_4004():
         self.author = "LoRexxar"
         self.vulnerability = "Manifest.json permissions 要求权限过大"
         self.description = "Manifest.json permissions 要求权限过大"
+        self.level = 3
 
         # status
         self.status = True

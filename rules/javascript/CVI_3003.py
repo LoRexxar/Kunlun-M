@@ -23,7 +23,8 @@ class CVI_3003():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "RCE"
-        self.description = "remote? code exec"
+        self.description = "eval参数可控可能会导致RCE漏洞或者XSS漏洞，这取决于执行的位置"
+        self.level = 10
 
         # status
         self.status = True

@@ -24,6 +24,7 @@ class CVI_2100():
         self.author = "Sissel"
         self.vulnerability = "address(0)"
         self.description = "含参数包含地址的函数开始处，应增加地址是否为0的校验，防止用户操作失误。"
+        self.level = 3
 
         # status
         self.status = True

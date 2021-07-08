@@ -23,7 +23,8 @@ class CVI_1011():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "RCE"
-        self.description = "Remote command execute"
+        self.description = "system这类函数参数可控可能会导致远程命令执行"
+        self.level = 10
 
         # status
         self.status = True

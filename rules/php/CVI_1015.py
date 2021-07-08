@@ -23,7 +23,8 @@ class CVI_1015():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "unserialize vulerablity"
-        self.description = "unserialize vulerablity"
+        self.description = "unserialize反序列化漏洞配合pop chain可能会导致潜在的安全问题，即便没有pop chain存在，配合内置类也会导致SSRF漏洞等"
+        self.level = 7
 
         # status
         self.status = True

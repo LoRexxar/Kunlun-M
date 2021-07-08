@@ -24,6 +24,7 @@ class CVI_4002():
         self.author = "LoRexxar"
         self.vulnerability = "Manifest.json CSP不安全的配置"
         self.description = "Manifest.json CSP配置不当导致可以绕过"
+        self.level = 3
 
         # status
         self.status = True

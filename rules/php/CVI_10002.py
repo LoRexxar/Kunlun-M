@@ -23,7 +23,8 @@ class CVI_10002():
         self.language = "php"
         self.author = "LoRexxar"
         self.vulnerability = "Reflected XSS"
-        self.description = "Reflected XSS"
+        self.description = "echo参数可控会导致XSS漏洞"
+        self.level = 4
 
         # status
         self.status = True

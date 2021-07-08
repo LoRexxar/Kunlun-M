@@ -23,7 +23,8 @@ class CVI_3009():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "JQuery eval?"
-        self.description = "JQuery 中 globalEval同eval 可导致eval"
+        self.description = "JQuery 中 globalEval同eval 可导致eval，可能会导致命令执行或XSS漏洞"
+        self.level = 10
 
         # status
         self.status = True

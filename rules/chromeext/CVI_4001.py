@@ -24,6 +24,7 @@ class CVI_4001():
         self.author = "LoRexxar"
         self.vulnerability = "Manifest.json all_frames不正确的配置"
         self.description = "Manifest.json all_frames为ture时允许攻击者从隐蔽的frame触发规则"
+        self.level = 3
 
         # status
         self.status = True

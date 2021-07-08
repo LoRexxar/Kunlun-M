@@ -23,7 +23,8 @@ class CVI_3005():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "HTML injection"
-        self.description = "HTML injection"
+        self.description = "HTML injection可能会导致XSS漏洞"
+        self.level = 4
 
         # status
         self.status = True

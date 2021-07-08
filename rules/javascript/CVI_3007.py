@@ -23,7 +23,8 @@ class CVI_3007():
         self.language = "javascript"
         self.author = "LoRexxar"
         self.vulnerability = "JQuery XSS"
-        self.description = "JQuery XSS "
+        self.description = "JQuery XSS是署于JQuery独有的XSS漏洞函数"
+        self.level = 4
 
         # status
         self.status = True

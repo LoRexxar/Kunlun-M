@@ -23,7 +23,8 @@ class CVI_1004():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "SQLI"
-        self.description = "SQL injection"
+        self.description = "SQL injection, 用户输入直接被拼接进Sql语句当中，有可能造成SQL注入漏洞。"
+        self.level = 9
 
         # status
         self.status = True

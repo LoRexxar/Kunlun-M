@@ -23,14 +23,15 @@ class CVI_1012():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Information Disclosure"
-        self.description = "Information Disclosure"
+        self.description = "var_dump这类函数不应该存在于正式环境中，可能会导致信息泄露"
+        self.level = 2
 
         # status
         self.status = True
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"(print_r|var_dump|show_source|highlight_file)\s*\("
+        self.match = r"(print_r|var_dump|show_source|highlight_file)"
 
         # for solidity
         self.match_name = None

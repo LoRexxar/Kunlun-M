@@ -23,7 +23,8 @@ class CVI_1000():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "Reflected XSS"
-        self.description = "Reflected XSS"
+        self.description = "Reflected XSS，用户输入被直接/不完全过滤输出到页面内容当中，可能会导致XSS隐患。"
+        self.level = 4
 
         # status
         self.status = True

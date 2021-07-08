@@ -23,7 +23,8 @@ class CVI_1013():
         self.language = "php"
         self.author = "LoRexxar/wufeifei"
         self.vulnerability = "URL Redirector Abuse"
-        self.description = "URL Redirector Abuse"
+        self.description = "URL任意重定向漏洞可能会导致潜在的业务安全问题，配合其他漏洞可能会导致更严重的漏洞危害"
+        self.level = 1
 
         # status
         self.status = True

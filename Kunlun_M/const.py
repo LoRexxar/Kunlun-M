@@ -69,6 +69,8 @@ ext_comment_dict = {
 default_black_list = ['.crx_files', 'vendor']
 IGNORE_LIST = []
 
+VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']
+
 # base result class
 
 
