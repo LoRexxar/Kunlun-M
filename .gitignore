@@ -99,6 +99,7 @@ rules/*
 !rules/*/demo.py
 !rules/javascript/CVI_3003.py
 !rules/solidity/CVI_2001.py
+!rules/base/*
 
 # upload
 uploads/*.zip
