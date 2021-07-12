@@ -30,7 +30,7 @@ class CVI_5001():
 
         # 部分配置
         self.match_mode = "only-regex"
-        self.match = ['(((password)|(key)|(secret))\\b[\'"]?\\s*[:=(,]?\\s*[\'"]?(\\w{3,})[\'"]?\\b)']
+        self.match = ['((password)\\b[\'"]?\\s*[:=(,]?\\s*[\'"]?(\\w{3,})[\'"]?\\b)']
 
         # for solidity
         self.match_name = None
