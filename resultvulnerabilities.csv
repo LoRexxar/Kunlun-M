@@ -1,0 +1,57 @@
+target,analysis,chain,code_content,commit_author,file_path,id,language,line_number,rule_name
+.\tests\vulnerabilities\,Function-param-controllable,,"print(""Hello "" . $cmd)",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1000,php,58,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,print(system(trim('ls'.$_GET['test']))),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v_parser.php,1000,php,7,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"echo($callback . "";",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,10,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"echo get_headers($url,1);",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,55,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"print(""Hello "" . $cmd);",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,58,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"echo ""a"".$a;",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,121,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,print(system(trim('ls'.$_GET['test'])));,LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v_parser.php,10002,php,7,Reflected XSS
+.\tests\vulnerabilities\,Vustomize-Match,,curl($cmd),Kunlun-M,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1001,php,44,Auto rule
+.\tests\vulnerabilities\,Vustomize-Match,,read_file(aaa($_GET['a']),Kunlun-M,D:\program\Kunlun_M\tests\vulnerabilities/test.php,1002,php,12,Auto rule
+.\tests\vulnerabilities\,Function-param-controllable,,file_get_contents($url),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1002,php,50,SSRF
+.\tests\vulnerabilities\,Unconfirmed Vustomize-Match,,"""select id, xxx from users where name = $_SESSION[a]"";",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1004,php,61,SQLI
+.\tests\vulnerabilities\,Unconfirmed Vustomize-Match,,"""SELECT id, name, inserted, size FROM products WHERE size = '$size' ORDER BY $order LIMIT $limit, $offset;"";",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1004,php,70,SQLI
+.\tests\vulnerabilities\,Vustomize-Match,,"""select name from users where id =$id"";",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1004,php,77,SQLI
+.\tests\vulnerabilities\,Function-param-controllable,,require_once($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1007,php,81,RFI
+.\tests\vulnerabilities\,Function-param-controllable,,simplexml_load_string($xml),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1008,php,101,Xml injection
+.\tests\vulnerabilities\,Function-param-controllable,,eval($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1009,php,19,RCE
+.\tests\vulnerabilities\,Function-param-controllable,,system('ls' + $cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1011,php,20,RCE
+.\tests\vulnerabilities\,Function-param-controllable,,system(trim('ls'.$_GET['test']))),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v_parser.php,1011,php,7,RCE
+.\tests\vulnerabilities\,Function-param-controllable,,highlight_file($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1012,php,84,Information Disclosure
+.\tests\vulnerabilities\,Function-param-controllable,,"header(""Location: "".$url)",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1013,php,94,URL Redirector Abuse
+.\tests\vulnerabilities\,Function-param-controllable,,extract($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1014,php,12,variable shadowing
+.\tests\vulnerabilities\,Unconfirmed Function-param-controllable,,parse_str($_SERVER['QUERY_STRING']),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1014,php,103,variable shadowing
+.\tests\vulnerabilities\,Function-param-controllable,,unserialize($test),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1015,php,98,unserialize vulerablity
+.\tests\vulnerabilities\,Function-param-controllable,,unlink($file),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1016,php,115,file delete
+.\tests\vulnerabilities\,Function-param-controllable,,read_file(aaa($_GET['a'])),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/test.php,1018,php,12,phar unserialize
+.\tests\vulnerabilities\,Function-param-controllable,,file_get_contents($url),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1018,php,50,phar unserialize
+.\tests\vulnerabilities\,Function-param-controllable,,unlink($file),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1018,php,115,phar unserialize
+.\tests\vulnerabilities\,Regex-only-match,,"password = ""cobra123456",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,5001,base,90,硬编码密码
+.\tests\vulnerabilities\,Function-param-controllable,,"print(""Hello "" . $cmd)",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1000,php,58,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,print(system(trim('ls'.$_GET['test']))),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v_parser.php,1000,php,7,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"echo($callback . "";",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,10,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"echo get_headers($url,1);",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,55,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"print(""Hello "" . $cmd);",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,58,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,"echo ""a"".$a;",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,10002,php,121,Reflected XSS
+.\tests\vulnerabilities\,Function-param-controllable,,print(system(trim('ls'.$_GET['test'])));,LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v_parser.php,10002,php,7,Reflected XSS
+.\tests\vulnerabilities\,Vustomize-Match,,curl($cmd),Kunlun-M,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1001,php,44,Auto rule
+.\tests\vulnerabilities\,Vustomize-Match,,read_file(aaa($_GET['a']),Kunlun-M,D:\program\Kunlun_M\tests\vulnerabilities/test.php,1002,php,12,Auto rule
+.\tests\vulnerabilities\,Function-param-controllable,,file_get_contents($url),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1002,php,50,SSRF
+.\tests\vulnerabilities\,Unconfirmed Vustomize-Match,,"""select id, xxx from users where name = $_SESSION[a]"";",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1004,php,61,SQLI
+.\tests\vulnerabilities\,Unconfirmed Vustomize-Match,,"""SELECT id, name, inserted, size FROM products WHERE size = '$size' ORDER BY $order LIMIT $limit, $offset;"";",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1004,php,70,SQLI
+.\tests\vulnerabilities\,Vustomize-Match,,"""select name from users where id =$id"";",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1004,php,77,SQLI
+.\tests\vulnerabilities\,Function-param-controllable,,require_once($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1007,php,81,RFI
+.\tests\vulnerabilities\,Function-param-controllable,,simplexml_load_string($xml),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1008,php,101,Xml injection
+.\tests\vulnerabilities\,Function-param-controllable,,eval($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1009,php,19,RCE
+.\tests\vulnerabilities\,Function-param-controllable,,system('ls' + $cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1011,php,20,RCE
+.\tests\vulnerabilities\,Function-param-controllable,,system(trim('ls'.$_GET['test']))),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v_parser.php,1011,php,7,RCE
+.\tests\vulnerabilities\,Function-param-controllable,,highlight_file($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1012,php,84,Information Disclosure
+.\tests\vulnerabilities\,Function-param-controllable,,"header(""Location: "".$url)",LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1013,php,94,URL Redirector Abuse
+.\tests\vulnerabilities\,Function-param-controllable,,extract($cmd),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1014,php,12,variable shadowing
+.\tests\vulnerabilities\,Unconfirmed Function-param-controllable,,parse_str($_SERVER['QUERY_STRING']),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1014,php,103,variable shadowing
+.\tests\vulnerabilities\,Function-param-controllable,,unserialize($test),LoRexxar/wufeifei,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1015,php,98,unserialize vulerablity
+.\tests\vulnerabilities\,Function-param-controllable,,unlink($file),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1016,php,115,file delete
+.\tests\vulnerabilities\,Function-param-controllable,,read_file(aaa($_GET['a'])),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/test.php,1018,php,12,phar unserialize
+.\tests\vulnerabilities\,Function-param-controllable,,file_get_contents($url),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1018,php,50,phar unserialize
+.\tests\vulnerabilities\,Function-param-controllable,,unlink($file),LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,1018,php,115,phar unserialize
+.\tests\vulnerabilities\,Regex-only-match,,"password = ""cobra123456",LoRexxar,D:\program\Kunlun_M\tests\vulnerabilities/v.php,5001,base,90,硬编码密码
