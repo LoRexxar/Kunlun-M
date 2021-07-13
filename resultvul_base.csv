@@ -1,3 +1,5 @@
 target,analysis,chain,code_content,commit_author,file_path,id,language,line_number,rule_name
 .\tests\vul_base\,Regex-only-match,,"Password(""A5vYvvgvneTJJLrsCEv",LoRexxar,D:\program\Kunlun_M\tests\vul_base/test.java,5001,base,14,硬编码密码
 .\tests\vul_base\,Regex-only-match,,/10.332.133.24:3306,LoRexxar,D:\program\Kunlun_M\tests\vul_base/test.java,5002,base,12,硬编码IP
+.\tests\vul_base\,Regex-only-match,,"Password(""A5vYvvgvneTJJLrsCEv",LoRexxar,D:\program\Kunlun_M\tests\vul_base/test.java,5001,base,14,硬编码密码
+.\tests\vul_base\,Regex-only-match,,/10.332.133.24:3306,LoRexxar,D:\program\Kunlun_M\tests\vul_base/test.java,5002,base,12,硬编码IP
