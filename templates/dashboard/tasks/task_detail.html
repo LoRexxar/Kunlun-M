@@ -108,7 +108,7 @@
                       <td>
                       {% if taskresult.is_unconfirm == 0 %}
                       <span class="label label-success">Yes</span>
-                      {% elif  taskresult.is_unconfirm  == -1 %}
+                      {% elif  taskresult.is_unconfirm  == 1 %}
                       <span class="label label-danger">No</span>
                       {% else %}
                       <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
