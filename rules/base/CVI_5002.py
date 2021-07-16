@@ -23,7 +23,7 @@ class CVI_5002():
         self.author = "LoRexxar"
         self.vulnerability = "硬编码IP"
         self.description = "IP不应硬编码在代码当中，而是应该通过配置文件或更安全的方式引入。"
-        self.level = 4
+        self.level = 2
 
         # status
         self.status = True
@@ -40,7 +40,7 @@ class CVI_5002():
         self.keyword = None
 
         # for regex
-        self.unmatch = ['127.0.0.1', '172.1', '0.0.0.0']
+        self.unmatch = ['127.0.0.1', '172.1', '0.0.0.0', '222.222']
 
         self.vul_function = None
 

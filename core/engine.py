@@ -485,6 +485,24 @@ class SingleRule(object):
                 logger.debug('match exception ({e})'.format(e=e))
                 return None
 
+        elif self.sr.match_mode == const.file_path_regex_match:
+            # 针对敏感文件名的匹配检查
+
+            match = self.sr.match
+
+            result = []
+
+            try:
+                f = FileParseAll(self.files, self.target_directory, language=self.lan)
+
+                result = f.find_keyword_file_or_path(match)
+                if not result:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
         else:
             logger.warning('Exception match mode: {m}'.format(m=self.sr.match_mode))
             result = None
@@ -666,7 +684,7 @@ class Core(object):
         Is white-list file
         :return: boolean
         """
-        return self.file_path.split(self.target_directory, 1)[1] in self.white_list
+        return self.file_path.split(self.target_directory, 1)[-1] in self.white_list
 
     def is_special_file(self):
         """
@@ -1071,6 +1089,10 @@ class Core(object):
                 elif self.rule_match_mode == const.mm_regex_return_regex:
                     logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
                     return True, 'Regex-return-regex'
+
+                elif self.rule_match_mode == const.file_path_regex_match:
+                    logger.debug("[CVI-{cvi}] [File-REGEX]".format(cvi=self.cvi))
+                    return True, 'file-path-regex-match'
                 else:
                     logger.warn(
                         "[CVI-{cvi} [OTHER-MATCH]] other rules only support for Regex-only-match and Regex-return-regex...".format(

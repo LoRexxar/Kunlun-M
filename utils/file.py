@@ -179,10 +179,10 @@ def file_grep(file_path, rule_reg):
 def check_filepath(target, filepath):
     os.chdir(os.path.dirname(os.path.dirname(__file__)))
 
-    if os.path.isfile(filepath):
-        return filepath
-    elif os.path.isfile(os.path.join(target, filepath)):
+    if os.path.isfile(os.path.join(target, filepath)):
         return os.path.join(target, filepath)
+    elif os.path.isfile(filepath):
+        return filepath
     elif os.path.isfile(target):
         return target
     else:
@@ -603,6 +603,22 @@ class FileParseAll:
 
         return value_list
 
+    def find_keyword_file_or_path(self, keywords):
+        # 寻找敏感文件或者目录
+        result = []
+
+        for ffile in self.t_filelist:
+            filepath = check_filepath(self.target, ffile)
+
+            for key in keywords:
+                if os.path.normpath(key) in os.path.normpath(ffile):
+
+                    # 加入文件内容检查
+                    if os.path.getsize(filepath) > 10:
+                        result.append((filepath, str(0), key))
+
+        return result
+
 
 class Directory(object):
     def __init__(self, absolute_path, black_path_list=None, lans=None):
@@ -637,20 +653,23 @@ class Directory(object):
         self.result['no_extension'] = {'count': 0, 'list': []}
         for extension, values in self.type_nums.items():
             extension = extension.strip()
-            self.result[extension] = {'count': len(values), 'list': []}
+            if extension:
+                self.result[extension] = {'count': len(values), 'list': []}
             # .php : 123
             logger.debug('[PICKUP] [EXTENSION-COUNT] {0} : {1}'.format(extension, len(values)))
             for f in self.file:
-                es = f.split(os.extsep)
+                filename = f.split("/")[-1].split("\\")[-1]
+                es = filename.split(os.extsep)
                 if len(es) >= 2:
                     # Exists Extension
                     # os.extsep + es[len(es) - 1]
-                    if f.endswith(extension):
+                    if f.endswith(extension) and extension:
                         self.result[extension]['list'].append(f)
                 else:
                     # Didn't have extension
-                    self.result['no_extension']['count'] = int(self.result['no_extension']['count']) + 1
-                    self.result['no_extension']['list'].append(f)
+                    if not extension:
+                        self.result['no_extension']['count'] = int(self.result['no_extension']['count']) + 1
+                        self.result['no_extension']['list'].append(f)
         if self.result['no_extension']['count'] == 0:
             del self.result['no_extension']
         t2 = time.time()

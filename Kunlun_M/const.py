@@ -17,7 +17,8 @@ mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配
 mm_regex_param_controllable = 'vustomize-match'  # 自定义匹配
 mm_regex_only_match = 'only-regex'
 mm_regex_return_regex = 'regex-return-regex'
-sp_crx_keyword_match = "special-crx-keyword-match"  # crx特殊匹配
+sp_crx_keyword_match = 'special-crx-keyword-match'  # crx特殊匹配
+file_path_regex_match = 'file-path-regex-match'  # 文件名或者路径匹配
 
 match_modes = [
     mm_regex_only_match,
@@ -25,6 +26,7 @@ match_modes = [
     mm_function_param_controllable,
     mm_regex_return_regex,
     sp_crx_keyword_match,
+    file_path_regex_match,
 ]
 
 
