@@ -611,7 +611,11 @@ class FileParseAll:
             filepath = check_filepath(self.target, ffile)
 
             for key in keywords:
-                if os.path.normpath(key) in os.path.normpath(ffile):
+                keypath = os.path.normpath(key)
+                originpath = os.path.normpath(ffile)
+
+                r_con_obj = re.search(re.escape(keypath), originpath, re.I)
+                if r_con_obj:
 
                     # 加入文件内容检查
                     if os.path.getsize(filepath) > 10:
