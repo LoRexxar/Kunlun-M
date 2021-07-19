@@ -15,8 +15,16 @@ from utils.log import logger
 import uuid
 
 
+class Project(models.Model):
+    project_name = models.CharField(max_length=200)
+    project_des = models.TextField(null=True)
+    project_origin = models.CharField(max_length=500, null=True)
+    project_hash = models.CharField(max_length=32)
+
+
 class ScanTask(models.Model):
-    task_name = models.CharField(max_length=50)
+    project_id = models.IntegerField()
+    task_name = models.CharField(max_length=200)
     target_path = models.CharField(max_length=300)
     parameter_config = models.CharField(max_length=500)
     last_scan_time = models.DateTimeField(auto_now=True)
@@ -28,13 +36,14 @@ class ScanTask(models.Model):
 #         ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
 #          'Commit(Author)', 'Source Code Content', 'Analysis'])
 class ScanResultTask(models.Model):
-    scan_task_id = models.IntegerField()
+    scan_project_id = models.IntegerField()
     result_id = models.IntegerField()
     cvi_id = models.CharField(max_length=20)
     language = models.CharField(max_length=20)
     vulfile_path = models.CharField(max_length=200)
     source_code = models.CharField(max_length=200)
     result_type = models.CharField(max_length=100)
+    vul_hash = models.CharField(max_length=32)
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 

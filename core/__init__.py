@@ -57,7 +57,10 @@ def main():
         subparsers = parser.add_subparsers()
 
         parser_group_init = subparsers.add_parser('init', help='Kunlun-M init before use.')
-        parser_group_init.add_argument('-init', action='store_true', default=False)
+        parser_group_init.add_argument('init', choices=['init', 'checksql'], default='init', help='check and migrate SQL')
+        parser_group_init.add_argument('appname', choices=['index', 'dashboard', 'backend', 'api'], default='appname',
+                                       help='Check App name')
+        parser_group_init.add_argument('migrationname', default='migrationname', help='Check migration name')
 
         parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
         parser_group_core.add_argument('load', choices=['load', 'recover', 'loadtamper', 'retamper'], default=False, help='operate for rule&tamper')
@@ -138,10 +141,14 @@ def main():
             logger.setLevel(logging.DEBUG)
 
         if hasattr(args, "init"):
-            logger.info('Init Database for KunLun-M.')
-            call_command('makemigrations')
-            call_command('migrate')
-            logger.info('Init Database Finished.')
+            if args.init == 'checksql':
+                logger.info('Show migrate sql.')
+                call_command('sqlmigrate', args.appname, args.migrationname)
+            else:
+                logger.info('Init Database for KunLun-M.')
+                call_command('makemigrations')
+                call_command('migrate')
+                logger.info('Init Database Finished.')
             exit()
 
         if hasattr(args, "port"):
