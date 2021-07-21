@@ -135,7 +135,7 @@ cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
 
 初始化数据库，默认采用sqlite作为数据库
 ```
-python kunlun.py init
+python kunlun.py init initialize
 ```
 
 ### docker安装

@@ -31,7 +31,7 @@ WORKDIR /home/kunlun-m
 RUN python3 -m pip install -r requirements.txt
 RUN cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
 
-RUN python3 kunlun.py init
+RUN python3 kunlun.py init initialize
 
 # nginx config
 COPY /docker/nginx.conf /etc/nginx/
