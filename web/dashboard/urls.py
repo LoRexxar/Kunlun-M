@@ -8,7 +8,7 @@
 from django.urls import path
 
 from web.dashboard import views
-from web.dashboard.controller import tasks, rules, tampers
+from web.dashboard.controller import tasks, rules, tampers, project
 
 app_name = "dashboard"
 urlpatterns = [
@@ -17,6 +17,10 @@ urlpatterns = [
     # task
     path('tasks/list', tasks.TaskListView.as_view(), name='tasks_list'),
     path('tasks/detail/<int:task_id>', tasks.TaskDetailView.as_view(), name="task_detail"),
+
+    # projects
+    path('projects/list', project.ProjectListView.as_view(), name='projects_list'),
+    path('projects/detail/<int:project_id>', project.ProjectDetailView.as_view(), name="project_detail"),
 
     # rule
     path('rules/list', rules.RuleListView.as_view(), name='rules_list'),

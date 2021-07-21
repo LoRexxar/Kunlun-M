@@ -39,6 +39,7 @@ from core.engine import Running
 
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc
 from web.index.models import get_resultflow_class, get_dataflow_class
+from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, check_and_new_project_id
 
 
 def readline_available():
@@ -675,7 +676,10 @@ Input Control:
 
     def get_scan_results_by_config(self):
 
-        srs = ScanResultTask.objects.filter(scan_task_id=self.result_task_id)
+        project_id = get_and_check_scantask_project_id(self.result_task_id)
+        logger.info("Task {} belong Project {}.".format(self.result_task_id, project_id))
+
+        srs = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id)
         orm_limit = {}
 
         if srs:
@@ -703,9 +707,9 @@ Input Control:
                 q.add(Q(**{i: orm_limit[i]}), Q.AND)
 
             # scan_task_id
-            q.add(Q(**{"scan_task_id": self.result_task_id}), Q.AND)
+            q.add(Q(**{"scan_project_id": project_id}), Q.AND)
 
-            srs = ScanResultTask.objects.filter(q).annotate(max_id=Max('id'))
+            srs = get_and_check_scanresult(self.result_task_id).objects.filter(q).annotate(max_id=Max('id'))
             return srs
 
         else:
@@ -713,7 +717,10 @@ Input Control:
 
     def get_new_evil_func(self, option_name=None, option_value=None):
 
-        nfs = NewEvilFunc.objects.filter(scan_task_id=self.result_task_id)
+        project_id = get_and_check_scantask_project_id(self.result_task_id)
+        logger.info("Task {} belong Project {}.".format(self.result_task_id, project_id))
+
+        nfs = NewEvilFunc.objects.filter(project_id=project_id)
         orm_limit = {}
         result_list = []
 
@@ -726,7 +733,7 @@ Input Control:
                 q.add(Q(**{i: orm_limit[i]}), Q.AND)
 
             # scan_task_id
-            q.add(Q(**{"scan_task_id": self.result_task_id}), Q.AND)
+            q.add(Q(**{"project_id": project_id}), Q.AND)
 
             nfs = NewEvilFunc.objects.filter(q).annotate(max_id=Max('id'))
 
@@ -1035,20 +1042,22 @@ Input Control:
 
         result_id = param[1]
         if mod == 'vuls':
+            project_id = get_and_check_scantask_project_id(self.result_task_id)
 
-            sr = ScanResultTask.objects.filter(scan_task_id=self.result_task_id, result_id=result_id, is_active=True).first()
+            sr = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id, result_id=result_id, is_active=True).first()
             if sr:
                 logger.info("[Console] Delete ScanTask {} id {}.".format(self.result_task_id, result_id))
 
-                sr.is_active=False
+                sr.is_active = False
                 sr.save()
             else:
                 logger.error("[Console] ScanTask {} not found id {}. please check the result id by Command 'show vuls all'.".format(self.result_task_id, result_id))
                 return
 
         elif mod == 'newevilfunc':
+            project_id = get_and_check_scantask_project_id(self.result_task_id)
 
-            nf = NewEvilFunc.objects.filter(scan_task_id=self.result_task_id, result_id=result_id, is_active=True).first()
+            nf = NewEvilFunc.objects.filter(project_id=project_id, result_id=result_id, is_active=True).first()
             if nf:
                 logger.info("[Console] Delete NewEvilFunc {} id {}.".format(self.result_task_id, result_id))
 
@@ -1194,7 +1203,9 @@ Input Control:
                             logger.info("[Result] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
                             logger.warn("[Console] Use 'show vuls <result_id>' could get detail of vul.")
                         else:
-                            sr = ScanResultTask.objects.filter(scan_task_id=self.result_task_id, result_id=key).first()
+                            project_id = get_and_check_scantask_project_id(self.result_task_id)
+
+                            sr = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id, result_id=key).first()
                             if sr:
                                 # load rule
                                 rule = Rules.objects.filter(svid=sr.cvi_id).first()
@@ -1211,7 +1222,7 @@ Input Control:
 
                                 # show Vuls Chain
                                 ResultFlow = get_resultflow_class(int(self.result_task_id))
-                                rfs = ResultFlow.objects.filter(vul_id=sr.result_id)
+                                rfs = ResultFlow.objects.filter(vul_id=sr.id)
 
                                 if rfs:
                                     logger.info("[Chain] Vul {}".format(sr.result_id))
@@ -1230,7 +1241,7 @@ Input Control:
                         logger.error("[Console] ScanTask {} has 0 result.".format(self.result_task_id))
 
                 elif mod == 'newevilfunc':
-                    nfs = NewEvilFunc.objects.filter(is_active=1, scan_task_id=self.result_task_id)
+                    nfs = NewEvilFunc.objects.filter(is_active=1, project_id=project_id)
                     table2 = PrettyTable(
                         ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
 
@@ -1420,7 +1431,8 @@ Input Control:
 
             # new scan task
             task_name = get_mainstr_from_filename(self.scan_options['target'])
-            s = cli.check_scantask(task_name=task_name, target_path=self.scan_options['target'], parameter_config=self.get_sacn_parameters())
+            origin = "Console Scan File Include From {}".format(task_name)
+            s = cli.check_scantask(task_name=task_name, target_path=self.scan_options['target'], parameter_config=self.get_sacn_parameters(), project_origin=origin)
 
             if s.is_finished:
                 logger.info("[INIT] Finished Task.")

@@ -57,10 +57,10 @@ def main():
         subparsers = parser.add_subparsers()
 
         parser_group_init = subparsers.add_parser('init', help='Kunlun-M init before use.')
-        parser_group_init.add_argument('init', choices=['init', 'checksql'], default='init', help='check and migrate SQL')
-        parser_group_init.add_argument('appname', choices=['index', 'dashboard', 'backend', 'api'], default='appname',
+        parser_group_init.add_argument('init', choices=['initialize', 'checksql'], default='init', help='check and migrate SQL')
+        parser_group_init.add_argument('appname', choices=['index', 'dashboard', 'backend', 'api'],  nargs='?', default='index',
                                        help='Check App name')
-        parser_group_init.add_argument('migrationname', default='migrationname', help='Check migration name')
+        parser_group_init.add_argument('migrationname', default='migrationname',  nargs='?', help='Check migration name')
 
         parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
         parser_group_core.add_argument('load', choices=['load', 'recover', 'loadtamper', 'retamper'], default=False, help='operate for rule&tamper')
@@ -80,6 +80,8 @@ def main():
                                        help='without any output for shell')
         parser_group_scan.add_argument('-y', '--yes', dest='yes', action='store_true', default=False,
                                        help='without any output for shell')
+        parser_group_scan.add_argument('--origin', dest='origin', action='store', default=None, metavar='<origin>', help='project origin')
+        parser_group_scan.add_argument('-des', '--description', dest='description', action='store', default=None, metavar='<description>', help='project description')
 
         # for log
         parser_group_scan.add_argument('-d', '--debug', dest='debug', action='store_true', default=False, help='open debug mode')
@@ -224,9 +226,15 @@ def main():
         logger.debug('[INIT] start Scan Task...')
         logger.debug('[INIT] set logging level: {}'.format(logger.level))
 
+        # check for project data
+        if hasattr(args, "origin") and args.origin:
+            origin = args.origin
+        else:
+            origin = "File in {}".format(args.target)
+
         # new scan task
         task_name = get_mainstr_from_filename(args.target)
-        s = cli.check_scantask(task_name=task_name, target_path=args.target, parameter_config=sys.argv, auto_yes=args.yes)
+        s = cli.check_scantask(task_name=task_name, target_path=args.target, parameter_config=sys.argv, project_origin=origin, project_des=args.description, auto_yes=args.yes)
 
         if s.is_finished:
             logger.info("[INIT] Finished Task.")

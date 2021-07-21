@@ -7,12 +7,24 @@ from datetime import datetime
 from django.db import models
 from django.db import connection
 from django.db.utils import OperationalError
+import django.utils.timezone as timezone
 from django import db
 
 from Kunlun_M.const import TAMPER_TYPE
 from utils.log import logger
 
 import uuid
+import hashlib
+
+
+def md5(content):
+    """
+    MD5 Hash
+    :param content:
+    :return:
+    """
+    content = content.encode('utf8')
+    return hashlib.md5(content).hexdigest()
 
 
 class Project(models.Model):
@@ -23,29 +35,145 @@ class Project(models.Model):
 
 
 class ScanTask(models.Model):
-    project_id = models.IntegerField()
+    project_id = models.IntegerField(default=0)
     task_name = models.CharField(max_length=200)
     target_path = models.CharField(max_length=300)
     parameter_config = models.CharField(max_length=500)
-    last_scan_time = models.DateTimeField(auto_now=True)
+    last_scan_time = models.DateTimeField(default=timezone.now)
     visit_token = models.CharField(max_length=64, default=uuid.uuid4)
     is_finished = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        # 检查project存不存在，如果不存在，那么新建一个
+        project = Project.objects.filter(id=self.project_id).first()
+        project2 = Project.objects.filter(project_hash=md5(self.task_name)).first()
+
+        if not project:
+
+            if project2:
+                self.project_id = project2.id
+            else:
+                p = Project(project_name=self.task_name, project_hash=md5(self.task_name))
+                p.save()
+                self.project_id = p.id
+
+        super().save(*args, **kwargs)
+
+
+def get_and_check_scantask_project_id(scantask_id):
+    st = ScanTask.objects.filter(id=scantask_id).first()
+    if st.project_id:
+        return st.project_id
+
+    p = Project.objects.filter(project_hash=md5(st.task_name)).first()
+    if not p:
+        p = Project(project_name=st.task_name, project_hash=md5(st.task_name))
+        p.save()
+
+    st.scan_project_id = p.id
+    st.save()
+    return p.id
+
+
+def check_and_new_project_id(scantask_id, task_name, project_origin, project_des=""):
+    st = ScanTask.objects.filter(id=scantask_id).first()
+    if st.project_id:
+        return st.project_id
+
+    p = Project.objects.filter(project_hash=md5(task_name)).first()
+    if not p:
+        p = Project(project_name=st.task_name, project_des=project_des, project_hash=md5(task_name), project_origin=project_origin)
+        p.save()
+
+    st.scan_project_id = p.id
+    st.save()
+    return p.id
 
 
 #     table = PrettyTable(
 #         ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
 #          'Commit(Author)', 'Source Code Content', 'Analysis'])
 class ScanResultTask(models.Model):
-    scan_project_id = models.IntegerField()
-    result_id = models.IntegerField()
+    scan_project_id = models.IntegerField(default=0)
+    scan_task_id = models.IntegerField()
+    # result_id = models.IntegerField()
     cvi_id = models.CharField(max_length=20)
     language = models.CharField(max_length=20)
     vulfile_path = models.CharField(max_length=200)
     source_code = models.CharField(max_length=200)
     result_type = models.CharField(max_length=100)
-    vul_hash = models.CharField(max_length=32)
+    vul_hash = models.CharField(max_length=32, default=None)
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+
+        if not self.scan_project_id:
+            scan_task = ScanTask.objects.filter(id=self.scan_task_id).first()
+            self.scan_project_id = scan_task.project_id
+
+        self.vul_hash = md5("{},{},{},{},{}".format(self.scan_project_id, self.cvi_id, self.language, self.vulfile_path, self.source_code))
+
+        # 加入去重检查
+        srts = ScanResultTask.objects.filter(vul_hash=self.vul_hash)
+
+        if len(srts) > 1:
+            # 如果存在，那么重复
+            srts.last().delete()
+
+            return self.save(*args, **kwargs)
+
+        super().save(*args, **kwargs)
+
+
+def get_and_check_scanresult(scan_task_id):
+    srtn = ScanResultTask.objects.filter(scan_task_id=scan_task_id).first()
+
+    if not srtn:
+        return ScanResultTask
+
+    scan_project_id = srtn.scan_project_id
+
+    if scan_project_id:
+        return ScanResultTask
+
+    else:
+        srts = ScanResultTask.objects.filter(scan_task_id=scan_task_id)
+        project_id = get_and_check_scantask_project_id(scan_task_id)
+
+        for srt in srts:
+            srt.scan_project_id = project_id
+            srt.save()
+
+    return ScanResultTask
+
+
+def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path, source_code, result_type,
+                                   is_unconfirm, is_active):
+    # 如果漏洞hash存在，那么更新信息，如果hash不存在，那么新建漏洞
+    scan_project_id = get_and_check_scantask_project_id(scan_task_id)
+    vul_hash = md5("{},{},{},{},{}".format(scan_project_id, cvi_id, language, vulfile_path, source_code))
+
+    sr = ScanResultTask.objects.filter(vul_hash=vul_hash).first()
+    if sr:
+        logger.debug("[Database] Scan Result id {} exist. update.".format(sr.id))
+
+        sr.scan_task_id = scan_task_id
+        sr.cvi_id = cvi_id
+        sr.language = language
+        sr.vulfile_path = vulfile_path
+        sr.source_code = source_code
+        sr.result_type = result_type
+        sr.is_unconfirm = is_unconfirm
+        # sr.is_active =is_active
+        sr.save()
+
+    else:
+        sr = ScanResultTask(scan_project_id=scan_project_id, scan_task_id=scan_task_id, cvi_id=cvi_id, language=language, vulfile_path=vulfile_path, source_code=source_code, result_type=result_type,
+                            is_unconfirm=is_unconfirm, is_active=is_active)
+        sr.save()
+
+    return sr
 
 
 class Rules(models.Model):
@@ -80,9 +208,50 @@ class Tampers(models.Model):
 class NewEvilFunc(models.Model):
     svid = models.IntegerField()
     scan_task_id = models.IntegerField()
+    project_id = models.IntegerField(default=0)
     func_name = models.CharField(max_length=200)
     origin_func_name = models.CharField(max_length=200, null=True)
+    func_hash = models.CharField(max_length=32, default=None)
     is_active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+
+        if not self.project_id:
+            self.project_id = get_and_check_scantask_project_id(self.scan_task_id)
+
+        self.func_hash = md5("{},{},{},{}".format(self.project_id, self.svid, self.func_name, self.origin_func_name))
+
+        # 添加去重
+        nefs = NewEvilFunc.objects.filter(func_hash=self.func_hash)
+
+        if len(nefs) > 1:
+            # 如果存在，那么重复
+            nefs.last().delete()
+
+            return self.save(*args, **kwargs)
+
+        elif len(nefs) == 1:
+
+            return True
+
+        super().save(*args, **kwargs)
+
+
+def get_and_check_evil_func(task_id):
+    nefs = NewEvilFunc.objects.filter(scan_task_id=task_id)
+
+    for nef in nefs:
+        project_id = nef.project_id
+
+        if project_id:
+            continue
+
+        else:
+            project_id = get_and_check_scantask_project_id(task_id)
+            nef.project_id = project_id
+            nef.save()
+
+    return nefs
 
 
 # 数据流模板表
@@ -148,18 +317,25 @@ def get_resultflow_table(table_name):
     return ResultFlowTemplate
 
 
-def get_resultflow_class(prefix):
+def get_resultflow_class(scanid):
 
-    table_name = "ResultFlow_{:08d}".format(prefix)
+    table_name = "ResultFlow_{:08d}".format(scanid)
 
     ResultflowObject = get_resultflow_table(table_name)
 
     if not ResultflowObject.is_exists():
-        old_table_name = "ResultFlow_{:04d}".format(prefix)
+        old_table_name = "ResultFlow_{:04d}".format(scanid)
         oldResultflowObject = get_resultflow_table(old_table_name)
 
         if oldResultflowObject.is_exists():
             return oldResultflowObject
+
+        # 将resultflow在同一个project的储存在同一张表，检查project获取id
+        st = ScanTask.objects.filter(id=scanid).first()
+        projectid = st.project_id
+
+        table_name = "ResultFlow_1{:08d}".format(projectid)
+        ResultflowObject = get_resultflow_table(table_name)
 
         with connection.schema_editor() as schema_editor:
 
