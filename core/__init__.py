@@ -219,7 +219,7 @@ def main():
             parser.print_help()
             exit()
 
-        # for api colse log
+        # for api close log
         if hasattr(args, "api") and args.api:
             log_rm()
 

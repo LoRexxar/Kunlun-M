@@ -21,7 +21,7 @@ from django.shortcuts import render, redirect
 from Kunlun_M.settings import SUPER_ADMIN
 from web.index.controller import login_or_token_required
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project
+from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project, ProjectVendors
 from web.index.models import get_and_check_scanresult, get_and_check_evil_func
 
 
@@ -41,6 +41,9 @@ class ProjectListView(TemplateView):
             tasks = ScanTask.objects.filter(project_id=project.id).order_by('-id')
             tasks_count = len(tasks)
 
+            pvs = ProjectVendors.objects.filter(project_id=project.id)
+            vendors_cout = len(pvs)
+
             # check all scanresulttask
             for task in tasks:
                 get_and_check_scanresult(task.id)
@@ -56,6 +59,7 @@ class ProjectListView(TemplateView):
             project.tasks_count = tasks_count
             project.results_count = results_count
             project.last_scan_time = last_scan_time
+            project.vendors_cout = vendors_cout
 
         return context
 
@@ -71,6 +75,7 @@ class ProjectDetailView(View):
         tasks = ScanTask.objects.filter(project_id=project.id).order_by('-id')
         taskresults = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1).all()
         newevilfuncs = NewEvilFunc.objects.filter(project_id=project.id).all()
+        pvs = ProjectVendors.objects.filter(project_id=project.id)
 
         for task in tasks:
             task.is_finished = int(task.is_finished)
@@ -87,5 +92,6 @@ class ProjectDetailView(View):
                 'taskresults': taskresults,
                 'newevilfuncs': newevilfuncs,
                 'project': project,
+                'project_vendors': pvs,
             }
             return render(request, 'dashboard/projects/project_detail.html', data)

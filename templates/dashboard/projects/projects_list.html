@@ -17,6 +17,7 @@
                   <th>Last Scan Time</th>
                   <th>Task Count</th>
                   <th>Vul Count</th>
+                  <th>Vendor Count</th>
                 </tr>
                 {% for project in projects %}
                 <tr>
@@ -25,6 +26,7 @@
                       <td>{{ project.last_scan_time }}</td>
                       <td>{{ project.tasks_count }}</td>
                       <td>{{ project.results_count }}</td>
+                      <td>{{ project.vendors_cout }}</td>
 
                   </tr>
                 {% endfor %}

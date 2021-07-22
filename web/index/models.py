@@ -34,6 +34,38 @@ class Project(models.Model):
     project_hash = models.CharField(max_length=32)
 
 
+class ProjectVendors(models.Model):
+    project_id = models.IntegerField()
+    name = models.CharField(max_length=200)
+    version = models.CharField(max_length=50, null=True)
+    language = models.CharField(max_length=20)
+    ext = models.CharField(max_length=100, null=True, default=None)
+    hash = models.CharField(max_length=32)
+
+    def save(self, *args, **kwargs):
+
+        self.hash = md5("{},{},{}".format(self.project_id, self.name, self.language))
+        super().save(*args, **kwargs)
+
+
+def update_and_new_project_vendor(project_id, name, version, language, ext=None):
+    hash = md5("{},{}".format(name, language))
+    vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id).first()
+
+    if vendor:
+        logger.debug("[Vendors] Component {} update to version {}".format(name, version))
+
+        vendor.version = version
+        vendor.ext = ext
+        vendor.save()
+
+    else:
+        v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, ext=ext)
+        v.save()
+
+    return True
+
+
 class ScanTask(models.Model):
     project_id = models.IntegerField(default=0)
     task_name = models.CharField(max_length=200)
@@ -182,7 +214,7 @@ class Rules(models.Model):
     language = models.CharField(max_length=20)
     author = models.CharField(max_length=20)
     description = models.TextField(null=True)
-    level = models.IntegerField(max_length=2, default=5)
+    level = models.IntegerField(default=5)
     status = models.BooleanField(default=True)
     match_mode = models.CharField(max_length=50)
     match = models.CharField(max_length=500)

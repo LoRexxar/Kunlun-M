@@ -19,6 +19,8 @@ from prettytable import PrettyTable
 
 from .detection import Detection
 from .engine import scan, Running
+from .vendors import Vendors
+
 from core.pretreatment import ast_object
 from utils.export import write_to_file
 from utils.log import logger
@@ -166,6 +168,8 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
     d['report'] = report
     r.status(d)
 
+    task_id = a_sid
+
     # 加载 kunlunmignore
     load_kunlunmignore()
 
@@ -182,6 +186,10 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
 
         # static analyse files info
         files, file_count, time_consume = Directory(target_directory, black_path_list).collect_files()
+
+        # vendor check
+        project_id = get_and_check_scantask_project_id(task_id)
+        Vendors(project_id, target_directory, files)
 
         # detection main language and framework
 
