@@ -23,7 +23,7 @@ class CVI_5001():
         self.author = "LoRexxar"
         self.vulnerability = "硬编码密码"
         self.description = "密码不应硬编码在代码当中，而是应该通过配置文件或更安全的方式引入。"
-        self.level = 8
+        self.level = 2
 
         # status
         self.status = True

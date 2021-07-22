@@ -46,7 +46,7 @@
                 </tr>
                 {% for taskresult in taskresults %}
                 <tr>
-                    <td>{{ taskresult.result_id }}</td>
+                    <td>{{ taskresult.id }}</td>
                     <td>{{ taskresult.cvi_id }}</td>
                     <td>{{ taskresult.language }}</td>
                     <td>{{ taskresult.vulfile_path }}</td>
@@ -56,7 +56,7 @@
                       <td>
                       {% if taskresult.is_unconfirm == 0 %}
                       <span class="label label-success">Yes</span>
-                      {% elif  taskresult.is_unconfirm  == -1 %}
+                      {% elif  taskresult.is_unconfirm  == 1 %}
                       <span class="label label-danger">No</span>
                       {% else %}
                       <span class="label label-success">{{ taskresult.is_unconfirm }}</span>

@@ -10,7 +10,7 @@
 '''
 
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc
+from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, Project
 
 
 class SDataMiddleware:
@@ -22,6 +22,7 @@ class SDataMiddleware:
 
         if request.user.is_authenticated:
             request.session["rules_count"] = Rules.objects.all().count()
+            request.session["project_count"] = Rules.objects.all().count()
             request.session["tasks_count"] = ScanTask.objects.all().count()
             request.session["tasks_finished_count"] = ScanTask.objects.filter(is_finished=True).count()
             request.session["tampers_count"] = Tampers.objects.all().count()

@@ -16,12 +16,13 @@ from django.shortcuts import render, redirect
 from Kunlun_M.settings import SUPER_ADMIN
 from web.index.controller import login_or_token_required
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc
+from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project
+from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, get_and_check_evil_func
 
 
 class TaskListView(TemplateView):
     """展示当前用户的任务"""
-    template_name = "dashboard/tasks/tasks_list.html/"
+    template_name = "dashboard/tasks/tasks_list.html"
 
     def get_context_data(self, **kwargs):
         context = super(TaskListView, self).get_context_data(**kwargs)
@@ -33,6 +34,11 @@ class TaskListView(TemplateView):
         for task in context['tasks']:
             task.is_finished = int(task.is_finished)
             task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
+
+            project_id = get_and_check_scantask_project_id(task.id)
+            project = Project.objects.filter(id=project_id).first()
+
+            task.project_name = project.project_name
 
         return context
 
@@ -49,8 +55,11 @@ class TaskDetailView(View):
         if 'token' in request.GET:
             visit_token = request.GET['token']
 
-        taskresults = ScanResultTask.objects.filter(scan_task_id=task_id).all()
-        newevilfuncs = NewEvilFunc.objects.filter(scan_task_id=task_id).all()
+        project_id = get_and_check_scantask_project_id(task.id)
+        project = Project.objects.filter(id=project_id).first()
+
+        taskresults = get_and_check_scanresult(task.id).objects.filter(scan_project_id=project_id, is_active=1).all()
+        newevilfuncs = get_and_check_evil_func(task.id)
 
         task.is_finished = int(task.is_finished)
         task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
@@ -65,6 +74,7 @@ class TaskDetailView(View):
                 'task': task,
                 'taskresults': taskresults,
                 'newevilfuncs': newevilfuncs,
-                'visit_token': visit_token
+                'visit_token': visit_token,
+                'project': project,
             }
             return render(request, 'dashboard/tasks/task_detail.html', data)

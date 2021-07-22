@@ -41,7 +41,7 @@ from utils.log import logger
 from utils.utils import get_scan_id
 
 from web.index.models import ScanResultTask, NewEvilFunc
-from web.index.models import get_resultflow_class
+from web.index.models import get_resultflow_class, check_update_or_new_scanresult
 
 
 class Running:
@@ -224,7 +224,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
-        trigger = '{fp}:{ln}'.format(fp=x.file_path, ln=x.line_number)
+
+        trigger = '{fp}:{ln}'.format(fp=x.file_path.replace(target_directory, ""), ln=x.line_number)
         commit = u'@{author}'.format(author=x.commit_author)
         try:
             code_content = x.code_content[:50].strip()
@@ -239,18 +240,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             is_unconfirm_result = True
 
         # save to database
-        sr = ScanResultTask(scan_task_id=a_sid, result_id=idx + 1, cvi_id=x.id, language=x.language,
-                            vulfile_path=trigger, source_code=code_content.replace('\r\n', ' ').replace('\n', ' '),
-                            result_type=x.analysis, is_unconfirm=is_unconfirm_result)
-
-        sr.save()
+        sr = check_update_or_new_scanresult(scan_task_id=a_sid, cvi_id=x.id, language=x.language,
+                                            vulfile_path=trigger, source_code=code_content.replace('\r\n', ' ').replace('\n', ' '),
+                                            result_type=x.analysis, is_unconfirm=is_unconfirm_result, is_active=True)
+        # sr = ScanResultTask(scan_task_id=a_sid, result_id=idx + 1, cvi_id=x.id, language=x.language,
+        #                     vulfile_path=trigger, source_code=code_content.replace('\r\n', ' ').replace('\n', ' '),
+        #                     result_type=x.analysis, is_unconfirm=is_unconfirm_result)
+        #
+        # sr.save()
 
         for chain in x.chain:
             if type(chain) == tuple:
                 ResultFlow = get_resultflow_class(int(a_sid))
                 node_source = show_context(chain[2], chain[3], is_back=True)
 
-                rf = ResultFlow(vul_id=idx + 1, node_type=chain[0], node_content=chain[1],
+                rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
                                 node_path=chain[2], node_source=node_source, node_lineno=chain[3])
                 rf.save()
 
@@ -300,7 +304,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     for new_function_name in newcore_function_list:
         # add new evil func in database
         for svid in newcore_function_list[new_function_name]["svid"]:
-            if new_function_name:
+            if new_function_name and newcore_function_list[new_function_name]["origin_func_name"]:
 
                 nf = NewEvilFunc(svid=svid, scan_task_id=get_scan_id(), func_name=new_function_name,
                                  origin_func_name=newcore_function_list[new_function_name]["origin_func_name"])
@@ -478,6 +482,24 @@ class SingleRule(object):
                 f = FileParseAll(self.files, self.target_directory, language=self.lan)
 
                 result = f.special_crx_keyword_match(keyword, match, unmatch)
+                if not result:
+                    result = None
+            except Exception as e:
+                traceback.print_exc()
+                logger.debug('match exception ({e})'.format(e=e))
+                return None
+
+        elif self.sr.match_mode == const.file_path_regex_match:
+            # 针对敏感文件名的匹配检查
+
+            match = self.sr.match
+
+            result = []
+
+            try:
+                f = FileParseAll(self.files, self.target_directory, language=self.lan)
+
+                result = f.find_keyword_file_or_path(match)
                 if not result:
                     result = None
             except Exception as e:
@@ -666,7 +688,7 @@ class Core(object):
         Is white-list file
         :return: boolean
         """
-        return self.file_path.split(self.target_directory, 1)[1] in self.white_list
+        return self.file_path.split(self.target_directory, 1)[-1] in self.white_list
 
     def is_special_file(self):
         """
@@ -1071,6 +1093,10 @@ class Core(object):
                 elif self.rule_match_mode == const.mm_regex_return_regex:
                     logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
                     return True, 'Regex-return-regex'
+
+                elif self.rule_match_mode == const.file_path_regex_match:
+                    logger.debug("[CVI-{cvi}] [File-REGEX]".format(cvi=self.cvi))
+                    return True, 'file-path-regex-match'
                 else:
                     logger.warn(
                         "[CVI-{cvi} [OTHER-MATCH]] other rules only support for Regex-only-match and Regex-return-regex...".format(

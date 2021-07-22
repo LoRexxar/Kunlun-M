@@ -146,8 +146,18 @@ scratch. This page gets rid of all links and provides the needed markup only.
             <li class="active"><a href="{% url 'dashboard:index' %}"><i class="fa fa-circle-o"></i> Dashboard</a></li>
           </ul>
         </li>
+          <li class="treeview" id="tasks">
+          <a href="#"><i class="fa ion-ios-analytics-outline"></i> <span>Projects</span>
+            <span class="pull-right-container">
+                <i class="fa fa-angle-left pull-right"></i>
+              </span>
+          </a>
+          <ul class="treeview-menu">
+            <li id="projects_list"><a href="{% url 'dashboard:projects_list' %}"><i class="fa fa-circle-o"></i>Projects List</a></li>
+          </ul>
+        </li>
          <li class="treeview" id="tasks">
-          <a href="#"><i class="fa ion-ios-analytics-outline"></i> <span>tasks</span>
+          <a href="#"><i class="fa ion-ios-analytics-outline"></i> <span>Tasks</span>
             <span class="pull-right-container">
                 <i class="fa fa-angle-left pull-right"></i>
               </span>

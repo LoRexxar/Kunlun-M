@@ -1,5 +1,5 @@
 {% extends "dashboard/base.html" %}
-{% block title %}Tasks Detail{% endblock %}
+{% block title %}Project Detail{% endblock %}
 
 {% block body %}
 <div>
@@ -7,93 +7,88 @@
 <div class="box box-primary">
 <div class="box-header with-border
 ">
-  <h3 class="box-title">Task Details</h3>
+  <h3 class="box-title">Project Details</h3>
 </div>
 <div class="box-body">
   <!-- Date -->
   <!-- Date and time range -->
   <div class="form-group">
-    <label>Path:</label>
+    <label>Project Name:</label>
 
     <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-laptop "></i>
-      </div>
-      <input type="text" class="form-control pull-right" name="filename" value="{{ task.target_path }}" disabled>
+      <input type="text" class="form-control pull-right" name="project_name" value="{{ project.project_name }}" disabled>
     </div>
     <!-- /.input group -->
   </div>
 
   <div class="form-group">
-    <label>Project:</label>
+    <label>Origin:</label>
 
-    <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-laptop "></i>
-      </div>
-        <div type="text" class="form-control pull-right"><a href='{% url 'dashboard:project_detail' project.id %}'>{{ project.id }}.{{ project.project_name }}</a></div>
+      <input type="text" class="form-control pull-right" name="project_origin" value="{{ project.project_origin }}" disabled>
     </div>
+
+  <div class="form-group">
+      <label>Description:</label>
+      <textarea class="form-control" rows="3" placeholder="Some details about project" name="project_desc" disabled>{{ project.project_desc }}</textarea>
+    </div>
+
+
     <!-- /.input group -->
   </div>
   <!-- /.form group -->
 </div>
 <!-- /.box-body -->
 </div>
-
-<div class="box box-info">
-<div class="box-header with-border">
-  <h3 class="box-title">Task</h3>
-</div>
-<div class="box-body">
-
-  <div class="form-group">
-    <label>Task Name:</label>
-    <input type="text" class="form-control my-colorpicker1 colorpicker-element" name="task_name" value="{{ task.task_name }}" disabled>
-  </div>
-  <!-- /.form group -->
-<div class="form-group">
-    <label>Task Create Time:</label>
-
-    <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-calendar"></i>
-      </div>
-      <input type="text" class="form-control" data-inputmask="'alias': 'dd/mm/yyyy'" value="{{ task.last_scan_time }}" disabled>
-    </div>
-    <!-- /.input group -->
-</div>
-
-<div class="form-group">
-    <label>Task Status:</label>
-
-    <div class="input-group">
-      {% if task.is_finished == 0 %}
-      <span class="label label-danger">Error</span>
-      {% elif task.is_finished == 2 %}
-      <span class="label label-warning">Running</span>
-      {% elif task.is_finished == 1 %}
-      <span class="label label-success">Success</span>
-      {% else %}
-      <span class="label label-success">{{ task.is_finished }}</span>
-      {% endif %}
-    </div>
-    <!-- /.input group -->
-</div>
-
-<div class="form-group">
-  <label>Parameter Config:</label>
-  <textarea class="form-control" rows="3" placeholder="Some details about task" name="parameter_config" disabled>{{ task.parameter_config }}</textarea>
-</div>
-
-<!-- /.box-body -->
-</div>
-</div>
-
-{% if task.is_finished == 1 %}
 
 <div class="box box-warning">
 <div class="box-header with-border">
-  <h3 class="box-title">Result</h3>
+  <h3 class="box-title">Tasks List</h3>
+</div>
+<!-- /.box-header -->
+<div class="box">
+
+<!-- /.box-header -->
+<div class="box-body table-responsive no-padding">
+  <table class="table table-hover">
+    <tbody><tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Time</th>
+      <th>Status</th>
+      <th>Detail</th>
+    </tr>
+    {% for task in tasks %}
+    <tr>
+        <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }} {{ task.task_name }}</a></td>
+          <td>{{ task.target_path }}</td>
+          <td>{{ task.last_scan_time }}</td>
+          <td>
+          {% if task.is_finished == 0 %}
+          <span class="label label-danger">Error</span>
+          {% elif task.is_finished == -1 %}
+          <span class="label label-danger">Error</span>
+          {% elif task.is_finished == 2 %}
+          <span class="label label-warning">Running</span>
+          {% elif task.is_finished == 1 %}
+          <span class="label label-success">Success</span>
+          {% else %}
+          <span class="label label-success">{{ task.is_finished }}</span>
+          {% endif %}
+          </td>
+          <td>
+          <div class="sparkbar" data-color="#00a65a" data-height="20">{{ task.parameter_config }}</div>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+</div>
+<!-- /.box-body -->
+</div>
+
+<div class="box box-warning">
+<div class="box-header with-border">
+  <h3 class="box-title">Results</h3>
 </div>
 <!-- /.box-header -->
 <div class="box-body">
@@ -136,12 +131,36 @@
     {% csrf_token %}
 
 </div>
-
-
-<div class="box-footer">
-    <button id="result" type="button" class="btn btn-primary">View Result</button>
 </div>
+<!-- /.box-body -->
 
+
+<div class="box box-success">
+    <div class="box-header with-border">
+      <h3 class="box-title">dependencies Vendors</h3>
+    </div>
+    <!-- /.box-header -->
+    <div class="box-body table-responsive no-padding">
+      <table class="table table-hover">
+            <tbody><tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Version</th>
+              <th>Language</th>
+              <th>Remark</th>
+            </tr>
+            {% for project_vendor in project_vendors %}
+            <tr>
+                <td>{{ project_vendor.id }}</td>
+                <td>{{ project_vendor.name }}</td>
+                <td>{{ project_vendor.version }}</td>
+                <td>{{ project_vendor.language }}</td>
+                <td>{{ project_vendor.ext }}</td>
+
+              </tr>
+            {% endfor %}
+          </tbody></table>
+    </div>
 <!-- /.box-body -->
 </div>
 
@@ -182,15 +201,14 @@
     </div>
 <!-- /.box-body -->
 </div>
-{% endif %}
 
-</form>
 </div>
 {% endblock %}
 
 {% block script %}
 
 <script>
+
 function delVul(vulid){
   $.get("{% url 'dashboard:vul_del' 654321 %}".replace('654321', vulid), function(data){
       if(data.code == 200){
@@ -207,10 +225,6 @@ $(document).ready(function(){
   $("#tasks").addClass("menu-open");
   $("#tasks").find("ul").find("li#task_list").addClass("active");
   $("#tasks").find("ul").css("display","block");
-
-  $("button#result").click(function () {
-      location.href = "{% url 'backend:tasklog' task.id %}?token={{ visit_token }}";
-    });
 
 });
 </script>

@@ -82,6 +82,7 @@ parsetab.py
 
 # result
 result/*
+*.csv
 
 # real_test
 tests/real_test/*

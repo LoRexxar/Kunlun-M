@@ -19,6 +19,8 @@ from prettytable import PrettyTable
 
 from .detection import Detection
 from .engine import scan, Running
+from .vendors import Vendors
+
 from core.pretreatment import ast_object
 from utils.export import write_to_file
 from utils.log import logger
@@ -29,8 +31,8 @@ from utils.utils import md5, random_generator
 from Kunlun_M.settings import RULES_PATH
 from Kunlun_M.const import VUL_LEVEL
 
-from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc
-from web.index.models import get_resultflow_class
+from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, Project
+from web.index.models import get_resultflow_class, get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
 
 
 def get_sid(target, is_a_sid=False):
@@ -46,7 +48,7 @@ def get_sid(target, is_a_sid=False):
     return sid.lower()
 
 
-def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
+def check_scantask(task_name, target_path, parameter_config, project_origin, project_des="", auto_yes=False):
     s = ScanTask.objects.filter(task_name=task_name, target_path=target_path, parameter_config=parameter_config, is_finished=1).order_by("-id").first()
 
     if s and not auto_yes:
@@ -65,10 +67,13 @@ def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
 
                 # check unconfirm
                 logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
+                project_id = get_and_check_scantask_project_id(scan_id)
+                logger.info("[INIT] Now Project ID is {}".format(project_id))
+
                 if input().lower() != 'n':
-                    srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True)
+                    srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True)
                 else:
-                    srs = ScanResultTask.objects.filter(scan_task_id=scan_id, is_active=True, is_unconfirm=False)
+                    srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True, is_unconfirm=False)
 
                 if srs:
                     logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))
@@ -86,9 +91,9 @@ def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
 
                         # show Vuls Chain
                         ResultFlow = get_resultflow_class(scan_id)
-                        rfs = ResultFlow.objects.filter(vul_id=sr.result_id)
+                        rfs = ResultFlow.objects.filter(vul_id=sr.id)
 
-                        logger.info("[Chain] Vul {}".format(sr.result_id))
+                        logger.info("[Chain] Vul {}".format(sr.id))
                         for rf in rfs:
                             logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
                             show_context(rf.node_path, rf.node_lineno)
@@ -99,7 +104,7 @@ def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
                     logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
 
                     # show New evil Function
-                    nfs = NewEvilFunc.objects.filter(scan_task_id=scan_id, is_active=1)
+                    nfs = NewEvilFunc.objects.filter(project_id=project_id, is_active=1)
 
                     if nfs:
 
@@ -124,9 +129,15 @@ def check_scantask(task_name, target_path, parameter_config, auto_yes=False):
             s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
             s.save()
 
+            # check and new project
+            check_and_new_project_id(s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
+
     else:
         s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
         s.save()
+
+        # check and new project
+        check_and_new_project_id(s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
 
     return s
 
@@ -157,6 +168,8 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
     d['report'] = report
     r.status(d)
 
+    task_id = a_sid
+
     # 加载 kunlunmignore
     load_kunlunmignore()
 
@@ -173,6 +186,10 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
 
         # static analyse files info
         files, file_count, time_consume = Directory(target_directory, black_path_list).collect_files()
+
+        # vendor check
+        project_id = get_and_check_scantask_project_id(task_id)
+        Vendors(project_id, target_directory, files)
 
         # detection main language and framework
 

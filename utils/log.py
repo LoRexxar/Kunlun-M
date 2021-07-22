@@ -55,7 +55,7 @@ def log(loglevel):
     logger.addHandler(handler2)
     logger.addHandler(handler)
 
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
 
 def log_add(loglevel, log_name):

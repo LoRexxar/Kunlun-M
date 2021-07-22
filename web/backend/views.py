@@ -15,6 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from web.index.controller import login_or_token_required, api_token_required
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, get_resultflow_class
+from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult
 from utils.utils import show_context
 
 from Kunlun_M.settings import LOGS_PATH
@@ -40,8 +41,10 @@ def tasklog(req, task_id):
     if not task.is_finished:
         return HttpResponse("Ooooops, Maybe this task still in progress or has error, you can't view the log...")
 
-    srts = ScanResultTask.objects.filter(scan_task_id=task_id)
-    nefs = NewEvilFunc.objects.filter(scan_task_id=task_id)
+    project_id = get_and_check_scantask_project_id(task_id)
+
+    srts = get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id)
+    nefs = NewEvilFunc.objects.filter(project_id=project_id)
 
     ResultFlow = get_resultflow_class(task_id)
     rfs = ResultFlow.objects.all()

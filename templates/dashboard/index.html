@@ -20,9 +20,9 @@
           <!-- small box -->
           <div class="small-box bg-green">
             <div class="inner">
-              <h3>{% if  request.session.tasks_finished_count %}{{  request.session.tasks_finished_count }}{% else %}0{% endif %}</h3>
+              <h3>{% if  request.session.project_count %}{{  request.session.project_count }}{% else %}0{% endif %}</h3>
 
-              <p>Completed Task</p>
+              <p>Projects</p>
             </div>
             <div class="icon">
               <i class="ion ion-stats-bars"></i>
@@ -78,6 +78,7 @@
                 <table class="table no-margin">
                   <thead>
                   <tr>
+                    <th>Project</th>
                     <th>Task ID</th>
                     <th>Task Path</th>
                     <th>Item</th>
@@ -88,6 +89,7 @@
                   <tbody>
                   {% for task in tasks %}
                   <tr>
+                    <td><a href="{% url 'dashboard:project_detail' task.project_id %}">{{ task.project_id }} {{ task.project_name }}</a></td>
                     <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }} {{ task.task_name }}</a></td>
                       <td>{{ task.target_path }}</td>
                       <td>{{ task.last_scan_time }}</td>

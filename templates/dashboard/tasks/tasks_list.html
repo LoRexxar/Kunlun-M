@@ -12,6 +12,7 @@
             <div class="box-body table-responsive no-padding">
               <table class="table table-hover">
                 <tbody><tr>
+                  <th>Project</th>
                   <th>ID</th>
                   <th>Name</th>
                   <th>Time</th>
@@ -20,6 +21,7 @@
                 </tr>
                 {% for task in tasks %}
                 <tr>
+                    <td><a href="{% url 'dashboard:project_detail' task.project_id %}">{{ task.project_id }} {{ task.project_name }}</a></td>
                     <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }} {{ task.task_name }}</a></td>
                       <td>{{ task.target_path }}</td>
                       <td>{{ task.last_scan_time }}</td>

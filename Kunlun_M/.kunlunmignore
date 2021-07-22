@@ -5,6 +5,5 @@
 /vendor/
 /.idea/
 /static/
-/.*
 
 # !/tests/
