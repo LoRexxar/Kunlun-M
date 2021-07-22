@@ -23,6 +23,8 @@ urlpatterns = [
     path("task/<int:task_id>/resultflow", views.TaskResultFlowDetailApiView.as_view(), name="task_resultflow_detail"),
     # task new evil func
     path("task/<int:task_id>/newevilfunc", views.TaskNewEvilFuncApiView.as_view(), name="task_new_evil_func_detail"),
+    # task vendors
+    path("task/<int:task_id>/vendors", views.TaskVendorsApiView.as_view(), name="task_vendors"),
 
     # rule list
     path("rule/list", views.RuleListApiView.as_view(), name="rule_list"),

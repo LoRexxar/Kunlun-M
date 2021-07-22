@@ -17,7 +17,7 @@ from web.index.controller import login_or_token_required, api_token_required
 from django.views.generic import TemplateView
 from django.views import View
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project
+from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project, ProjectVendors
 from web.index.models import get_and_check_scantask_project_id, get_resultflow_class, get_and_check_scanresult
 from utils.utils import show_context
 
@@ -116,6 +116,24 @@ class TaskNewEvilFuncApiView(View):
 
         return JsonResponse(
             {"code": 200, "status": True, "message": nefs})
+
+
+class TaskVendorsApiView(View):
+    """展示当前任务组件"""
+
+    @staticmethod
+    @api_token_required
+    def get(request, task_id):
+        scantask = ScanTask.objects.filter(id=task_id).first()
+
+        if not scantask.is_finished:
+            return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
+
+        project_id = get_and_check_scantask_project_id(task_id)
+        pvs = list(ProjectVendors.objects.filter(project_id=project_id).values())
+
+        return JsonResponse(
+            {"code": 200, "status": True, "message": pvs})
 
 
 class RuleListApiView(View):
