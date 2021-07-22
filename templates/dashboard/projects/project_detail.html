@@ -102,6 +102,7 @@
                   <th>Source</th>
                   <th>Type</th>
                   <th>Is Confirm</th>
+                  <th>Operate</th>
                 </tr>
                 {% for taskresult in taskresults %}
                 <tr>
@@ -121,7 +122,7 @@
                       <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
                       {% endif %}
                       </td>
-
+                    <td><button id="resultdel" type="button" class="btn-shadow dropdown-toggle btn btn-danger" onclick="delVul('{{ taskresult.id }}')">Delete</button></td>
                   </tr>
                 {% endfor %}
               </tbody></table>
@@ -207,6 +208,17 @@
 {% block script %}
 
 <script>
+
+function delVul(vulid){
+  $.get("{% url 'dashboard:vul_del' 654321 %}".replace('654321', vulid), function(data){
+      if(data.code == 200){
+          location.reload();
+      }else{
+          alert(data.message)
+      }
+  })
+}
+
 $(document).ready(function(){
   $("#dashboard").removeClass("active menu-open");
   $("#dashboard").find("ul li").removeClass("active");

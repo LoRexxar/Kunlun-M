@@ -31,7 +31,7 @@
       <div class="input-group-addon">
         <i class="fa fa-laptop "></i>
       </div>
-      <input type="text" class="form-control pull-right" name="filename" value="{{ project.id }}.{{ project.project_name }}" disabled>
+        <div type="text" class="form-control pull-right"><a href='{% url 'dashboard:project_detail' project.id %}'>{{ project.id }}.{{ project.project_name }}</a></div>
     </div>
     <!-- /.input group -->
   </div>
@@ -107,6 +107,7 @@
                   <th>Source</th>
                   <th>Type</th>
                   <th>Is Confirm</th>
+                  <th>Operate</th>
                 </tr>
                 {% for taskresult in taskresults %}
                 <tr>
@@ -126,7 +127,7 @@
                       <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
                       {% endif %}
                       </td>
-
+                    <td><button id="resultdel" type="button" class="btn-shadow dropdown-toggle btn btn-danger" onclick="delVul('{{ taskresult.id }}')">Delete</button></td>
                   </tr>
                 {% endfor %}
               </tbody></table>
@@ -190,6 +191,16 @@
 {% block script %}
 
 <script>
+function delVul(vulid){
+  $.get("{% url 'dashboard:vul_del' 654321 %}".replace('654321', vulid), function(data){
+      if(data.code == 200){
+          location.reload();
+      }else{
+          alert(data.message)
+      }
+  })
+}
+
 $(document).ready(function(){
   $("#dashboard").removeClass("active menu-open");
   $("#dashboard").find("ul li").removeClass("active");
@@ -200,6 +211,7 @@ $(document).ready(function(){
   $("button#result").click(function () {
       location.href = "{% url 'backend:tasklog' task.id %}?token={{ visit_token }}";
     });
+
 });
 </script>
 {% endblock %}

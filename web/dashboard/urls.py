@@ -9,6 +9,7 @@ from django.urls import path
 
 from web.dashboard import views
 from web.dashboard.controller import tasks, rules, tampers, project
+from web.dashboard.interface import scanresult
 
 app_name = "dashboard"
 urlpatterns = [
@@ -35,4 +36,8 @@ urlpatterns = [
 
     # user
     path("userinfo", views.userinfo, name="userinfo"),
+
+    # interface
+    # scan result
+    path('vuls/<int:vul_id>/del', scanresult.ScanResultDelInterfaceView.as_view(), name="vul_del"),
 ]
