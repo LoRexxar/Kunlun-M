@@ -79,7 +79,7 @@ class ProjectDetailView(View):
 
         for task in tasks:
             task.is_finished = int(task.is_finished)
-            task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
+            task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')[100:]
 
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)

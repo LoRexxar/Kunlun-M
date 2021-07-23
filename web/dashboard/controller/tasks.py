@@ -33,7 +33,7 @@ class TaskListView(TemplateView):
 
         for task in context['tasks']:
             task.is_finished = int(task.is_finished)
-            task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
+            task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')[100:]
 
             project_id = get_and_check_scantask_project_id(task.id)
             project = Project.objects.filter(id=project_id).first()

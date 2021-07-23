@@ -70,7 +70,7 @@ class ScanTask(models.Model):
     project_id = models.IntegerField(default=0)
     task_name = models.CharField(max_length=200)
     target_path = models.CharField(max_length=300)
-    parameter_config = models.CharField(max_length=500)
+    parameter_config = models.CharField(max_length=1000)
     last_scan_time = models.DateTimeField(default=timezone.now)
     visit_token = models.CharField(max_length=64, default=uuid.uuid4)
     is_finished = models.BooleanField(default=False)
