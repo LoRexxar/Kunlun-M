@@ -18,6 +18,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='scantask',
             name='parameter_config',
-            field=models.CharField(max_length=1000),
+            field=models.TextField(),
         ),
     ]
