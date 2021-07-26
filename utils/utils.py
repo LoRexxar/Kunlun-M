@@ -757,4 +757,4 @@ def del_sensitive_for_config(param_config):
         result_list.append(param)
         last_param = param
 
-    return result_list
+    return "".join(result_list)
