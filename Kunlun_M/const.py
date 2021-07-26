@@ -75,7 +75,7 @@ IGNORE_LIST = []
 VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']
 
 VENDOR_FILE_DICT = {
-    "java": ["pom.xml"],
+    "java": ['pom.xml', 'build.gradle'],
     'golang': ['go.mod'],
     'python': ['requirements.txt'],
     'php': ['composer.json'],

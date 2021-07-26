@@ -6,12 +6,12 @@
 # @Contact : lorexxar@gmail.com
 
 
-import ast
-
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from web.index.models import ScanTask, Project
 from web.index.models import get_and_check_scantask_project_id
+
+from utils.utils import del_sensitive_for_config
 
 from Kunlun_M.settings import API_TOKEN
 
@@ -22,7 +22,7 @@ def index(req):
     tasks = ScanTask.objects.all().order_by("-id")
     for task in tasks:
         task.is_finished = int(task.is_finished)
-        task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')[100:]
+        task.parameter_config = del_sensitive_for_config(task.parameter_config)
 
         project_id = get_and_check_scantask_project_id(task.id)
         project = Project.objects.filter(id=project_id).first()
