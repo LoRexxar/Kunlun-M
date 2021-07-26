@@ -220,6 +220,39 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, ext=ext)
 
+                elif filename == 'build.gradle':
+                    is_plugin_block = False
+                    ext = "gradle"
+
+                    for line in f:
+                        if line.startswith('plugins {'):
+                            is_plugin_block = True
+                            continue
+
+                        if is_plugin_block and line.startswith('}'):
+                            is_plugin_block = False
+                            continue
+
+                        if is_plugin_block:
+                            plugin_block_list = line.strip().split(' ')
+                            last_block = ""
+                            vendor_name = ""
+                            vendor_version = ""
+
+                            for plugin_block in plugin_block_list:
+                                if last_block == 'id':
+                                    vendor_name = plugin_block.strip("'").strip('"')
+
+                                if last_block == 'version':
+                                    vendor_version = plugin_block.strip("'").strip('"')
+
+                                last_block = plugin_block
+
+                            if vendor_name and vendor_version:
+                                update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
+                                                              language=language, ext=ext)
+                            continue
+
                 elif filename == "package.json":
                     vendors = json.loads(filecontent, encoding='utf-8')
 
