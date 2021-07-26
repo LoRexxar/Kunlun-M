@@ -15,6 +15,7 @@ from django.shortcuts import render, redirect
 
 from Kunlun_M.settings import SUPER_ADMIN
 from web.index.controller import login_or_token_required
+from utils.utils import del_sensitive_for_config
 
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, get_and_check_evil_func
@@ -33,7 +34,7 @@ class TaskListView(TemplateView):
 
         for task in context['tasks']:
             task.is_finished = int(task.is_finished)
-            task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')[100:]
+            task.parameter_config = del_sensitive_for_config(task.parameter_config)
 
             project_id = get_and_check_scantask_project_id(task.id)
             project = Project.objects.filter(id=project_id).first()
@@ -62,7 +63,7 @@ class TaskDetailView(View):
         newevilfuncs = get_and_check_evil_func(task.id)
 
         task.is_finished = int(task.is_finished)
-        task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
+        task.parameter_config = del_sensitive_for_config(task.parameter_config)
 
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)

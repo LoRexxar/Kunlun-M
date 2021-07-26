@@ -18,6 +18,7 @@ import re
 import string
 import sys
 import time
+import ast
 
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
 from web.index.models import ScanTask
@@ -732,3 +733,28 @@ def show_context(filename, line_number, show_line=3, is_back=False):
         i += 1
 
     return contents
+
+
+def del_sensitive_for_config(param_config):
+    result_list = []
+    param_config_list = ast.literal_eval(param_config)
+
+    last_param = ""
+
+    for param in param_config_list[1:]:
+
+        if last_param == '--origin' or param == '--origin':
+            last_param = param
+            continue
+
+        if last_param == '-des' or param == '-des':
+            last_param = param
+            continue
+
+        if last_param == '-t' or last_param == '--target':
+            param = param.replace('\\', '/')[:50]
+
+        result_list.append(param)
+        last_param = param
+
+    return result_list
