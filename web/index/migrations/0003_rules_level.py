@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='rules',
             name='level',
-            field=models.IntegerField(default=5, max_length=2),
+            field=models.IntegerField(default=5),
         ),
     ]
