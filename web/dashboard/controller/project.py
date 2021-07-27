@@ -46,9 +46,9 @@ class ProjectListView(TemplateView):
             vendors_cout = len(pvs)
 
             # check all scanresulttask
-            for task in tasks:
-                get_and_check_scanresult(task.id)
-                get_and_check_evil_func(task.id)
+            # for task in tasks:
+            #     get_and_check_scanresult(task.id)
+            #     get_and_check_evil_func(task.id)
 
             results = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1)
             results_count = len(results)
@@ -61,6 +61,8 @@ class ProjectListView(TemplateView):
             project.results_count = results_count
             project.last_scan_time = last_scan_time
             project.vendors_cout = vendors_cout
+
+        context['projects'] = sorted(context['projects'], key=lambda x:x.last_scan_time)[::-1]
 
         return context
 

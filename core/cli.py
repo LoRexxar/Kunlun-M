@@ -130,7 +130,7 @@ def check_scantask(task_name, target_path, parameter_config, project_origin, pro
             s.save()
 
             # check and new project
-            check_and_new_project_id(s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
+            check_and_new_project_id(scantask_id=s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
 
     else:
         s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)

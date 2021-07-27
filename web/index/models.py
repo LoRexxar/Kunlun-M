@@ -109,18 +109,11 @@ def get_and_check_scantask_project_id(scantask_id):
 
 def check_and_new_project_id(scantask_id, task_name, project_origin, project_des=""):
     st = ScanTask.objects.filter(id=scantask_id).first()
-    pid = 0
-    if st.project_id:
-        pid = st.project_id
-
-    if not pid:
-        p = Project.objects.filter(project_hash=md5(task_name)).first()
-    else:
-        p = Project.objects.filter(id=pid).first()
+    p = Project.objects.filter(project_hash=md5(task_name)).first()
 
     if not p:
-        p = Project(project_name=st.task_name, project_des=project_des, project_hash=md5(task_name), project_origin=project_origin)
-        p.save()
+        p2 = Project(project_name=st.task_name, project_des=project_des, project_hash=md5(task_name), project_origin=project_origin)
+        p2.save()
 
         st.project_id = p.id
         st.save()

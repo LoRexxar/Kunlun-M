@@ -213,7 +213,7 @@ class Vendors:
                                 for child in varchilds:
                                     version = child.text
 
-                        vendor_name = "{}.{}".format(group_id, artifact_id)
+                        vendor_name = "{}:{}".format(group_id, artifact_id)
                         vendor_version = version
                         ext = "maven"
 
