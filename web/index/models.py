@@ -126,7 +126,7 @@ def check_and_new_project_id(scantask_id, task_name, project_origin, project_des
         p.project_origin = project_origin
         p.save()
 
-    st.scan_project_id = p.id
+    st.project_id = p.id
     st.save()
     return p.id
 
