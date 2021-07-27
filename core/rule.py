@@ -203,10 +203,12 @@ class RuleCheck:
             logger.warning("[INIT][Rule Check] whether load new {} from Rule File(Y/N):".format(config))
             if input().lower() != 'n':
                 setattr(nowrule, config, ruleconfig_content)
+                return True
 
-        return True
+        return False
 
     def check_rules(self, ruleclass, nowrule):
+        is_changed = False
 
         for config in self.CONFIG_LIST:
             if config != "main_function":
@@ -217,26 +219,27 @@ class RuleCheck:
 
                 ruleconfig_content = str(getattr(ruleclass, config)).replace(r'\"', '"')
 
-                self.check_and_update_rule_database(ruleconfig_content, nowrule, config1)
+                is_changed = self.check_and_update_rule_database(ruleconfig_content, nowrule, config1)
 
             else:
                 main_function_content = inspect.getsource(ruleclass.main)
                 config1 = "main_function"
 
-                self.check_and_update_rule_database(main_function_content, nowrule, config1)
+                is_changed = self.check_and_update_rule_database(main_function_content, nowrule, config1)
 
         # for special match_mode
         if ruleclass.match_mode == "regex-return-regex":
             for config in self.SOLIDITY_CONFIG_LIST:
-                self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
+                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
         elif ruleclass.match_mode == "only-regex":
             for config in self.REGEX_CONFIG_LIST:
-                self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
+                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
         elif ruleclass.match_mode == "special-crx-keyword-match":
             for config in self.CHROME_CONFIG_LIST:
-                self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
+                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
 
-        nowrule.save()
+        if is_changed:
+            nowrule.save()
         return True
 
     def load(self):
