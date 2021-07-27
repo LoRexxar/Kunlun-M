@@ -204,7 +204,6 @@ class RuleCheck:
             if input().lower() != 'n':
                 setattr(nowrule, config, ruleconfig_content)
 
-                nowrule.save()
         return True
 
     def check_rules(self, ruleclass, nowrule):
