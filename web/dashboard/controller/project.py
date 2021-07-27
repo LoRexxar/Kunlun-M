@@ -62,6 +62,8 @@ class ProjectListView(TemplateView):
             project.last_scan_time = last_scan_time
             project.vendors_cout = vendors_cout
 
+        context['projects'] = sorted(context['projects'], key=lambda x:x.last_scan_time)[::-1]
+
         return context
 
 
