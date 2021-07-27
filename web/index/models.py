@@ -102,7 +102,7 @@ def get_and_check_scantask_project_id(scantask_id):
         p = Project(project_name=st.task_name, project_hash=md5(st.task_name))
         p.save()
 
-    st.scan_project_id = p.id
+    st.project_id = p.id
     st.save()
     return p.id
 
