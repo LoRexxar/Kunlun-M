@@ -196,7 +196,7 @@ class Vendors:
                         else:
                             version = 'latest'
 
-                        var_reg = "\${(\w+)}"
+                        var_reg = "\${([\w\.\_-]+)}"
                         if re.search(var_reg, version, re.I):
                             p2 = re.compile(var_reg)
                             matchs = p2.finditer(version)
