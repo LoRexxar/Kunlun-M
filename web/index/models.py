@@ -102,8 +102,8 @@ def get_and_check_scantask_project_id(scantask_id):
         p = Project(project_name=st.task_name, project_hash=md5(st.task_name))
         p.save()
 
-    st.project_id = p.id
-    st.save()
+        st.project_id = p.id
+        st.save()
     return p.id
 
 
@@ -121,13 +121,14 @@ def check_and_new_project_id(scantask_id, task_name, project_origin, project_des
     if not p:
         p = Project(project_name=st.task_name, project_des=project_des, project_hash=md5(task_name), project_origin=project_origin)
         p.save()
+
+        st.project_id = p.id
+        st.save()
     else:
         p.project_des = project_des
         p.project_origin = project_origin
         p.save()
 
-    st.project_id = p.id
-    st.save()
     return p.id
 
 
