@@ -49,7 +49,7 @@ class ProjectVendors(models.Model):
 
 
 def update_and_new_project_vendor(project_id, name, version, language, ext=None):
-    hash = md5("{},{}".format(name, language))
+    hash = md5("{},{},{}".format(project_id, name, language))
     vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id).first()
 
     if vendor:
@@ -78,9 +78,9 @@ class ScanTask(models.Model):
     def save(self, *args, **kwargs):
         # 检查project存不存在，如果不存在，那么新建一个
         project = Project.objects.filter(id=self.project_id).first()
-        project2 = Project.objects.filter(project_hash=md5(self.task_name)).first()
 
         if not project:
+            project2 = Project.objects.filter(project_hash=md5(self.task_name)).first()
 
             if project2:
                 self.project_id = project2.id
