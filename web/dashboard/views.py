@@ -19,7 +19,7 @@ from Kunlun_M.settings import API_TOKEN
 @login_required
 def index(req):
 
-    tasks = ScanTask.objects.all().order_by("-id")
+    tasks = ScanTask.objects.all().order_by("-id")[:100]
     for task in tasks:
         task.is_finished = int(task.is_finished)
         task.parameter_config = del_sensitive_for_config(task.parameter_config)
