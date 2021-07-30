@@ -38,7 +38,7 @@ def tasklog(req, task_id):
         return redirect("dashboard:tasks_list")
 
     # check task 的状态，只有完成才能继续
-    if not task.is_finished:
+    if task.is_finished == 2:
         return HttpResponse("Ooooops, Maybe this task still in progress or has error, you can't view the log...")
 
     project_id = get_and_check_scantask_project_id(task_id)
@@ -94,7 +94,7 @@ def debuglog(req, task_id):
         return redirect("dashboard:tasks_list")
 
     # check task 的状态，只有完成才能继续
-    if not task.is_finished:
+    if task.is_finished == 2:
         return HttpResponse("Ooooops, Maybe this task still in progress or has error, you can't view the log...")
 
     debuglog_filename = os.path.join(LOGS_PATH, 'ScanTask_{}.log'.format(task_id))
@@ -123,7 +123,7 @@ def downloadlog(req, task_id):
         return redirect("dashboard:tasks_list")
 
     # check task 的状态，只有完成才能继续
-    if not task.is_finished:
+    if task.is_finished == 2:
         return HttpResponse("Ooooops, Maybe this task still in progress or has error, you can't view the log...")
 
     debuglog_filename = os.path.join(LOGS_PATH, 'ScanTask_{}.log'.format(task_id))
