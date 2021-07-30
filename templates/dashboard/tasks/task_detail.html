@@ -87,6 +87,11 @@
 
 <!-- /.box-body -->
 </div>
+
+
+<div class="box-footer">
+    <button id="result" type="button" class="btn btn-primary">View Details</button>
+</div>
 </div>
 
 {% if task.is_finished == 1 %}
@@ -135,11 +140,6 @@
 
     {% csrf_token %}
 
-</div>
-
-
-<div class="box-footer">
-    <button id="result" type="button" class="btn btn-primary">View Result</button>
 </div>
 
 <!-- /.box-body -->
