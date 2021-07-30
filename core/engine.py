@@ -251,7 +251,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
         # 如果返回false，那么说明漏洞存在，不添加新的
 
-        if not sr:
+        if sr:
             for chain in x.chain:
                 if type(chain) == tuple:
                     ResultFlow = get_resultflow_class(int(a_sid))
