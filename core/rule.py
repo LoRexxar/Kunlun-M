@@ -181,7 +181,7 @@ class RuleCheck:
 
         r = Rules(rule_name=ruleclass.vulnerability, svid=ruleclass.svid,
                   language=ruleclass.language.lower(), author=ruleclass.author,
-                  description=ruleclass.description, status=ruleclass.status,
+                  description=ruleclass.description, level=ruleclass.level, status=ruleclass.status,
                   match_mode=ruleclass.match_mode, match=ruleclass.match,
                   match_name=match_name, black_list=black_list, unmatch=unmatch, keyword=keyword,
                   vul_function=ruleclass.vul_function, main_function=main_function_content)
