@@ -68,7 +68,7 @@ class ProjectDetailView(View):
     def get(request, project_id):
         project = Project.objects.filter(id=project_id).first()
 
-        tasks = ScanTask.objects.filter(project_id=project.id).order_by('-id')
+        tasks = ScanTask.objects.filter(project_id=project.id).order_by('-id')[:20]
         taskresults = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1).all()
         newevilfuncs = NewEvilFunc.objects.filter(project_id=project.id).all()
         pvs = ProjectVendors.objects.filter(project_id=project.id)

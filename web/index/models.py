@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 
 import traceback
+from MySQLdb._exceptions import IntegrityError
 from datetime import datetime
 
 from django.db import models
@@ -52,12 +53,15 @@ def update_and_new_project_vendor(project_id, name, version, language, ext=None)
     hash = md5("{},{},{}".format(project_id, name, language))
     vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id).first()
 
-    if vendor:
+    if vendor and (vendor.version != version or vendor.ext != ext):
         logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
         vendor.version = version
         vendor.ext = ext
-        vendor.save()
+        try:
+            vendor.save()
+        except IntegrityError:
+            logger.warn("[Model Save] vendor model not changed")
 
     else:
         v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, ext=ext)
@@ -120,7 +124,10 @@ def check_and_new_project_id(scantask_id, task_name, project_origin, project_des
     else:
         p.project_des = project_des
         p.project_origin = project_origin
-        p.save()
+        try:
+            p.save()
+        except IntegrityError:
+            logger.warn("[Model Save] Project model not changed")
 
     return p.id
 
@@ -201,7 +208,12 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         sr.result_type = result_type
         sr.is_unconfirm = is_unconfirm
         # sr.is_active =is_active
-        sr.save()
+        try:
+            sr.save()
+        except IntegrityError:
+            logger.warn("[Model Save] Model param not changed")
+
+        return False
 
     else:
         sr = ScanResultTask(scan_project_id=scan_project_id, scan_task_id=scan_task_id, cvi_id=cvi_id, language=language, vulfile_path=vulfile_path, source_code=source_code, result_type=result_type,
