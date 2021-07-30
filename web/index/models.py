@@ -213,6 +213,8 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         except IntegrityError:
             logger.warn("[Model Save] Model param not changed")
 
+        return False
+
     else:
         sr = ScanResultTask(scan_project_id=scan_project_id, scan_task_id=scan_task_id, cvi_id=cvi_id, language=language, vulfile_path=vulfile_path, source_code=source_code, result_type=result_type,
                             is_unconfirm=is_unconfirm, is_active=is_active)

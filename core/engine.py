@@ -249,14 +249,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         #
         # sr.save()
 
-        for chain in x.chain:
-            if type(chain) == tuple:
-                ResultFlow = get_resultflow_class(int(a_sid))
-                node_source = show_context(chain[2], chain[3], is_back=True)
+        # 如果返回false，那么说明漏洞存在，不添加新的
 
-                rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
-                                node_path=chain[2], node_source=node_source, node_lineno=chain[3])
-                rf.save()
+        if not sr:
+            for chain in x.chain:
+                if type(chain) == tuple:
+                    ResultFlow = get_resultflow_class(int(a_sid))
+                    node_source = show_context(chain[2], chain[3], is_back=True)
+
+                    rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
+                                    node_path=chain[2], node_source=node_source, node_lineno=chain[3])
+                    rf.save()
 
         data.append(row)
         data2.append(row2)
