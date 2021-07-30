@@ -42,16 +42,9 @@ class ProjectListView(TemplateView):
             tasks = ScanTask.objects.filter(project_id=project.id).order_by('-id')
             tasks_count = len(tasks)
 
-            pvs = ProjectVendors.objects.filter(project_id=project.id)
-            vendors_cout = len(pvs)
+            vendors_count = ProjectVendors.objects.filter(project_id=project.id).count()
 
-            # check all scanresulttask
-            # for task in tasks:
-            #     get_and_check_scanresult(task.id)
-            #     get_and_check_evil_func(task.id)
-
-            results = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1)
-            results_count = len(results)
+            results_count = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1).count()
 
             last_scan_time = 0
             if tasks:
@@ -60,7 +53,7 @@ class ProjectListView(TemplateView):
             project.tasks_count = tasks_count
             project.results_count = results_count
             project.last_scan_time = last_scan_time
-            project.vendors_cout = vendors_cout
+            project.vendors_count = vendors_count
 
         context['projects'] = sorted(context['projects'], key=lambda x:x.last_scan_time)[::-1]
 
