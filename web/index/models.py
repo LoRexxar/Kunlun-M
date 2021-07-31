@@ -53,15 +53,16 @@ def update_and_new_project_vendor(project_id, name, version, language, ext=None)
     hash = md5("{},{},{}".format(project_id, name, language))
     vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id).first()
 
-    if vendor and (vendor.version != version or vendor.ext != ext):
-        logger.debug("[Vendors] Component {} update to version {}".format(name, version))
+    if vendor:
+        if vendor.version != version or vendor.ext != ext:
+            logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
-        vendor.version = version
-        vendor.ext = ext
-        try:
-            vendor.save()
-        except IntegrityError:
-            logger.warn("[Model Save] vendor model not changed")
+            vendor.version = version
+            vendor.ext = ext
+            try:
+                vendor.save()
+            except IntegrityError:
+                logger.warn("[Model Save] vendor model not changed")
 
     else:
         v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, ext=ext)
