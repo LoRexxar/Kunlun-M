@@ -254,7 +254,7 @@ class Vendors:
                             continue
 
                 elif filename == "package.json":
-                    vendors = json.loads(filecontent, encoding='utf-8')
+                    vendors = json.loads(filecontent)
 
                     if not len(vendors):
                         continue
