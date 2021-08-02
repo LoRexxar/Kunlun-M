@@ -28,10 +28,11 @@ from utils.file import Directory, load_kunlunmignore
 from utils.utils import show_context
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
+from core.vendors import get_project_by_version
 from Kunlun_M.settings import RULES_PATH
 from Kunlun_M.const import VUL_LEVEL
 
-from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, Project
+from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, Project, ProjectVendors
 from web.index.models import get_resultflow_class, get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
 
 
@@ -368,6 +369,40 @@ Input Control:
     return ""
 
 
+def search_project(search_type, keyword, keyword_value):
+    """
+    根据信息搜索项目信息
+    :param search_type:
+    :param keyword:
+    :param keyword_value:
+    :return:
+    """
+    if search_type == 'vendor':
+        ps = get_project_by_version(keyword, keyword_value)
+        table = PrettyTable(
+            ['#', 'Project Name', 'Project Origin', 'Vendor', 'Version'])
+
+        table.align = 'l'
+        i = 0
+
+        if not ps:
+            return False
+
+        for p in ps:
+            i += 1
+            pname = p.project_name
+            porigin = p.project_origin
+            vs = ProjectVendors.objects.filter(name__icontains=keyword.strip())
+
+            for v in vs:
+                vendor_name = v.name
+                vendor_vension = v.version
+
+                table.add_row([i, pname, porigin, vendor_name, vendor_vension])
+
+        logger.info("Project List (Small than {}{})s:\n{}".format(keyword, keyword_value, table))
+
+    return True
 
 
 

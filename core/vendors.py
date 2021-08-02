@@ -23,12 +23,86 @@ from utils.file import check_filepath
 from Kunlun_M.const import VENDOR_FILE_DICT
 
 from web.index.models import ProjectVendors, update_and_new_project_vendor
+from web.index.models import Project
+
+
+def abstract_version(vendor_version):
+    version_reg = '([0-9]+(\.[0-9]+)*)'
+    result_version = ''
+
+    if re.search(version_reg, vendor_version, re.I):
+
+        p = re.compile(version_reg)
+        matchs = p.finditer(vendor_version)
+
+        for match in matchs:
+            result_version = match.group(1)
+    else:
+        result_version = False
+
+    return result_version
+
+
+def compare_vendor(vendor, compare_version):
+
+    vendor_version = abstract_version(vendor.version)
+    vendor_version_list = vendor_version.split('.')
+    compare_version_list = compare_version.split('.')
+
+    is_smaller_vendor = False
+    smallest_range = len(vendor_version_list) if len(compare_version_list) > len(vendor_version_list) else len(compare_version_list)
+
+    for i in range(smallest_range):
+        if vendor_version_list[i] < compare_version_list[i]:
+            is_smaller_vendor = True
+            return is_smaller_vendor
+
+        if vendor_version_list[i] > compare_version_list[i]:
+            is_smaller_vendor = False
+            return is_smaller_vendor
+
+    if len(compare_version_list) >= len(vendor_version_list):
+        is_smaller_vendor = True
+
+    return is_smaller_vendor
+
+
+def get_project_by_version(vendor_name, vendor_version):
+    """
+    获取低于该版本的所有项目信息
+    :param vendor_name:
+    :param vendor_version:
+    :return:
+    """
+    is_need_version_check = True
+    result_project = []
+
+    if vendor_version == 'latest':
+        is_need_version_check = False
+
+    vendor_version = abstract_version(vendor_version)
+
+    if not vendor_version and is_need_version_check:
+        return result_project
+
+    pvs = ProjectVendors.objects.filter(name__icontains=vendor_name.strip())
+
+    for pv in pvs:
+        if not is_need_version_check or compare_vendor(pv, vendor_version):
+            pid = pv.project_id
+            project = Project.objects.filter(id=pid).first()
+
+            if project not in result_project:
+                result_project.append(project)
+
+    return result_project
 
 
 class Vendors:
     """
     项目组件检查
     """
+
     def __init__(self, project_id, target, files):
         self.project_id = project_id
         self.target_path = target
@@ -126,7 +200,8 @@ class Vendors:
                         if len(vendor) < 2:
                             vendor_version = None
 
-                        update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version, language=language)
+                        update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
+                                                      language=language)
 
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent, encoding='utf-8')
@@ -140,7 +215,8 @@ class Vendors:
                         vendor_name = vendor.strip()
                         vendor_version = vendors_list[vendor].strip()
 
-                        update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version, language=language)
+                        update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
+                                                      language=language)
 
                 elif filename == 'go.mod':
 
