@@ -28,7 +28,7 @@ from utils.file import Directory, load_kunlunmignore
 from utils.utils import show_context
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
-from core.vendors import get_project_by_version
+from core.vendors import get_project_by_version, get_project_vendor_by_name
 from Kunlun_M.settings import RULES_PATH
 from Kunlun_M.const import VUL_LEVEL
 
@@ -380,7 +380,7 @@ def search_project(search_type, keyword, keyword_value):
     if search_type == 'vendor':
         ps = get_project_by_version(keyword, keyword_value)
         table = PrettyTable(
-            ['#', 'Project Name', 'Project Origin', 'Vendor', 'Version'])
+            ['#', 'ProjectId', 'Project Name', 'Project Origin', 'Vendor', 'Version'])
 
         table.align = 'l'
         i = 0
@@ -389,18 +389,19 @@ def search_project(search_type, keyword, keyword_value):
             return False
 
         for p in ps:
-            i += 1
+            pid = p.id
             pname = p.project_name
             porigin = p.project_origin
-            vs = ProjectVendors.objects.filter(name__icontains=keyword.strip())
+            vs = ps[p]
 
             for v in vs:
+                i += 1
                 vendor_name = v.name
                 vendor_vension = v.version
 
-                table.add_row([i, pname, porigin, vendor_name, vendor_vension])
+                table.add_row([i, pid, pname, porigin, vendor_name, vendor_vension])
 
-        logger.info("Project List (Small than {}{})s:\n{}".format(keyword, keyword_value, table))
+        logger.info("Project List (Small than {} {}):\n{}".format(keyword, keyword_value, table))
 
     return True
 

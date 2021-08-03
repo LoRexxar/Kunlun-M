@@ -53,11 +53,11 @@ def compare_vendor(vendor, compare_version):
     smallest_range = len(vendor_version_list) if len(compare_version_list) > len(vendor_version_list) else len(compare_version_list)
 
     for i in range(smallest_range):
-        if vendor_version_list[i] < compare_version_list[i]:
+        if int(vendor_version_list[i]) < int(compare_version_list[i]):
             is_smaller_vendor = True
             return is_smaller_vendor
 
-        if vendor_version_list[i] > compare_version_list[i]:
+        if int(vendor_version_list[i]) > int(compare_version_list[i]):
             is_smaller_vendor = False
             return is_smaller_vendor
 
@@ -65,6 +65,29 @@ def compare_vendor(vendor, compare_version):
         is_smaller_vendor = True
 
     return is_smaller_vendor
+
+
+def get_project_vendor_by_name(vendor_name):
+    """
+    支持*语法的查询
+    :param vendor_name:
+    :return:
+    """
+    if vendor_name.startswith('*'):
+        if vendor_name.endswith('*'):
+            pvs = ProjectVendors.objects.filter(name__icontains=vendor_name.strip('*'))
+
+        else:
+            pvs = ProjectVendors.objects.filter(name__iendswith=vendor_name.strip('*'))
+
+    else:
+        if vendor_name.endswith('*'):
+            pvs = ProjectVendors.objects.filter(name__istartswith=vendor_name.strip('*'))
+
+        else:
+            pvs = ProjectVendors.objects.filter(name__iexact=vendor_name.strip('*'))
+
+    return pvs
 
 
 def get_project_by_version(vendor_name, vendor_version):
@@ -75,7 +98,7 @@ def get_project_by_version(vendor_name, vendor_version):
     :return:
     """
     is_need_version_check = True
-    result_project = []
+    result_project = {}
 
     if vendor_version == 'latest':
         is_need_version_check = False
@@ -85,7 +108,7 @@ def get_project_by_version(vendor_name, vendor_version):
     if not vendor_version and is_need_version_check:
         return result_project
 
-    pvs = ProjectVendors.objects.filter(name__icontains=vendor_name.strip())
+    pvs = get_project_vendor_by_name(vendor_name.strip())
 
     for pv in pvs:
         if not is_need_version_check or compare_vendor(pv, vendor_version):
@@ -93,7 +116,9 @@ def get_project_by_version(vendor_name, vendor_version):
             project = Project.objects.filter(id=pid).first()
 
             if project not in result_project:
-                result_project.append(project)
+                result_project[project] = [pv]
+            else:
+                result_project[project].append(pv)
 
     return result_project
 
