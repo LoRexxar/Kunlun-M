@@ -229,7 +229,7 @@ class Vendors:
                                                       language=language)
 
                 elif filename == 'composer.json':
-                    vendors = json.loads(filecontent, encoding='utf-8')
+                    vendors = json.loads(filecontent)
 
                     if not len(vendors):
                         continue
