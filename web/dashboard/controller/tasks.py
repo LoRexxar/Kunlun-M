@@ -27,10 +27,25 @@ class TaskListView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super(TaskListView, self).get_context_data(**kwargs)
+        task_count = ScanTask.objects.all().count()
 
-        rows = ScanTask.objects.all().order_by('-id')
+        if 'p' in self.request.GET:
+            page = int(self.request.GET['p'])
+        else:
+            page = 1
+
+        # check page
+        if page*50 > task_count:
+            page = 1
+
+        rows = ScanTask.objects.all().order_by('-id')[(page-1)*50: page*50]
 
         context['tasks'] = rows
+
+        context['page'] = page
+        max_page = task_count / 50 if task_count % 50 == 0 else (task_count / 50)+1
+        context['max_page'] = max_page
+        context['page_range'] = range(int(max_page))[1:]
 
         for task in context['tasks']:
             task.is_finished = int(task.is_finished)

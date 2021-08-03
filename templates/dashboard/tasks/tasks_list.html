@@ -12,8 +12,8 @@
             <div class="box-body table-responsive no-padding">
               <table class="table table-hover">
                 <tbody><tr>
-                  <th>Project</th>
                   <th>ID</th>
+                  <th>Project</th>
                   <th>Name</th>
                   <th>Time</th>
                   <th>Status</th>
@@ -21,8 +21,9 @@
                 </tr>
                 {% for task in tasks %}
                 <tr>
+                    <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }}</a></td>
                     <td><a href="{% url 'dashboard:project_detail' task.project_id %}">{{ task.project_id }} {{ task.project_name }}</a></td>
-                    <td><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }} {{ task.task_name }}</a></td>
+
                       <td>{{ task.target_path }}</td>
                       <td>{{ task.last_scan_time }}</td>
                       <td>
@@ -46,6 +47,16 @@
               </tbody></table>
             </div>
             <!-- /.box-body -->
+
+            <div class="box-footer">
+            <ul class="pagination pagination-sm m-0 float-right">
+                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:tasks_list' %}">«</a></li>
+                {% for i in page_range %}
+                  <li class="page-item {% if page == i %}active{% endif %}"><a class="page-link" href="{% url 'dashboard:tasks_list' %}?p={{ i }}">{{ i }}</a></li>
+                {% endfor %}
+                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:tasks_list' %}?p={{ max_page }}">»</a></li>
+                </ul>
+            </div>
           </div>
           <!-- /.box -->
         </div>
