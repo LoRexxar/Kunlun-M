@@ -82,6 +82,14 @@ VENDOR_FILE_DICT = {
     'nodejs': ['package.json'],
 }
 
+VENDOR_ECOSYSTEM = {
+    "java":    {"depsdev":"maven"},
+    'golang': {"depsdev":"go"},
+    'python': {"ossindex":"pypi"},
+    'php': {"ossindex":"composer"},
+    'nodejs': {"depsdev":"npm"},
+}
+
 # base result class
 
 

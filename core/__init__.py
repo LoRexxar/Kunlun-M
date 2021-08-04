@@ -92,6 +92,9 @@ def main():
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
+        # for vendor vuln scan
+        parser_group_scan.add_argument('--with-vendor', dest='with_vendor', default=True, help='scan vendor vuln (default is True)')
+
         # show for rule & tamper
         parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description=__introduction__.format(detail='show rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
 
@@ -280,6 +283,11 @@ def main():
             log_name = "ScanTask_{}".format(sid)
 
         log_add(logging.DEBUG, log_name)
+
+        if hasattr(args, "with_vendor"):
+            # 共享变量
+            import Kunlun_M.settings as settings
+            settings.WITH_VENDOR = False if args.with_vendor == "False" else True
 
         data = {
             'status': 'running',
