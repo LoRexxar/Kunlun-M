@@ -16,13 +16,16 @@ import codecs
 import traceback
 
 import xml.etree.cElementTree as eT
+import Kunlun_M.settings as settings
+
+from core.vuln_apis import get_vulns_from_source
 
 from utils.log import logger
 from utils.file import check_filepath
 
 from Kunlun_M.const import VENDOR_FILE_DICT
 
-from web.index.models import ProjectVendors, update_and_new_project_vendor
+from web.index.models import ProjectVendors, update_and_new_project_vendor, update_and_new_vendor_vuln
 from web.index.models import Project
 
 
@@ -121,6 +124,13 @@ def get_project_by_version(vendor_name, vendor_version):
                 result_project[project].append(pv)
 
     return result_project
+
+# not support gradle
+def get_vulns(language, vendor_name, vendor_version):
+    if not settings.WITH_VENDOR:
+        return []
+
+    return get_vulns_from_source(language, vendor_name, vendor_version)
 
 
 class Vendors:
@@ -228,6 +238,10 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language)
 
+                        _vendor = {"name": vendor_name, "version": vendor_version}
+                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+                            update_and_new_vendor_vuln(_vendor, vuln)
+
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent)
 
@@ -242,6 +256,10 @@ class Vendors:
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language)
+
+                        _vendor = {"name": vendor_name, "version": abstract_version(vendor_version)}
+                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+                            update_and_new_vendor_vuln(_vendor, vuln)
 
                 elif filename == 'go.mod':
 
@@ -269,6 +287,11 @@ class Vendors:
 
                             update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                           language=language, ext=go_version)
+
+                            _vendor = {"name": vendor_name, "version": vendor_version}
+                            for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+                                update_and_new_vendor_vuln(_vendor, vuln)
+
                 elif filename == 'pom.xml':
                     reg = r'xmlns="([\w\.\\/:]+)"'
                     pom_ns = None
@@ -321,6 +344,10 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, ext=ext)
 
+                        _vendor = {"name": vendor_name, "version": vendor_version}
+                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+                            update_and_new_vendor_vuln(_vendor, vuln)
+
                 elif filename == 'build.gradle':
                     is_plugin_block = False
                     ext = "gradle"
@@ -371,12 +398,20 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
                                                       language=language, ext=ext)
 
+                        _vendor = {"name": dependency, "version": node_version}
+                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+                            update_and_new_vendor_vuln(_vendor, vuln)
+
                     for dependency in devDependencies:
                         vendor_version = devDependencies[dependency].strip()
                         ext = "{}.{}".format(node_version, "devDependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
                                                       language=language, ext=ext)
+
+                        _vendor = {"name": dependency, "version": node_version}
+                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+                            update_and_new_vendor_vuln(_vendor, vuln)
 
                 else:
                     logger.warn("[Vendor] Vendor file {} not support".format(filename))
