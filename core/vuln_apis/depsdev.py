@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 DEPSDEVAPIURL = "https://deps.dev/_/s/{ecosystem}/p/{package}/v/{version}"
 
+
 def get_vulns_from_depsdev(ecosystem, package_name, version):
     result = []
 

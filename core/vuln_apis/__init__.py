@@ -1,6 +1,7 @@
 import importlib
 from Kunlun_M.const import VENDOR_ECOSYSTEM
 
+
 def get_vulns_from_source(language, vendor_name, vendor_version):
     result = []
 
@@ -8,10 +9,10 @@ def get_vulns_from_source(language, vendor_name, vendor_version):
     for source in sources.keys():
         ecosystem = sources[source]
 
-        module = importlib.import_module(__name__+"."+source)
-        func = getattr(module, "get_vulns_from_"+source, None)
+        module = importlib.import_module(__name__ + "." + source)
+        func = getattr(module, "get_vulns_from_" + source, None)
 
-        if func != None:
+        if func:
             vulns = func(ecosystem, vendor_name, vendor_version)
             result.extend(vulns)
 

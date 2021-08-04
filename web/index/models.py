@@ -71,6 +71,7 @@ def update_and_new_project_vendor(project_id, name, version, language, ext=None)
 
     return True
 
+
 class VendorVulns(models.Model):
     # vuln
     vuln_id = models.CharField(max_length=200)
@@ -82,6 +83,7 @@ class VendorVulns(models.Model):
     # affect vendor
     vendor_name = models.CharField(max_length=200)
     vendor_version = models.CharField(max_length=50, null=True)
+
 
 def update_and_new_vendor_vuln(vendor, vuln):
     v = VendorVulns.objects.filter(vuln_id=vuln["vuln_id"], vendor_name=vendor["name"], vendor_version=vendor["version"]).first()

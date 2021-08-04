@@ -3,10 +3,11 @@ import requests
 
 OSSINDEXAPI = "https://ossindex.sonatype.org/api/v3/component-report"
 
+
 def get_vulns_from_ossindex(ecosystem, package_name, version):
     result = []
     coordinate = "pkg:{ecosystem}/{package}@{version}".format(ecosystem=ecosystem, package=package_name, version=version)
-    body = {"coordinates":[coordinate]}
+    body = {"coordinates": [coordinate]}
     resp = requests.post(OSSINDEXAPI, json=body)
     if resp.status_code == 200:
         data = json.loads(resp.content)
@@ -29,6 +30,7 @@ def get_vulns_from_ossindex(ecosystem, package_name, version):
             result.append(vuln)
 
     return result
+
 
 def risk_score(score):
     risk_level = "UNKNOWN"
