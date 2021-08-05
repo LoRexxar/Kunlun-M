@@ -77,7 +77,7 @@ class VendorVulns(models.Model):
     vuln_id = models.CharField(max_length=200)
     title = models.TextField()
     description = models.TextField()
-    severity = models.CharField(max_length=10)
+    severity = models.IntegerField()
     cves = models.TextField()
     reference = models.TextField()
     # affect vendor
@@ -88,7 +88,7 @@ class VendorVulns(models.Model):
 def update_and_new_vendor_vuln(vendor, vuln):
     v = VendorVulns.objects.filter(vuln_id=vuln["vuln_id"], vendor_name=vendor["name"], vendor_version=vendor["version"]).first()
     if v:
-        if vuln["title"] != v.title or len(json.loads(vuln["cves"])) != len(json.loads(v.cves)):
+        if vuln["title"] != v.title or vuln["cves"] != v.cves:
             logger.debug("[Vendors] Vuln {} update".format(v.vuln_id))
             v.title = vuln["title"]
             v.description = vuln["description"]
@@ -101,12 +101,13 @@ def update_and_new_vendor_vuln(vendor, vuln):
                 logger.warn("[Model Save] vuln model not changed")
     else:
         v = VendorVulns(vuln_id=vuln["vuln_id"],
-                        title=vuln["title"],description=vuln["description"],
-                        severity=vuln["severity"],cves=vuln["cves"],reference=vuln["reference"],
+                        title=vuln["title"], description=vuln["description"],
+                        severity=vuln["severity"], cves=vuln["cves"],reference=vuln["reference"],
                         vendor_name=vendor["name"], vendor_version=vendor["version"])
         v.save()
 
     return v.id
+
 
 class ScanTask(models.Model):
     project_id = models.IntegerField(default=0)

@@ -72,7 +72,7 @@ ext_comment_dict = {
 default_black_list = ['.crx_files', 'vendor']
 IGNORE_LIST = []
 
-VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']
+VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'critical']
 
 VENDOR_FILE_DICT = {
     "java": ['pom.xml', 'build.gradle'],
@@ -83,12 +83,15 @@ VENDOR_FILE_DICT = {
 }
 
 VENDOR_ECOSYSTEM = {
-    "java":    {"depsdev":"maven"},
-    'golang': {"depsdev":"go"},
-    'python': {"ossindex":"pypi"},
-    'php': {"ossindex":"composer"},
-    'nodejs': {"depsdev":"npm"},
+    "java":    {"depsdev": "maven"},
+    'golang': {"depsdev": "go"},
+    'python': {"ossindex": "pypi"},
+    'php': {"ossindex": "composer"},
+    'nodejs': {"depsdev": "npm"},
 }
+
+VENDOR_VUL_LEVEL = ['None', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']
+
 
 # base result class
 

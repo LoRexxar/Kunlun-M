@@ -37,7 +37,7 @@ from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
 from web.index.models import ScanTask
 
-from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER, REMOTE_URL, REMOTE_URL_APITOKEN
+from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER, WITH_VENDOR
 
 from . import plugins
 
@@ -93,7 +93,7 @@ def main():
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
         # for vendor vuln scan
-        parser_group_scan.add_argument('--with-vendor', dest='with_vendor', default=True, help='scan vendor vuln (default is True)')
+        parser_group_scan.add_argument('--without-vendor', dest='without_vendor', action='store_true', default=False, help='scan vendor vuln (default True)')
 
         # show for rule & tamper
         parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description=__introduction__.format(detail='show rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
@@ -215,6 +215,7 @@ def main():
                 exit()
 
         if hasattr(args, "stype"):
+            # search and show vuls
             if args.stype:
                 logger.info("[SEARCH] Search Project by {} in {} {}".format(args.stype, args.keyword_name, args.keyword_value))
                 cli.search_project(args.stype, args.keyword_name, args.keyword_value)
@@ -284,10 +285,10 @@ def main():
 
         log_add(logging.DEBUG, log_name)
 
-        if hasattr(args, "with_vendor"):
+        if hasattr(args, "without_vendor"):
             # 共享变量
-            import Kunlun_M.settings as settings
-            settings.WITH_VENDOR = False if args.with_vendor == "False" else True
+            WITH_VENDOR = False if args.without_vendor else True
+            logger.info("[INIT] Vendor Vuls Scan Status: {}".format(WITH_VENDOR))
 
         data = {
             'status': 'running',

@@ -25,23 +25,9 @@ def get_vulns_from_ossindex(ecosystem, package_name, version):
             vuln["cves"] = json.dumps(cves)
             # get severity
             cvss3_score = advisorie.get("cvssScore", -1.0)
-            vuln["severity"] = risk_score(cvss3_score)
+            vuln["severity"] = int(cvss3_score)
 
             result.append(vuln)
 
     return result
 
-
-def risk_score(score):
-    risk_level = "UNKNOWN"
-    if score == float(0):
-        risk_level = "NONE"
-    elif score >= float(0.1) and score <= float(3.9):
-        risk_level = "LOW"
-    elif score >= float(4.0) and score <= float(6.9):
-        risk_level = "MEDIUM"
-    elif score >= float(7.0) and score <= float(8.9):
-        risk_level = "HIGH"
-    elif score >= float(9.0) and score <= float(10.0):
-        risk_level = "CRITICAL"
-    return risk_level

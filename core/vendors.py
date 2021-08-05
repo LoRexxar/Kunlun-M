@@ -13,10 +13,11 @@ import os
 import re
 import json
 import codecs
+import asyncio
 import traceback
 
 import xml.etree.cElementTree as eT
-import Kunlun_M.settings as settings
+from Kunlun_M.settings import WITH_VENDOR
 
 from core.vuln_apis import get_vulns_from_source
 
@@ -125,12 +126,28 @@ def get_project_by_version(vendor_name, vendor_version):
 
     return result_project
 
+
 # not support gradle
 def get_vulns(language, vendor_name, vendor_version):
-    if not settings.WITH_VENDOR:
+    if not WITH_VENDOR:
         return []
 
     return get_vulns_from_source(language, vendor_name, vendor_version)
+
+
+def get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext=None):
+
+    # not support gradle
+    if ext == 'gradle':
+        return True
+
+    logger.info("[Vendor Vuls] Start {} Vendor Vul Spider.".format(language))
+
+    _vendor = {"name": vendor_name, "version": vendor_version}
+    for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
+        update_and_new_vendor_vuln(_vendor, vuln)
+
+    return True
 
 
 class Vendors:
@@ -168,9 +185,7 @@ class Vendors:
     def get_vendor_file(self):
 
         for file_obj in self.files:
-
             for ext in self.ext_list:
-
                 if ext == file_obj[0]:
                     filelist = file_obj[1]['list']
 
@@ -238,9 +253,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language)
 
-                        _vendor = {"name": vendor_name, "version": vendor_version}
-                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
-                            update_and_new_vendor_vuln(_vendor, vuln)
+                        get_and_save_vendor_vuls(vendor_name, vendor_version, language)
 
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent)
@@ -257,9 +270,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language)
 
-                        _vendor = {"name": vendor_name, "version": abstract_version(vendor_version)}
-                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
-                            update_and_new_vendor_vuln(_vendor, vuln)
+                        get_and_save_vendor_vuls(vendor_name, vendor_version, language)
 
                 elif filename == 'go.mod':
 
@@ -288,9 +299,7 @@ class Vendors:
                             update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                           language=language, ext=go_version)
 
-                            _vendor = {"name": vendor_name, "version": vendor_version}
-                            for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
-                                update_and_new_vendor_vuln(_vendor, vuln)
+                            get_and_save_vendor_vuls(vendor_name, vendor_version, language)
 
                 elif filename == 'pom.xml':
                     reg = r'xmlns="([\w\.\\/:]+)"'
@@ -344,9 +353,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, ext=ext)
 
-                        _vendor = {"name": vendor_name, "version": vendor_version}
-                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
-                            update_and_new_vendor_vuln(_vendor, vuln)
+                        get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext)
 
                 elif filename == 'build.gradle':
                     is_plugin_block = False
@@ -379,6 +386,8 @@ class Vendors:
                             if vendor_name and vendor_version:
                                 update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                               language=language, ext=ext)
+
+                                get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext)
                             continue
 
                 elif filename == "package.json":
@@ -398,9 +407,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
                                                       language=language, ext=ext)
 
-                        _vendor = {"name": dependency, "version": node_version}
-                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
-                            update_and_new_vendor_vuln(_vendor, vuln)
+                        get_and_save_vendor_vuls(dependency, vendor_version, language, ext)
 
                     for dependency in devDependencies:
                         vendor_version = devDependencies[dependency].strip()
@@ -409,9 +416,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
                                                       language=language, ext=ext)
 
-                        _vendor = {"name": dependency, "version": node_version}
-                        for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
-                            update_and_new_vendor_vuln(_vendor, vuln)
+                        get_and_save_vendor_vuls(dependency, vendor_version, language, ext)
 
                 else:
                     logger.warn("[Vendor] Vendor file {} not support".format(filename))
