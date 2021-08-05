@@ -1032,7 +1032,7 @@ Input Control:
 
         param = self.clear_args(args[0])
         if len(param) < 2:
-            logger.error("[Console] Command Del need to set 'mod' and 'result_id'.e.g.: del vuls 1")
+            logger.error("[Console] Command Del need to set 'mod' and 'id'.e.g.: del vuls 1")
 
         mod = param[0]
 
@@ -1044,7 +1044,7 @@ Input Control:
         if mod == 'vuls':
             project_id = get_and_check_scantask_project_id(self.result_task_id)
 
-            sr = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id, result_id=result_id, is_active=True).first()
+            sr = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id, id=result_id, is_active=True).first()
             if sr:
                 logger.info("[Console] Delete ScanTask {} id {}.".format(self.result_task_id, result_id))
 
@@ -1057,7 +1057,7 @@ Input Control:
         elif mod == 'newevilfunc':
             project_id = get_and_check_scantask_project_id(self.result_task_id)
 
-            nf = NewEvilFunc.objects.filter(project_id=project_id, result_id=result_id, is_active=True).first()
+            nf = NewEvilFunc.objects.filter(project_id=project_id, id=result_id, is_active=True).first()
             if nf:
                 logger.info("[Console] Delete NewEvilFunc {} id {}.".format(self.result_task_id, result_id))
 
@@ -1195,17 +1195,17 @@ Input Control:
                                 author = rule.author
                                 level = VUL_LEVEL[rule.level]
 
-                                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
+                                row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                                        author, sr.source_code, sr.result_type]
 
                                 table.add_row(row)
 
                             logger.info("[Result] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
-                            logger.warn("[Console] Use 'show vuls <result_id>' could get detail of vul.")
+                            logger.warn("[Console] Use 'show vuls <id>' could get detail of vul.")
                         else:
                             project_id = get_and_check_scantask_project_id(self.result_task_id)
 
-                            sr = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id, result_id=key).first()
+                            sr = get_and_check_scanresult(self.result_task_id).objects.filter(scan_project_id=project_id, id=key).first()
                             if sr:
                                 # load rule
                                 rule = Rules.objects.filter(svid=sr.cvi_id).first()
@@ -1213,7 +1213,7 @@ Input Control:
                                 author = rule.author
                                 level = VUL_LEVEL[rule.level]
 
-                                row = [sr.result_id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
+                                row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                                        author, sr.source_code, sr.result_type]
 
                                 table.add_row(row)
@@ -1225,13 +1225,13 @@ Input Control:
                                 rfs = ResultFlow.objects.filter(vul_id=sr.id)
 
                                 if rfs:
-                                    logger.info("[Chain] Vul {}".format(sr.result_id))
+                                    logger.info("[Chain] Vul {}".format(sr.id))
                                     for rf in rfs:
                                         logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
                                                                                    rf.node_path, rf.node_lineno))
                                         show_context(rf.node_path, rf.node_lineno)
                                     logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
-                                    logger.warn("[Console] Use 'del vuls <result_id>' could delete Wrong vul.")
+                                    logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
                                     return
 
                             else:
@@ -1241,6 +1241,7 @@ Input Control:
                         logger.error("[Console] ScanTask {} has 0 result.".format(self.result_task_id))
 
                 elif mod == 'newevilfunc':
+                    project_id = get_and_check_scantask_project_id(self.result_task_id)
                     nfs = NewEvilFunc.objects.filter(is_active=1, project_id=project_id)
                     table2 = PrettyTable(
                         ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
