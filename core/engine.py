@@ -217,11 +217,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     # print
     data = []
     data2 = []
-    table = PrettyTable(
-        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
-         'Commit(Author)', 'Source Code Content', 'Analysis'])
+    # table = PrettyTable(
+    #     ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
+    #      'Commit(Author)', 'Source Code Content', 'Analysis'])
 
-    table.align = 'l'
+    # table.align = 'l'
     trigger_rules = []
     for idx, x in enumerate(find_vulnerabilities):
 
@@ -264,46 +264,46 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         data.append(row)
         data2.append(row2)
 
-        table.add_row(row)
+        # table.add_row(row)
 
-        if x.id not in trigger_rules:
-            logger.debug(' > trigger rule (CVI-{cvi})'.format(cvi=x.id))
-            trigger_rules.append(x.id)
-
-        # clear
-        x.chain = ""
-
-    diff_rules = list(set(push_rules) - set(trigger_rules))
-    vn = len(find_vulnerabilities)
-    if vn == 0:
-        logger.info('[SCAN] Not found vulnerability!')
-    else:
-        logger.info("[SCAN] Trigger Rules: {tr} Vulnerabilities ({vn})\r\n{table}".format(tr=len(trigger_rules),
-                                                                                          vn=len(find_vulnerabilities),
-                                                                                          table=table))
-
-        # 输出chain for all
-        logger.info("[SCAN] Vulnerabilities Chain list: ")
-        for d in data2:
-            logger.info("[SCAN] Vul {}".format(d[0]))
-            for c in d[1]:
-                logger.info("[Chain] {}".format(c))
-                if type(c) is not tuple and not c[3] is None and not re.match('^[0-9]+$', c[3]):
-                    continue
-                show_context(c[2], c[3])
-
-            logger.info("[SCAN] ending\r\n" + '-' * (shutil.get_terminal_size().columns - 16))
-
-        if len(diff_rules) > 0:
-            logger.info(
-                '[SCAN] Not Trigger Rules ({l}): {r}'.format(l=len(diff_rules), r=','.join(diff_rules)))
-
-    # show detail about newcore function list
-    table2 = PrettyTable(
-        ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
-
-    table2.align = 'l'
-    idy = 0
+    #     if x.id not in trigger_rules:
+    #         logger.debug(' > trigger rule (CVI-{cvi})'.format(cvi=x.id))
+    #         trigger_rules.append(x.id)
+    #
+    #     # clear
+    #     x.chain = ""
+    #
+    # diff_rules = list(set(push_rules) - set(trigger_rules))
+    # vn = len(find_vulnerabilities)
+    # if vn == 0:
+    #     logger.info('[SCAN] Not found vulnerability!')
+    # else:
+    #     logger.info("[SCAN] Trigger Rules: {tr} Vulnerabilities ({vn})\r\n{table}".format(tr=len(trigger_rules),
+    #                                                                                       vn=len(find_vulnerabilities),
+    #                                                                                       table=table))
+    #
+    #     # 输出chain for all
+    #     logger.info("[SCAN] Vulnerabilities Chain list: ")
+    #     for d in data2:
+    #         logger.info("[SCAN] Vul {}".format(d[0]))
+    #         for c in d[1]:
+    #             logger.info("[Chain] {}".format(c))
+    #             if type(c) is not tuple and not c[3] is None and not re.match('^[0-9]+$', c[3]):
+    #                 continue
+    #             show_context(c[2], c[3])
+    #
+    #         logger.info("[SCAN] ending\r\n" + '-' * (shutil.get_terminal_size().columns - 16))
+    #
+    #     if len(diff_rules) > 0:
+    #         logger.info(
+    #             '[SCAN] Not Trigger Rules ({l}): {r}'.format(l=len(diff_rules), r=','.join(diff_rules)))
+    #
+    # # show detail about newcore function list
+    # table2 = PrettyTable(
+    #     ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
+    #
+    # table2.align = 'l'
+    # idy = 0
     for new_function_name in newcore_function_list:
         # add new evil func in database
         for svid in newcore_function_list[new_function_name]["svid"]:
@@ -312,12 +312,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 nf = NewEvilFunc(svid=svid, scan_task_id=get_scan_id(), func_name=new_function_name,
                                  origin_func_name=newcore_function_list[new_function_name]["origin_func_name"])
                 nf.save()
-
-        table2.add_row([idy + 1, new_function_name, newcore_function_list[new_function_name]["origin_func_name"], newcore_function_list[new_function_name]["svid"]])
-        idy += 1
-
-    if len(newcore_function_list) > 0:
-        logger.info("[SCAN] New evil Function list by NewCore:\r\n{}".format(table2))
+    #
+    #     table2.add_row([idy + 1, new_function_name, newcore_function_list[new_function_name]["origin_func_name"], newcore_function_list[new_function_name]["svid"]])
+    #     idy += 1
+    #
+    # if len(newcore_function_list) > 0:
+    #     logger.info("[SCAN] New evil Function list by NewCore:\r\n{}".format(table2))
 
     # completed running data
     if s_sid is not None:

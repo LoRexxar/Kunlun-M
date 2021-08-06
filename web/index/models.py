@@ -401,6 +401,7 @@ def get_resultflow_table(table_name):
 
 def get_resultflow_class(scanid):
 
+    scanid = int(scanid)
     table_name = "ResultFlow_{:08d}".format(scanid)
 
     ResultflowObject = get_resultflow_table(table_name)

@@ -60,72 +60,7 @@ def check_scantask(task_name, target_path, parameter_config, project_origin, pro
             logger.warning("[INIT] whether Show Last Scan Result?(Y/N) (Default Y)")
 
             if input().lower() != 'n':
-                scan_id = s.id
-                table = PrettyTable(
-                    ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Level', 'Target-File:Line-Number',
-                     'Commit(Author)', 'Source Code Content', 'Analysis'])
-                table.align = 'l'
-
-                # check unconfirm
-                logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
-                project_id = get_and_check_scantask_project_id(scan_id)
-                logger.info("[INIT] Now Project ID is {}".format(project_id))
-
-                if input().lower() != 'n':
-                    srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True)
-                else:
-                    srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True, is_unconfirm=False)
-
-                if srs:
-                    logger.info("[MainThread] Last Scan id {} Result: ".format(scan_id))
-
-                    for sr in srs:
-                        rule = Rules.objects.filter(svid=sr.cvi_id).first()
-                        rule_name = rule.rule_name
-                        author = rule.author
-                        level = VUL_LEVEL[rule.level]
-
-                        row = [sr.result_id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
-                               author, sr.source_code, sr.result_type]
-
-                        table.add_row(row)
-
-                        # show Vuls Chain
-                        ResultFlow = get_resultflow_class(scan_id)
-                        rfs = ResultFlow.objects.filter(vul_id=sr.id)
-
-                        logger.info("[Chain] Vul {}".format(sr.id))
-                        for rf in rfs:
-                            logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
-                            show_context(rf.node_path, rf.node_lineno)
-
-                        logger.info(
-                            "[SCAN] ending\r\n -------------------------------------------------------------------------")
-
-                    logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
-
-                    # show New evil Function
-                    nfs = NewEvilFunc.objects.filter(project_id=project_id, is_active=1)
-
-                    if nfs:
-
-                        table2 = PrettyTable(
-                            ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
-
-                        table2.align = 'l'
-                        idy = 1
-
-                        for nf in nfs:
-                            row = [idy, nf.func_name, nf.origin_func_name, nf.svid]
-
-                            table2.add_row(row)
-                            idy += 1
-
-                        logger.info("[MainThread] New evil Function list by NewCore:\r\n{table}".format(table=table2))
-
-                else:
-                    logger.info("[MainThread] Last Scan id {} has no Result.".format(scan_id))
-
+                display_result(s.id, is_ask=True)
         else:
             s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
             s.save()
@@ -141,6 +76,81 @@ def check_scantask(task_name, target_path, parameter_config, project_origin, pro
         check_and_new_project_id(s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
 
     return s
+
+
+def display_result(scan_id, is_ask=False):
+
+    table = PrettyTable(
+        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Level', 'Target-File:Line-Number',
+         'Commit(Author)', 'Source Code Content', 'Analysis'])
+    table.align = 'l'
+
+    # check unconfirm
+    if is_ask:
+        logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
+
+    project_id = get_and_check_scantask_project_id(scan_id)
+
+    if is_ask:
+        if input().lower() != 'n':
+            srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True)
+        else:
+            srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True,
+                                                                   is_unconfirm=False)
+    else:
+        srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True,
+                                                               is_unconfirm=False)
+    logger.info("[INIT] Project ID is {}".format(project_id))
+
+    if srs:
+        logger.info("[MainThread] Scan id {} Result: ".format(scan_id))
+
+        for sr in srs:
+            rule = Rules.objects.filter(svid=sr.cvi_id).first()
+            rule_name = rule.rule_name
+            author = rule.author
+            level = VUL_LEVEL[rule.level]
+
+            row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
+                   author, sr.source_code, sr.result_type]
+
+            table.add_row(row)
+
+            # show Vuls Chain
+            ResultFlow = get_resultflow_class(scan_id)
+            rfs = ResultFlow.objects.filter(vul_id=sr.id)
+
+            logger.info("[Chain] Vul {}".format(sr.id))
+            for rf in rfs:
+                logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
+                show_context(rf.node_path, rf.node_lineno)
+
+            logger.info(
+                "[SCAN] ending\r\n -------------------------------------------------------------------------")
+
+        logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
+
+        # show New evil Function
+        nfs = NewEvilFunc.objects.filter(project_id=project_id, is_active=1)
+
+        if nfs:
+
+            table2 = PrettyTable(
+                ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
+
+            table2.align = 'l'
+            idy = 1
+
+            for nf in nfs:
+                row = [idy, nf.func_name, nf.origin_func_name, nf.svid]
+
+                table2.add_row(row)
+                idy += 1
+
+            logger.info("[MainThread] New evil Function list by NewCore:\r\n{table}".format(table=table2))
+
+    else:
+        logger.info("[MainThread] Scan id {} has no Result.".format(scan_id))
 
 
 def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False):
@@ -218,6 +228,10 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
              language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
              files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm)
+
+        # show result
+        display_result(task_id)
+
     except KeyboardInterrupt as e:
         logger.error("[!] KeyboardInterrupt, exit...")
         exit()
