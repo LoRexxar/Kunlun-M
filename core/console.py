@@ -319,10 +319,9 @@ class KunlunInterpreter(BaseInterpreter):
         self.subcommand_list = ['options', 'vuls', 'rule', 'tamper', 'newevilfunc']
 
         self.show_index = 0
-        self.show_mode_list = ['showt']
+        self.show_mode_list = ['showt', 'rule']
         self.show_commands = ['n']
         self.show_mode = ""
-        self.show_mode_list = ['rule']
 
         self.config_mode = ""
         self.config_keyword = ""

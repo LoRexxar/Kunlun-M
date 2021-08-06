@@ -316,10 +316,6 @@ class NewEvilFunc(models.Model):
 
             return self.save(*args, **kwargs)
 
-        elif len(nefs) == 1:
-
-            return True
-
         super().save(*args, **kwargs)
 
 
