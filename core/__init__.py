@@ -37,7 +37,7 @@ from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
 from web.index.models import ScanTask
 
-from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER, WITH_VENDOR
+from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER
 
 from . import plugins
 
@@ -287,8 +287,9 @@ def main():
 
         if hasattr(args, "without_vendor"):
             # 共享变量
-            WITH_VENDOR = False if args.without_vendor else True
-            logger.info("[INIT] Vendor Vuls Scan Status: {}".format(WITH_VENDOR))
+            import Kunlun_M.settings as settings
+            settings.WITH_VENDOR = False if args.without_vendor else settings.WITH_VENDOR
+            logger.info("[INIT] Vendor Vuls Scan Status: {}".format(settings.WITH_VENDOR))
 
         data = {
             'status': 'running',

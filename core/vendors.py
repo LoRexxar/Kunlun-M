@@ -17,7 +17,7 @@ import asyncio
 import traceback
 
 import xml.etree.cElementTree as eT
-from Kunlun_M.settings import WITH_VENDOR
+import Kunlun_M.settings as settings
 
 from core.vuln_apis import get_vulns_from_source
 
@@ -129,9 +129,6 @@ def get_project_by_version(vendor_name, vendor_version):
 
 # not support gradle
 def get_vulns(language, vendor_name, vendor_version):
-    if not WITH_VENDOR:
-        return []
-
     return get_vulns_from_source(language, vendor_name, vendor_version)
 
 
@@ -141,7 +138,10 @@ def get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext=None):
     if ext == 'gradle':
         return True
 
-    logger.info("[Vendor Vuls] Start {} Vendor Vul Spider.".format(language))
+    if not settings.WITH_VENDOR:
+        return False
+
+    logger.info("[Vendor Vuls] Spider {} Vendor {} Vul.".format(language, vendor_name))
 
     _vendor = {"name": vendor_name, "version": vendor_version}
     for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
