@@ -391,15 +391,19 @@ class FileParseAll:
                 continue
 
             file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
-            content = file.read()
-            file.close()
+            content = file.read(1000)
 
             r_con_obj = re.search(reg, content, re.I)
 
-            if r_con_obj:
-                start_pos = r_con_obj.regs[0][0]
-                line_number = len(content[:start_pos].split('\n'))
-                result.append((filepath, str(line_number), r_con_obj.group(0)))
+            while content:
+                if r_con_obj:
+                    start_pos = r_con_obj.regs[0][0]
+                    line_number = len(content[:start_pos].split('\n'))
+                    result.append((filepath, str(line_number), r_con_obj.group(0)))
+
+                content = file.read(1000)
+
+            file.close()
 
         return result
     

@@ -77,7 +77,7 @@ def log_add(loglevel, log_name):
     handler2.setFormatter(formatter)
     logger.addHandler(handler2)
 
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
 
 def log_console():

@@ -193,7 +193,7 @@ class Vendors:
                         filename = file.split('/')[-1].split('\\')[-1]
 
                         if filename in self.vendor_file_list:
-                            logger.info("[Vendor] Vendor file {} be found.".format(filename))
+                            logger.info("[Vendor] Vendor file {} be found in {}.".format(filename, file))
 
                             self.exist_file_list.append(file)
                             continue
