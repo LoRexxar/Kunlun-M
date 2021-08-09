@@ -264,6 +264,7 @@ class KunlunInterpreter(BaseInterpreter):
     load <scan_id>                                   Load Scan task
     showt                                            Show all Scan task list
     show [rule, tamper] <key>                        Show rules or tampers
+    search [vendor, ] <vendor_name> <vendor_version> Search Project which contains vendor
     config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
     exit                                             Exit KunLun-M & save Config""")
 
@@ -309,7 +310,7 @@ class KunlunInterpreter(BaseInterpreter):
         self.prompt_hostname = "KunLun-M"
         self.current_mode = 'root'
 
-        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'config ', 'exit']
+        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'exit']
         self.config_commands = ['help', 'set ', 'save', 'back', 'showit']
         self.scan_commands = ['help', 'set ', 'show ', 'run', 'status']
         self.result_commands = ['help', 'show ', 'del ', 'set ', 'back']
@@ -1309,6 +1310,24 @@ Input Control:
 
         else:
             return
+
+    def command_search(self, *args, **kwargs):
+
+        param = self.clear_args(args[0])
+
+        if len(param) < 3:
+            logger.error("[Console] Command Search need to set 'mod' 'keyword' 'keyvalue'.e.g.: search vendor flask 0.10.1")
+
+        mod = param[0]
+        keyword = param[1]
+        keyvalue = param[2]
+
+        if mod not in ['vendor']:
+            logger.error("[Console] Command Config need to set mod in ['vendor'].")
+            return
+
+        if mod == 'vendor':
+            cli.search_project(mod, keyword, keyvalue, with_vuls=True)
 
     def command_config(self, *args, **kwargs):
 
