@@ -19,6 +19,8 @@ mm_regex_only_match = 'only-regex'
 mm_regex_return_regex = 'regex-return-regex'
 sp_crx_keyword_match = 'special-crx-keyword-match'  # crx特殊匹配
 file_path_regex_match = 'file-path-regex-match'  # 文件名或者路径匹配
+vendor_source_match = 'vendor_source_match'  # sca
+
 
 match_modes = [
     mm_regex_only_match,
@@ -27,6 +29,7 @@ match_modes = [
     mm_regex_return_regex,
     sp_crx_keyword_match,
     file_path_regex_match,
+    vendor_source_match,
 ]
 
 
@@ -72,7 +75,7 @@ ext_comment_dict = {
 default_black_list = ['.crx_files', 'vendor']
 IGNORE_LIST = []
 
-VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']
+VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'critical']
 
 VENDOR_FILE_DICT = {
     "java": ['pom.xml', 'build.gradle'],
@@ -81,6 +84,18 @@ VENDOR_FILE_DICT = {
     'php': ['composer.json'],
     'nodejs': ['package.json'],
 }
+
+VENDOR_ECOSYSTEM = {
+    "java":    {"depsdev": "maven"},
+    'golang': {"depsdev": "go"},
+    'python': {"ossindex": "pypi"},
+    'php': {"ossindex": "composer"},
+    'nodejs': {"depsdev": "npm"},
+}
+
+VENDOR_VUL_LEVEL = ['None', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']
+
+VENDOR_CVIID = 9999
 
 # base result class
 

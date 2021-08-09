@@ -37,7 +37,7 @@ from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
 from web.index.models import ScanTask
 
-from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER, REMOTE_URL, REMOTE_URL_APITOKEN
+from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER
 
 from . import plugins
 
@@ -56,12 +56,14 @@ def main():
 
         subparsers = parser.add_subparsers()
 
+        # init
         parser_group_init = subparsers.add_parser('init', help='Kunlun-M init before use.')
         parser_group_init.add_argument('init', choices=['initialize', 'checksql'], default='init', help='check and migrate SQL')
         parser_group_init.add_argument('appname', choices=['index', 'dashboard', 'backend', 'api'],  nargs='?', default='index',
                                        help='Check App name')
         parser_group_init.add_argument('migrationname', default='migrationname',  nargs='?', help='Check migration name')
 
+        # load config into database
         parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
         parser_group_core.add_argument('load', choices=['load', 'recover', 'loadtamper', 'retamper'], default=False, help='operate for rule&tamper')
 
@@ -90,6 +92,10 @@ def main():
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
+        # for vendor vuln scan
+        parser_group_scan.add_argument('--without-vendor', dest='without_vendor', action='store_true', default=False, help='without scan vendor vuln (default open)')
+
+        # show for rule & tamper
         parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description=__introduction__.format(detail='show rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
 
         parser_group_show.add_argument('list', choices=['rule', "tamper"], action='store', default=None,
@@ -98,6 +104,18 @@ def main():
         parser_group_show.add_argument('-k', '--key', dest='listkey', action='store', default="all",
                                        help='key for show rule & tamper. eg: 1001/wordpress')
 
+        # for search vendor
+        parser_group_search = subparsers.add_parser('search', help='search project by vendor/path/...', description=__introduction__.format(detail='search project by vendor/path/...'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
+
+        parser_group_search.add_argument('stype', choices=['vendor'], default='vendor', help='search type')
+
+        parser_group_search.add_argument('keyword_name', default='flask', nargs='?', help='keyword name for search')
+
+        parser_group_search.add_argument('keyword_value', default='1.0.0', nargs='?', help='keyword value for search')
+
+        parser_group_search.add_argument('--with-vuls', dest='with_vuls', action='store_true', default=False, help='with vuls scan (default False)')
+
+        # console
         parser_group_console = subparsers.add_parser('console', help='enter console mode',
                                                      description=__introduction__.format(detail='enter console mode'),
                                                      formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -198,6 +216,16 @@ def main():
                 parser_group_show.print_help()
                 exit()
 
+        if hasattr(args, "stype"):
+            # search and show vuls
+            if args.stype:
+                logger.info("[SEARCH] Search Project by {} in {} {}".format(args.stype, args.keyword_name, args.keyword_value))
+                cli.search_project(args.stype, args.keyword_name, args.keyword_value, args.with_vuls)
+                exit()
+            else:
+                parser_group_show.print_help()
+                exit()
+
         if hasattr(args, "console"):
             # check rule and tamper
             logger.info("[INIT] RuleCheck start.")
@@ -258,6 +286,12 @@ def main():
             log_name = "ScanTask_{}".format(sid)
 
         log_add(logging.DEBUG, log_name)
+
+        if hasattr(args, "without_vendor"):
+            # 共享变量
+            import Kunlun_M.settings as settings
+            settings.WITH_VENDOR = False if args.without_vendor else settings.WITH_VENDOR
+            logger.info("[INIT] Vendor Vuls Scan Status: {}".format(settings.WITH_VENDOR))
 
         data = {
             'status': 'running',

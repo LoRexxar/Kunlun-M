@@ -219,24 +219,24 @@ class RuleCheck:
 
                 ruleconfig_content = str(getattr(ruleclass, config)).replace(r'\"', '"')
 
-                is_changed = self.check_and_update_rule_database(ruleconfig_content, nowrule, config1)
+                is_changed = self.check_and_update_rule_database(ruleconfig_content, nowrule, config1) or is_changed
 
             else:
                 main_function_content = inspect.getsource(ruleclass.main)
                 config1 = "main_function"
 
-                is_changed = self.check_and_update_rule_database(main_function_content, nowrule, config1)
+                is_changed = self.check_and_update_rule_database(main_function_content, nowrule, config1) or is_changed
 
         # for special match_mode
         if ruleclass.match_mode == "regex-return-regex":
             for config in self.SOLIDITY_CONFIG_LIST:
-                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
+                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config) or is_changed
         elif ruleclass.match_mode == "only-regex":
             for config in self.REGEX_CONFIG_LIST:
-                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
+                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config) or is_changed
         elif ruleclass.match_mode == "special-crx-keyword-match":
             for config in self.CHROME_CONFIG_LIST:
-                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config)
+                is_changed = self.check_and_update_rule_database(getattr(ruleclass, config), nowrule, config) or is_changed
 
         if is_changed:
             nowrule.save()
@@ -358,7 +358,11 @@ class TamperCheck:
             if input().lower() != 'n':
                 tamperclass.tam_value = new_tamper_value
 
-        tamperclass.save()
+        try:
+            tamperclass.save()
+        except:
+            return False
+
         return True
 
     def load(self):

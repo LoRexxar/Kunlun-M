@@ -14,6 +14,7 @@ from django import db
 from Kunlun_M.const import TAMPER_TYPE
 from utils.log import logger
 
+import json
 import uuid
 import hashlib
 
@@ -69,6 +70,43 @@ def update_and_new_project_vendor(project_id, name, version, language, ext=None)
         v.save()
 
     return True
+
+
+class VendorVulns(models.Model):
+    # vuln
+    vuln_id = models.CharField(max_length=200)
+    title = models.TextField()
+    description = models.TextField()
+    severity = models.IntegerField()
+    cves = models.TextField()
+    reference = models.TextField()
+    # affect vendor
+    vendor_name = models.CharField(max_length=200)
+    vendor_version = models.CharField(max_length=50, null=True)
+
+
+def update_and_new_vendor_vuln(vendor, vuln):
+    v = VendorVulns.objects.filter(vuln_id=vuln["vuln_id"], vendor_name=vendor["name"], vendor_version=vendor["version"]).first()
+    if v:
+        if vuln["title"] != v.title or vuln["cves"] != v.cves:
+            logger.debug("[Vendors] Vuln {} update".format(v.vuln_id))
+            v.title = vuln["title"]
+            v.description = vuln["description"]
+            v.severity = vuln["severity"]
+            v.cves = vuln["cves"]
+            v.reference = vuln["reference"]
+            try:
+                v.save()
+            except IntegrityError:
+                logger.warn("[Model Save] vuln model not changed")
+    else:
+        v = VendorVulns(vuln_id=vuln["vuln_id"],
+                        title=vuln["title"], description=vuln["description"],
+                        severity=vuln["severity"], cves=vuln["cves"],reference=vuln["reference"],
+                        vendor_name=vendor["name"], vendor_version=vendor["version"])
+        v.save()
+
+    return v.id
 
 
 class ScanTask(models.Model):
@@ -278,10 +316,6 @@ class NewEvilFunc(models.Model):
 
             return self.save(*args, **kwargs)
 
-        elif len(nefs) == 1:
-
-            return True
-
         super().save(*args, **kwargs)
 
 
@@ -367,6 +401,7 @@ def get_resultflow_table(table_name):
 
 def get_resultflow_class(scanid):
 
+    scanid = int(scanid)
     table_name = "ResultFlow_{:08d}".format(scanid)
 
     ResultflowObject = get_resultflow_table(table_name)

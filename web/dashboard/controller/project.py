@@ -34,6 +34,7 @@ class ProjectListView(TemplateView):
         context = super(ProjectListView, self).get_context_data(**kwargs)
 
         rows = Project.objects.all().order_by('-id')
+        project_count = Project.objects.all().count()
 
         context['projects'] = rows
 
@@ -56,6 +57,24 @@ class ProjectListView(TemplateView):
             project.vendors_count = vendors_count
 
         context['projects'] = sorted(context['projects'], key=lambda x:x.last_scan_time)[::-1]
+
+        if 'p' in self.request.GET:
+            page = int(self.request.GET['p'])
+        else:
+            page = 1
+
+        # check page
+        if page*50 > project_count:
+            page = 1
+
+        context['projects'] = context['projects'][(page-1)*50: page*50]
+        context['page'] = page
+
+        max_page = project_count // 50 if project_count % 50 == 0 else (project_count // 50)+1
+        max_page = max_page+1 if max_page == 1 else max_page
+
+        context['max_page'] = max_page
+        context['page_range'] = range(int(max_page))[1:]
 
         return context
 
