@@ -93,7 +93,7 @@ def main():
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
 
         # for vendor vuln scan
-        parser_group_scan.add_argument('--without-vendor', dest='without_vendor', action='store_true', default=False, help='scan vendor vuln (default True)')
+        parser_group_scan.add_argument('--without-vendor', dest='without_vendor', action='store_true', default=False, help='without scan vendor vuln (default open)')
 
         # show for rule & tamper
         parser_group_show = subparsers.add_parser('show', help='show rule&tamper', description=__introduction__.format(detail='show rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
@@ -112,6 +112,8 @@ def main():
         parser_group_search.add_argument('keyword_name', default='flask', nargs='?', help='keyword name for search')
 
         parser_group_search.add_argument('keyword_value', default='1.0.0', nargs='?', help='keyword value for search')
+
+        parser_group_search.add_argument('--with-vuls', dest='with_vuls', action='store_true', default=False, help='with vuls scan (default False)')
 
         # console
         parser_group_console = subparsers.add_parser('console', help='enter console mode',
@@ -218,7 +220,7 @@ def main():
             # search and show vuls
             if args.stype:
                 logger.info("[SEARCH] Search Project by {} in {} {}".format(args.stype, args.keyword_name, args.keyword_value))
-                cli.search_project(args.stype, args.keyword_name, args.keyword_value)
+                cli.search_project(args.stype, args.keyword_name, args.keyword_value, args.with_vuls)
                 exit()
             else:
                 parser_group_show.print_help()

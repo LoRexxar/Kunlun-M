@@ -28,11 +28,11 @@ from utils.file import Directory, load_kunlunmignore
 from utils.utils import show_context
 from utils.utils import ParseArgs
 from utils.utils import md5, random_generator
-from core.vendors import get_project_by_version, get_project_vendor_by_name
+from core.vendors import get_project_by_version, get_and_save_vendor_vuls
 from Kunlun_M.settings import RULES_PATH
-from Kunlun_M.const import VUL_LEVEL
+from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
-from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, Project, ProjectVendors
+from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, Project, ProjectVendors, VendorVulns
 from web.index.models import get_resultflow_class, get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
 
 
@@ -106,10 +106,27 @@ def display_result(scan_id, is_ask=False):
         logger.info("[MainThread] Scan id {} Result: ".format(scan_id))
 
         for sr in srs:
-            rule = Rules.objects.filter(svid=sr.cvi_id).first()
-            rule_name = rule.rule_name
-            author = rule.author
-            level = VUL_LEVEL[rule.level]
+
+            # for vendor scan
+            if sr.cvi_id == '9999':
+                vendor_vuls_id = int(sr.vulfile_path.split(':')[-1])
+                vv = VendorVulns.objects.filter(id=vendor_vuls_id).first()
+
+                if vv:
+                    rule_name = vv.title
+                    author = 'SCA'
+                    level = VENDOR_VUL_LEVEL[int(vv.severity)]
+                    # sr.source_code = vv.description
+                else:
+                    rule_name = 'SCA Scan'
+                    author = 'SCA'
+                    level = VENDOR_VUL_LEVEL[1]
+
+            else:
+                rule = Rules.objects.filter(svid=sr.cvi_id).first()
+                rule_name = rule.rule_name
+                author = rule.author
+                level = VUL_LEVEL[rule.level]
 
             row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                    author, sr.source_code, sr.result_type]
@@ -200,7 +217,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
 
         # vendor check
         project_id = get_and_check_scantask_project_id(task_id)
-        Vendors(project_id, target_directory, files)
+        Vendors(task_id, project_id, target_directory, files)
 
         # detection main language and framework
 
@@ -383,9 +400,10 @@ Input Control:
     return ""
 
 
-def search_project(search_type, keyword, keyword_value):
+def search_project(search_type, keyword, keyword_value, with_vuls=False):
     """
     根据信息搜索项目信息
+    :param with_vuls:
     :param search_type:
     :param keyword:
     :param keyword_value:
@@ -397,7 +415,13 @@ def search_project(search_type, keyword, keyword_value):
             ['#', 'ProjectId', 'Project Name', 'Project Origin', 'Vendor', 'Version'])
 
         table.align = 'l'
+
+        table2 = PrettyTable(
+            ['#', 'Vuln ID', 'Title', 'level', 'CVE', 'Reference', 'Vendor', 'Version'])
+
+        table2.align = 'l'
         i = 0
+        j = 0
 
         if not ps:
             return False
@@ -415,7 +439,16 @@ def search_project(search_type, keyword, keyword_value):
 
                 table.add_row([i, pid, pname, porigin, vendor_name, vendor_vension])
 
+                if with_vuls:
+                    vvs = get_and_save_vendor_vuls(0, vendor_name, vendor_vension, v.language, v.ext)
+
+                    for vv in vvs:
+                        j += 1
+
+                        table2.add_row([i, vv.vuln_id, vv.title, VENDOR_VUL_LEVEL[vv.severity], vv.cves, vv.reference, vv.vendor_name, vv.vendor_version])
+
         logger.info("Project List (Small than {} {}):\n{}".format(keyword, keyword_value, table))
+        logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
 
     return True
 

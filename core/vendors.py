@@ -24,10 +24,10 @@ from core.vuln_apis import get_vulns_from_source
 from utils.log import logger
 from utils.file import check_filepath
 
-from Kunlun_M.const import VENDOR_FILE_DICT
+from Kunlun_M.const import VENDOR_FILE_DICT, VENDOR_CVIID, vendor_source_match
 
 from web.index.models import ProjectVendors, update_and_new_project_vendor, update_and_new_vendor_vuln
-from web.index.models import Project
+from web.index.models import Project, VendorVulns, check_update_or_new_scanresult
 
 
 def abstract_version(vendor_version):
@@ -47,9 +47,11 @@ def abstract_version(vendor_version):
     return result_version
 
 
-def compare_vendor(vendor, compare_version):
+def compare_vendor(vendor_version, compare_version):
 
-    vendor_version = abstract_version(vendor.version)
+    # vendor_version = abstract_version(vendor_version)
+    compare_version = abstract_version(compare_version)
+
     vendor_version_list = vendor_version.split('.')
     compare_version_list = compare_version.split('.')
 
@@ -94,6 +96,29 @@ def get_project_vendor_by_name(vendor_name):
     return pvs
 
 
+def get_vendor_vul_by_name(vendor_name):
+    """
+    支持*语法的查询
+    :param vendor_name:
+    :return:
+    """
+    if vendor_name.startswith('*'):
+        if vendor_name.endswith('*'):
+            vvs = VendorVulns.objects.filter(vendor_name__icontains=vendor_name.strip('*'))
+
+        else:
+            vvs = VendorVulns.objects.filter(vendor_name__iendswith=vendor_name.strip('*'))
+
+    else:
+        if vendor_name.endswith('*'):
+            vvs = VendorVulns.objects.filter(vendor_name__istartswith=vendor_name.strip('*'))
+
+        else:
+            vvs = VendorVulns.objects.filter(vendor_name__iexact=vendor_name.strip('*'))
+
+    return vvs
+
+
 def get_project_by_version(vendor_name, vendor_version):
     """
     获取低于该版本的所有项目信息
@@ -115,7 +140,9 @@ def get_project_by_version(vendor_name, vendor_version):
     pvs = get_project_vendor_by_name(vendor_name.strip())
 
     for pv in pvs:
-        if not is_need_version_check or compare_vendor(pv, vendor_version):
+        pv_version = abstract_version(pv.version)
+
+        if not is_need_version_check or compare_vendor(pv_version, vendor_version):
             pid = pv.project_id
             project = Project.objects.filter(id=pid).first()
 
@@ -132,13 +159,44 @@ def get_vulns(language, vendor_name, vendor_version):
     return get_vulns_from_source(language, vendor_name, vendor_version)
 
 
-def get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext=None):
+def check_and_save_result(task_id, language, vendor_name, vendor_version):
+    """
+    检查并保存结果。
+    :param vendor_name:
+    :param vendor_version:
+    :return:
+    """
+    vvs = get_vendor_vul_by_name(vendor_name.strip())
+    vendor_version = abstract_version(vendor_version)
+    result_list = []
+
+    for vv in vvs:
+        if not vendor_version or compare_vendor(vendor_version, vv.vendor_version):
+
+            if task_id:
+                check_update_or_new_scanresult(
+                    scan_task_id=task_id,
+                    cvi_id=VENDOR_CVIID,
+                    language=language,
+                    vulfile_path="VendorVul:{}".format(vv.id),
+                    source_code="{}".format(vv.reference),
+                    result_type=vendor_source_match,
+                    is_unconfirm=False,
+                    is_active=True
+                )
+            else:
+                result_list.append(vv)
+
+    return result_list
+
+
+def get_and_save_vendor_vuls(task_id, vendor_name, vendor_version, language, ext=None):
 
     # not support gradle
     if ext == 'gradle':
-        return True
+        return []
 
-    if not settings.WITH_VENDOR:
+    if not settings.WITH_VENDOR and task_id:
         return False
 
     logger.info("[Vendor Vuls] Spider {} Vendor {} Vul.".format(language, vendor_name))
@@ -147,7 +205,7 @@ def get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext=None):
     for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):
         update_and_new_vendor_vuln(_vendor, vuln)
 
-    return True
+    return check_and_save_result(task_id, language, _vendor["name"], _vendor["version"])
 
 
 class Vendors:
@@ -155,7 +213,8 @@ class Vendors:
     项目组件检查
     """
 
-    def __init__(self, project_id, target, files):
+    def __init__(self, task_id, project_id, target, files):
+        self.task_id = task_id
         self.project_id = project_id
         self.target_path = target
         self.files = files
@@ -253,7 +312,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language)
 
-                        get_and_save_vendor_vuls(vendor_name, vendor_version, language)
+                        get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent)
@@ -270,7 +329,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language)
 
-                        get_and_save_vendor_vuls(vendor_name, vendor_version, language)
+                        get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
                 elif filename == 'go.mod':
 
@@ -299,7 +358,7 @@ class Vendors:
                             update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                           language=language, ext=go_version)
 
-                            get_and_save_vendor_vuls(vendor_name, vendor_version, language)
+                            get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
                 elif filename == 'pom.xml':
                     reg = r'xmlns="([\w\.\\/:]+)"'
@@ -353,7 +412,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, ext=ext)
 
-                        get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext)
+                        get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
 
                 elif filename == 'build.gradle':
                     is_plugin_block = False
@@ -387,7 +446,7 @@ class Vendors:
                                 update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                               language=language, ext=ext)
 
-                                get_and_save_vendor_vuls(vendor_name, vendor_version, language, ext)
+                                get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
                             continue
 
                 elif filename == "package.json":
@@ -407,7 +466,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
                                                       language=language, ext=ext)
 
-                        get_and_save_vendor_vuls(dependency, vendor_version, language, ext)
+                        get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
 
                     for dependency in devDependencies:
                         vendor_version = devDependencies[dependency].strip()
@@ -416,7 +475,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
                                                       language=language, ext=ext)
 
-                        get_and_save_vendor_vuls(dependency, vendor_version, language, ext)
+                        get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
 
                 else:
                     logger.warn("[Vendor] Vendor file {} not support".format(filename))
