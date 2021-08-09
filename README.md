@@ -307,16 +307,18 @@ KunLun-M 是 404Team [星链计划](https://github.com/knownsec/404StarLink-Proj
 ## Contributors
 
 感谢如下贡献者对本工具发展过程中的贡献：
+
 核心开发者：
-![](docs/lorexxar.jfif)
+
+![](docs/lorexxar.jpg)
 - Knownsec 404 Team [LoRexxar](https://github.com/LoRexxar)
 
 重要贡献者：
-![](docs/luckycat.jfif)
+
+![](docs/luckycat.jpg)
 - Vidar-Team [LuckC4t](https://github.com/LuckyC4t)
 
-
-![](docs/sissel.jfif)
+![](docs/sissel.jpg)
 - Dubhe [Sissel](https://github.com/boke1208)
 
 次要贡献者：
