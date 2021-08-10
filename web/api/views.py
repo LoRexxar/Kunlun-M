@@ -17,7 +17,7 @@ from web.index.controller import login_or_token_required, api_token_required
 from django.views.generic import TemplateView
 from django.views import View
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project, ProjectVendors
+from web.index.models import ScanTask, VendorVulns, Rules, Tampers, NewEvilFunc, Project, ProjectVendors
 from web.index.models import get_and_check_scantask_project_id, get_resultflow_class, get_and_check_scanresult
 from utils.utils import show_context
 
@@ -154,6 +154,31 @@ class RuleDetailApiView(View):
     @staticmethod
     @api_token_required
     def get(request, rule_cviid):
+
         rules = Rules.objects.filter(svid=rule_cviid).values()
 
         return JsonResponse({"code": 200, "status": True, "message":  list(rules)})
+
+
+class VendorVulListApiView(View):
+    """展示组件漏洞列表"""
+
+    @staticmethod
+    @api_token_required
+    def get(request):
+        vendorvuls = VendorVulns.objects.filter()[:100].values()
+
+        return JsonResponse(
+            {"code": 200, "status": True, "message": list(vendorvuls)})
+
+
+class VendorVuLDetailApiView(View):
+    """展示当前规则细节"""
+
+    @staticmethod
+    @api_token_required
+    def get(request, vendor_vul_id):
+
+        vendorvuls = VendorVulns.objects.filter(id=vendor_vul_id).values()
+
+        return JsonResponse({"code": 200, "status": True, "message":  list(vendorvuls)})
