@@ -23,7 +23,7 @@ from .vendors import Vendors
 
 from core.pretreatment import ast_object
 from utils.export import write_to_file
-from utils.log import logger
+from utils.log import logger, logger_console
 from utils.file import Directory, load_kunlunmignore
 from utils.utils import show_context
 from utils.utils import ParseArgs
@@ -140,7 +140,8 @@ def display_result(scan_id, is_ask=False):
             logger.info("[Chain] Vul {}".format(sr.id))
             for rf in rfs:
                 logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
-                show_context(rf.node_path, rf.node_lineno)
+                if not show_context(rf.node_path, rf.node_lineno):
+                    logger_console.info(rf.node_source)
 
             logger.info(
                 "[SCAN] ending\r\n -------------------------------------------------------------------------")

@@ -1222,17 +1222,21 @@ Input Control:
 
                                 # show Vuls Chain
                                 ResultFlow = get_resultflow_class(int(self.result_task_id))
-                                rfs = ResultFlow.objects.filter(vul_id=sr.id)
 
-                                if rfs:
-                                    logger.info("[Chain] Vul {}".format(sr.id))
-                                    for rf in rfs:
-                                        logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
-                                                                                   rf.node_path, rf.node_lineno))
-                                        show_context(rf.node_path, rf.node_lineno)
-                                    logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
-                                    logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
-                                    return
+                                if ResultFlow:
+                                    rfs = ResultFlow.objects.filter(vul_id=sr.id)
+
+                                    if rfs:
+                                        logger.info("[Chain] Vul {}".format(sr.id))
+                                        for rf in rfs:
+                                            logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
+                                                                                       rf.node_path, rf.node_lineno))
+                                            if not show_context(rf.node_path, rf.node_lineno):
+                                                logger_console.info(rf.node_source)
+
+                                        logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
+                                        logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
+                                        return
 
                             else:
                                 logger.error("[Console] ScanTask {} not found id {}. please check you result id.".format(self.result_task_id, key))

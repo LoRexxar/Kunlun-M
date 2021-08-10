@@ -27,7 +27,7 @@ from utils.file import check_filepath
 from Kunlun_M.const import VENDOR_FILE_DICT, VENDOR_CVIID, vendor_source_match
 
 from web.index.models import ProjectVendors, update_and_new_project_vendor, update_and_new_vendor_vuln
-from web.index.models import Project, VendorVulns, check_update_or_new_scanresult
+from web.index.models import Project, VendorVulns, check_update_or_new_scanresult, get_resultflow_class
 
 
 def abstract_version(vendor_version):
@@ -174,7 +174,7 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
         if not vendor_version or compare_vendor(vendor_version, vv.vendor_version):
 
             if task_id:
-                check_update_or_new_scanresult(
+                sr = check_update_or_new_scanresult(
                     scan_task_id=task_id,
                     cvi_id=VENDOR_CVIID,
                     language=language,
@@ -184,6 +184,16 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
                     is_unconfirm=False,
                     is_active=True
                 )
+                #  save into get_resultflow_class
+                ResultFlow = get_resultflow_class(int(task_id))
+
+                if sr:
+                    node_source = vv.description
+                    rf = ResultFlow(vul_id=sr.id, node_type='sca_scan',
+                                    node_content=vv.title, node_path=vv.reference,
+                                    node_source=node_source, node_lineno=0)
+                    rf.save()
+
             else:
                 result_list.append(vv)
 

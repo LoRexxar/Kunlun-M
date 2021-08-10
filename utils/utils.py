@@ -709,6 +709,9 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     if not show_line:
         return ""
 
+    if not int(line_number):
+        return False
+
     filename = check_filepath(PROJECT_DIRECTORY, filename)
 
     line_number = line_number if line_number else 0
