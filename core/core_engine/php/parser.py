@@ -19,7 +19,7 @@ import traceback
 # from asgiref.sync import sync_to_async, async_to_sync
 
 from utils.log import logger
-from utils.utils import SCAN_ID
+from utils.status import SCAN_ID
 
 from core.pretreatment import ast_object
 from core.internal_defines.php.functions import function_dict as php_function_dict
