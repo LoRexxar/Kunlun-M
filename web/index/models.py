@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 
 import traceback
-from MySQLdb._exceptions import IntegrityError
+from django.db.utils import IntegrityError
 from datetime import datetime
 
 from django.db import models
@@ -13,6 +13,7 @@ from django import db
 
 from Kunlun_M.const import TAMPER_TYPE
 from utils.log import logger
+from utils.utils import compare_vendor, abstract_version
 
 import json
 import uuid
@@ -86,8 +87,18 @@ class VendorVulns(models.Model):
 
 
 def update_and_new_vendor_vuln(vendor, vuln):
-    v = VendorVulns.objects.filter(vuln_id=vuln["vuln_id"], vendor_name=vendor["name"], vendor_version=vendor["version"]).first()
+    # v = VendorVulns.objects.filter(vuln_id=vuln["vuln_id"], vendor_name=vendor["name"], vendor_version=vendor["version"]).first()
+    v = VendorVulns.objects.filter(vuln_id=vuln["vuln_id"]).first()
+
+    # 检查版本比较
     if v:
+        if compare_vendor(v.vendor_version, vuln["version"]):
+            v.vendor_version = vuln["version"]
+            try:
+                v.save()
+            except IntegrityError:
+                logger.warn("[Model Save] vuln model not changed")
+
         if vuln["title"] != v.title or vuln["cves"] != v.cves:
             logger.debug("[Vendors] Vuln {} update".format(v.vuln_id))
             v.title = vuln["title"]
