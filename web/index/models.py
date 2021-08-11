@@ -92,7 +92,7 @@ def update_and_new_vendor_vuln(vendor, vuln):
 
     # 检查版本比较
     if v:
-        if compare_vendor(v.vendor_version, vuln["version"]):
+        if vuln["version"] and compare_vendor(v.vendor_version, vuln["version"]):
             v.vendor_version = vuln["version"]
             try:
                 v.save()
