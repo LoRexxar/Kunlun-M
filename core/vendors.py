@@ -49,7 +49,10 @@ def abstract_version(vendor_version):
 
 def compare_vendor(vendor_version, compare_version):
 
-    # vendor_version = abstract_version(vendor_version)
+    if vendor_version == 'latest':
+        return False
+
+    vendor_version = abstract_version(vendor_version)
     compare_version = abstract_version(compare_version)
 
     vendor_version_list = vendor_version.split('.')
@@ -140,9 +143,9 @@ def get_project_by_version(vendor_name, vendor_version):
     pvs = get_project_vendor_by_name(vendor_name.strip())
 
     for pv in pvs:
-        pv_version = abstract_version(pv.version)
+        # pv_version = abstract_version(pv.version)
 
-        if not is_need_version_check or compare_vendor(pv_version, vendor_version):
+        if not is_need_version_check or compare_vendor(pv.version, vendor_version):
             pid = pv.project_id
             project = Project.objects.filter(id=pid).first()
 
@@ -167,7 +170,7 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
     :return:
     """
     vvs = get_vendor_vul_by_name(vendor_name.strip())
-    vendor_version = abstract_version(vendor_version)
+    # vendor_version = abstract_version(vendor_version)
     result_list = []
 
     for vv in vvs:
