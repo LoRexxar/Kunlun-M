@@ -38,7 +38,7 @@ from Kunlun_M.const import match_modes
 from utils.utils import show_context
 from utils.file import FileParseAll, get_line
 from utils.log import logger
-from utils.utils import get_scan_id
+from utils.status import get_scan_id
 
 from web.index.models import ScanResultTask, NewEvilFunc
 from web.index.models import get_resultflow_class, check_update_or_new_scanresult

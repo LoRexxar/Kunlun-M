@@ -27,7 +27,8 @@ from django.db.models.aggregates import Max
 
 from utils.log import logger, logger_console, log, log_add
 from utils import readlineng as readline
-from utils.utils import get_mainstr_from_filename, get_scan_id, file_output_format, show_context
+from utils.utils import get_mainstr_from_filename, file_output_format, show_context
+from utils.status import get_scan_id
 
 from Kunlun_M.settings import HISTORY_FILE_PATH, MAX_HISTORY_LENGTH
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY, LOGS_PATH
