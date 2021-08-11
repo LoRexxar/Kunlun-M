@@ -92,12 +92,12 @@ class TaskDetailView(View):
                 if vender_vul_id:
                     vv = VendorVulns.objects.filter(id=vender_vul_id).first()
 
-                    taskresult.vulfile_path = vv.title
+                    taskresult.vulfile_path = "[{}:{}]{}".format(vv.vendor_name, vv.vendor_version, vv.title)
                     taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
 
-                else:
-                    r = Rules.objects.filter(svid=taskresult.cvi_id).first()
-                    taskresult.level = VUL_LEVEL[r.level]
+            else:
+                r = Rules.objects.filter(svid=taskresult.cvi_id).first()
+                taskresult.level = VUL_LEVEL[r.level]
 
         if not task:
             return HttpResponseNotFound('Task Not Found.')
