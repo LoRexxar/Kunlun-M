@@ -14,10 +14,12 @@ from django.views import View
 from django.shortcuts import render, redirect
 
 from Kunlun_M.settings import SUPER_ADMIN
+from Kunlun_M.const import VENDOR_VUL_LEVEL, VUL_LEVEL
+
 from web.index.controller import login_or_token_required
 from utils.utils import del_sensitive_for_config
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project
+from web.index.models import ScanTask, VendorVulns, Rules, Tampers, NewEvilFunc, Project
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, get_and_check_evil_func
 
 
@@ -82,6 +84,20 @@ class TaskDetailView(View):
 
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)
+            taskresult.level = 0
+
+            if taskresult.cvi_id == '9999':
+                vender_vul_id = taskresult.vulfile_path.split(":")[-1]
+
+                if vender_vul_id:
+                    vv = VendorVulns.objects.filter(id=vender_vul_id).first()
+
+                    taskresult.vulfile_path = vv.title
+                    taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
+
+                else:
+                    r = Rules.objects.filter(svid=taskresult.cvi_id).first()
+                    taskresult.level = VUL_LEVEL[r.level]
 
         if not task:
             return HttpResponseNotFound('Task Not Found.')
