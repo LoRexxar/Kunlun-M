@@ -1,7 +1,7 @@
 {% extends "dashboard/base.html" %}
 {% block body %}
 <div class="row">
-        <div class="col-lg-3 col-xs-6">
+        <div class="col-lg-2 col-xs-6">
           <!-- small box -->
           <div class="small-box bg-aqua">
             <div class="inner">
@@ -16,7 +16,7 @@
           </div>
         </div>
         <!-- ./col -->
-        <div class="col-lg-3 col-xs-6">
+        <div class="col-lg-2 col-xs-6">
           <!-- small box -->
           <div class="small-box bg-green">
             <div class="inner">
@@ -31,7 +31,7 @@
           </div>
         </div>
         <!-- ./col -->
-        <div class="col-lg-3 col-xs-6">
+        <div class="col-lg-2 col-xs-6">
           <!-- small box -->
           <div class="small-box bg-red">
             <div class="inner">
@@ -47,7 +47,7 @@
         </div>
 
 
-        <div class="col-lg-3 col-xs-6">
+        <div class="col-lg-2 col-xs-6">
           <!-- small box -->
           <div class="small-box bg-yellow">
             <div class="inner">
@@ -61,6 +61,35 @@
             <a href="{% url 'dashboard:rules_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
           </div>
         </div>
+        <div class="col-lg-2 col-xs-6">
+          <!-- small box -->
+          <div class="small-box bg-orange">
+            <div class="inner">
+              <h3>{% if request.session.vendor_vuls_count %}{{ request.session.vendor_vuls_count }}{% else %}0{% endif %}</h3>
+
+              <p>Vendor Vuls</p>
+            </div>
+            <div class="icon">
+              <i class="ion ion-eye-disabled"></i>
+            </div>
+            <a href="{% url 'dashboard:vendor_vulns_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+          </div>
+        </div>
+        <div class="col-lg-2 col-xs-6">
+          <!-- small box -->
+          <div class="small-box bg-purple">
+            <div class="inner">
+              <h3>{% if request.session.tampers_count %}{{ request.session.tampers_count }}{% else %}0{% endif %}</h3>
+
+              <p>Tampers</p>
+            </div>
+            <div class="icon">
+              <i class="ion ion-android-desktop"></i>
+            </div>
+            <a href="{% url 'dashboard:tampers_list' %}" class="small-box-footer">More info <i class="fa fa-arrow-circle-right"></i></a>
+          </div>
+        </div>
+
       </div>
       <div class="box box-info">
             <div class="box-header with-border">
