@@ -242,6 +242,10 @@ def get_and_check_scanresult(scan_task_id):
 
 def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path, source_code, result_type,
                                    is_unconfirm, is_active):
+    # 优化基础扫描结果
+    if str(cvi_id).startswith('5'):
+        vulfile_path = vulfile_path.split(':')[0]
+
     # 如果漏洞hash存在，那么更新信息，如果hash不存在，那么新建漏洞
     scan_project_id = get_and_check_scantask_project_id(scan_task_id)
     vul_hash = md5("{},{},{},{},{}".format(scan_project_id, cvi_id, language, vulfile_path, source_code))
@@ -257,7 +261,7 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         sr.source_code = source_code
         sr.result_type = result_type
         sr.is_unconfirm = is_unconfirm
-        # sr.is_active =is_active
+
         try:
             sr.save()
         except IntegrityError:
