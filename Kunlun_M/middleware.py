@@ -27,6 +27,6 @@ class SDataMiddleware:
             request.session["tasks_finished_count"] = ScanTask.objects.filter(is_finished=True).count()
             request.session["tampers_count"] = Tampers.objects.all().count()
 
-            request.session["vul_count"] = ScanResultTask.objects.all().count()
+            request.session["vul_count"] = ScanResultTask.objects.all(is_active=1).count()
 
         return response
