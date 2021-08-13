@@ -23,54 +23,12 @@ from core.vuln_apis import get_vulns_from_source
 
 from utils.log import logger
 from utils.file import check_filepath
+from utils.utils import compare_vendor, abstract_version
 
 from Kunlun_M.const import VENDOR_FILE_DICT, VENDOR_CVIID, vendor_source_match
 
 from web.index.models import ProjectVendors, update_and_new_project_vendor, update_and_new_vendor_vuln
-from web.index.models import Project, VendorVulns, check_update_or_new_scanresult
-
-
-def abstract_version(vendor_version):
-    version_reg = '([0-9]+(\.[0-9]+)*)'
-    result_version = ''
-
-    if re.search(version_reg, vendor_version, re.I):
-
-        p = re.compile(version_reg)
-        matchs = p.finditer(vendor_version)
-
-        for match in matchs:
-            result_version = match.group(1)
-    else:
-        result_version = False
-
-    return result_version
-
-
-def compare_vendor(vendor_version, compare_version):
-
-    # vendor_version = abstract_version(vendor_version)
-    compare_version = abstract_version(compare_version)
-
-    vendor_version_list = vendor_version.split('.')
-    compare_version_list = compare_version.split('.')
-
-    is_smaller_vendor = False
-    smallest_range = len(vendor_version_list) if len(compare_version_list) > len(vendor_version_list) else len(compare_version_list)
-
-    for i in range(smallest_range):
-        if int(vendor_version_list[i]) < int(compare_version_list[i]):
-            is_smaller_vendor = True
-            return is_smaller_vendor
-
-        if int(vendor_version_list[i]) > int(compare_version_list[i]):
-            is_smaller_vendor = False
-            return is_smaller_vendor
-
-    if len(compare_version_list) >= len(vendor_version_list):
-        is_smaller_vendor = True
-
-    return is_smaller_vendor
+from web.index.models import Project, VendorVulns, check_update_or_new_scanresult, get_resultflow_class
 
 
 def get_project_vendor_by_name(vendor_name):
@@ -140,9 +98,9 @@ def get_project_by_version(vendor_name, vendor_version):
     pvs = get_project_vendor_by_name(vendor_name.strip())
 
     for pv in pvs:
-        pv_version = abstract_version(pv.version)
+        # pv_version = abstract_version(pv.version)
 
-        if not is_need_version_check or compare_vendor(pv_version, vendor_version):
+        if not is_need_version_check or compare_vendor(pv.version, vendor_version):
             pid = pv.project_id
             project = Project.objects.filter(id=pid).first()
 
@@ -167,14 +125,14 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
     :return:
     """
     vvs = get_vendor_vul_by_name(vendor_name.strip())
-    vendor_version = abstract_version(vendor_version)
+    # vendor_version = abstract_version(vendor_version)
     result_list = []
 
     for vv in vvs:
         if not vendor_version or compare_vendor(vendor_version, vv.vendor_version):
 
             if task_id:
-                check_update_or_new_scanresult(
+                sr = check_update_or_new_scanresult(
                     scan_task_id=task_id,
                     cvi_id=VENDOR_CVIID,
                     language=language,
@@ -184,6 +142,16 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
                     is_unconfirm=False,
                     is_active=True
                 )
+                #  save into get_resultflow_class
+                ResultFlow = get_resultflow_class(int(task_id))
+
+                if sr:
+                    node_source = vv.description
+                    rf = ResultFlow(vul_id=sr.id, node_type='sca_scan',
+                                    node_content=vv.title, node_path=vv.reference,
+                                    node_source=node_source, node_lineno=0)
+                    rf.save()
+
             else:
                 result_list.append(vv)
 

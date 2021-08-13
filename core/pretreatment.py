@@ -344,6 +344,9 @@ class Pretreatment:
                     new_filepath = filepath + ".pretty"
 
                     try:
+                        # 添加新限制，如果js文件内容大于一定程度，则不解析
+                        if len(code_content) > 3000 or code_content.count('\n') > 500 or code_content.count('\n') < 10:
+                            continue
 
                         if not os.path.isfile(new_filepath):
                             fi2 = codecs.open(new_filepath, "w", encoding='utf-8', errors='ignore')

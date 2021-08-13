@@ -98,8 +98,9 @@
                   <th>ID</th>
                   <th>CVI ID</th>
                   <th>Language</th>
-                  <th>VulFile Path</th>
+                  <th>VulFile Path/Title</th>
                   <th>Source</th>
+                  <th>Level</th>
                   <th>Type</th>
                   <th>Is Confirm</th>
                   <th>Operate</th>
@@ -110,7 +111,12 @@
                     <td>{{ taskresult.cvi_id }}</td>
                     <td>{{ taskresult.language }}</td>
                     <td>{{ taskresult.vulfile_path }}</td>
+                    {% if taskresult.result_type == 'vendor_source_match' %}
+                        <td><a href="{{ taskresult.source_code }}">{{ taskresult.source_code }}</a></td>
+                    {% else %}
                     <td>{{ taskresult.source_code }}</td>
+                    {% endif %}
+                    <td>{{ taskresult.level }}</td>
                     <td>{{ taskresult.result_type }}</td>
 
                       <td>

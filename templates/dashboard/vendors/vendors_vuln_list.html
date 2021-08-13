@@ -1,0 +1,62 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Vendor Vulns list{% endblock %}
+
+{% block body %}
+<div class="row">
+        <div class="col-xs-12">
+          <div class="box">
+            <div class="box-header">
+              <h3 class="box-title">Vendor Vulns List</h3>
+            </div>
+            <!-- /.box-header -->
+            <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>Vuln ID</th>
+                  <th>Title</th>
+                  <th>Severity</th>
+                  <th>Cve</th>
+                  <th>Vendor Name</th>
+                  <th>Vendor Version</th>
+                </tr>
+                {% for vendorvuln in vendorvulns %}
+                <tr>
+                    <td>{{ vendorvuln.id }}</td>
+                    <td><a href="{{ vendorvuln.reference }}">{{ vendorvuln.vuln_id }}</a></td>
+
+                      <td><a href="{% url 'dashboard:vendor_vulns_details' vendorvuln.id %}">{{ vendorvuln.title }}</a></td>
+                      <td>{{ vendorvuln.severity }}</td>
+                      <td>{{ vendorvuln.cves }}</td>
+                      <td>{{ vendorvuln.vendor_name }}</td>
+                      <td>{{ vendorvuln.vendor_version }}</td>
+
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+            </div>
+            <!-- /.box-body -->
+
+            <div class="box-footer">
+
+            </div>
+          </div>
+          <!-- /.box -->
+        </div>
+      </div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#vendors").addClass("menu-open");
+          $("#vendors").find("ul").find("li#vendor_vulns_list").addClass("active");
+          $("#vendors").find("ul").css("display","block");
+      });
+</script>
+
+
+{% endblock %}

@@ -21,7 +21,6 @@ import time
 import ast
 
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
-from web.index.models import ScanTask
 
 from utils.log import logger, logger_console
 from utils.file import check_filepath, get_line
@@ -36,20 +35,6 @@ OUTPUT_MODE_API = 'api'
 OUTPUT_MODE_FILE = 'file'
 OUTPUT_MODE_STREAM = 'stream'
 PY2 = sys.version_info[0] == 2
-
-SCAN_ID = -1
-
-
-def get_scan_id():
-    global SCAN_ID
-
-    if SCAN_ID > 0:
-        return SCAN_ID
-    else:
-        s = ScanTask.objects.order_by("-id").first()
-        SCAN_ID = s.id
-
-    return SCAN_ID
 
 
 class ParseArgs(object):
@@ -709,6 +694,9 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     if not show_line:
         return ""
 
+    if not int(line_number):
+        return False
+
     filename = check_filepath(PROJECT_DIRECTORY, filename)
 
     line_number = line_number if line_number else 0
@@ -758,3 +746,55 @@ def del_sensitive_for_config(param_config):
         last_param = param
 
     return "".join(result_list)
+
+
+def abstract_version(vendor_version):
+    version_reg = '([0-9]+(\.[0-9]+)*)'
+    result_version = ''
+
+    if re.search(version_reg, vendor_version, re.I):
+
+        p = re.compile(version_reg)
+        matchs = p.finditer(vendor_version)
+
+        for match in matchs:
+            result_version = match.group(1)
+    else:
+        result_version = False
+
+    return result_version
+
+
+def compare_vendor(vendor_version, compare_version):
+    """
+    返回True则vendor_vernsion < compare_version
+    :param vendor_version:
+    :param compare_version:
+    :return:
+    """
+
+    if vendor_version == 'latest':
+        return False
+
+    vendor_version = abstract_version(vendor_version)
+    compare_version = abstract_version(compare_version)
+
+    vendor_version_list = vendor_version.split('.')
+    compare_version_list = compare_version.split('.')
+
+    is_smaller_vendor = False
+    smallest_range = len(vendor_version_list) if len(compare_version_list) > len(vendor_version_list) else len(compare_version_list)
+
+    for i in range(smallest_range):
+        if int(vendor_version_list[i]) < int(compare_version_list[i]):
+            is_smaller_vendor = True
+            return is_smaller_vendor
+
+        if int(vendor_version_list[i]) > int(compare_version_list[i]):
+            is_smaller_vendor = False
+            return is_smaller_vendor
+
+    if len(compare_version_list) >= len(vendor_version_list):
+        is_smaller_vendor = True
+
+    return is_smaller_vendor

@@ -167,6 +167,19 @@ scratch. This page gets rid of all links and provides the needed markup only.
             <li id="task_list"><a href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>Tasks List</a></li>
           </ul>
         </li>
+        <li class="treeview" id="vendors">
+          <a href="#"><i class="fa ion-ios-analytics-outline"></i> <span>Vendors</span>
+            <span class="pull-right-container">
+                <i class="fa fa-angle-left pull-right"></i>
+              </span>
+          </a>
+          <ul class="treeview-menu">
+            <li id="vendors_list"><a href="{% url 'dashboard:vendors_list' %}"><i class="fa fa-circle-o"></i>Vendors List</a></li>
+          </ul>
+          <ul class="treeview-menu">
+            <li id="vendor_vulns_list"><a href="{% url 'dashboard:vendor_vulns_list' %}"><i class="fa fa-circle-o"></i>Vendors Vuln List</a></li>
+          </ul>
+        </li>
         <li class="treeview" id="rules">
           <a href="#"><i class="fa ion-document-text"></i> <span>Rules</span>
             <span class="pull-right-container">
