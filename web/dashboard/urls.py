@@ -9,7 +9,7 @@ from django.urls import path
 from django.contrib.auth.decorators import login_required
 
 from web.dashboard import views
-from web.dashboard.controller import tasks, rules, tampers, project
+from web.dashboard.controller import tasks, rules, tampers, project, vendor
 from web.dashboard.interface import scanresult
 
 app_name = "dashboard"
@@ -31,6 +31,12 @@ urlpatterns = [
     # tamper
     path('tampers/list', login_required(tampers.TamperListView.as_view()), name='tampers_list'),
     path('tampers/detail/<int:tamper_id>', tampers.TamperDetailView.as_view(), name="tamper_detail"),
+
+    # vendor
+    path('vendors/search', login_required(vendor.VendorDetailView.as_view()), name='vendor_details'),
+    path('vendors/list', login_required(vendor.VendorListView.as_view()), name='vendors_list'),
+    path('vendorvulns/<int:vendor_vul_id>', login_required(vendor.VendorVulnDetailView.as_view()), name='vendor_vulns_details'),
+    path('vendorvulns/list', login_required(vendor.VendorVulnListView.as_view()), name='vendor_vulns_list'),
 
     # docs
     path("docs", views.docs, name="docs"),

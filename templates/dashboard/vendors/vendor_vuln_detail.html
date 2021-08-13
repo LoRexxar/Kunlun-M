@@ -1,0 +1,123 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Vendor Vuls Detail{% endblock %}
+
+{% block body %}
+<div>
+
+<div class="box box-primary">
+<div class="box-header with-border
+">
+  <h3 class="box-title">Vendor Vuls Details</h3>
+</div>
+<div class="box-body">
+  <!-- Date -->
+  <!-- Date and time range -->
+  <div class="form-group">
+    <label>Vuln ID:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
+      </div>
+      <input type="text" class="form-control pull-right" name="filename" value="{{ vvuln.vuln_id }}" disabled>
+    </div>
+    <!-- /.input group -->
+  </div>
+
+  <div class="form-group">
+    <label>Title:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
+      </div>
+        <div type="text" class="form-control pull-right" disabled>{{ vvuln.title }}</div>
+    </div>
+    <!-- /.input group -->
+  </div>
+
+  <div class="form-group">
+    <label>Vendor Name:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
+      </div>
+        <div type="text" class="form-control pull-right" disabled>{{ vvuln.vendor_name }}</div>
+    </div>
+    <!-- /.input group -->
+  </div>
+
+  <div class="form-group">
+    <label>Vendor Version:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
+      </div>
+        <div type="text" class="form-control pull-right" disabled>{{ vvuln.vendor_version }}</div>
+    </div>
+    <!-- /.input group -->
+  </div>
+
+  <!-- /.form group -->
+  <div class="form-group">
+    <label>CVE:</label>
+    <input type="text" class="form-control my-colorpicker1 colorpicker-element" name="vvuln" value="{{ vvuln.cves }}" disabled>
+  </div>
+  <!-- /.form group -->
+<div class="form-group">
+    <label>Reference:</label>
+
+    <div class="input-group">
+        <div type="text" class="form-control pull-right" ><a href="{{ vvuln.reference }}">{{ vvuln.reference }}</a></div>
+    </div>
+    <!-- /.input group -->
+</div>
+
+<div class="form-group">
+    <label>Severity:</label>
+
+    <div class="input-group">
+      {% if vvuln.severity > 7 %}
+      <span class="label label-danger">HigH</span>
+      {% elif vvuln.severity > 4 %}
+      <span class="label label-warning">Medium</span>
+      {% elif vvuln.severity > 0 %}
+      <span class="label label-success">Low</span>
+      {% else %}
+      <span class="label label-success">{{ vvuln.severity }}</span>
+      {% endif %}
+    </div>
+    <!-- /.input group -->
+</div>
+
+<div class="form-group">
+  <label>Description:</label>
+  <textarea class="form-control" rows="3" placeholder="Some details about Vendor vuls" name="Description" disabled>{{ vvuln.description }}</textarea>
+</div>
+
+<!-- /.box-body -->
+</div>
+
+</div>
+
+
+</form>
+</div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+
+$(document).ready(function(){
+  $("#dashboard").removeClass("active menu-open");
+  $("#dashboard").find("ul li").removeClass("active");
+  $("#tasks").addClass("menu-open");
+  $("#tasks").find("ul").find("li#task_list").addClass("active");
+  $("#tasks").find("ul").css("display","block");
+
+});
+</script>
+{% endblock %}

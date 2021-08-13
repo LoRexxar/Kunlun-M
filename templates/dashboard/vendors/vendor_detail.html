@@ -1,0 +1,132 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Vendor Detail{% endblock %}
+
+{% block body %}
+<div>
+
+<div class="box box-primary">
+    <div class="box-header with-border
+    ">
+      <h3 class="box-title">Search Result for {{ vendor_name }}</h3>
+    </div>
+    <div class="box-body">
+    <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>Project</th>
+                  <th>Name</th>
+                  <th>Version</th>
+                  <th>Language</th>
+                  <th>Ext</th>
+                </tr>
+                {% for vendor in vendors %}
+                <tr>
+                    <td>{{ vendor.id }}</td>
+                    <td><a href="{% url 'dashboard:project_detail' vendor.project_id %}">{{ vendor.project_id }}</a></td>
+
+                    <td><a href="{% url 'dashboard:vendor_details'%}?vendorname={{ vendor.name }}">{{ vendor.name }}</a></td>
+                      <td>{{ vendor.version }}</td>
+                      <td>{{ vendor.language }}</td>
+                      <td>{{ vendor.ext }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+    </div>
+
+    {% csrf_token %}
+
+</div>
+
+<!-- /.box-body -->
+</div>
+
+</div>
+
+<div class="box box-warning">
+<div class="box-header with-border">
+  <h3 class="box-title">Project contains {{ vendor_name }}</h3>
+</div>
+<!-- /.box-header -->
+<div class="box-body">
+    <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>Origin</th>
+                  <th>Vendor Name</th>
+                  <th>Vendor Version</th>
+                </tr>
+                {% for p in projects %}
+                <tr>
+                    <td><a href="{% url 'dashboard:project_detail' p.id %}">{{ p.id }} {{ p.project_name }}</a></td>
+
+                    <td>{{ p.project_origin }}</td>
+                    <td><a href="{% url 'dashboard:vendor_details'%}?vendorname={{ p.vendor_name }}">{{ p.vendor_name }}</a></td>
+                    <td>{{ p.vendor_version }}</td>
+
+                </tr>
+                {% endfor %}
+              </tbody></table>
+    </div>
+
+    {% csrf_token %}
+
+</div>
+
+<!-- /.box-body -->
+</div>
+
+<div class="box box-success">
+    <div class="box-header with-border">
+      <h3 class="box-title">Vendor {{ vendor_name }} Vuls</h3>
+    </div>
+    <!-- /.box-header -->
+    <div class="box-body table-responsive no-padding">
+      <table class="table table-hover">
+            <tbody><tr>
+              <th>ID</th>
+              <th>Vuln ID</th>
+              <th>Title</th>
+              <th>Severity</th>
+              <th>Cve</th>
+              <th>Vendor Name</th>
+              <th>Vendor Version</th>
+            </tr>
+            {% for vuln in vvulns %}
+            <tr>
+                <td>{{ vuln.id }}</td>
+                <td><a href="{{ vuln.reference }}">{{ vuln.vuln_id }}</a></td>
+
+                <td><a href="{% url 'dashboard:vendor_vulns_details' vuln.id %}">{{ vuln.title }}</a></td>
+                  <td>{{ vuln.severity }}</td>
+                  <td>{{ vuln.cves }}</td>
+                  <td>{{ vuln.vendor_name }}</td>
+                  <td>{{ vuln.vendor_version }}</td>
+
+              </tr>
+            {% endfor %}
+          </tbody></table>
+    </div>
+<!-- /.box-body -->
+</div>
+
+</form>
+</div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+
+$(document).ready(function(){
+  $("#dashboard").removeClass("active menu-open");
+  $("#dashboard").find("ul li").removeClass("active");
+  $("#vendors").addClass("menu-open");
+  $("#vendors").find("ul").find("li#task_list").addClass("active");
+  $("#vendors").find("ul").css("display","block");
+
+
+});
+</script>
+{% endblock %}
