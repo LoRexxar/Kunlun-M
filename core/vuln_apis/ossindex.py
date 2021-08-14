@@ -1,14 +1,14 @@
 import json
 import requests
 
-OSSINDEXAPI = "https://ossindex.sonatype.org/api/v3/component-report"
+__OSSINDEXAPI = "https://ossindex.sonatype.org/api/v3/component-report"
 
 
 def get_vulns_from_ossindex(ecosystem, package_name, version):
     result = []
     coordinate = "pkg:{ecosystem}/{package}@{version}".format(ecosystem=ecosystem, package=package_name, version=version)
     body = {"coordinates": [coordinate]}
-    resp = requests.post(OSSINDEXAPI, json=body)
+    resp = requests.post(__OSSINDEXAPI, json=body)
     if resp.status_code == 200:
         data = json.loads(resp.content)
         for advisorie in data[0]["vulnerabilities"]:
@@ -26,6 +26,8 @@ def get_vulns_from_ossindex(ecosystem, package_name, version):
             # get severity
             cvss3_score = advisorie.get("cvssScore", -1.0)
             vuln["severity"] = int(cvss3_score)
+
+            vuln["affected_versions"] = [version]
 
             result.append(vuln)
 
