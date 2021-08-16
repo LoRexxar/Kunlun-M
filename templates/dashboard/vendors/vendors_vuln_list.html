@@ -18,7 +18,7 @@
                   <th>Severity</th>
                   <th>Cve</th>
                   <th>Vendor Name</th>
-                  <th>Vendor Version</th>
+                  <th>Affected Versions</th>
                 </tr>
                 {% for vendorvuln in vendorvulns %}
                 <tr>
@@ -29,7 +29,7 @@
                       <td>{{ vendorvuln.severity }}</td>
                       <td>{{ vendorvuln.cves }}</td>
                       <td>{{ vendorvuln.vendor_name }}</td>
-                      <td>{{ vendorvuln.vendor_version }}</td>
+                      <td>{{ vendorvuln.affected_versions }}</td>
 
                   </tr>
                 {% endfor %}

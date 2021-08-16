@@ -418,7 +418,7 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
         table.align = 'l'
 
         table2 = PrettyTable(
-            ['#', 'Vuln ID', 'Title', 'level', 'CVE', 'Reference', 'Vendor', 'Version'])
+            ['#', 'Vuln ID', 'Title', 'level', 'CVE', 'Reference', 'Vendor', 'Affected Version'])
 
         table2.align = 'l'
         i = 0
@@ -446,7 +446,7 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
                     for vv in vvs:
                         j += 1
 
-                        table2.add_row([i, vv.vuln_id, vv.title, VENDOR_VUL_LEVEL[vv.severity], vv.cves, vv.reference, vv.vendor_name, vv.vendor_version])
+                        table2.add_row([i, vv.vuln_id, vv.title, VENDOR_VUL_LEVEL[vv.severity], vv.cves, vv.reference, vv.vendor_name, vv.affected_versions])
 
         logger.info("Project List (Small than {} {}):\n{}".format(keyword, keyword_value, table))
         logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))

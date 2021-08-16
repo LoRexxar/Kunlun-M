@@ -83,7 +83,7 @@ class VendorVulns(models.Model):
     reference = models.TextField()
     # affect vendor
     vendor_name = models.CharField(max_length=200)
-    affected_versions = models.TextField()
+    affected_versions = models.TextField(null=True)
 
 
 def update_and_new_vendor_vuln(vendor, vuln):
@@ -92,10 +92,11 @@ def update_and_new_vendor_vuln(vendor, vuln):
 
     # 检查版本比较
     if v:
-        prev_versions = json.loads(v["affected_versions"])
+        prev_versions = v.affected_versions.split(',')
+
         if vendor["version"] not in prev_versions:
-            prev_versions.extend(vuln["affected_versions"])
-            v.affected_versions = json.dumps(prev_versions)
+            prev_versions.append(vendor["version"])
+            v.affected_versions = ','.join(prev_versions)
             try:
                 v.save()
             except IntegrityError:
@@ -116,7 +117,7 @@ def update_and_new_vendor_vuln(vendor, vuln):
         v = VendorVulns(vuln_id=vuln["vuln_id"],
                         title=vuln["title"], description=vuln["description"],
                         severity=vuln["severity"], cves=vuln["cves"],reference=vuln["reference"],
-                        vendor_name=vendor["name"], affected_versions=json.dumps(vuln["affected_versions"]))
+                        vendor_name=vendor["name"], affected_versions=','.join(vuln["affected_versions"]))
         v.save()
 
     return v.id

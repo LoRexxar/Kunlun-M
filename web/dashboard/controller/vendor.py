@@ -92,6 +92,15 @@ class VendorVulnListView(TemplateView):
             vendorvul.severity = VENDOR_VUL_LEVEL[vendorvul.severity]
             vendorvul.cves = ','.join(ast.literal_eval(vendorvul.cves))
 
+            afversions = str(vendorvul.affected_versions).split(',')
+            if len(afversions) > 2:
+                display_version = afversions[:2]
+                display_version.append('...')
+            else:
+                display_version = afversions
+
+            vendorvul.affected_versions = ','.join(display_version)
+
         return context
 
 
@@ -118,7 +127,7 @@ class VendorDetailView(View):
             vvs = get_vendor_vul_by_name(v_name.strip())
             p = Project.objects.filter(id=project_id).first()
             p.vendor_name = v_name
-            p.vendor_version = v.version
+            p.version = v.version
 
             projects.append(p)
             vvulns.extend(list(vvs))
@@ -143,6 +152,8 @@ class VendorVulnDetailView(View):
     def get(request, vendor_vul_id):
 
         vvuln = VendorVulns.objects.filter(id=vendor_vul_id).first()
+
+        vvuln.affected_versions = vvuln.affected_versions.replace(",", '\n')
 
         if not vvuln:
             return HttpResponseNotFound('Vendor vuls Not Found.')
