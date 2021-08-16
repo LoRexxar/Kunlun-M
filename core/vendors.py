@@ -98,7 +98,7 @@ def get_project_by_version(vendor_name, vendor_version):
     pvs = get_project_vendor_by_name(vendor_name.strip())
 
     for pv in pvs:
-        # pv_version = abstract_version(pv.version)
+        # pv_versions = pv.version.split(',')
 
         if not is_need_version_check or compare_vendor(pv.version, vendor_version):
             pid = pv.project_id
@@ -129,7 +129,9 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
     result_list = []
 
     for vv in vvs:
-        if not vendor_version or compare_vendor(vendor_version, vv.vendor_version):
+        vv_affect_version = vv.affected_versions.split(',')
+
+        if not vendor_version or vendor_version in vv_affect_version:
 
             if task_id:
                 sr = check_update_or_new_scanresult(

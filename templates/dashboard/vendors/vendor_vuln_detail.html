@@ -49,14 +49,9 @@
   </div>
 
   <div class="form-group">
-    <label>Vendor Version:</label>
+    <label>Affected Versions:</label>
 
-    <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-laptop "></i>
-      </div>
-        <div type="text" class="form-control pull-right" disabled>{{ vvuln.vendor_version }}</div>
-    </div>
+    <textarea class="form-control" rows="3" placeholder="affect Vendor vension" name="affect_version" disabled>{{ vvuln.affected_versions }}</textarea>
     <!-- /.input group -->
   </div>
 
@@ -70,7 +65,7 @@
     <label>Reference:</label>
 
     <div class="input-group">
-        <div type="text" class="form-control pull-right" ><a href="{{ vvuln.reference }}">{{ vvuln.reference }}</a></div>
+        <div type="text" class="pull-right" ><a href="{{ vvuln.reference }}">{{ vvuln.reference }}</a></div>
     </div>
     <!-- /.input group -->
 </div>

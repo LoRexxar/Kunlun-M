@@ -110,7 +110,12 @@
                     <td>{{ taskresult.id }}</td>
                     <td>{{ taskresult.cvi_id }}</td>
                     <td>{{ taskresult.language }}</td>
-                    <td>{{ taskresult.vulfile_path }}</td>
+                    {% if taskresult.cvi_id == '9999' %}
+                        <td><a href="{% url 'dashboard:vendor_vulns_details' taskresult.vid %}">{{ taskresult.vulfile_path }}</a></td>
+                    {% else %}
+                        <td>{{ taskresult.vulfile_path }}</td>
+                    {% endif %}
+
                     {% if taskresult.result_type == 'vendor_source_match' %}
                         <td><a href="{{ taskresult.source_code }}">{{ taskresult.source_code }}</a></td>
                     {% else %}
