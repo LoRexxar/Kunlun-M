@@ -38,7 +38,13 @@
             <!-- /.box-body -->
 
             <div class="box-footer">
-
+                <ul class="pagination pagination-sm m-0 float-right">
+                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:vendors_list' %}">«</a></li>
+                {% for i in page_range %}
+                  <li class="page-item {% if page == i %}active{% endif %}"><a class="page-link" href="{% url 'dashboard:vendors_list' %}?p={{ i }}">{{ i }}</a></li>
+                {% endfor %}
+                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:vendors_list' %}?p={{ max_page }}">»</a></li>
+                </ul>
             </div>
           </div>
           <!-- /.box -->
