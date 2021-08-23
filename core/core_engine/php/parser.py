@@ -733,6 +733,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
         _is_co = 0
         _cp = None
 
+        if not node:
+            logger.warning("[AST] dataflow analysize error.")
+            return is_co, cp, expr_lineno
+
         # 加入扫描范围check, 如果当前行数大于目标行数，直接跳过(等于会不会有问题呢？)
         if node.lineno >= int(lineno) and int(lineno) != 0:
             return parameters_back(param, nodes[:-1], function_params, lineno,
