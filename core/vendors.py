@@ -286,11 +286,13 @@ class Vendors:
 
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent)
+                    vendors_list = []
 
                     if not len(vendors):
                         continue
 
-                    vendors_list = vendors['require']
+                    if 'require' in vendors:
+                        vendors_list = vendors['require']
 
                     for vendor in vendors_list:
                         vendor_name = vendor.strip()

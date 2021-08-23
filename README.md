@@ -181,7 +181,7 @@ KunLun-M Dashbroad，并且允许通过apitoken来访问api获取数据
 
 默认9999端口
 ```
-python3 .\kunlun.py web 9999
+python3 .\kunlun.py web -p 9999
 ```
 
 ![](docs/web.png)
