@@ -131,6 +131,7 @@ class VendorDetailView(View):
 
             projects.append(p)
             vvulns.extend(list(vvs))
+            vvulns = list(set(vvulns))
 
         if not len(vs):
             return HttpResponseNotFound('Vendor Not Found.')
