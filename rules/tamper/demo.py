@@ -21,7 +21,7 @@ PHP_IS_REPAIR_DEFAULT = {
     "ldap_escape": [1010],
     "mysql_real_escape_string": [1004, 1005, 1006],
     "addslashes": [1004, 1005, 1006],
-    "intval": [1004, 1005, 1006],
+    "intval": [1000, 10001, 10002, 1004, 1005, 1006],
     "escapeshellcmd": [1009, 1011],
     "escapeshellarg": [1009, 1011],
 }
