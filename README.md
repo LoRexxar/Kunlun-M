@@ -138,6 +138,11 @@ cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
 python kunlun.py init initialize
 ```
 
+加载规则进数据库（每次修改规则文件都需要加载）
+```
+python kunlun.py config load
+```
+
 ### docker安装
 
 通过docker安装，默认启动web模式
