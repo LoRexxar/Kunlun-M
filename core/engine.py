@@ -690,8 +690,11 @@ class Core(object):
         """
         Is white-list file
         :return: boolean
-        """
-        return self.file_path.split(self.target_directory, 1)[-1] in self.white_list
+        """        
+        target_directory = self.target_directory.replace('\\','/')
+        file_path = self.file_path.replace('\\','/')
+        return file_path.split(target_directory, 1)[-1] in self.white_list
+
 
     def is_special_file(self):
         """
