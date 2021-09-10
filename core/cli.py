@@ -15,6 +15,7 @@
 import os
 import codecs
 import pprint
+import traceback
 from prettytable import PrettyTable
 
 from .detection import Detection
@@ -140,8 +141,13 @@ def display_result(scan_id, is_ask=False):
             logger.info("[Chain] Vul {}".format(sr.id))
             for rf in rfs:
                 logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
-                if not show_context(rf.node_path, rf.node_lineno):
-                    logger_console.info(rf.node_source)
+
+                try:
+                    if not show_context(rf.node_path, rf.node_lineno):
+                        logger_console.info(rf.node_source)
+                except:
+                    logger.error("[SCAN] Error: {}".format(traceback.print_exc()))
+                    continue
 
             logger.info(
                 "[SCAN] ending\r\n -------------------------------------------------------------------------")
