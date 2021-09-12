@@ -28,6 +28,7 @@ from core.internal_defines.php.class_functions import function_dict as php_magic
 from web.index.models import NewEvilFunc
 
 with_line = True
+fun_call = False
 scan_results = []  # 结果存放列表初始化
 is_repair_functions = []  # 修复函数初始化
 is_controlled_params = []
@@ -490,27 +491,54 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
     :param nodes: 
     :return: 
     """
+    global is_controlled_params
+    global fun_call
     function_name = param.name
+    fun_nodes_flag=False
 
     is_co = 3
     cp = param
     expr_lineno = 0
 
-    for node in nodes[::-1]:
-        if isinstance(node, php.Function):
+    for Nodes in nodes[::-1]:
+        if isinstance(Nodes, php.Class):
+            Node=Nodes.nodes
+            for node in Node[::-1]:
+                if isinstance(node, php.Method):
+                    if node.name == function_name:
+                        function_nodes = node.nodes
+                        fun_nodes_flag=True
+        elif isinstance(Nodes, php.Function):
+            node=Nodes
             if node.name == function_name:
                 function_nodes = node.nodes
+                fun_nodes_flag=True
+        if(fun_nodes_flag):         
+            # 进入递归函数内语句
+            for function_node in function_nodes:
+                if isinstance(function_node, php.Return):
+                    return_node = function_node.node
+                    # return_param = return_node.node
 
-                # 进入递归函数内语句
-                for function_node in function_nodes:
-                    if isinstance(function_node, php.Return):
-                        return_node = function_node.node
-                        # return_param = return_node.node
+                    if fun_call:
+                        j=[]
+                        for i in range(0,len(cp.params)):
+                            if isinstance(cp.params[i].node, php.Variable):
+                                if cp.params[i].node.name in is_controlled_params:
+                                    del is_controlled_params[-len(cp.params)+i]
+                                    j.append(i)
+                        for i in j:
+                            is_controlled_params.append(node.params[i].name)
 
-                        is_co, cp, expr_lineno = parameters_back(return_node, function_nodes, function_params,
-                                                                 vul_function=vul_function, file_path=file_path,
-                                                                 isback=isback, parent_node=parent_node)
-
+                    is_co, cp, expr_lineno = parameters_back(return_node, function_nodes, function_params,
+                                                            vul_function=vul_function, file_path=file_path,
+                                                            isback=isback, parent_node=parent_node)
+                    fun_nodes_flag=False
+            if fun_call:
+                for i in range(0,len(node.params)):
+                    if node.params[i].name in is_controlled_params:
+                        del is_controlled_params[-len(node.params)+i]
+                fun_call = False
     return is_co, cp, expr_lineno
 
 
@@ -691,7 +719,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     :return:
     """
     global scan_chain
-
+    global fun_call
     expr_lineno = 0  # source所在行号
     if hasattr(param, "name"):
         # param_name = param.name
@@ -808,7 +836,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 else:
                     param = node.expr  # 如果没找到函数定义，则将函数作为变量回溯
                     is_co = 3
-
+                    fun_call = True
                     # 尝试寻找函数定义， 看上去应该是冗余代码，因为function call本身就会有处理
                     # for node in nodes[::-1]:
                     #     if isinstance(node, php.Function):
@@ -870,36 +898,37 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                 else:
                     for expr in param_expr:
-                        param = expr
+                        param_param = expr
                         is_co, cp = is_controllable(expr)
 
                         if is_co == 1:
-                            return is_co, cp, expr_lineno
+                            return is_co, cp, expr_lineno, param_name, param_param
 
                         if is_co == -1:
                             continue
 
                         file_path = os.path.normpath(file_path)
-                        code = "find param {}".format(param)
+                        code = "find param {}".format(param_param)
                         scan_chain.append(('NewFind', code, file_path, node.lineno))
-
-                        param = php.Variable(param)
-                        _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                        param_param = php.Variable(param_param)
+                        _is_co, _cp, expr_lineno = parameters_back(param_param, nodes[:-1], function_params, lineno,
                                                                    function_flag=1, vul_function=vul_function,
                                                                    file_path=file_path,
-                                                                   isback=isback)
-
-                        if _is_co == 1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
-                            is_co = _is_co
-                            cp = _cp
-                            break
+                                                                   isback=isback)[0:3]
+                        if _is_co == 1 and fun_call:
+                            is_controlled_params.append(param_param.name)
                         else:
-                            file_path = os.path.normpath(file_path)
-                            code = "param {} find fail. continue".format(param)
-                            scan_chain.append(('FindEnd', code, file_path, node.lineno))
+                            if _is_co == 1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
+                                is_co = _is_co
+                                cp = _cp
+                                break
+                            else:
+                                file_path = os.path.normpath(file_path)
+                                code = "param {} find fail. continue".format(param)
+                                scan_chain.append(('FindEnd', code, file_path, node.lineno))
 
-                            logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
-                            continue
+                                logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
+                                continue
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_nodes = node.nodes
