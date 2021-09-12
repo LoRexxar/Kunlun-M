@@ -430,6 +430,9 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
     if isinstance(expr, php.Variable):
         expr = expr.name
 
+    if isinstance(expr, php.Cast):
+        expr = expr.expr.name
+
     if expr in controlled_params:  # 当为可控变量时 返回1
         logger.debug('[AST] is_controllable --> {expr}'.format(expr=expr))
         if flag:
@@ -1244,6 +1247,43 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "New {} param back from For".format(param)
                 scan_chain.append(('NewForBack', code, file_path, node.lineno))
 
+        elif isinstance(node, php.Foreach):
+            if param_name == node.valvar.name.name:
+                if isinstance(node.expr, php.ArrayOffset):
+                    param_expr = node.expr.node
+                else:
+                    param_expr = node.expr.name
+                expr_lineno = node.lineno
+             # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
+                logger.debug(
+                    "[AST] Find foreach {} as {} in line {}, start ast for param {}".format(param_expr, param_name, expr_lineno,param_expr))
+
+                file_path = os.path.normpath(file_path)
+                code = "foreach ({} as {})".format(param_expr, param_name)
+                scan_chain.append(('Foreach', code, file_path, node.lineno))
+                param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                param_name = param_expr
+            else:
+                foreach_nodes = node.node.nodes
+                foreach_node_lineno = node.node.lineno
+                logger.debug(
+                "[AST] Find foreach, start ast in foreach")
+
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, foreach_nodes, function_params, foreach_node_lineno,
+                                                        function_flag=1, vul_function=vul_function, file_path=file_path,
+                                                        isback=isback, parent_node=node)
+                function_flag = 0
+
+                if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                    return is_co, cp, expr_lineno, param_name, param
+
+                if _is_co == 3 and cp != param:
+                    param = _cp
+
+                    file_path = os.path.normpath(file_path)
+                    code = "New {} param back from Foreach".format(param)
+                    scan_chain.append(('NewForBack', code, file_path, node.lineno))
+
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
@@ -2038,19 +2078,75 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         if isinstance(node, php.FunctionCall) or isinstance(node, php.MethodCall) or isinstance(node, php.StaticMethodCall) or node_typename in SPECIAL_FUNCTIONCALL_LIST:
             # 函数直接调用，不进行赋值
             anlysis_function(node, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
-
+            try:
+                if isinstance(node.node, php.FunctionCall) or isinstance(node.node, php.MethodCall) or isinstance(node.node, php.StaticMethodCall):
+                    Node=[]
+                    Node.append(node.node)
+                    analysis(Node, vul_function, back_node, vul_lineno, function_params)
+            except:
+                pass
         elif isinstance(node, php.Assignment):  # 函数调用在赋值表达式中
-            if isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall) or isinstance(node.expr,
-                                                                                                              php.StaticMethodCall):
-                anlysis_function(node.expr, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
-
+            if isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall) or isinstance(node.expr, php.StaticMethodCall):
+                NoDe=node.expr
+                anlysis_function(NoDe, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
+                try:
+                    try:
+                        if isinstance(NoDe.node, php.FunctionCall) or isinstance(NoDe.node, php.MethodCall) or isinstance(NoDe.node, php.StaticMethodCall):
+                            Node=[]
+                            Node.append(NoDe.node)
+                            analysis(Node, vul_function, back_node, vul_lineno, function_params)
+                        if isinstance(NoDe.node, php.TernaryOp):
+                            if isinstance(NoDe.node.iftrue, php.FunctionCall) or isinstance(NoDe.node.iftrue, php.MethodCall) or isinstance(NoDe.node.iftrue, php.StaticMethodCall):
+                                anlysis_function(NoDe.node.iftrue, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
+                            if isinstance(NoDe.node.iffalse, php.FunctionCall) or isinstance(NoDe.node.iffalse, php.MethodCall) or isinstance(NoDe.node.iffalse, php.StaticMethodCall):
+                                anlysis_function(NoDe.node.iffalse, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
+                    except:
+                        pass
+                    if NoDe.params: #函数调用作为参数在函数内
+                        for i in range(len(NoDe.params)):
+                            if NoDe.params[i].node:
+                                noDe=[]
+                                noDe.append(NoDe.params[i].node)
+                                analysis(noDe, vul_function, back_node, vul_lineno, function_params)
+                except:
+                    pass
             if isinstance(node.expr, php.Eval):
                 analysis_eval(node.expr, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
 
             if isinstance(node.expr, php.Silence):
                 buffer_.append(node.expr)
                 analysis(buffer_, vul_function, back_node, vul_lineno, file_path, function_params)
+        elif isinstance(node, php.AssignOp): 
+            if isinstance(node.right, php.FunctionCall) or isinstance(node.right, php.MethodCall) or isinstance(node.right,
+                                                                                                              php.StaticMethodCall):
+                anlysis_function(node.right, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
 
+            if isinstance(node.right, php.Eval):
+                analysis_eval(node.right, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+
+            if isinstance(node.right, php.Silence):
+                buffer_.append(node.right)
+                analysis(buffer_, vul_function, back_node, vul_lineno, file_path, function_params)
+        elif isinstance(node, php.BinaryOp): 
+            if isinstance(node.left, php.FunctionCall) or isinstance(node.right, php.MethodCall) or isinstance(node.right,                                                                                                             php.StaticMethodCall):
+                anlysis_function(node.left, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
+
+            if isinstance(node.left, php.Eval):
+                analysis_eval(node.left, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+                
+            if isinstance(node.left, php.Silence):
+                buffer_.append(node.left)
+                analysis(buffer_, vul_function, back_node, vul_lineno, file_path, function_params)
+
+            if isinstance(node.right, php.FunctionCall) or isinstance(node.right, php.MethodCall) or isinstance(node.right,                                                                                                             php.StaticMethodCall):
+                anlysis_function(node.right, back_node, vul_function, function_params, vul_lineno, file_path=file_path)
+
+            if isinstance(node.right, php.Eval):
+                analysis_eval(node.right, vul_function, back_node, vul_lineno, function_params, file_path=file_path)
+
+            if isinstance(node.right, php.Silence):
+                buffer_.append(node.right)
+                analysis(buffer_, vul_function, back_node, vul_lineno, file_path, function_params)
         elif isinstance(node, php.Return):
             analysis_return(node, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
 
@@ -2070,7 +2166,7 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
         elif isinstance(node, php.If):  # 函数调用在if-else语句中时
             analysis_if_else(node, back_node, vul_function, vul_lineno, function_params, file_path=file_path)
 
-        elif isinstance(node, php.While) or isinstance(node, php.DoWhile) or isinstance(node, php.For):  # 函数调用在循环中
+        elif isinstance(node, php.While) or isinstance(node, php.DoWhile) or isinstance(node, php.For) or isinstance(node, php.Foreach):  # 函数调用在循环中
             if isinstance(node.node, php.Block):
                 analysis(node.node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
@@ -2087,7 +2183,7 @@ def analysis(nodes, vul_function, back_node, vul_lineno, file_path=None, functio
             analysis(node.nodes, vul_function, function_body, vul_lineno, function_params=function_params,
                      file_path=file_path)
 
-        elif isinstance(node, php.Class):
+        elif isinstance(node, php.Class) or isinstance(node, php.Trait):
             analysis(node.nodes, vul_function, back_node, vul_lineno, file_path, function_params)
 
         elif node_typename in FUNCTIONCALL_LIST:
