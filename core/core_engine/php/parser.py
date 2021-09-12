@@ -536,14 +536,14 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
 
                     is_co, cp, expr_lineno = parameters_back(return_node, function_nodes, function_params,
                                                             vul_function=vul_function, file_path=file_path,
-                                                            isback=isback, parent_node=parent_node)
+                                                            isback=isback, parent_node=parent_node)[0:3]
                     fun_nodes_flag=False
             if fun_call:
                 for i in range(0,len(node.params)):
                     if node.params[i].name in is_controlled_params:
                         del is_controlled_params[-len(node.params)+i]
                 fun_call = False
-    return is_co, cp, expr_lineno
+    return is_co, cp, expr_lineno, function_name, param
 
 
 def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  # 回溯数组定义赋值
@@ -580,12 +580,12 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
                                 is_co, cp = is_controllable(p_node.value.node.name)
 
                                 if is_co != 1:
-                                    is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path,
+                                    is_co, cp, expr_lineno, param_name, param = array_back(param, nodes, file_path=file_path,
                                                                         isback=isback)
 
                             else:
                                 n_node = php.Variable(p_node.value)
-                                is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function,
+                                is_co, cp, expr_lineno, param_name, param = parameters_back(n_node, nodes, vul_function=vul_function,
                                                                          file_path=file_path,
                                                                          isback=isback)
 
@@ -594,18 +594,18 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
                     is_co, cp = is_controllable(param_node_expr.node.name)
 
                     if is_co != 1:
-                        is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path,
+                        is_co, cp, expr_lineno, param_name, param = array_back(param, nodes, file_path=file_path,
                                                             isback=isback)
                 else:
                     is_co, cp = is_controllable(param_node_expr)
 
                     if is_co != 1 and is_co != -1:
                         n_node = php.Variable(param_node_expr.node.value)
-                        is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function,
+                        is_co, cp, expr_lineno, param_name, param = parameters_back(n_node, nodes, vul_function=vul_function,
                                                                  file_path=file_path,
                                                                  isback=isback)
 
-    return is_co, cp, expr_lineno
+    return is_co, cp, expr_lineno, param_name, param
 
 
 def class_back(param, node, lineno, vul_function=None, file_path=None, isback=None, parent_node=None):
@@ -630,12 +630,12 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
         if class_node.lineno < int(lineno):
             vul_nodes.append(class_node)
 
-    is_co, cp, expr_lineno = parameters_back(param, vul_nodes, lineno=lineno, function_flag=1,
+    is_co, cp, expr_lineno, param_name, param = parameters_back(param, vul_nodes, lineno=lineno, function_flag=1,
                                              vul_function=vul_function, file_path=file_path,
                                              isback=isback, parent_node=parent_node)
 
     if is_co == 1 or is_co == -1:  # 可控或者不可控，直接返回
-        return is_co, cp, expr_lineno
+        return is_co, cp, expr_lineno, param_name, param
 
     elif is_co == 3:
         for class_node in class_nodes:
@@ -644,7 +644,7 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
                 constructs_nodes = class_node.nodes
 
                 # 递归析构函数
-                is_co, cp, expr_lineno = parameters_back(param, constructs_nodes, function_params=class_node_params,
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, constructs_nodes, function_params=class_node_params,
                                                          lineno=lineno, function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback)
@@ -659,9 +659,9 @@ def class_back(param, node, lineno, vul_function=None, file_path=None, isback=No
 
                             is_co = 4
                             cp = tuple([node, param, class_node_params, vul_function])
-                            return is_co, cp, 0
+                            return is_co, cp, 0, param_name, param
 
-    return is_co, cp, expr_lineno
+    return is_co, cp, expr_lineno, param_name, param
 
 
 def new_class_back(param, nodes, vul_function=None, file_path=None, isback=None):
@@ -675,7 +675,11 @@ def new_class_back(param, nodes, vul_function=None, file_path=None, isback=None)
     :return: 
     """
     param = param.name
-    param_name = param.name
+    if hasattr(param, "name"):
+        # param_name = param.name
+        param_name = get_node_name(param)
+    else:
+        param_name = param
     param_params = param.params
 
     is_co = -1
@@ -694,16 +698,16 @@ def new_class_back(param, nodes, vul_function=None, file_path=None, isback=None)
                     for tostring_node in tostring_nodes:
                         if isinstance(tostring_node, php.Return):
                             return_param = tostring_node.node
-                            is_co, cp, expr_lineno = parameters_back(return_param, tostring_nodes,
+                            is_co, cp, expr_lineno, param_name, param = parameters_back(return_param, tostring_nodes,
                                                                      vul_function=vul_function, file_path=file_path,
                                                                      isback=isback)
-                            return is_co, cp, expr_lineno
+                            return is_co, cp, expr_lineno, param_name, param
 
         else:
             is_co = 3
             cp = php.Variable(param)
 
-    return is_co, cp, expr_lineno
+    return is_co, cp, expr_lineno, param_name, param
 
 
 def parameters_back(param, nodes, function_params=None, lineno=0,
@@ -736,16 +740,16 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     if not nodes and type(nodes) is bool:
         logger.warning("[AST] AST analysis error, return back.")
-        return is_co, cp, expr_lineno
+        return is_co, cp, expr_lineno, param_name, param
 
     if (isinstance(param, php.FunctionCall) or isinstance(param, php.MethodCall) or isinstance(param, php.StaticMethodCall)) and is_co != 1:  # 当污点为寻找函数时，递归进入寻找函数
         logger.debug("[AST] AST analysis for FunctionCall or MethodCall {} in line {}".format(param.name, param.lineno))
-        is_co, cp, expr_lineno = function_back(param, nodes, function_params, file_path=file_path, isback=isback)
-        return is_co, cp, expr_lineno
+        is_co, cp, expr_lineno, param_name, param = function_back(param, all_nodes, function_params, file_path=file_path, isback=isback)
+        return is_co, cp, expr_lineno, param_name, param
 
     if isinstance(param, php.ArrayOffset):  # 当污点为数组时，递归进入寻找数组声明或赋值
         logger.debug("[AST] AST analysis for ArrayOffset in line {}".format(param.lineno))
-        # is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
+        # is_co, cp, expr_lineno, param_name, param = array_back(param, nodes, file_path=file_path, isback=isback)
 
         param = param.node
         param_name = get_node_name(param)
@@ -755,9 +759,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     if isinstance(param, php.New) or (
                 hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
         logger.debug("[AST] AST analysis for New Class {} in line {}".format(param.name, param.lineno))
-        is_co, cp, expr_lineno = new_class_back(param, nodes, file_path=file_path,
+        is_co, cp, expr_lineno, param_name, param = new_class_back(param, nodes, file_path=file_path,
                                                 isback=isback)
-        return is_co, cp, expr_lineno
+        return is_co, cp, expr_lineno, param_name, param
 
     if len(nodes) != 0 and is_co not in [-1, 1, 2]:
         node = nodes[-1]
@@ -784,8 +788,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             if param_name == param_node and is_re is True:
                 is_co = 2
                 cp = param
-                return is_co, cp, expr_lineno
-
+                return is_co, cp, expr_lineno, param_name, param
+    
             if param_name == param_node and not isinstance(param_expr, list) and not isinstance(param_expr, php.TernaryOp):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 logger.debug(
                     "[AST] Find {}={} in line {}, start ast for param {}".format(param_name, param_expr, expr_lineno,
@@ -804,12 +808,16 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     cp = param_expr
 
                 if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                    return is_co, cp, expr_lineno
+                    return is_co, cp, expr_lineno, param_name, param
 
                 if isinstance(node.expr, php.ArrayOffset):
                     param = node.expr
+
+                # if isinstance(node.node, php.ArrayOffset):
+                #     param = node.node
                 else:
                     param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                    param_name = param_expr
 
             if param_name == param_node and isinstance(param_expr, php.TernaryOp):
                 Terna1=param_expr.iftrue
@@ -836,7 +844,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     code = "{}={}, {} is controllable.".format(param_name, function_name, function_name)
                     scan_chain.append(('Finished', code, file_path, node.lineno))
 
-                    return is_co, cp, expr_lineno
+                    return is_co, cp, expr_lineno, param_name, param
 
                 logger.debug(
                     "[AST] Find {} from FunctionCall for {} in line {}, start ast in function {}".format(param_name,
@@ -866,7 +874,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     #                 if isinstance(function_node, php.Return):
                     #                     return_node = function_node.node
                     #                     return_param = return_node.node
-                    #                     is_co, cp, expr_lineno = parameters_back(return_param, function_nodes,
+                    #                     is_co, cp, expr_lineno, param_name, param = parameters_back(return_param, function_nodes,
                     #                                                              function_params, lineno, function_flag=1,
                     #                                                              vul_function=vul_function,
                     #                                                              file_path=file_path,
@@ -896,7 +904,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if len(param_expr) <= 0 and not (isinstance(node.expr, php.FunctionCall) or isinstance(node.expr, php.MethodCall)):
                     is_co = -1
                     cp = param
-                    return is_co, cp, 0
+                    return is_co, cp, 0, param_name, param
 
                 logger.debug(
                     "[AST] Find {} from list for {} in line {}, start ast for list {}".format(param_name,
@@ -942,7 +950,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                 break
                             else:
                                 file_path = os.path.normpath(file_path)
-                                code = "param {} find fail. continue".format(param)
+                                code = "param {} find fail. continue".format(param_param)
                                 scan_chain.append(('FindEnd', code, file_path, node.lineno))
 
                                 logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
@@ -958,20 +966,20 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             # test1 尝试使用行数叠加的方式
             # 目前测试结果中，这里会出现严重的bug
             # if function_flag == 0 and not isinstance(parent_node, php.Function):
-            #     is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+            #     is_co, cp, expr_lineno, param_name, param = parameters_back(param, nodes[:-1], function_params, lineno,
             #                                              function_flag=0, vul_function=vul_function,
             #                                              file_path=file_path,
             #                                              isback=isback, parent_node=parent_node)
-            #     return is_co, cp, expr_lineno
+            #     return is_co, cp, expr_lineno, param_name, param
 
             # 在这里想一个解决办法，如果当前父节点为0
             # 然后最后一个为函数节点，那么如果其中的最后一行代码行数小于目标行数，则不进入
             if not function_nodes or function_nodes[-1].lineno < int(lineno):
-                is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, nodes[:-1], function_params, lineno,
                                                          function_flag=0, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=0)
-                return is_co, cp, expr_lineno
+                return is_co, cp, expr_lineno, param_name, param
 
             logger.debug(
                 "[AST] param {} line {} in function {} line {}, start ast in function".format(param_name,
@@ -988,10 +996,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     vul_nodes.append(function_node)
 
             if len(vul_nodes) > 0:
-                is_co, cp, expr_lineno = parameters_back(param, vul_nodes, function_params, lineno,
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, vul_nodes, function_params, lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
-                                                         isback=isback, parent_node=None)
+                                                         isback=isback, parent_node=node)
                 function_flag = 0
 
                 if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
@@ -1018,14 +1026,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                                     is_co = 4
                                     cp = tuple([node, param, vul_function])
-                                    return is_co, cp, 0
+                                    return is_co, cp, 0, param_name, param
                                 else:
                                     logger.info(
                                         "[Deep AST] Recursive problems may exist in the code, exit the new rules generated..."
                                     )
                                     # 无法解决递归，直接退出
                                     is_co = -1
-                                    return is_co, cp, 0
+                                    return is_co, cp, 0, param_name, param
 
                     # 从函数中出来的变量，如果参数列表中没有，也不能继续递归
                     is_co = -1
@@ -1034,22 +1042,22 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     code = "param {} does not found in function {}".format(param_name, node.name)
                     scan_chain.append(('EndFunction', code, file_path, node.lineno))
 
-                    return is_co, cp, expr_lineno
+                    return is_co, cp, expr_lineno, param_name, param
 
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                return is_co, cp, expr_lineno
+                return is_co, cp, expr_lineno, param_name, param
 
         elif isinstance(node, php.Class):
-            is_co, cp, expr_lineno = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
+            is_co, cp, expr_lineno, param_name, param = class_back(param, node, lineno, vul_function=vul_function, file_path=file_path,
                                                 isback=isback, parent_node=node)
 
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                return is_co, cp, expr_lineno
+                return is_co, cp, expr_lineno, param_name, param
             else:
                 param = cp
 
         elif isinstance(node, php.If):
-            logger.debug(
+            # logger.debug(
                 "[AST] param {} line {} in if/else, start ast in if/else".format(param_name, node.lineno))
 
             if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句
@@ -1060,9 +1068,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if_nodes = []
 
             # 进入分析if内的代码块，如果返回参数不同于进入参数，那么在不同的代码块中，变量值不同，不能统一处理，需要递归进入不同的部分
-            is_co, cp, expr_lineno = parameters_back(param, if_nodes, function_params, lineno,
+            is_co, cp, expr_lineno, param_name, param = parameters_back(param, if_nodes, function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
-                                                     file_path=file_path, isback=isback, parent_node=node)
+                                                     file_path=file_path, isback=isback, parent_node=parent_node)
 
             # 如果是3 应该传递cp
             if is_co == 3:
@@ -1084,7 +1092,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     logger.debug("[AST] param {} line {} in new branch for else if".format(param, elseif_lineno))
 
-                    is_co, cp, expr_lineno = parameters_back(param, elif_nodes, function_params, lineno,
+                    is_co, cp, expr_lineno, param_name, param = parameters_back(param, elif_nodes, function_params, lineno,
                                                              function_flag=function_flag, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
@@ -1104,7 +1112,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 else:
                     else_nodes = []
 
-                is_co, cp, expr_lineno = parameters_back(param, else_nodes, function_params, lineno,
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, else_nodes, function_params, lineno,
                                                          function_flag=function_flag, vul_function=vul_function,
                                                          file_path=file_path, isback=isback, parent_node=node)
 
@@ -1113,7 +1121,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     _cp = cp
 
             if is_co == 1:  # 目标确定直接返回
-                return is_co, cp, expr_lineno
+                return is_co, cp, expr_lineno, param_name, param
 
             if _is_co == 3 and _cp != param:
                 # 如果不等于，说明在if/else块中产生了变化
@@ -1136,12 +1144,12 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             else:
                 while_nodes = []
 
-            is_co, cp, expr_lineno = parameters_back(param, while_nodes, function_params, lineno,
+            is_co, cp, expr_lineno, param_name, param = parameters_back(param, while_nodes, function_params, lineno,
                                                      function_flag=1, vul_function=vul_function, file_path=file_path,
                                                      isback=isback, parent_node=node)
 
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                return is_co, cp, expr_lineno
+                return is_co, cp, expr_lineno, param_name, param
 
             if is_co == 3 and cp != param:
                 # 如果不等于，说明在if/else块中产生了变化
@@ -1158,13 +1166,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             case_nodes = node.nodes
 
             for case_node in case_nodes:
-                is_co, cp, expr_lineno = parameters_back(param, case_node.nodes, function_params, lineno,
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, case_node.nodes, function_params, lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=node)
 
                 if is_co == 1:  # 目标确定直接返回
-                    return is_co, cp, expr_lineno
+                    return is_co, cp, expr_lineno, param_name, param
 
                 if cp == 3:
                     _is_co = is_co
@@ -1192,19 +1200,19 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 # finally 是一定会执行的, 且顺序执行, 所以先分析finally
                 logger.debug("[AST] param {} line {} in new branch for finnally".format(param, finally_nodes.lineno))
 
-                is_co, cp, expr_lineno = parameters_back(param, finally_nodes.nodes, function_params, lineno,
+                is_co, cp, expr_lineno, param_name, param = parameters_back(param, finally_nodes.nodes, function_params, lineno,
                                                          function_flag=1, vul_function=vul_function,
                                                          file_path=file_path,
                                                          isback=isback, parent_node=node)
 
                 if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                    return is_co, cp, expr_lineno
+                    return is_co, cp, expr_lineno, param_name, param
 
             # try catch 暂时被认定为分支性质，因为很难确定报错的位置，所以暂时为互不干扰
             logger.debug(
                 "[AST] param {} line {} in Try, start ast in Try node".format(cp, node.lineno))
 
-            is_co, cp, expr_lineno = parameters_back(cp, try_nodes, function_params, lineno,
+            is_co, cp, expr_lineno, param_name, param = parameters_back(cp, try_nodes, function_params, lineno,
                                                      function_flag=1, vul_function=vul_function,
                                                      file_path=file_path,
                                                      isback=isback, parent_node=node)
@@ -1219,13 +1227,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 for catch_node in catch_nodes:
                     logger.debug("[AST] param {} line {} in new branch for catch".format(cp, catch_node.lineno))
 
-                    is_co, cp, expr_lineno = parameters_back(cp, catch_node.nodes, function_params, lineno,
+                    is_co, cp, expr_lineno, param_name, param = parameters_back(cp, catch_node.nodes, function_params, lineno,
                                                              function_flag=1, vul_function=vul_function,
                                                              file_path=file_path,
                                                              isback=isback, parent_node=node)
 
                     if is_co == 1:  # 目标确定直接返回
-                        return is_co, cp, expr_lineno
+                        return is_co, cp, expr_lineno, param_name, param
 
             if _is_co == 3 and _cp != param:
                 # 如果不等于，说明在if/else块中产生了变化
@@ -1244,13 +1252,13 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
             logger.debug(
                 "[AST] param {} line {} in for, start ast in for".format(param_name, for_node_lineno))
 
-            is_co, cp, expr_lineno = parameters_back(param, for_nodes, function_params, lineno,
+            is_co, cp, expr_lineno, param_name, param = parameters_back(param, for_nodes, function_params, lineno,
                                                      function_flag=1, vul_function=vul_function, file_path=file_path,
                                                      isback=isback, parent_node=node)
             function_flag = 0
 
             if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                return is_co, cp, expr_lineno
+                return is_co, cp, expr_lineno, param_name, param
 
             if _is_co == 3 and cp != param:
                 # 如果不等于，说明在if/else块中产生了变化
@@ -1259,7 +1267,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 file_path = os.path.normpath(file_path)
                 code = "New {} param back from For".format(param)
                 scan_chain.append(('NewForBack', code, file_path, node.lineno))
-
+        
         elif isinstance(node, php.Foreach):
             if param_name == node.valvar.name.name:
                 if isinstance(node.expr, php.ArrayOffset):
@@ -1298,10 +1306,10 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     scan_chain.append(('NewForBack', code, file_path, node.lineno))
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
-            is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+            is_co, cp, expr_lineno, param_name, param = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
                                                      file_path=file_path,
-                                                     isback=isback, parent_node=0)  # 找到可控的输入时，停止递归
+                                                     isback=isback, parent_node=parent_node)  # 找到可控的输入时，停止递归
 
     elif len(nodes) == 0 and function_params is not None:  # 当敏感函数在函数中时，function_params不为空，这时应进入自定义敏感函数逻辑
         for function_param in function_params:
@@ -1311,7 +1319,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 is_co = 2
                 cp = function_param
 
-    return is_co, cp, expr_lineno
+    return is_co, cp, expr_lineno, param_name, param
 
 
 def deep_parameters_back(param, back_node, function_params, count, file_path, lineno=0, vul_function=None,
@@ -1331,7 +1339,7 @@ def deep_parameters_back(param, back_node, function_params, count, file_path, li
     padding = {}
 
     is_co, cp, expr_lineno = parameters_back(param, back_node, function_params, lineno, vul_function=vul_function,
-                                             file_path=file_path, isback=isback, parent_node=0)
+                                             file_path=file_path, isback=isback, parent_node=0)[0:3]
 
     if count > 20:
         logger.warning("[Deep AST] depth too big, auto exit...")
@@ -2218,7 +2226,6 @@ def scan_parser(sensitive_func, vul_lineno, file_path, repair_functions=[], cont
     """
     try:
         global scan_results, is_repair_functions, is_controlled_params, scan_chain
-
         scan_chain = ['start']
         scan_results = []
         is_repair_functions = repair_functions
