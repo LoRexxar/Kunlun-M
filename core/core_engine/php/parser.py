@@ -786,7 +786,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 cp = param
                 return is_co, cp, expr_lineno
 
-            if param_name == param_node and not isinstance(param_expr, list):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
+            if param_name == param_node and not isinstance(param_expr, list) and not isinstance(param_expr, php.TernaryOp):  # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 logger.debug(
                     "[AST] Find {}={} in line {}, start ast for param {}".format(param_name, param_expr, expr_lineno,
                                                                                  param_expr))
@@ -810,6 +810,19 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     param = node.expr
                 else:
                     param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+
+            if param_name == param_node and isinstance(param_expr, php.TernaryOp):
+                Terna1=param_expr.iftrue
+                Terna2=param_expr.iffalse
+                param_ex=param_expr.expr
+                logger.debug("[AST] Find {} from TernaryOp from ?{}:{} in line {}.".format(param_name, Terna1, Terna2, node.lineno))
+
+                file_path = os.path.normpath(file_path)
+                code = "{}={}?{}:{}".format(param_name, param_ex, Terna1, Terna2)
+                scan_chain.append(('TernaryOp', code, file_path, node.lineno))
+
+                param = node.expr
+                is_co = 3
 
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
