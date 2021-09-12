@@ -33,6 +33,7 @@ scan_results = []  # 结果存放列表初始化
 is_repair_functions = []  # 修复函数初始化
 is_controlled_params = []
 scan_chain = []  # 回溯链变量
+all_nodes = []
 BASE_FUNCTIONCALL_LIST = ['FunctionCall', 'MethodCall', 'StaticMethodCall', 'ObjectProperty']
 SPECIAL_FUNCTIONCALL_LIST = ['Eval', 'Echo', 'Print', 'Return', 'Break', 'Include',
                          'Require', 'Exit', 'Throw', 'Unset', 'Continue', 'Yield', 'Silence']
@@ -720,6 +721,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
     """
     global scan_chain
     global fun_call
+    global all_nodes
     expr_lineno = 0  # source所在行号
     if hasattr(param, "name"):
         # param_name = param.name
@@ -1399,7 +1401,7 @@ def anlysis_params(param, file_path, vul_lineno, vul_function=None, repair_funct
     :param file_path: 
     :return: 
     """
-    global is_repair_functions, is_controlled_params, scan_chain
+    global is_repair_functions, is_controlled_params, scan_chain, all_nodes
     count = 0
     function_params = None
     if repair_functions is not None:
