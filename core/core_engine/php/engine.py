@@ -21,16 +21,18 @@ def init_match_rule(data):
     try:
         object = data[0]
         match = ""
-
         if isinstance(object, php.Method) or isinstance(object, php.Function):
+            j=1
+            flag=0
+            param=[]
             function_params = object.params
             function_name = object.name
-            param = data[1]
-            index = 0
-            for function_param in function_params:
-                if function_param.name == param.name:
-                    break
-                index += 1
+            for i in range(0,len(data)//3):
+                param.append(data[j].name)
+                j+=3
+            # for function_param in function_params:
+            #     if function_param.name == param.name:
+            #         break
 
             # curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)
             match = "(?:\A|\s|\\b)" + function_name + "\s*\("
@@ -41,10 +43,11 @@ def init_match_rule(data):
                     if function_params[i].default is not None:
                         match += "?"
 
-                if i == index:
-                    match += "([^,\)]*)"
+                if function_params[i].name in param:
+                    flag+=1
+                    match += "([^,;{]*?)"
                 else:
-                    match += "[^,\)]*"
+                    match += "[^,;{]*?"
 
             match += "\)"
 
@@ -95,4 +98,4 @@ def init_match_rule(data):
         vul_function = None
         origin_func_name = "None"
 
-    return match, match2, vul_function, index, origin_func_name
+    return match, match2, vul_function, origin_func_name

@@ -893,24 +893,30 @@ class Core(object):
                                                  controlled_params=self.controlled_list, svid=self.cvi)
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
-                            if result[0]['code'] == 1:  # 函数参数可控
+                            Result=[]
+                            for i in range(0,len(result)):
+                                Result.append(result[i]['code'])
+                            if 1 in Result:  # 只要有一个函数参数可控就返回，chain都是一样的
                                 return True, 'Function-param-controllable', result[0]['chain']
 
-                            elif result[0]['code'] == 2:  # 漏洞修复
+                            elif 3 in Result and self.is_unconfirm:  # 疑似漏洞
+                                return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
+
+                            elif 4 in Result:  # 新规则生成
+                                re=()
+                                for i in range(0,len(result)):
+                                    re+=result[i]['source']
+                                return False, 'New Core', re
+
+                            elif 3 in Result and not self.is_unconfirm:
+                                return False, 'Unconfirmed Function-param-controllable', result[0]['chain']
+
+                            elif 2 in Result:  # 漏洞修复
                                 return False, 'Function-param-controllable but fixed', result[0]['chain']
 
-                            elif result[0]['code'] == 3:  # 疑似漏洞
-                                if self.is_unconfirm:
-                                    return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
-                                else:
-                                    return False, 'Unconfirmed Function-param-controllable', result[0]['chain']
-
-                            elif result[0]['code'] == -1:  # 函数参数不可控
+                            elif -1 in Result:  # 函数参数不可控
                                 return False, 'Function-param-uncon', result[0]['chain']
-
-                            elif result[0]['code'] == 4:  # 新规则生成
-                                return False, 'New Core', result[0]['source']
-
+                                
                             logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
                         else:
                             logger.debug(
@@ -1177,14 +1183,12 @@ def NewCore(old_single_rule, target_directory, new_rules, files, count=0, langua
     match_mode = "New rule to Vustomize-Match"
     logger.debug('[ENGINE] [ORIGIN] match-mode {m}'.format(m=match_mode))
 
-    match, match2, vul_function, index, origin_func_name = init_match_rule(new_rules, lan=old_single_rule.language)
+    match, match2, vul_function, origin_func_name = init_match_rule(new_rules, lan=old_single_rule.language)
     logger.debug('[ENGINE] [New Rule] new match_rule: {}'.format(match))
 
     # 想办法传递新函数类型
     sr = autorule()
 
-    if index == -1:
-        sr = autorule(is_eval_object=True)
 
     sr.match = match
     sr.vul_function = vul_function

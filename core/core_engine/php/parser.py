@@ -1057,7 +1057,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 param = cp
 
         elif isinstance(node, php.If):
-            # logger.debug(
+            logger.debug(
                 "[AST] param {} line {} in if/else, start ast in if/else".format(param_name, node.lineno))
 
             if isinstance(node.node, php.Block):  # if里可能是代码块，也可能就一句语句

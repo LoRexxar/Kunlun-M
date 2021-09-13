@@ -72,7 +72,7 @@ class autorule:
         regex string input
         :return: 
         """
-        sql_sen = check_tuple(regex_string[0])
+        sql_sen = str(regex_string[0])
 
         if self.language.lower() == 'php':
             reg = "\$\w+"
