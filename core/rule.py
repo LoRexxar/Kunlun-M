@@ -190,7 +190,7 @@ class RuleCheck:
 
         return True
 
-    def check_and_update_rule_database(self, ruleconfig_content, nowrule, config, always_load_rule_from_file = False, always_keep_rule_in_database = False):
+    def check_and_update_rule_database(self, ruleconfig_content, nowrule, config, always_load_rule_from_file=False, always_keep_rule_in_database=False):
 
         svid = nowrule.svid
         ruleconfig_content = str(ruleconfig_content)
@@ -200,12 +200,11 @@ class RuleCheck:
             logger.warning("[INIT][Rule Check] {} in Rule File is {}".format(config, ruleconfig_content))
             logger.warning("[INIT][Rule Check] {} in Database is {}".format(config, getattr(nowrule, config)))
 
-            
-            if always_load_rule_from_file == True:
+            if always_load_rule_from_file:
                 logger.warning("[INIT][Rule Check] automatically load new {} from Rule File".format(config))
                 setattr(nowrule, config, ruleconfig_content)
                 return True
-            elif always_keep_rule_in_database == True:
+            elif always_keep_rule_in_database:
                 return False
             else:
                 logger.warning("[INIT][Rule Check] whether load new {} from Rule File(Y/N):".format(config))
