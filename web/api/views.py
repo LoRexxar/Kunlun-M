@@ -75,7 +75,7 @@ class TaskResultDetailApiView(View):
             return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
 
         project_id = get_and_check_scantask_project_id(task_id)
-        scantaskresults = list(get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id).values())
+        scantaskresults = list(get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id, is_active=1).values())
 
         return JsonResponse(
             {"code": 200, "status": True, "message": scantaskresults})
