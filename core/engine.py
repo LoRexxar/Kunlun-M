@@ -893,25 +893,32 @@ class Core(object):
                                                  controlled_params=self.controlled_list, svid=self.cvi)
                         logger.debug('[AST] [RET] {c}'.format(c=result))
                         if len(result) > 0:
-                            if result[0]['code'] == 1:  # 函数参数可控
-                                return True, 'Function-param-controllable', result[0]['chain']
+                            result_code_list = []
 
-                            elif result[0]['code'] == 2:  # 漏洞修复
-                                return False, 'Function-param-controllable but fixed', result[0]['chain']
+                            for r in result:
+                                result_code_list.append(r['code'])
 
-                            elif result[0]['code'] == 3:  # 疑似漏洞
-                                if self.is_unconfirm:
-                                    return True, 'Unconfirmed Function-param-controllable', result[0]['chain']
-                                else:
-                                    return False, 'Unconfirmed Function-param-controllable', result[0]['chain']
+                                if r['code'] == 1:  # 函数参数可控
+                                    return True, 'Function-param-controllable', r['chain']
 
-                            elif result[0]['code'] == -1:  # 函数参数不可控
-                                return False, 'Function-param-uncon', result[0]['chain']
+                            for r in result:
+                                if r['code'] == 4:  # 新规则生成
+                                    return False, 'New Core', r['source']
 
-                            elif result[0]['code'] == 4:  # 新规则生成
-                                return False, 'New Core', result[0]['source']
+                            for r in result:
+                                if r['code'] == 3:  # 疑似漏洞
+                                    if self.is_unconfirm:
+                                        return True, 'Unconfirmed Function-param-controllable', r['chain']
+                                    else:
+                                        return False, 'Unconfirmed Function-param-controllable', r['chain']
 
-                            logger.debug('[AST] [CODE] {code}'.format(code=result[0]['code']))
+                                elif r['code'] == 2:  # 漏洞修复
+                                    return False, 'Function-param-controllable but fixed', r['chain']
+
+                                else:  # 函数参数不可控
+                                    return False, 'Function-param-uncon', r['chain']
+
+                            logger.debug('[AST] [CODE] {code}'.format(code=result_code_list))
                         else:
                             logger.debug(
                                 '[AST] Parser failed / vulnerability parameter is not controllable {r}'.format(
