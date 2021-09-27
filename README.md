@@ -329,4 +329,5 @@ KunLun-M 是 404Team [星链计划](https://github.com/knownsec/404StarLink-Proj
 次要贡献者：
 - Dubhe [Sndav](https://github.com/Sndav)
 - [#jax777](https://github.com/jax777)
+- [lavon321](https://github.com/lavon321)
 - [akkuman](https://github.com/akkuman)
