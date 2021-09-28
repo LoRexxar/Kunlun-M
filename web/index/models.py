@@ -30,6 +30,16 @@ def md5(content):
     return hashlib.md5(content).hexdigest()
 
 
+def check_effective(pre_versions):
+    return_versions = []
+
+    for pv in pre_versions:
+        if pv:
+            return_versions.append(pv)
+
+    return return_versions
+
+
 class Project(models.Model):
     project_name = models.CharField(max_length=200)
     project_des = models.TextField(null=True)
@@ -92,11 +102,14 @@ def update_and_new_vendor_vuln(vendor, vuln):
 
     # 检查版本比较
     if v:
-        prev_versions = v.affected_versions.split(',')
+        prev_versions = check_effective(v.affected_versions.split(','))
 
         if vendor["version"] not in prev_versions:
             prev_versions.append(vendor["version"])
             v.affected_versions = ','.join(prev_versions)
+            v.description = vuln["description"]
+            v.reference = vuln["reference"]
+
             try:
                 v.save()
             except IntegrityError:
@@ -116,7 +129,7 @@ def update_and_new_vendor_vuln(vendor, vuln):
     else:
         v = VendorVulns(vuln_id=vuln["vuln_id"],
                         title=vuln["title"], description=vuln["description"],
-                        severity=vuln["severity"], cves=vuln["cves"],reference=vuln["reference"],
+                        severity=vuln["severity"], cves=vuln["cves"], reference=vuln["reference"],
                         vendor_name=vendor["name"], affected_versions=','.join(vuln["affected_versions"]))
         v.save()
 

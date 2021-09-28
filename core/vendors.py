@@ -139,7 +139,7 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
                     cvi_id=VENDOR_CVIID,
                     language=language,
                     vulfile_path="VendorVul:{}".format(vv.id),
-                    source_code="{}".format(vv.reference),
+                    source_code="{}".format(vv.reference[:180]),
                     result_type=vendor_source_match,
                     is_unconfirm=False,
                     is_active=True
@@ -150,7 +150,7 @@ def check_and_save_result(task_id, language, vendor_name, vendor_version):
                 if sr:
                     node_source = vv.description
                     rf = ResultFlow(vul_id=sr.id, node_type='sca_scan',
-                                    node_content=vv.title, node_path=vv.reference,
+                                    node_content=vv.title, node_path=vv.reference[:280],
                                     node_source=node_source, node_lineno=0)
                     rf.save()
 
@@ -169,7 +169,7 @@ def get_and_save_vendor_vuls(task_id, vendor_name, vendor_version, language, ext
     if not settings.WITH_VENDOR and task_id:
         return False
 
-    logger.info("[Vendor Vuls] Spider {} Vendor {} Vul.".format(language, vendor_name))
+    logger.info("[Vendor Vuls] Spider {} Vendor {} Version {} Vul.".format(language, vendor_name, vendor_version))
 
     _vendor = {"name": vendor_name, "version": vendor_version}
     for vuln in get_vulns(language, _vendor["name"], _vendor["version"]):

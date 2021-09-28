@@ -50,6 +50,7 @@ def get_vulns_from_depsdev(ecosystem, package_name, version):
 
     return result
 
+
 def __get_affected_versions(package_name, source, source_id):
     result = []
 
