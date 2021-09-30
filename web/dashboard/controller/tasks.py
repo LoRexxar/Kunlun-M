@@ -6,6 +6,7 @@
 # @Contact : lorexxar@gmail.com
 
 import ast
+import re
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseNotFound
@@ -92,9 +93,21 @@ class TaskDetailView(View):
                 if vender_vul_id:
                     vv = VendorVulns.objects.filter(id=vender_vul_id).first()
 
-                    taskresult.vulfile_path = "[{}]{}".format(vv.vendor_name, vv.title)
-                    taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
-                    taskresult.vid = vv.id
+                    if vv:
+                        taskresult.vulfile_path = "[{}]{}".format(vv.vendor_name, vv.title)
+                        taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
+                        taskresult.vid = vv.id
+
+                    # 处理多个refer的显示问题
+                    references = []
+                    if re.search(r'"http[^"]+"', taskresult.source_code, re.I):
+                        rs = re.findall(r'"http[^"]+"', taskresult.source_code, re.I)
+                        for r in rs:
+                            references.append(r)
+                    else:
+                        references = [taskresult.source_code]
+
+                    taskresult.source_code = references
 
             else:
                 r = Rules.objects.filter(svid=taskresult.cvi_id).first()

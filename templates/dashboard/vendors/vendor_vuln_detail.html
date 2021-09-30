@@ -65,7 +65,11 @@
     <label>Reference:</label>
 
     <div class="input-group">
-        <div type="text" class="pull-right" ><a href="{{ vvuln.reference }}">{{ vvuln.reference }}</a></div>
+        <div type="text" class="pull-right" >
+            {% for vr in vvuln_references %}
+                <a href="{{ vr }}">{{ vr }}</a><br>
+            {% endfor %}
+        </div>
     </div>
     <!-- /.input group -->
 </div>
