@@ -2,6 +2,41 @@
 {% block title %}Vendors list{% endblock %}
 
 {% block body %}
+<div>
+
+<form id="fileform" role="form" method="get" enctype="multipart/form-data" action="{% url 'dashboard:vendor_details' %}">
+
+
+<div class="box box-primary">
+    <div class="box-header with-border">
+  <h3 class="box-title">Search Vendor</h3>
+</div>
+<div class="box-body">
+  <!-- Date -->
+  <!-- Date and time range -->
+  <div class="form-group">
+    <label>Vendor Name:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
+      </div>
+      <input type="text" class="form-control pull-right" name="vendorname" value="" >
+    </div>
+              ps: use * to indicate wildcard, just like jackson*.
+    <!-- /.input group -->
+  </div>
+  </div>
+  <!-- /.box -->
+    <div class="box-footer">
+        <div class="btn-group">
+          <button id="submit" type="submit" class="btn btn-primary">Search</button>
+        </div>
+  </div>
+</div>
+</form>
+</div>
+
 <div class="row">
         <div class="col-xs-12">
           <div class="box">
