@@ -126,7 +126,17 @@
                     {% else %}
                         <td>{{ taskresult.vulfile_path }}</td>
                     {% endif %}
+
+                    {% if taskresult.result_type == 'vendor_source_match' %}
+                        <td>
+                        {% for rs in taskresult.source_code %}
+                        <a href="{{ rs }}">{{ rs }}</a><br>
+                        {% endfor %}
+                        </td>
+                    {% else %}
                     <td>{{ taskresult.source_code }}</td>
+                    {% endif %}
+
                     <td>{{ taskresult.level }}</td>
                     <td>{{ taskresult.result_type }}</td>
 
