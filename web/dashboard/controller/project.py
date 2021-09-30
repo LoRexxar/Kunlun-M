@@ -10,6 +10,7 @@
 '''
 
 
+import re
 import ast
 
 from django.contrib.auth.decorators import login_required
@@ -101,16 +102,28 @@ class ProjectDetailView(View):
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)
             taskresult.level = 0
+            taskresult.vid = 0
 
             if taskresult.cvi_id == '9999':
                 vender_vul_id = taskresult.vulfile_path.split(":")[-1]
-
                 if vender_vul_id:
                     vv = VendorVulns.objects.filter(id=vender_vul_id).first()
 
-                    taskresult.vulfile_path = "[{}]{}".format(vv.vendor_name, vv.title)
-                    taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
-                    taskresult.vid = vv.id
+                    if vv:
+                        taskresult.vulfile_path = "[{}]{}".format(vv.vendor_name, vv.title)
+                        taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
+                        taskresult.vid = vv.id
+
+                    # 处理多个refer的显示问题
+                    references = []
+                    if re.search(r'"http[^"]+"', taskresult.source_code, re.I):
+                        rs = re.findall(r'"http[^"]+"', taskresult.source_code, re.I)
+                        for r in rs:
+                            references.append(r)
+                    else:
+                        references = [taskresult.source_code]
+
+                    taskresult.source_code = references
 
             else:
                 r = Rules.objects.filter(svid=taskresult.cvi_id).first()

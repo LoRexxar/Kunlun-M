@@ -151,15 +151,20 @@ class VendorVulnDetailView(View):
     @staticmethod
     @login_or_token_required
     def get(request, vendor_vul_id):
-
+        vvuln_references = []
         vvuln = VendorVulns.objects.filter(id=vendor_vul_id).first()
 
         vvuln.affected_versions = vvuln.affected_versions.replace(",", '\n')
+        if vvuln.reference.startswith("["):
+            vvuln_references = ast.literal_eval(vvuln.reference)
+        else:
+            vvuln_references = [vvuln.reference]
 
         if not vvuln:
             return HttpResponseNotFound('Vendor vuls Not Found.')
         else:
             data = {
                 'vvuln': vvuln,
+                "vvuln_references": vvuln_references,
             }
             return render(request, 'dashboard/vendors/vendor_vuln_detail.html', data)

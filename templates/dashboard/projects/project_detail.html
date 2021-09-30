@@ -117,7 +117,11 @@
                     {% endif %}
 
                     {% if taskresult.result_type == 'vendor_source_match' %}
-                        <td><a href="{{ taskresult.source_code }}">{{ taskresult.source_code }}</a></td>
+                        <td>
+                        {% for rs in taskresult.source_code %}
+                        <a href="{{ rs }}">{{ rs }}</a><br>
+                        {% endfor %}
+                        </td>
                     {% else %}
                     <td>{{ taskresult.source_code }}</td>
                     {% endif %}
