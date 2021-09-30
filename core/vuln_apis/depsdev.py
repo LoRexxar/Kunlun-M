@@ -2,7 +2,8 @@ import json
 import requests
 from urllib.parse import quote
 
-__DEPSDEVAPIURL = "https://deps.dev/_/s/{ecosystem}/p/{package}/v/{version}"
+# __DEPSDEVAPIURL = "https://deps.dev/_/s/{ecosystem}/p/{package}/v/{version}"
+__DEPSDEVAPIURL = "https://deps.dev/_/s/{eco_system}/p/{package}/v/{version}/dependencies"
 __DEPSDEVADVISORYURL = "https://deps.dev/_/advisory/{source}/{source_id}"
 __SEVERITY_DICT = {
     "UNKNOWN": 1,
@@ -20,35 +21,29 @@ def get_vulns_from_depsdev(ecosystem, package_name, version):
     package_name = quote(package_name, safe='')
     url = __DEPSDEVAPIURL.format(ecosystem=ecosystem, package=package_name, version=version)
 
-    resp = requests.get(url)
+    resp = requests.get(url, timeout=6)
     if resp.status_code == 200:
         data = json.loads(resp.content)
+        if "dependencies" in data.keys():
+            for pack in data['dependencies']:
+                if len(pack['advisories']) > 0:
+                    for advisory in pack['advisories']:
+                        vul = {"vuln_id": advisory["sourceID"], "title": advisory["title"],
+                               "severity": __SEVERITY_DICT[advisory["severity"]],
+                               "description": advisory["description"]}
 
-        # 获取组件自身漏洞
-        if "version" in data.keys():  # deps.dev版本展示有错误，有一些组件展示的与go.mod中不一致
-            if len(data["version"]["advisories"]) > 0:
-                for advisorie in data["version"]["advisories"]:
-                    vuln = {}
-                    vuln["vuln_id"] = advisorie["sourceID"]
-                    vuln["title"] = advisorie["title"]
-                    vuln["severity"] = __SEVERITY_DICT[advisorie["severity"]]
-                    vuln["description"] = advisorie["description"]
+                        if advisory["CVEs"]:
+                            cves = [cve for cve in advisory["CVEs"]]
+                            vul["cves"] = json.dumps(cves)
+                        vul["reference"] = advisory["sourceURL"]
+                        # 获取全部影响版本
+                        source = advisory["source"]
+                        affected_versions = __get_affected_versions(package_name, source, vul["vuln_id"])
+                        vul["affected_versions"] = affected_versions
 
-                    cves = []
-                    for cve in advisorie["CVEs"]:
-                        cves.append(cve)
-
-                    vuln["cves"] = json.dumps(cves)
-                    vuln["reference"] = advisorie["sourceURL"]
-
-                    # 获取全部影响版本
-                    source = advisorie["source"]
-                    affected_versions = __get_affected_versions(package_name, source, vuln["vuln_id"])
-                    vuln["affected_versions"] = affected_versions
-
-                    result.append(vuln)
-
+                        result.append(vul)
     return result
+
 
 def __get_affected_versions(package_name, source, source_id):
     result = []
