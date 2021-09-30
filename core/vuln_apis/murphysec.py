@@ -48,7 +48,7 @@ def get_vulns_from_murphysec(language, package_name, version):
             logger.error("[Vendor][Murphysec Scan] Api Token error.")
 
         else:
-            vuls = data['data']
+            vuls = data['data']['vuln_info']
 
             for vul in vuls:
                 vuln = {}
