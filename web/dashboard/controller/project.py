@@ -119,9 +119,9 @@ class ProjectDetailView(View):
                     if re.search(r'"http[^"]+"', taskresult.source_code, re.I):
                         rs = re.findall(r'"http[^"]+"', taskresult.source_code, re.I)
                         for r in rs:
-                            references.append(r)
+                            references.append(r.strip('"'))
                     else:
-                        references = [taskresult.source_code]
+                        references = [taskresult.source_code.strip('"')]
 
                     taskresult.source_code = references
 
