@@ -52,7 +52,7 @@ class VendorListView(TemplateView):
 
         context['page'] = page
         max_page = vendor_count / 100 if vendor_count % 100 == 0 else (vendor_count / 100)+1
-        context['max_page'] = max_page
+        context['max_page'] = int(max_page)
         context['page_range'] = range(int(max_page))[1:]
 
         for row in context['vendors']:
@@ -86,7 +86,7 @@ class VendorVulnListView(TemplateView):
 
         context['page'] = page
         max_page = vendor_vulns_count / 100 if vendor_vulns_count % 100 == 0 else (vendor_vulns_count / 100)+1
-        context['max_page'] = max_page
+        context['max_page'] = int(max_page)
         context['page_range'] = range(int(max_page))[1:]
 
         for vendorvul in context['vendorvulns']:
@@ -195,7 +195,7 @@ class VendorStatisticsView(TemplateView):
 
         context['page'] = page
         max_page = vendor_count / 100 if vendor_count % 100 == 0 else (vendor_count / 100)+1
-        context['max_page'] = max_page
+        context['max_page'] = int(max_page)
         context['page_range'] = range(int(max_page))[1:]
 
         id = (page-1)*100+1
@@ -230,7 +230,7 @@ class VendorVulnStatisticsView(TemplateView):
 
         context['page'] = page
         max_page = vendor_vulns_count / 100 if vendor_vulns_count % 100 == 0 else (vendor_vulns_count / 100) + 1
-        context['max_page'] = max_page
+        context['max_page'] = int(max_page)
         context['page_range'] = range(int(max_page))[1:]
 
         id = (page - 1) * 100 + 1
