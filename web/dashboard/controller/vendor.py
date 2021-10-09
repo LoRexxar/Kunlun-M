@@ -16,6 +16,7 @@ from django.http import JsonResponse, HttpResponseNotFound
 from django.views.generic import TemplateView
 from django.views import View
 from django.shortcuts import render, redirect
+from django.db.models import Count
 
 from Kunlun_M.settings import SUPER_ADMIN
 from Kunlun_M.const import VENDOR_VUL_LEVEL, VUL_LEVEL
@@ -168,3 +169,90 @@ class VendorVulnDetailView(View):
                 "vvuln_references": vvuln_references,
             }
             return render(request, 'dashboard/vendors/vendor_vuln_detail.html', data)
+
+
+class VendorStatisticsView(TemplateView):
+    """展示所有的组件"""
+    template_name = "dashboard/vendors/vendors_statistics.html"
+
+    def get_context_data(self, **kwargs):
+        context = super(VendorStatisticsView, self).get_context_data(**kwargs)
+        pvs = ProjectVendors.objects.values('name', 'language').annotate(total=Count('id')).order_by('total')
+        vendor_count = pvs.count()
+
+        if 'p' in self.request.GET:
+            page = int(self.request.GET['p'])
+        else:
+            page = 1
+
+        # check page
+        if page*100 > vendor_count:
+            page = 1
+
+        rows = pvs[::-1][(page-1)*100: page*100]
+
+        context['vendors'] = rows
+
+        context['page'] = page
+        max_page = vendor_count / 100 if vendor_count % 100 == 0 else (vendor_count / 100)+1
+        context['max_page'] = max_page
+        context['page_range'] = range(int(max_page))[1:]
+
+        id = (page-1)*100+1
+        for pv in context['vendors']:
+            pv['id'] = id
+            id += 1
+
+        return context
+
+
+class VendorVulnStatisticsView(TemplateView):
+    """展示所有的组件"""
+    template_name = "dashboard/vendors/vendors_vuln_statistics.html"
+
+    def get_context_data(self, **kwargs):
+        context = super(VendorVulnStatisticsView, self).get_context_data(**kwargs)
+        vns = VendorVulns.objects.values('vendor_name').annotate(total=Count('id')).order_by('total')
+        vendor_vulns_count = vns.count()
+
+        if 'p' in self.request.GET:
+            page = int(self.request.GET['p'])
+        else:
+            page = 1
+
+        # check page
+        if page*100 > vendor_vulns_count:
+            page = 1
+
+        rows = vns[::-1][(page-1)*100: page*100]
+
+        context['vendorvulns'] = rows
+
+        context['page'] = page
+        max_page = vendor_vulns_count / 100 if vendor_vulns_count % 100 == 0 else (vendor_vulns_count / 100) + 1
+        context['max_page'] = max_page
+        context['page_range'] = range(int(max_page))[1:]
+
+        id = (page - 1) * 100 + 1
+        for vendorvul in context['vendorvulns']:
+            vendor_name = vendorvul['vendor_name']
+            vendorvul['id'] = id
+            id += 1
+
+            vs = get_project_vendor_by_name(vendor_name)
+            vendorvul['vendor_count'] = vs.count()
+
+            vvs = get_vendor_vul_by_name(vendor_name)
+            vendorvul['high'] = 0
+            vendorvul['medium'] = 0
+            vendorvul['low'] = 0
+
+            for vv in vvs:
+                if vv.severity > 6:
+                    vendorvul['high'] += 1
+                elif vv.severity > 2:
+                    vendorvul['medium'] += 1
+                else:
+                    vendorvul['low'] += 1
+
+        return context

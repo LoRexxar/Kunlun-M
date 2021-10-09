@@ -35,8 +35,10 @@ urlpatterns = [
     # vendor
     path('vendors/search', login_required(vendor.VendorDetailView.as_view()), name='vendor_details'),
     path('vendors/list', login_required(vendor.VendorListView.as_view()), name='vendors_list'),
+    path('vendors/statistics', login_required(vendor.VendorStatisticsView.as_view()), name='vendors_statistics'),
     path('vendorvulns/<int:vendor_vul_id>', login_required(vendor.VendorVulnDetailView.as_view()), name='vendor_vulns_details'),
     path('vendorvulns/list', login_required(vendor.VendorVulnListView.as_view()), name='vendor_vulns_list'),
+    path('vendorvulns/statistics', login_required(vendor.VendorVulnStatisticsView.as_view()), name='vendors_vulns_statistics'),
 
     # docs
     path("docs", views.docs, name="docs"),
