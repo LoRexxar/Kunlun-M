@@ -31,8 +31,15 @@ urlpatterns = [
     # rule details
     path("rule/<int:rule_cviid>", views.RuleDetailApiView.as_view(), name="rule_detail"),
 
+    # vendor
     # vendor vul list
     path("vendorvul/list", views.VendorVulListApiView.as_view(), name="vendor_vul_list"),
     # vendor vul details
     path("vendorvul/<int:vendor_vul_id>", views.VendorVuLDetailApiView.as_view(), name="vendor_vul_detail"),
+    # vendor vul statistics
+    path("vendorvul/statistics", views.VendorVulStatisticsApiView.as_view(), name="vendor_vul_statistics"),
+
+    # vendor statistics
+    path("vendor/statistics", views.VendorStatisticsApiView.as_view(), name="vendor_statistics"),
+
 ]
