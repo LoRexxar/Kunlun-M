@@ -18,7 +18,7 @@ from django.views.generic import TemplateView
 from django.views import View
 from django.db.models import Count
 
-from web.index.models import ScanTask, VendorVulns, Rules, Tampers, NewEvilFunc, Project, ProjectVendors
+from web.index.models import ScanTask, VendorVulns, Rules, Tampers, NewEvilFunc, Project, ProjectVendors, ScanResultTask
 from web.index.models import get_and_check_scantask_project_id, get_resultflow_class, get_and_check_scanresult
 from core.vendors import get_project_vendor_by_name, get_vendor_vul_by_name
 
@@ -64,8 +64,8 @@ class TaskDetailApiView(View):
         return JsonResponse({"code": 200, "status": True, "message":  list(scantask)})
 
 
-class TaskResultDetailApiView(View):
-    """展示当前任务结果细节"""
+class TaskResultApiView(View):
+    """展示当前任务所有结果细节"""
 
     @staticmethod
     @api_token_required
@@ -82,7 +82,37 @@ class TaskResultDetailApiView(View):
             {"code": 200, "status": True, "message": scantaskresults})
 
 
-class TaskResultFlowDetailApiView(View):
+class TaskResultDetailApiView(View):
+    """指定任务结果细节"""
+
+    @staticmethod
+    @api_token_required
+    def get(request, result_id):
+        srt = ScanResultTask.objects.filter(id=result_id, is_active=1).values()
+
+        if not srt:
+            return JsonResponse({"code": 403, "status": False, "message": "TaskResult {} not exist.".format(result_id)})
+
+        return JsonResponse({"code": 200, "status": True, "message": list(srt)})
+
+
+class TaskResultDetailDelApiView(View):
+    """删除当前任务结果细节"""
+
+    @staticmethod
+    @api_token_required
+    def get(request, result_id):
+        srt = ScanResultTask.objects.filter(id=result_id).first()
+
+        if not srt or srt.is_active == 0:
+            return JsonResponse({"code": 403, "status": False, "message": "TaskResult {} not exist.".format(result_id)})
+
+        srt.is_active = 0
+        srt.save()
+        return JsonResponse({"code": 200, "status": True, "message": "Delete Success."})
+
+
+class TaskResultFlowApiView(View):
     """展示当前任务结果流细节"""
 
     @staticmethod
@@ -99,6 +129,45 @@ class TaskResultFlowDetailApiView(View):
         resultflow_list = list(rfs.values())
         return JsonResponse(
             {"code": 200, "status": True, "message": resultflow_list})
+
+
+class TaskResultFlowDetailApiView(View):
+    """展示指定任务结果流细节"""
+
+    @staticmethod
+    @api_token_required
+    def get(request, result_id, vul_id):
+        scantask = ScanResultTask.objects.filter(id=result_id).first()
+        task_id = scantask.scan_task_id
+
+        if not scantask.is_finished:
+            return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
+
+        ResultFlow = get_resultflow_class(int(task_id))
+        rfs = ResultFlow.objects.filter(vul_id=vul_id)
+
+        resultflow_list = list(rfs.values())
+        return JsonResponse(
+            {"code": 200, "status": True, "message": resultflow_list})
+
+
+# class TaskResultFlowDetailDelApiView(View):
+#     """删除当前任务结果流细节"""
+#
+#     @staticmethod
+#     @api_token_required
+#     def get(request, task_id, vul_id):
+#         scantask = ScanTask.objects.filter(id=task_id).first()
+#
+#         if not scantask.is_finished:
+#             return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
+#
+#         ResultFlow = get_resultflow_class(int(task_id))
+#         rfs = ResultFlow.objects.filter(vul_id=vul_id)
+#
+#         resultflow_list = list(rfs.values())
+#         return JsonResponse(
+#             {"code": 200, "status": True, "message": resultflow_list})
 
 
 class TaskNewEvilFuncApiView(View):

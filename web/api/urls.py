@@ -18,13 +18,20 @@ urlpatterns = [
     # task details
     path("task/<int:task_id>", views.TaskDetailApiView.as_view(), name="task_detail"),
     # task result details
-    path("task/<int:task_id>/result", views.TaskResultDetailApiView.as_view(), name="task_result_detail"),
+    path("task/<int:task_id>/result", views.TaskResultApiView.as_view(), name="task_result_detail"),
     # task resultflow details
-    path("task/<int:task_id>/resultflow", views.TaskResultFlowDetailApiView.as_view(), name="task_resultflow_detail"),
+    path("task/<int:task_id>/resultflow", views.TaskResultFlowApiView.as_view(), name="task_resultflow_detail"),
     # task new evil func
     path("task/<int:task_id>/newevilfunc", views.TaskNewEvilFuncApiView.as_view(), name="task_new_evil_func_detail"),
     # task vendors
     path("task/<int:task_id>/vendors", views.TaskVendorsApiView.as_view(), name="task_vendors"),
+
+    # task result
+    path("task/result/<int:result_id>", views.TaskResultDetailApiView.as_view(), name="task_result"),
+    path("task/result/<int:result_id>/del", views.TaskResultDetailDelApiView.as_view(), name="task_result_del"),
+    # task resultflow
+    path("task/result/<int:result_id>/resultflow/<int:vul_id>", views.TaskResultFlowDetailApiView.as_view(), name="task_resultflow"),
+    # path("task/<int:task_id>/resultflow/<int:vul_id>/del", views.TaskResultFlowDetailDelApiView.as_view(), name="task_resultflow_detail_del"),
 
     # rule list
     path("rule/list", views.RuleListApiView.as_view(), name="rule_list"),
