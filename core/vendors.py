@@ -353,10 +353,11 @@ class Vendors:
                     root = tree.getroot()
                     childs = root.findall(xpath_reg)
                     for child in childs:
-                        group_id = child.getchildren()[0].text
-                        artifact_id = child.getchildren()[1].text
-                        if len(child.getchildren()) > 2:
-                            version = child.getchildren()[2].text
+                        children = list(child)
+                        group_id = children[0].text
+                        artifact_id = children[1].text
+                        if len(children) > 2:
+                            version = children[2].text
                         else:
                             version = 'latest'
 
