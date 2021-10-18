@@ -48,6 +48,11 @@ def api_token_required(function):
             if request.GET['apitoken'] == API_TOKEN:
                 return function(request, *args, **kwargs)
 
+        elif "apitoken" in request.POST:
+
+            if request.POST['apitoken'] == API_TOKEN:
+                return function(request, *args, **kwargs)
+
         return JsonResponse({"code": 401, "status": "error", "message": "Auth check error. token required."})
 
     return wrapper

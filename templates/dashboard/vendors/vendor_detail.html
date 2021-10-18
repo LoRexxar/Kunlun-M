@@ -63,7 +63,7 @@
 
                     <td>{{ p.project_origin }}</td>
                     <td><a href="{% url 'dashboard:vendor_details'%}?vendorname={{ p.vendor_name }}">{{ p.vendor_name }}</a></td>
-                    <td>{{ p.vendor_version }}</td>
+                    <td>{{ p.version }}</td>
 
                 </tr>
                 {% endfor %}

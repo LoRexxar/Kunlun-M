@@ -175,9 +175,10 @@ scratch. This page gets rid of all links and provides the needed markup only.
           </a>
           <ul class="treeview-menu">
             <li id="vendors_list"><a href="{% url 'dashboard:vendors_list' %}"><i class="fa fa-circle-o"></i>Vendors List</a></li>
-          </ul>
-          <ul class="treeview-menu">
+            <li id="vendors_statistics"><a href="{% url 'dashboard:vendors_statistics' %}"><i class="fa fa-circle-o"></i>Vendors Statistics</a></li>
             <li id="vendor_vulns_list"><a href="{% url 'dashboard:vendor_vulns_list' %}"><i class="fa fa-circle-o"></i>Vendors Vuln List</a></li>
+            <li id="vendors_vulns_statistics"><a href="{% url 'dashboard:vendors_vulns_statistics' %}"><i class="fa fa-circle-o"></i>Vendors Vuln Statistics</a></li>
+
           </ul>
         </li>
         <li class="treeview" id="rules">

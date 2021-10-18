@@ -1,0 +1,68 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Vendors Vul Statistics{% endblock %}
+
+{% block body %}
+<div>
+
+<div class="row">
+        <div class="col-xs-12">
+          <div class="box">
+            <div class="box-header">
+              <h3 class="box-title">Vendors Vul Statistics</h3>
+            </div>
+            <!-- /.box-header -->
+            <div class="box-body table-responsive no-padding">
+              <table class="table table-hover">
+                <tbody><tr>
+                  <th>ID</th>
+                  <th>Vendor Name</th>
+                  <th>High Risk</th>
+                  <th>Medium Risk</th>
+                  <th>Low Risk</th>
+                  <th>Vendor Count</th>
+                  <th>Vul Count</th>
+                </tr>
+                {% for vendorvuln in vendorvulns %}
+                <tr>
+                    <td>{{ vendorvuln.id }}</td>
+                    <td><a href="{% url 'dashboard:vendor_details'%}?vendorname={{ vendorvuln.vendor_name }}">{{ vendorvuln.vendor_name }}</a></td>
+                    <td>{{ vendorvuln.high }}</td>
+                    <td>{{ vendorvuln.medium }}</td>
+                    <td>{{ vendorvuln.low }}</td>
+                    <td>{{ vendorvuln.vendor_count }}</td>
+                    <td>{{ vendorvuln.total }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody></table>
+            </div>
+            <!-- /.box-body -->
+
+            <div class="box-footer">
+            <ul class="pagination pagination-sm m-0 float-right">
+                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:vendors_vulns_statistics' %}">«</a></li>
+                {% for i in page_range %}
+                  <li class="page-item {% if page == i %}active{% endif %}"><a class="page-link" href="{% url 'dashboard:vendors_vulns_statistics' %}?p={{ i }}">{{ i }}</a></li>
+                {% endfor %}
+                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:vendors_vulns_statistics' %}?p={{ max_page }}">»</a></li>
+                </ul>
+            </div>
+          </div>
+          <!-- /.box -->
+        </div>
+      </div>
+{% endblock %}
+
+{% block script %}
+
+<script>
+      $(document).ready(function () {
+          $("#dashboard").removeClass("active menu-open");
+          $("#dashboard").find("ul li").removeClass("active");
+          $("#vendors").addClass("menu-open");
+          $("#vendors").find("ul").find("li#vendors_vulns_statistics").addClass("active");
+          $("#vendors").find("ul").css("display","block");
+      });
+</script>
+
+
+{% endblock %}
