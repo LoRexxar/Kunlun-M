@@ -194,11 +194,12 @@ class RuleCheck:
 
         svid = nowrule.svid
         ruleconfig_content = str(ruleconfig_content)
+        nowrule_content = getattr(nowrule, config).replace(r'\"', '"')
 
         if ruleconfig_content.lower() != str(getattr(nowrule, config)).lower():
             logger.warning("[INIT][Rule Check] CVI_{} config {} has changed:".format(svid, config))
             logger.warning("[INIT][Rule Check] {} in Rule File is {}".format(config, ruleconfig_content))
-            logger.warning("[INIT][Rule Check] {} in Database is {}".format(config, getattr(nowrule, config)))
+            logger.warning("[INIT][Rule Check] {} in Database is {}".format(config, nowrule_content))
 
             if always_load_rule_from_file:
                 logger.warning("[INIT][Rule Check] automatically load new {} from Rule File".format(config))

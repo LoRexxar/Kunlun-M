@@ -1293,6 +1293,95 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     code = "New {} param back from Foreach".format(param)
                     scan_chain.append(('NewForBack', code, file_path, node.lineno))
 
+        elif isinstance(node, php.AssignOp):
+            # assignop 为 .= +=
+            if node.op == ".=" and param_name == get_node_name(node.left):
+                param_node = get_node_name(node.left)  # param_node为被赋值的变量
+                param_expr, expr_lineno, is_re = get_expr_name(node.right)  # param_expr为赋值表达式,param_expr为变量或者列表
+
+                if param_name == param_node and is_re is True:
+                    is_co = 2
+                    cp = param
+                    return is_co, cp, expr_lineno
+
+                if not isinstance(param_expr, list):
+                    logger.debug(
+                        "[AST] Find {}.={} in line {}, start ast for param {}".format(param_name, param_expr,
+                                                                                      expr_lineno,
+                                                                                      param_expr))
+
+                    file_path = os.path.normpath(file_path)
+                    code = "{}.={}".format(param_name, param_expr)
+                    scan_chain.append(('AssignmentOp', code, file_path, node.lineno))
+
+                    is_co, cp = is_controllable(param_expr)  # 开始判断变量是否可控
+
+                    if is_co != 1 and is_co != 3:
+                        is_co, cp = is_sink_function(param_expr, function_params)
+
+                    if is_co == -1 and isback is True:
+                        cp = param_expr
+
+                    if is_co in [-1, 1, 2]:  # 目标确定直接返回
+                        return is_co, cp, expr_lineno
+
+                    if isinstance(node.expr, php.ArrayOffset):
+                        param = node.expr
+                    else:
+                        param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                        param_name = param_expr
+
+                elif isinstance(param_expr, list):
+
+                    logger.debug(
+                        "[AST] Find {} from list for {} in line {}, start ast for list {}".format(param_name,
+                                                                                                  param_expr,
+                                                                                                  node.lineno,
+                                                                                                  param_expr))
+                    file_path = os.path.normpath(file_path)
+                    code = "{}.={}".format(param_name, param_expr)
+                    scan_chain.append(('ListAssignmentOp', code, file_path, node.lineno))
+
+                    # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
+                    if param_name in param_expr:
+                        logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
+
+                        is_co = 3
+                        cp = param
+
+                    else:
+                        for expr in param_expr:
+                            param = expr
+                            is_co, cp = is_controllable(expr)
+
+                            if is_co == 1:
+                                return is_co, cp, expr_lineno
+
+                            if is_co == -1:
+                                continue
+
+                            file_path = os.path.normpath(file_path)
+                            code = "find param {}".format(param)
+                            scan_chain.append(('NewFind', code, file_path, node.lineno))
+
+                            param = php.Variable(param)
+                            _is_co, _cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                                       function_flag=1, vul_function=vul_function,
+                                                                       file_path=file_path,
+                                                                       isback=isback)
+
+                            if _is_co == 1:  # 当参数可控时，值赋给is_co 和 cp，有一个参数可控，则认定这个函数可能可控
+                                is_co = _is_co
+                                cp = _cp
+                                break
+                            else:
+                                file_path = os.path.normpath(file_path)
+                                code = "param {} find fail. continue".format(param)
+                                scan_chain.append(('FindEnd', code, file_path, node.lineno))
+
+                                logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
+                                continue
+
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                      function_flag=function_flag, vul_function=vul_function,
