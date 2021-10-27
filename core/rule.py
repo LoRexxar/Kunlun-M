@@ -194,7 +194,7 @@ class RuleCheck:
 
         svid = nowrule.svid
         ruleconfig_content = str(ruleconfig_content)
-        nowrule_content = getattr(nowrule, config).replace(r'\"', '"')
+        nowrule_content = str(getattr(nowrule, config)).replace(r'\"', '"')
 
         if ruleconfig_content.lower() != str(getattr(nowrule, config)).lower():
             logger.warning("[INIT][Rule Check] CVI_{} config {} has changed:".format(svid, config))
