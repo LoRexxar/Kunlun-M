@@ -18,7 +18,7 @@ def get_vulns_from_depsdev(ecosystem, package_name, version):
     result = []
 
     package_name = quote(package_name, safe='')
-    url = __DEPSDEVAPIURL.format(ecosystem=ecosystem, package=package_name, version=version)
+    url = __DEPSDEVAPIURL.format(package=package_name, version=version)
 
     resp = requests.get(url, timeout=6)
     if resp.status_code == 200:
