@@ -2,7 +2,7 @@ import json
 import requests
 from urllib.parse import quote
 
-__DEPSDEVAPIURL = "https://deps.dev/_/s/{eco_system}/p/{package}/v/{version}/dependencies"
+__DEPSDEVAPIURL = "https://deps.dev/_/s/{ecosystem}/p/{package}/v/{version}/dependencies"
 __DEPSDEVADVISORYURL = "https://deps.dev/_/advisory/{source}/{source_id}"
 __SEVERITY_DICT = {
     "UNKNOWN": 1,
