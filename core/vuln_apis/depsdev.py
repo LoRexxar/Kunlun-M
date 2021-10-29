@@ -2,7 +2,7 @@ import json
 import requests
 from urllib.parse import quote
 
-__DEPSDEVAPIURL = "https://deps.dev/_/s/{eco_system}/p/{package}/v/{version}/dependencies"
+__DEPSDEVAPIURL = "https://deps.dev/_/s/{ecosystem}/p/{package}/v/{version}/dependencies"
 __DEPSDEVADVISORYURL = "https://deps.dev/_/advisory/{source}/{source_id}"
 __SEVERITY_DICT = {
     "UNKNOWN": 1,
@@ -18,7 +18,7 @@ def get_vulns_from_depsdev(ecosystem, package_name, version):
     result = []
 
     package_name = quote(package_name, safe='')
-    url = __DEPSDEVAPIURL.format(package=package_name, version=version)
+    url = __DEPSDEVAPIURL.format(ecosystem=ecosystem, package=package_name, version=version)
 
     resp = requests.get(url, timeout=6)
     if resp.status_code == 200:
