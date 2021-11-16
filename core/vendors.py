@@ -266,6 +266,7 @@ class Vendors:
                 f = codecs.open(filepath, 'rb+', encoding='utf-8', errors='ignore')
                 filecontent = f.read()
                 f.seek(0, os.SEEK_SET)
+                filepath = filepath.replace('\\', '/')
 
                 if filename == "requirements.txt":
 
@@ -280,7 +281,7 @@ class Vendors:
                             vendor_version = None
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                      language=language)
+                                                      language=language, ext=filepath)
 
                         get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
@@ -299,7 +300,7 @@ class Vendors:
                         vendor_version = vendors_list[vendor].strip()
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                      language=language)
+                                                      language=language, ext=filepath)
 
                         get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
@@ -328,7 +329,7 @@ class Vendors:
                             vendor_version = vendor[-1].strip()
 
                             update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                          language=language, ext=go_version)
+                                                          language=language, ext=filepath)
 
                             get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
@@ -382,7 +383,7 @@ class Vendors:
                         ext = "maven"
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                      language=language, ext=ext)
+                                                      language=language, ext=filepath)
 
                         get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
 
@@ -416,7 +417,7 @@ class Vendors:
 
                             if vendor_name and vendor_version:
                                 update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                              language=language, ext=ext)
+                                                              language=language, ext=filepath)
 
                                 get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
                             continue
@@ -436,7 +437,7 @@ class Vendors:
                         ext = "{}.{}".format(node_version, "dependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
-                                                      language=language, ext=ext)
+                                                      language=language, ext=filepath)
 
                         get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
 
@@ -445,7 +446,7 @@ class Vendors:
                         ext = "{}.{}".format(node_version, "devDependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
-                                                      language=language, ext=ext)
+                                                      language=language, ext=filepath)
 
                         get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
 
