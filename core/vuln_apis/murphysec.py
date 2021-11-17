@@ -62,7 +62,7 @@ def get_vulns_from_murphysec(language, package_name, version):
                 vuln["reference"] = json.dumps(urls)
                 vuln["description"] = """{}
 
-受影响的版本范围: {]
+受影响的版本范围: {}
 存在危害的相关代码片段:\n {}
 """.format(vul["description"], vul["effect"][0]["affected_version"], vul["vuln_code_usage"])
 
