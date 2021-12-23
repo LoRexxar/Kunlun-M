@@ -43,7 +43,7 @@ def tasklog(req, task_id):
 
     project_id = get_and_check_scantask_project_id(task_id)
 
-    srts = get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id)
+    srts = get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id, is_active=1)
     nefs = NewEvilFunc.objects.filter(project_id=project_id)
 
     ResultFlow = get_resultflow_class(task_id)
