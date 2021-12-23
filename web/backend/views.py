@@ -43,7 +43,7 @@ def tasklog(req, task_id):
 
     project_id = get_and_check_scantask_project_id(task_id)
 
-    srts = get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id)
+    srts = get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id, is_active=1)
     nefs = NewEvilFunc.objects.filter(project_id=project_id)
 
     ResultFlow = get_resultflow_class(task_id)
@@ -53,6 +53,16 @@ def tasklog(req, task_id):
     resultflowdict = {}
 
     for rf in rfs:
+
+        # 加入漏洞有效检查，可能已被删除或处理
+        # 组件漏洞不显示
+        if rf.node_type == "sca_scan":
+            continue
+
+        r = get_and_check_scanresult(task_id).objects.filter(id=rf.vul_id, is_active=1).first()
+        if not r:
+            continue
+
         if rf.vul_id not in resultflowdict:
             resultflowdict[rf.vul_id] = {
                 'id': rf.vul_id,
