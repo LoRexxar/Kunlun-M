@@ -3,50 +3,85 @@
 
 {% block body %}
 <div class="row">
-        <div class="col-xs-12">
-          <div class="box">
-            <div class="box-header">
-              <h3 class="box-title">Projects List</h3>
-            </div>
-            <!-- /.box-header -->
-            <div class="box-body table-responsive no-padding">
-              <table class="table table-hover">
-                <tbody><tr>
-                  <th>ID</th>
-                  <th>Origin</th>
-                  <th>Last Scan Time</th>
-                  <th>Task Count</th>
-                  <th>Vul Count</th>
-                  <th>Vendor Count</th>
-                </tr>
-                {% for project in projects %}
-                <tr>
-                    <td><a href="{% url 'dashboard:project_detail' project.id %}">{{ project.id }} {{ project.project_name }}</a></td>
-                      <td>{{ project.project_origin }}</td>
-                      <td>{{ project.last_scan_time }}</td>
-                      <td>{{ project.tasks_count }}</td>
-                      <td>{{ project.results_count }}</td>
-                      <td>{{ project.vendors_count }}</td>
+<div class="col-xs-12">
 
-                  </tr>
-                {% endfor %}
-              </tbody></table>
-            </div>
-            <!-- /.box-body -->
+<form id="fileform" role="form" method="get" enctype="multipart/form-data" action="{% url 'dashboard:projects_list' %}">
 
-            <div class="box-footer">
-                <ul class="pagination pagination-sm m-0 float-right">
-                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:projects_list' %}">«</a></li>
-                {% for i in page_range %}
-                  <li class="page-item {% if page == i %}active{% endif %}"><a class="page-link" href="{% url 'dashboard:projects_list' %}?p={{ i }}">{{ i }}</a></li>
-                {% endfor %}
-                  <li class="page-item"><a class="page-link" href="{% url 'dashboard:projects_list' %}?p={{ max_page }}">»</a></li>
-                </ul>
-            </div>
-          </div>
-          <!-- /.box -->
-        </div>
+
+<div class="box box-primary">
+    <div class="box-header with-border">
+  <h3 class="box-title">Search Project</h3>
+</div>
+<div class="box-body">
+  <!-- Date -->
+  <!-- Date and time range -->
+  <div class="form-group">
+    <label>Project Name:</label>
+
+    <div class="input-group">
+      <div class="input-group-addon">
+        <i class="fa fa-laptop "></i>
       </div>
+      <input type="text" class="form-control pull-right" name="project_name" value="{{ search_project_name }}" >
+    </div>
+              ps: use * to indicate wildcard, just like *test*.
+    <!-- /.input group -->
+  </div>
+  </div>
+  <!-- /.box -->
+    <div class="box-footer">
+        <div class="btn-group">
+          <button id="submit" type="submit" class="btn btn-primary">Search</button>
+        </div>
+  </div>
+</div>
+</form>
+</div>
+
+<div class="col-xs-12">
+  <div class="box">
+    <div class="box-header">
+      <h3 class="box-title">Projects List</h3>
+    </div>
+    <!-- /.box-header -->
+    <div class="box-body table-responsive no-padding">
+      <table class="table table-hover">
+        <tbody><tr>
+          <th>ID</th>
+          <th>Origin</th>
+          <th>Last Scan Time</th>
+          <th>Task Count</th>
+          <th>Vul Count</th>
+          <th>Vendor Count</th>
+        </tr>
+        {% for project in projects %}
+        <tr>
+            <td><a href="{% url 'dashboard:project_detail' project.id %}">{{ project.id }} {{ project.project_name }}</a></td>
+              <td>{{ project.project_origin }}</td>
+              <td>{{ project.last_scan_time }}</td>
+              <td>{{ project.tasks_count }}</td>
+              <td>{{ project.results_count }}</td>
+              <td>{{ project.vendors_count }}</td>
+
+          </tr>
+        {% endfor %}
+      </tbody></table>
+    </div>
+    <!-- /.box-body -->
+
+    <div class="box-footer">
+        <ul class="pagination pagination-sm m-0 float-right">
+          <li class="page-item"><a class="page-link" href="{% url 'dashboard:projects_list' %}">«</a></li>
+        {% for i in page_range %}
+          <li class="page-item {% if page == i %}active{% endif %}"><a class="page-link" href="{% url 'dashboard:projects_list' %}?p={{ i }}">{{ i }}</a></li>
+        {% endfor %}
+          <li class="page-item"><a class="page-link" href="{% url 'dashboard:projects_list' %}?p={{ max_page }}">»</a></li>
+        </ul>
+    </div>
+  </div>
+  <!-- /.box -->
+</div>
+</div>
 {% endblock %}
 
 {% block script %}

@@ -26,7 +26,7 @@ from web.index.controller import login_or_token_required
 from utils.utils import del_sensitive_for_config
 
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project, ProjectVendors, VendorVulns
-from web.index.models import get_and_check_scanresult, get_and_check_evil_func
+from web.index.models import search_project_by_name
 
 
 class ProjectListView(TemplateView):
@@ -36,9 +36,15 @@ class ProjectListView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super(ProjectListView, self).get_context_data(**kwargs)
 
-        rows = Project.objects.all().order_by('-id')
+        # 搜索项目
+        search_project_name = ""
+        if "project_name" in self.request.GET:
+            search_project_name = self.request.GET['project_name']
+
+        rows = search_project_by_name(search_project_name)
         project_count = Project.objects.all().count()
 
+        # 分页
         if 'p' in self.request.GET:
             page = int(self.request.GET['p'])
         else:
@@ -78,6 +84,7 @@ class ProjectListView(TemplateView):
 
         context['max_page'] = max_page
         context['page_range'] = range(int(max_page))[1:]
+        context['search_project_name'] = search_project_name
 
         return context
 
