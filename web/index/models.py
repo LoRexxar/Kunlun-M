@@ -90,14 +90,13 @@ class ProjectVendors(models.Model):
 
 def update_and_new_project_vendor(project_id, name, version, language, ext=None):
     hash = md5("{},{},{}".format(project_id, name, language))
-    vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id).first()
+    vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id, ext=ext).first()
 
     if vendor:
-        if vendor.version != version or vendor.ext != ext:
+        if vendor.version != version:
             logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
             vendor.version = version
-            vendor.ext = ext
             try:
                 vendor.save()
             except IntegrityError:
