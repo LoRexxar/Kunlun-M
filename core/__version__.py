@@ -46,3 +46,6 @@ __scan_epilog__ = """Usage:
   python {m} scan -t {td} --lan php -tp roundcube -d -uc
 
 """.format(m='kunlun.py', td='tests/vulnerabilities')
+__database_epilog__ = """Usage:
+  python {m} init initialize
+""".format(m='kunlun.py')
