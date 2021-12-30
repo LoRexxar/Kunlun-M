@@ -96,6 +96,7 @@ def update_and_new_project_vendor(project_id, name, version, language, source=No
     if vendor:
         # 兼容性处理，如果source未指定，先更新source进去
         if not vendor.source:
+            vendor.version = version
             vendor.source = source
             vendor.ext = ext
             vendor.version = version
@@ -109,19 +110,19 @@ def update_and_new_project_vendor(project_id, name, version, language, source=No
     else:
         vendor = ProjectVendors.objects.filter(project_id=project_id, hash=hash).first()
 
-        if vendor:
-            if vendor.version != version:
-                logger.debug("[Vendors] Component {} update to version {}".format(name, version))
+    if vendor:
+        if vendor.version != version:
+            logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
-                vendor.version = version
-                try:
-                    vendor.save()
-                except IntegrityError:
-                    logger.warn("[Model Save] vendor model not changed")
+            vendor.version = version
+            try:
+                vendor.save()
+            except IntegrityError:
+                logger.warn("[Model Save] vendor model not changed")
 
-        else:
-            v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, ext=ext)
-            v.save()
+    else:
+        v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, ext=ext)
+        v.save()
 
     return True
 
