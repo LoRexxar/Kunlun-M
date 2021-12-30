@@ -32,7 +32,7 @@ from .engine import Running
 
 from .__version__ import __title__, __introduction__, __url__, __version__
 from .__version__ import __author__, __author_email__, __license__
-from .__version__ import __copyright__, __epilog__, __scan_epilog__
+from .__version__ import __copyright__, __epilog__, __scan_epilog__, __database_epilog__
 
 from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
@@ -65,7 +65,7 @@ def main():
         parser_group_init.add_argument('migrationname', default='migrationname',  nargs='?', help='Check migration name')
 
         # load config into database
-        parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
+        parser_group_core = subparsers.add_parser('config', help='config for rule&tamper', description=__introduction__.format(detail='config for rule&tamper'), epilog=__database_epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, usage=argparse.SUPPRESS, add_help=True)
         parser_group_core.add_argument('load', choices=['load', 'recover', 'loadtamper', 'retamper'], default=False, help='operate for rule&tamper')
 
         parser_group_scan = subparsers.add_parser('scan', help='scan target path', description=__introduction__.format(detail='scan target path'), epilog=__scan_epilog__, formatter_class=argparse.RawDescriptionHelpFormatter, add_help=True)

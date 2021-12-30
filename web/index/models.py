@@ -47,11 +47,39 @@ class Project(models.Model):
     project_hash = models.CharField(max_length=32)
 
 
+def search_project_by_name(project_name):
+    """
+        支持*语法的查询
+        :param project_name:
+        :return:
+        """
+    if not project_name:
+        ps = Project.objects.all().order_by('-id')
+        return ps
+
+    if project_name.startswith('*'):
+        if project_name.endswith('*'):
+            ps = Project.objects.filter(project_name__icontains=project_name.strip('*')).order_by('-id')
+
+        else:
+            ps = Project.objects.filter(project_name__iendswith=project_name.strip('*')).order_by('-id')
+
+    else:
+        if project_name.endswith('*'):
+            ps = Project.objects.filter(project_name__istartswith=project_name.strip('*')).order_by('-id')
+
+        else:
+            ps = Project.objects.filter(project_name__iexact=project_name.strip('*')).order_by('-id')
+
+    return ps
+
+
 class ProjectVendors(models.Model):
     project_id = models.IntegerField()
     name = models.CharField(max_length=200)
     version = models.CharField(max_length=50, null=True)
     language = models.CharField(max_length=20)
+    source = models.CharField(max_length=100, null=True, default=None)
     ext = models.CharField(max_length=100, null=True, default=None)
     hash = models.CharField(max_length=32)
 
@@ -61,16 +89,32 @@ class ProjectVendors(models.Model):
         super().save(*args, **kwargs)
 
 
-def update_and_new_project_vendor(project_id, name, version, language, ext=None):
-    hash = md5("{},{},{}".format(project_id, name, language))
-    vendor = ProjectVendors.objects.filter(hash=hash, project_id=project_id).first()
+def update_and_new_project_vendor(project_id, name, version, language, source=None, ext=None):
+    hash = md5("{},{},{},{}".format(project_id, name, language, source))
+    vendor = ProjectVendors.objects.filter(project_id=project_id, name=name, language=language).first()
 
     if vendor:
-        if vendor.version != version or vendor.ext != ext:
+        # 兼容性处理，如果source未指定，先更新source进去
+        if not vendor.source:
+            vendor.version = version
+            vendor.source = source
+            vendor.ext = ext
+            vendor.version = version
+            vendor.hash = hash
+
+            try:
+                vendor.save()
+            except IntegrityError:
+                logger.warn("[Model Save] vendor model not changed")
+
+    else:
+        vendor = ProjectVendors.objects.filter(project_id=project_id, hash=hash).first()
+
+    if vendor:
+        if vendor.version != version:
             logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
             vendor.version = version
-            vendor.ext = ext
             try:
                 vendor.save()
             except IntegrityError:

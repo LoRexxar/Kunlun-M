@@ -26,7 +26,7 @@ from web.index.controller import login_or_token_required
 from utils.utils import del_sensitive_for_config
 
 from web.index.models import ScanTask, ScanResultTask, Rules, Tampers, NewEvilFunc, Project, ProjectVendors, VendorVulns
-from web.index.models import get_and_check_scanresult, get_and_check_evil_func
+from web.index.models import search_project_by_name
 
 
 class ProjectListView(TemplateView):
@@ -36,10 +36,26 @@ class ProjectListView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super(ProjectListView, self).get_context_data(**kwargs)
 
-        rows = Project.objects.all().order_by('-id')
+        # 搜索项目
+        search_project_name = ""
+        if "project_name" in self.request.GET:
+            search_project_name = self.request.GET['project_name']
+
+        rows = search_project_by_name(search_project_name)
         project_count = Project.objects.all().count()
 
-        context['projects'] = rows
+        # 分页
+        if 'p' in self.request.GET:
+            page = int(self.request.GET['p'])
+        else:
+            page = 1
+
+        # check page
+        if page*50 > project_count:
+            page = 1
+
+        context['projects'] = rows[(page-1)*50: page*50]
+        context['page'] = page
 
         for project in context['projects']:
 
@@ -61,23 +77,14 @@ class ProjectListView(TemplateView):
 
         context['projects'] = sorted(context['projects'], key=lambda x:x.last_scan_time)[::-1]
 
-        if 'p' in self.request.GET:
-            page = int(self.request.GET['p'])
-        else:
-            page = 1
-
-        # check page
-        if page*50 > project_count:
-            page = 1
-
-        context['projects'] = context['projects'][(page-1)*50: page*50]
-        context['page'] = page
+        # context['projects'] = context['projects'][(page-1)*50: page*50]
 
         max_page = project_count // 50 if project_count % 50 == 0 else (project_count // 50)+1
         max_page = max_page+1 if max_page == 1 else max_page
 
         context['max_page'] = max_page
         context['page_range'] = range(int(max_page))[1:]
+        context['search_project_name'] = search_project_name
 
         return context
 

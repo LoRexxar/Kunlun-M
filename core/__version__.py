@@ -7,7 +7,7 @@ __url__ = 'https://github.com/LoRexxar/Kunlun-M'
 __issue_page__ = 'https://github.com/LoRexxar/Kunlun-M/issues/new'
 __python_version__ = sys.version.split()[0]
 __platform__ = platform.platform()
-__version__ = '2.6.4'
+__version__ = '2.6.4.1'
 __author__ = 'LoRexxar'
 __author_email__ = 'LoRexxar@gmail.com'
 __license__ = 'MIT License'
@@ -46,3 +46,7 @@ __scan_epilog__ = """Usage:
   python {m} scan -t {td} --lan php -tp roundcube -d -uc
 
 """.format(m='kunlun.py', td='tests/vulnerabilities')
+__database_epilog__ = """Usage:
+  python {m} init initialize
+  python {m} init checksql index 0009_projectvendors_source
+""".format(m='kunlun.py')

@@ -193,6 +193,9 @@ class Vendors:
         self.ext_list = []
         self.exist_file_list = []
 
+        # java temp vendor list
+        self.java_temp_vendor_list = {}
+
         for lan in VENDOR_FILE_DICT:
             self.vendor_file_list.extend(VENDOR_FILE_DICT[lan])
 
@@ -279,15 +282,17 @@ class Vendors:
                         vendor_version = vendor[-1].strip()
                         if len(vendor) < 2:
                             vendor_version = None
+                        ext = "php"
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                      language=language, ext=savefilepath)
+                                                      language=language, source=savefilepath, ext=ext)
 
                         get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent)
                     vendors_list = []
+                    ext = "php"
 
                     if not len(vendors):
                         continue
@@ -300,7 +305,7 @@ class Vendors:
                         vendor_version = vendors_list[vendor].strip()
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                      language=language, ext=savefilepath)
+                                                      language=language, source=savefilepath, ext=ext)
 
                         get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
@@ -327,15 +332,17 @@ class Vendors:
 
                             vendor_name = vendor[0].strip()
                             vendor_version = vendor[-1].strip()
+                            ext = go_version
 
                             update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                          language=language, ext=savefilepath)
+                                                          language=language, source=savefilepath, ext=ext)
 
                             get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
 
                 elif filename == 'pom.xml':
                     reg = r'xmlns="([\w\.\\/:]+)"'
                     pom_ns = None
+                    ext = ""
 
                     if re.search(reg, filecontent, re.I):
 
@@ -345,21 +352,47 @@ class Vendors:
                         for match in matchs:
                             pom_ns = match.group(1)
 
+                    tree = self.parse_xml(filepath)
+                    root = tree.getroot()
+
+                    # 匹配default
+                    if pom_ns:
+                        default_xpath_reg = ".//{%s}parent" % pom_ns
+                    else:
+                        default_xpath_reg = ".//parent"
+
+                    parents = root.findall(default_xpath_reg)
+                    default_version = "lastest"
+                    for parent in parents:
+                        default_version = parent.getchildren()[2].text
+
+                    # 匹配通用配置
+                    if pom_ns:
+                        java_base_xpath_reg = ".//{%s}properties" % pom_ns
+                    else:
+                        java_base_xpath_reg = ".//properties"
+
+                    base_tags = root.findall(java_base_xpath_reg)
+
+                    if base_tags:
+                        btags = base_tags[0].getchildren()
+                        for btag in btags:
+                            self.java_temp_vendor_list[btag.tag.replace("{%s}" % pom_ns, "")] = btag.text
+
+                    # 匹配dependency
                     if pom_ns:
                         xpath_reg = ".//{%s}dependency" % pom_ns
                     else:
                         xpath_reg = ".//dependency"
 
-                    tree = self.parse_xml(filepath)
-                    root = tree.getroot()
                     childs = root.findall(xpath_reg)
                     for child in childs:
                         group_id = child.getchildren()[0].text
                         artifact_id = child.getchildren()[1].text
-                        if len(child.getchildren()) > 2:
+                        if len(child.getchildren()) > 2 and "version" in child.getchildren()[2].tag:
                             version = child.getchildren()[2].text
                         else:
-                            version = 'latest'
+                            version = default_version
 
                         var_reg = "\${([\w\.\_-]+)}"
                         if re.search(var_reg, version, re.I):
@@ -368,6 +401,16 @@ class Vendors:
 
                             for match in matchs:
                                 varname = match.group(1)
+
+                                # 处理内置变量
+                                if varname == "project.version":
+                                    version = default_version
+                                    continue
+
+                                if varname in self.java_temp_vendor_list:
+                                    version = self.java_temp_vendor_list[varname]
+                                    continue
+
                                 if pom_ns:
                                     var_xpath_reg = ".//{%s}%s" % (pom_ns, varname)
                                 else:
@@ -377,13 +420,20 @@ class Vendors:
 
                                 for child in varchilds:
                                     version = child.text
+                                    ext = varname
+
+                                # 如果没有匹配到，那么需要去数据库查询
+                                if not varchilds:
+                                    pv = ProjectVendors.objects.filter(project_id=self.project_id, ext=varname).first()
+                                    if pv:
+                                        version = pv.version
 
                         vendor_name = "{}:{}".format(group_id, artifact_id)
                         vendor_version = version
-                        ext = "maven"
+                        # ext = "maven"
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                      language=language, ext=savefilepath)
+                                                      language=language, source=savefilepath, ext=ext)
 
                         get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
 
@@ -417,7 +467,7 @@ class Vendors:
 
                             if vendor_name and vendor_version:
                                 update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
-                                                              language=language, ext=savefilepath)
+                                                              language=language, source=savefilepath, ext=ext)
 
                                 get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
                             continue

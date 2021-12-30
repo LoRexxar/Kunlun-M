@@ -143,6 +143,9 @@ def display_result(scan_id, is_ask=False):
                 logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
 
                 try:
+                    if author == 'SCA':
+                        continue
+
                     if not show_context(rf.node_path, rf.node_lineno):
                         logger_console.info(rf.node_source)
                 except:

@@ -163,6 +163,7 @@
               <th>Version</th>
               <th>Language</th>
               <th>Remark</th>
+              <th>Ext</th>
             </tr>
             {% for project_vendor in project_vendors %}
             <tr>
@@ -170,6 +171,7 @@
                 <td>{{ project_vendor.name }}</td>
                 <td>{{ project_vendor.version }}</td>
                 <td>{{ project_vendor.language }}</td>
+                <td>{{ project_vendor.source }}</td>
                 <td>{{ project_vendor.ext }}</td>
 
               </tr>
