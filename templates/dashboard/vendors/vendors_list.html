@@ -52,6 +52,7 @@
                   <th>Name</th>
                   <th>Version</th>
                   <th>Language</th>
+                  <th>Source</th>
                   <th>Ext</th>
                 </tr>
                 {% for vendor in vendors %}
@@ -62,6 +63,7 @@
                     <td><a href="{% url 'dashboard:vendor_details'%}?vendorname={{ vendor.name }}">{{ vendor.name }}</a></td>
                       <td>{{ vendor.version }}</td>
                       <td>{{ vendor.language }}</td>
+                      <td>{{ vendor.source }}</td>
                       <td>{{ vendor.ext }}</td>
                   </tr>
                 {% endfor %}
