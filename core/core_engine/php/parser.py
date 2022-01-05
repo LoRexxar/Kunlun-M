@@ -926,6 +926,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if param_name in param_expr:
                     logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
 
+                    # 如果列表中直接就有可控变量，先算作漏洞
+                    for p in param_expr:
+                        is_co, cp = is_controllable(p)
+
+                        if is_co == 1:
+                            param = p
+                            return is_co, cp, expr_lineno
+
                     is_co = 3
                     cp = param
 
