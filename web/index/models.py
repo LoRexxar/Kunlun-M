@@ -111,7 +111,7 @@ def update_and_new_project_vendor(project_id, name, version, language, source=No
         vendor = ProjectVendors.objects.filter(project_id=project_id, hash=hash).first()
 
     if vendor:
-        if vendor.version != version:
+        if vendor.version != version and version != 'unknown':
             logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
             vendor.version = version
