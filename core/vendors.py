@@ -87,7 +87,7 @@ def get_project_by_version(vendor_name, vendor_version):
     is_need_version_check = True
     result_project = {}
 
-    if vendor_version == 'latest':
+    if vendor_version == 'unknown':
         is_need_version_check = False
 
     vendor_version = abstract_version(vendor_version)
@@ -100,7 +100,7 @@ def get_project_by_version(vendor_name, vendor_version):
     for pv in pvs:
         # pv_versions = pv.version.split(',')
 
-        if not is_need_version_check or compare_vendor(pv.version, vendor_version):
+        if is_need_version_check and compare_vendor(pv.version, vendor_version):
             pid = pv.project_id
             project = Project.objects.filter(id=pid).first()
 
@@ -210,6 +210,7 @@ class Vendors:
         # 检查列表
         self.get_vendor_file()
         self.exist_file_list = list(set(self.exist_file_list))
+        self.exist_file_list = sorted(self.exist_file_list, key=lambda i:len(i))
 
         if len(self.exist_file_list):
             self.check_vendor()
@@ -270,6 +271,8 @@ class Vendors:
                 filecontent = f.read()
                 f.seek(0, os.SEEK_SET)
                 savefilepath = filepath.replace(self.target_path, "").replace('\\', '/')
+
+                logger.info("[Vendor] Parse File {}.".format(savefilepath))
 
                 if filename == "requirements.txt":
 
@@ -362,9 +365,31 @@ class Vendors:
                         default_xpath_reg = ".//parent"
 
                     parents = root.findall(default_xpath_reg)
-                    default_version = "lastest"
+                    default_version = "unknown"
+                    project_version = "unknown"
                     for parent in parents:
-                        default_version = parent.getchildren()[2].text
+                        project_groupid = parent.getchildren()[0].text
+                        project_artifactId = parent.getchildren()[1].text
+                        project_version = parent.getchildren()[2].text
+
+                        # project version 格式检查
+                        var_reg = "\${([\w\.\_-]+)}"
+                        if re.search(var_reg, project_version, re.I):
+                            p2 = re.compile(var_reg)
+                            matchs = p2.finditer(project_version)
+
+                            for match in matchs:
+                                varname = match.group(1)
+
+                                if varname in self.java_temp_vendor_list:
+                                    project_version = self.java_temp_vendor_list[varname]
+                                    continue
+
+                        # project 依赖版本也可以加入全局表
+                        vendor_name = "{}.{}".format(project_groupid, project_artifactId)
+                        self.java_temp_vendor_list[vendor_name] = project_version
+                        update_and_new_project_vendor(self.project_id, name=vendor_name, version=project_version,
+                                                      language=language, source=savefilepath, ext=ext)
 
                     # 匹配通用配置
                     if pom_ns:
@@ -378,6 +403,12 @@ class Vendors:
                         btags = base_tags[0].getchildren()
                         for btag in btags:
                             self.java_temp_vendor_list[btag.tag.replace("{%s}" % pom_ns, "")] = btag.text
+
+                            # 全局表
+                            vendor_name = btag.tag.replace("{%s}" % pom_ns, "")
+                            self.java_temp_vendor_list[vendor_name] = btag.text
+                            update_and_new_project_vendor(self.project_id, name=vendor_name, version=btag.text,
+                                                          language=language, source=savefilepath, ext=ext)
 
                     # 匹配dependency
                     if pom_ns:
@@ -404,33 +435,35 @@ class Vendors:
 
                                 # 处理内置变量
                                 if varname == "project.version":
-                                    version = default_version
+                                    version = project_version
                                     continue
 
                                 if varname in self.java_temp_vendor_list:
                                     version = self.java_temp_vendor_list[varname]
                                     continue
 
-                                if pom_ns:
-                                    var_xpath_reg = ".//{%s}%s" % (pom_ns, varname)
-                                else:
-                                    var_xpath_reg = ".//%s" % varname
+                                # if pom_ns:
+                                #     var_xpath_reg = ".//{%s}%s" % (pom_ns, varname)
+                                # else:
+                                #     var_xpath_reg = ".//%s" % varname
+                                #
+                                # varchilds = root.findall(var_xpath_reg)
 
-                                varchilds = root.findall(var_xpath_reg)
-
-                                for child in varchilds:
-                                    version = child.text
-                                    ext = varname
-
-                                # 如果没有匹配到，那么需要去数据库查询
-                                if not varchilds:
-                                    pv = ProjectVendors.objects.filter(project_id=self.project_id, ext=varname).first()
-                                    if pv:
-                                        version = pv.version
+                                # for child in varchilds:
+                                #     version = child.text
+                                #     ext = varname
+                                #
+                                # # 如果没有匹配到，那么需要去数据库查询
+                                # if not varchilds:
+                                #     pv = ProjectVendors.objects.filter(project_id=self.project_id, ext=varname).first()
+                                #     if pv:
+                                #         version = pv.version
 
                         vendor_name = "{}:{}".format(group_id, artifact_id)
                         vendor_version = version
-                        # ext = "maven"
+                        ext = "mevan"
+
+                        logger.debug("[Vendor][pom.xml] Found Vendor {} vension {} in file {}".format(vendor_name, vendor_version, savefilepath))
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, source=savefilepath, ext=ext)
@@ -487,7 +520,7 @@ class Vendors:
                         ext = "{}.{}".format(node_version, "dependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
-                                                      language=language, ext=savefilepath)
+                                                      language=language, source=savefilepath)
 
                         get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
 
@@ -496,7 +529,7 @@ class Vendors:
                         ext = "{}.{}".format(node_version, "devDependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
-                                                      language=language, ext=savefilepath)
+                                                      language=language, source=savefilepath)
 
                         get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
 

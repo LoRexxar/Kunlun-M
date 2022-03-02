@@ -133,7 +133,7 @@ def write_to_file(target, sid, output_format='', filename=None):
             filename = targetlist[-2]
         else:
             filename = targetlist[-1]
-        filename = DEFAULT_RESULT_PATH + filename + "." + output_format
+        filename = os.path.join(DEFAULT_RESULT_PATH, filename + "." + output_format)
     #     return False
 
     scan_data_file = os.path.join(RUNNING_PATH, '{sid}_data'.format(sid=sid))

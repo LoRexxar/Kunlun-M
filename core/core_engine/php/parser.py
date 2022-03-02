@@ -819,8 +819,25 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}?{}:{}".format(param_name, param_ex, terna1, terna2)
                 scan_chain.append(('TernaryOp', code, file_path, node.lineno))
 
-                param = node.expr
-                is_co = 3
+                # 没办法判断这种三元条件的结果
+                # 如果1是可控，则1，如果2是可控则2
+                # 如果1和2中有-1，则选另一个
+                # 否则选1
+
+                is_co, cp = is_controllable(terna1)
+                if is_co == 1:
+                    param = terna1
+                else:
+                    is_co2, cp = is_controllable(terna2)
+
+                    if is_co2 == 1:
+                        param = terna2
+
+                    else:
+                        if is_co == -1:
+                            param = terna2
+                        else:
+                            param = terna1
 
             if param_name == param_node and isinstance(node.expr, php.FunctionCall):  # 当变量来源是函数时，处理函数内容
                 function_name = node.expr.name
@@ -908,6 +925,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
                 if param_name in param_expr:
                     logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
+
+                    # 如果列表中直接就有可控变量，先算作漏洞
+                    for p in param_expr:
+                        is_co, cp = is_controllable(p)
+
+                        if is_co == 1:
+                            param = p
+                            return is_co, cp, expr_lineno
 
                     is_co = 3
                     cp = param

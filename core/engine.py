@@ -178,7 +178,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.debug('[SCAN] [STORE] Not found vulnerabilities on this rule!')
 
     async def start_scan(target_directory, rule, files, language, tamper_name):
-
         result = scan_single(target_directory, rule, files, language, tamper_name, is_unconfirm, newcore_function_list)
         store(result)
 
@@ -444,6 +443,7 @@ class SingleRule(object):
                 if match:
                     f = FileParseAll(self.files, self.target_directory, language=self.lan)
                     result = f.grep(match)
+
                 else:
                     result = None
             except Exception as e:
