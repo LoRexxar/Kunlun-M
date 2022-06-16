@@ -19,11 +19,12 @@ import string
 import sys
 import time
 import ast
+import zipfile
 
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
 
 from utils.log import logger, logger_console
-from utils.file import check_filepath, get_line
+from utils.file import check_filepath, get_line, un_zip
 
 TARGET_MODE_GIT = 'git'
 TARGET_MODE_FILE = 'file'
@@ -162,6 +163,19 @@ class ParseArgs(object):
             target_directory = self.target
         elif target_mode == TARGET_MODE_FILE:
             target_directory = self.target
+
+            # 检查目标是否为zip
+            if os.path.splitext(target_directory)[-1] == '.zip':
+                try:
+                    logger.info("[CLI] Target {} is zip, try to unzip.".format(target_directory))
+                    target_directory = un_zip(target_directory)
+
+                except zipfile.BadZipFile:
+                    logger.warning("[CLI] file {} not zip".format(target_directory))
+
+                except OSError:
+                    logger.warning("[CLI] file {} unzip error".format(target_directory))
+
             return target_directory
         else:
             logger.critical('[PARSE-ARGS] exception target mode ({mode})'.format(mode=target_mode))

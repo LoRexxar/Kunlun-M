@@ -219,6 +219,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
 
     # target directory
     try:
+        logger.info('[CLI] Target Mode: {}'.format(target_mode))
         target_directory = pa.target_directory(target_mode)
         logger.info('[CLI] Target : {d}'.format(d=target_directory))
 
