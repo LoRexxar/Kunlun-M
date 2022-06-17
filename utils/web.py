@@ -24,7 +24,7 @@ def upload_log(logpath):
     :return:
     """
 
-    remote_upload_url = "{}/backend/uploadlog?apitoken={}".format(REMOTE_URL,REMOTE_URL_APITOKEN)
+    remote_upload_url = "{}/backend/uploadlog?apitoken={}".format(REMOTE_URL, REMOTE_URL_APITOKEN)
 
     if not os.path.exists(logpath):
         logger.warning("[UPLOAD LOG] log {} not exist.".format(logpath))
