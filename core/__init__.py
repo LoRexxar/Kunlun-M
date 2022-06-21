@@ -38,7 +38,7 @@ from core.rule import RuleCheck, TamperCheck
 from core.console import KunlunInterpreter
 from web.index.models import ScanTask
 
-from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER
+from Kunlun_M.settings import LOGS_PATH, IS_OPEN_REMOTE_SERVER, REMOTE_URL
 
 from . import plugins
 
@@ -276,6 +276,9 @@ def main():
         #  for api
         if hasattr(args, "api") and args.api:
             print("TaskID: {}".format(task_id))
+            # 计算结果路径
+            result_url = "{}/dashboard/tasks/detail/{}?token={}".format(REMOTE_URL, s.id, s.visit_token)
+            print("Result Url: {}".format(result_url))
         else:
             logger.info("TaskID: {}".format(task_id))
 
