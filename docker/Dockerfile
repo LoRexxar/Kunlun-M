@@ -1,6 +1,6 @@
 FROM ubuntu:20.04
 
-LABEL maintainer="LoRexxar <guoyinqi@xiaomi.com>"
+LABEL maintainer="LoRexxar <lorexxar@gmail.com>"
 
 RUN sed -i "s/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g" /etc/apt/sources.list && sed -i "s/archive.ubuntu.com/ubuntu/g" /etc/apt/sources.list
 
