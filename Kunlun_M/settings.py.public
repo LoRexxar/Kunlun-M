@@ -89,7 +89,7 @@ DATABASES = {
         'USER': 'kunlunm-public',
         'PASSWORD': 'KyP1rC6Ui2Uv3stE',
         'HOST': '152.136.99.52',
-        'PORT': '3306',
+        'PORT': '23306',
         'OPTIONS': {
             'init_command': 'SET default_storage_engine=INNODB;SET NAMES utf8mb4',
             'charset': 'utf8mb4',
@@ -206,9 +206,9 @@ API_TOKEN = "secret_api_token"
 
 
 # server profile
-IS_OPEN_REMOTE_SERVER = False
-REMOTE_URL = "http://127.0.0.1:9999"
-REMOTE_URL_APITOKEN = "secret_api_token_in_server"
+IS_OPEN_REMOTE_SERVER = True
+REMOTE_URL = "http://152.136.99.52:8085/"
+REMOTE_URL_APITOKEN = "2C87CruXwEWgTpbIHP7tjy2Lq7YyD4rQ"
 
 # vendor vuln scan
 WITH_VENDOR = True
