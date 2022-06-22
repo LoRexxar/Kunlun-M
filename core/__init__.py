@@ -21,7 +21,7 @@ import traceback
 
 from django.core.management import call_command
 from utils.log import log, logger, log_add, log_rm
-from utils.utils import get_mainstr_from_filename
+from utils.utils import get_mainstr_from_filename, random_generator
 from utils.status import get_scan_id
 from utils.web import upload_log
 from utils.file import load_kunlunmignore
@@ -83,6 +83,8 @@ def main():
                                        help='without any output for shell')
         parser_group_scan.add_argument('-y', '--yes', dest='yes', action='store_true', default=False,
                                        help='without any output for shell')
+        parser_group_scan.add_argument('-np', '--newpro', dest='newpro', action='store_true', default=False,
+                                       help='Default use new project for scan task.')
         parser_group_scan.add_argument('--origin', dest='origin', action='store', default=None, metavar='<origin>', help='project origin')
         parser_group_scan.add_argument('-des', '--description', dest='description', action='store', default=None, metavar='<description>', help='project description')
 
@@ -262,7 +264,11 @@ def main():
             origin = "File in {}".format(args.target)
 
         # new scan task
-        task_name = get_mainstr_from_filename(args.target)
+        if args.newpro:
+            logger.info('[INIT] Use new project for scan task.')
+            task_name = random_generator(16)
+        else:
+            task_name = get_mainstr_from_filename(args.target)
         s = cli.check_scantask(task_name=task_name, target_path=args.target, parameter_config=sys.argv, project_origin=origin, project_des=args.description, auto_yes=args.yes)
 
         if s.is_finished:
@@ -277,7 +283,7 @@ def main():
         if hasattr(args, "api") and args.api:
             print("TaskID: {}".format(task_id))
             # 计算结果路径
-            result_url = "{}/dashboard/tasks/detail/{}?token={}".format(REMOTE_URL, s.id, s.visit_token)
+            result_url = "{}dashboard/tasks/detail/{}?token={}".format(REMOTE_URL, s.id, s.visit_token)
             print("Result Url: {}".format(result_url))
         else:
             logger.info("TaskID: {}".format(task_id))
