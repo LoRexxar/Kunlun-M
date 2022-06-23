@@ -252,6 +252,17 @@ KunLun-M (root) >
 
 [![asciicast](https://asciinema.org/a/360845.svg)](https://asciinema.org/a/360845)
 
+
+### 基于潮汐平台/公开server 部署方案
+
+KunLun-M在潮汐平台上线了公开项目环境，关于潮汐平台得介绍这里就不细提了，可以移步了解。
+
+[潮汐平台 - KunLun-m](https://lev.zone/portal/kit/8a81809e817f2c150181849ee601000a)
+
+![](docs/chaoxi.jpg)
+
+通过潮汐平台可以使用定制得镜像运行远程扫描，然后在web平台上查看扫描结果，更符合现代化得client、server独立部署方案。
+
 ### plugin mode
 
 #### phpunserializechain
