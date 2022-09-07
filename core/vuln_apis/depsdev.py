@@ -31,7 +31,7 @@ def get_vulns_from_depsdev(ecosystem, package_name, version):
                                "severity": __SEVERITY_DICT[advisory["severity"]],
                                "description": advisory["description"]}
 
-                        if advisory["CVEs"]:
+                        if "CVEs" in advisory and advisory["CVEs"]:
                             cves = [cve for cve in advisory["CVEs"]]
                             vul["cves"] = json.dumps(cves)
                         vul["reference"] = advisory["sourceURL"]
