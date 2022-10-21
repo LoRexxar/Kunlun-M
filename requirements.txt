@@ -7,7 +7,7 @@ rarfile==2.7
 requests>=2.20.0
 Werkzeug==0.16.0
 esprima==4.0.1
-jsbeautifier==1.10.2
+jsbeautifier==1.14.1
 bs4
 django
 mysqlclient
