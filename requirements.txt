@@ -5,7 +5,7 @@ portalocker==1.1.0
 prettytable==0.7.2
 rarfile==2.7
 requests>=2.20.0
-Werkzeug==0.16.0
+Werkzeug==2.2.3
 esprima==4.0.1
 jsbeautifier==1.10.2
 bs4
