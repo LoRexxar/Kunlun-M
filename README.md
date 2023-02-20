@@ -55,7 +55,7 @@ Kunlun-Mirror是从Cobra-W2.0发展而来，在经历了痛苦的维护改进原
 
 ## Stargazers 
 
-[![Stargazers over time](https://starchart.cc/LoRexxar/Kunlun-M.svg)](https://starchart.cc/LoRexxar/Kunlun-M)
+<div align=center><a href="https://github.com/LoRexxar/Kunlun-M"><img src="https://api.star-history.com/svg?repos=LoRexxar/Kunlun-M&type=Timeline"></a></div>
 
 ## why KunLun-M
 
