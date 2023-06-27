@@ -283,7 +283,7 @@ rules/{语言类型}/CVI_xxxx.py
 
 KunLun-M 是 404Team [星链计划](https://github.com/knownsec/404StarLink-Project)中的一环，如果对KunLun-M有任何疑问又或是想要找小伙伴交流，可以参考星链计划的加群方式。
 
-- [https://github.com/knownsec/404StarLink-Project#community](https://github.com/knownsec/404StarLink-Project#community)
+- [https://github.com/knownsec/404StarLink#%E4%BA%A4%E6%B5%81community](https://github.com/knownsec/404StarLink#%E4%BA%A4%E6%B5%81community)
 
 ## Contributors
 
