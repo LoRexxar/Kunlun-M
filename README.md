@@ -1,11 +1,11 @@
-<big>**自Cobra-W 2.0版本起，Cobra-W正式更名为Kunlun-M(昆仑镜)，**</big>
+- <big>**自Cobra-W 2.0版本起，Cobra-W正式更名为Kunlun-M(昆仑镜)，**</big>
+- **KunLun-M(昆仑镜)已进入弱维护阶段，如果有bug或者明显的问题会更新，但不会再更新新功能，主要是我认为Kunlun-M的架构拖累了后续的发展方向，仅在PHP扫描中以当前的架构已经几乎做到极限了，后续可能会有新的工具？也可能没有？敬请期待~**
 
-**请使用python3.6+运行该工具，已停止维护python2.7环境**
+- **请使用python3.6+运行该工具，已停止维护python2.7环境**
 
 # Kunlun-Mirror
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
-[![Build Status](https://travis-ci.org/LoRexxar/Kunlun-M.svg?branch=master)](https://travis-ci.org/LoRexxar/Cobra-W)
 ![](https://img.shields.io/badge/language-python3.6-orange.svg)
 
 ```
