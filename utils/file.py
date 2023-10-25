@@ -120,7 +120,7 @@ def get_manifest_from_crt(file_path):
         fi.close()
 
         try:
-            manifest = json.loads(manifest_content, encoding='utf-8')
+            manifest = json.loads(manifest_content)
 
         except json.decoder.JSONDecodeError:
             logger.warning(
