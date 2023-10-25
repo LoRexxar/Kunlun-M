@@ -368,9 +368,9 @@ class Vendors:
                     default_version = "unknown"
                     project_version = "unknown"
                     for parent in parents:
-                        project_groupid = parent.getchildren()[0].text
-                        project_artifactId = parent.getchildren()[1].text
-                        project_version = parent.getchildren()[2].text
+                        project_groupid = list(parent)[0].text
+                        project_artifactId = list(parent)[1].text
+                        project_version = list(parent)[2].text
 
                         # project version 格式检查
                         var_reg = "\${([\w\.\_-]+)}"
@@ -400,7 +400,7 @@ class Vendors:
                     base_tags = root.findall(java_base_xpath_reg)
 
                     if base_tags:
-                        btags = base_tags[0].getchildren()
+                        btags = list(base_tags[0])
                         for btag in btags:
                             self.java_temp_vendor_list[btag.tag.replace("{%s}" % pom_ns, "")] = btag.text
 
@@ -418,10 +418,10 @@ class Vendors:
 
                     childs = root.findall(xpath_reg)
                     for child in childs:
-                        group_id = child.getchildren()[0].text
-                        artifact_id = child.getchildren()[1].text
-                        if len(child.getchildren()) > 2 and "version" in child.getchildren()[2].tag:
-                            version = child.getchildren()[2].text
+                        group_id = list(child)[0].text
+                        artifact_id = list(child)[1].text
+                        if len(list(child)) > 2 and "version" in list(child)[2].tag:
+                            version = list(child)[2].text
                         else:
                             version = default_version
 
