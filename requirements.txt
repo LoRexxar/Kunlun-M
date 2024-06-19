@@ -11,3 +11,4 @@ jsbeautifier==1.10.2
 bs4
 django
 mysqlclient
+urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability
