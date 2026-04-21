@@ -83,11 +83,13 @@ class Pretreatment:
         # 设置标志位标识跳过预编译阶段
         self.is_unprecom = is_unprecom
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        scan_list = [self.pre_ast() for _ in range(10)]
 
-        scan_list = (self.pre_ast() for i in range(10))
-        loop.run_until_complete(asyncio.gather(*scan_list))
+        # Python 3.11+ recommends using asyncio.run instead of manual loop setup.
+        async def _run_pretreatment(tasks):
+            await asyncio.gather(*tasks)
+
+        asyncio.run(_run_pretreatment(scan_list))
 
     async def pre_ast(self):
 

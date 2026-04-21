@@ -130,3 +130,4 @@ web/dashboard/migrations/*_auto_*.py
 
 # dockerfile
 Dockerfile
+!Kunlun_M/settings.py
