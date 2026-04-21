@@ -51,7 +51,14 @@ def block(index):
 
 
 class Rule(object):
-    def __init__(self, lans=[]):
+    def __init__(self, lans=None):
+        if lans is None:
+            lans = []
+        elif isinstance(lans, str):
+            lans = [lans]
+        else:
+            lans = list(lans)
+
         origin_lans = ["base"]
         origin_lans.extend(lans)
 

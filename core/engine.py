@@ -208,10 +208,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         scan_list.append(start_scan(target_directory, rule, files, language, tamper_name))
         # store(result)
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(asyncio.gather(*scan_list))
+    # Python 3.11+ no longer recommends manual global event-loop management.
+    # Use asyncio.run for compatibility with modern Python (including 3.13+).
+    async def _run_scan_list(tasks):
+        await asyncio.gather(*tasks)
 
-    loop.stop()
+    asyncio.run(_run_scan_list(scan_list))
 
     # print
     data = []
