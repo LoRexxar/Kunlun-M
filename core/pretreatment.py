@@ -91,6 +91,57 @@ class Pretreatment:
 
         asyncio.run(_run_pretreatment(scan_list))
 
+    @staticmethod
+    def _repair_php_code_for_parser(code_content):
+        """
+        尝试修复 phply 暂不支持的部分语法，避免整个文件 AST 预处理失败。
+        当前仅处理：($a)() 这类「括号包裹变量再调用」语法。
+        """
+        repaired_content = code_content
+        token_stream = lexer.clone()
+        token_stream.input(code_content)
+
+        tokens = []
+        while True:
+            token = token_stream.token()
+            if not token:
+                break
+            tokens.append(token)
+
+        # 仅在词法级别命中 ( VARIABLE ) ( 这种模式时进行修复，避免正则替换误伤字符串、注释等内容。
+        edits = []
+        token_count = len(tokens)
+        for index in range(token_count - 3):
+            token_lparen = tokens[index]
+            token_var = tokens[index + 1]
+            token_rparen = tokens[index + 2]
+            token_call_lparen = tokens[index + 3]
+
+            if not (token_lparen.type == 'LPAREN'
+                    and token_var.type == 'VARIABLE'
+                    and token_rparen.type == 'RPAREN'
+                    and token_call_lparen.type == 'LPAREN'):
+                continue
+
+            # 替换 "( $a )" 片段为 "$a"，保留后续调用参数括号。
+            start = token_lparen.lexpos
+            end = token_rparen.lexpos + len(token_rparen.value)
+            edits.append((start, end, token_var.value))
+
+        if not edits:
+            return repaired_content
+
+        # 按位置应用替换，避免下标偏移问题。
+        pieces = []
+        cursor = 0
+        for start, end, replacement in sorted(edits, key=lambda item: item[0]):
+            pieces.append(repaired_content[cursor:start])
+            pieces.append(replacement)
+            cursor = end
+        pieces.append(repaired_content[cursor:])
+
+        return ''.join(pieces)
+
     async def pre_ast(self):
 
         while not self.target_queue.empty():
@@ -126,8 +177,24 @@ class Pretreatment:
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
 
                     except SyntaxError as e:
-                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
-                        continue
+                        if self.is_unprecom:
+                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            continue
+
+                        repaired_code_content = self._repair_php_code_for_parser(code_content)
+
+                        if repaired_code_content == code_content:
+                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            continue
+
+                        try:
+                            parser = make_parser()
+                            all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
+                            logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
+                            self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        except Exception:
+                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            continue
 
                     except AssertionError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))

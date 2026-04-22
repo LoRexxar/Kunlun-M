@@ -27,6 +27,7 @@ from core.core_engine.php.parser import new_class_back
 from core.core_engine.php.parser import parameters_back
 from core.core_engine.php.parser import scan_parser
 from core.pretreatment import ast_object
+from core.pretreatment import Pretreatment
 from phply import phpast as php
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
@@ -150,3 +151,44 @@ print($x);
             os.remove(temp_file)
         ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
         ast_object.pre_ast_all(['php'])
+
+
+def test_pre_ast_php_parenthesized_callable_variable():
+    """
+    回归测试：($a)() 语法不应导致整个文件 AST 预处理失败。
+    """
+    code = """<?php
+$a = "phpinfo";
+($a)();
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_parenthesized_callable.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_parenthesized_callable.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        assert temp_file in ast_object.pre_result
+        assert ast_object.pre_result[temp_file]['ast_nodes']
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
+def test_repair_php_code_for_parser_token_safe():
+    """
+    回归测试：仅修复真实 token 模式的 ($var)(...)，
+    不应误伤字符串中的同样文本。
+    """
+    code = """<?php
+$a = "phpinfo";
+($a)();
+$s = "($a)() should stay";
+"""
+    repaired = Pretreatment._repair_php_code_for_parser(code)
+    assert '$a();' in repaired
+    assert '"($a)() should stay"' in repaired
