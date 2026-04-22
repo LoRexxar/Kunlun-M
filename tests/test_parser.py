@@ -23,8 +23,11 @@ django.setup()
 
 from Kunlun_M.settings import PROJECT_DIRECTORY
 from core.core_engine.php.parser import anlysis_params
+from core.core_engine.php.parser import new_class_back
+from core.core_engine.php.parser import parameters_back
 from core.core_engine.php.parser import scan_parser
 from core.pretreatment import ast_object
+from phply import phpast as php
 
 files = [('.php', {'list': ["v_parser.php", "v.php"]})]
 ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
@@ -52,3 +55,98 @@ def test_scan_parser():
 
 def test_anlysis_params():
     assert anlysis_params(param, target_projects2, lineno2)
+
+
+def test_new_class_back_handles_php_new_with_string_name():
+    """
+    回归测试：new_class_back 处理 php.New(name=str, ...) 时不应抛异常。
+    """
+    return_node = php.Return(php.Variable('$_GET'), lineno=3)
+    tostring_method = php.Method('__toString', [], [], [return_node], False, lineno=2)
+    class_node = php.Class('Demo', None, None, [], [], [tostring_method], lineno=1)
+
+    is_co, cp, expr_lineno = new_class_back(php.New('Demo', [], lineno=10), [class_node])
+
+    assert is_co == 1
+    assert cp.name == '$_GET'
+    assert isinstance(expr_lineno, int)
+
+
+def test_parameters_back_foreach_return_shape():
+    """
+    回归测试：Foreach 分支返回值固定为三元组，避免拆包异常。
+    """
+    foreach_var = php.ForeachVariable(php.Variable('$item'), False)
+    foreach_block = php.Block([], lineno=6)
+    foreach_node = php.Foreach(php.Variable('$arr'), None, foreach_var, foreach_block, lineno=5)
+
+    result = parameters_back(php.Variable('$x'), [foreach_node], lineno=10, file_path=target_projects2)
+
+    assert isinstance(result, tuple)
+    assert len(result) == 3
+
+
+def test_anlysis_params_new_class_tostring_integration():
+    """
+    集成回归：真实 PHP 文件中 $obj = new Demo() 时，
+    可沿 __toString() 回溯到 $_GET，判定为可控。
+    """
+    code = """<?php
+class Demo {
+    function __toString() {
+        return $_GET['name'];
+    }
+}
+$obj = new Demo();
+echo $obj;
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_new_class_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_new_class_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$obj', temp_file, 8)
+
+        assert is_co == 1
+        assert cp.name == '$_GET'
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
+def test_anlysis_params_foreach_flow_integration():
+    """
+    集成回归：真实 foreach 数据流回溯不应出现返回值拆包异常。
+    """
+    code = """<?php
+$list = $_GET['items'];
+foreach ($list as $item) {
+    $x = $item;
+}
+print($x);
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_foreach_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_foreach_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        result = anlysis_params('$x', temp_file, 6)
+
+        assert isinstance(result, tuple)
+        assert len(result) == 4
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])

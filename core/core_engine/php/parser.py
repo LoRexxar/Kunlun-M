@@ -326,6 +326,17 @@ def get_node_name(node):  # node为'node'中的元组
     return node
 
 
+def build_ast_param(param_expr):
+    """
+    将表达式构造成可继续回溯的参数节点。
+    仅将字符串变量名（以 $ 开头）转换为 php.Variable，
+    其余字面量字符串与 AST 节点保持原样，避免把常量字符串误当变量。
+    """
+    if isinstance(param_expr, str) and param_expr.startswith('$'):
+        return php.Variable(param_expr)
+    return param_expr
+
+
 def get_filename(node, file_path):  # 获取filename
     """
     获取
@@ -666,14 +677,12 @@ def new_class_back(param, nodes, vul_function=None, file_path=None, isback=None)
     :param nodes: 
     :return: 
     """
-    param = param.name
-    if hasattr(param, "name"):
-        # param_name = param.name
-        param_name = get_node_name(param)
-    else:
-        param_name = param
+    new_expr = param.name if hasattr(param, 'name') else param
 
-    param_params = param.params
+    if hasattr(new_expr, "name"):
+        param_name = get_node_name(new_expr)
+    else:
+        param_name = new_expr
 
     is_co = -1
     cp = param
@@ -698,7 +707,7 @@ def new_class_back(param, nodes, vul_function=None, file_path=None, isback=None)
 
         else:
             is_co = 3
-            cp = php.Variable(param)
+            cp = param
 
     return is_co, cp, expr_lineno
 
@@ -805,8 +814,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if isinstance(node.expr, php.ArrayOffset):
                     param = node.expr
                 else:
-                    param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
-                    param_name = param_expr
+                    param = build_ast_param(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                    param_name = get_node_name(param)
 
             if param_name == param_node and isinstance(param_expr, php.TernaryOp):
                 terna1 = param_expr.iftrue
@@ -1309,7 +1318,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 function_flag = 0
 
                 if is_co in [-1, 1, 2]:  # 目标确定直接返回
-                    return is_co, cp, expr_lineno, param_name, param
+                    return is_co, cp, expr_lineno
 
                 if _is_co == 3 and cp != param:
                     param = _cp
@@ -1353,8 +1362,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     if isinstance(node.expr, php.ArrayOffset):
                         param = node.expr
                     else:
-                        param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
-                        param_name = param_expr
+                        param = build_ast_param(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                        param_name = get_node_name(param)
 
                 elif isinstance(param_expr, list):
 
