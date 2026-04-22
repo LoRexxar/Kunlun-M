@@ -58,9 +58,19 @@ scratch. This page gets rid of all links and provides the needed markup only.
       <a href="#" class="sidebar-toggle" data-toggle="push-menu" role="button">
         <span class="sr-only">Toggle navigation</span>
       </a>
+      <div class="navbar-form navbar-left quick-nav hidden-xs">
+        <div class="form-group">
+          <input id="quickSearch" type="text" class="form-control" placeholder="Quick search: task / project / rule">
+        </div>
+      </div>
       <!-- Navbar Right Menu -->
       <div class="navbar-custom-menu">
         <ul class="nav navbar-nav">
+          <li>
+            <a href="#" id="themeToggle" title="Toggle theme">
+              <i id="themeIcon" class="fa fa-sun-o"></i>
+            </a>
+          </li>
           <!-- User Account Menu -->
           <li class="dropdown user user-menu">
             <!-- Menu Toggle Button -->
@@ -331,6 +341,7 @@ scratch. This page gets rid of all links and provides the needed markup only.
 <script src="{% static 'js/bootstrap.min.js' %}"></script>
 <!-- AdminLTE App -->
 <script src="{% static 'js/adminlte.min.js' %}"></script>
+<script src="{% static 'js/dashboard-enhanced.js' %}"></script>
 
 {% block script %}
 
