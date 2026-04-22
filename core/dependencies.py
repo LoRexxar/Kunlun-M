@@ -44,26 +44,26 @@ class Dependencies(object):
         """
         flag = 0
         file_path = []
+        requirements_files = []
+        pom_files = []
         if os.path.isdir(self.directory):
             for root, dirs, filenames in os.walk(self.directory):
                 for filename in filenames:
-                    if filename == 'requirements.txt' and flag != 2:
-                        file_path.append(self.get_path(root, filename))
-                        flag = 1
-                    if filename == 'pom.xml' and flag != 1:
-                        file_path.append(self.get_path(root, filename))
-                        flag = 2
+                    if filename == 'requirements.txt':
+                        requirements_files.append(self.get_path(root, filename))
+                    if filename == 'pom.xml':
+                        pom_files.append(self.get_path(root, filename))
+            if requirements_files:
+                return requirements_files, 1
+            if pom_files:
+                return pom_files, 2
             return file_path, flag
         else:
             filename = os.path.basename(self.directory)
             if filename == 'requirements.txt':
-                flag = 1
-                file_path.append(self.directory)
-                return file_path, flag
+                return [self.directory], 1
             if filename == 'pom.xml':
-                flag = 2
-                file_path.append(self.directory)
-                return file_path, flag
+                return [self.directory], 2
             return file_path, flag
 
     @staticmethod
@@ -77,31 +77,59 @@ class Dependencies(object):
 
     def find_python_pip(self, file_path):
         for requirement in file_path:
+            if not os.path.isfile(requirement):
+                logger.warning("[DEPENDENCIES] requirement file not found: {}".format(requirement))
+                continue
+
             with open(requirement) as fi:
-                for line in fi.readlines():
-                    flag = line.find("==")
-                    if flag != -1:
-                        module_ = line[:flag]
-                        version = line[flag+2:].strip()
-                        self._framework.append(module_)
-                        self._result[module_] = version
+                for raw_line in fi:
+                    line = raw_line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+
+                    if '#' in line:
+                        line = line.split('#', 1)[0].strip()
+
+                    if '==' in line:
+                        module_, version = line.split('==', 1)
+                        module_ = module_.strip()
+                        version = version.strip()
+                    else:
+                        module_ = line.strip()
+                        version = ''
+
+                    if not module_:
+                        continue
+
+                    self._framework.append(module_)
+                    self._result[module_] = version
 
     def find_java_mvn(self, file_path):
         pom_ns = "{http://maven.apache.org/POM/4.0.0}"
         for pom in file_path:
+            if not os.path.isfile(pom):
+                logger.warning("[DEPENDENCIES] pom file not found: {}".format(pom))
+                continue
+
             tree = self.parse_xml(pom)
             root = tree.getroot()
             childs = root.findall('.//%sdependency' % pom_ns)
             for child in childs:
-                group_id = list(child)[0].text
-                artifact_id = list(child)[1].text
-                if len(list(child)) > 2:
-                    version = list(child)[2].text
+                child_items = list(child)
+                if len(child_items) < 2:
+                    continue
+
+                group_id = child_items[0].text
+                artifact_id = child_items[1].text
+                if len(child_items) > 2:
+                    version = child_items[2].text
                 else:
                     version = 'The latest version'
                 module_ = artifact_id
-                self._framework.append(group_id)
-                self._framework.append(artifact_id)
+                if group_id:
+                    self._framework.append(group_id)
+                if artifact_id:
+                    self._framework.append(artifact_id)
                 self._result[module_] = version
 
     @staticmethod
@@ -117,4 +145,4 @@ class Dependencies(object):
 
     @property
     def get_framework(self):
-        return self._framework
+        return list(dict.fromkeys(self._framework))

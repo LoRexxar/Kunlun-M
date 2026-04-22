@@ -100,10 +100,10 @@ class Rule(object):
         result = []
 
         for f in files:
-            if f.startswith("CVI_"):
+            if f.startswith("CVI_") and f.endswith(".py"):
                 result.append(f)
 
-        return result
+        return sorted(result)
 
     def vul_init(self):
 
@@ -115,7 +115,7 @@ class Rule(object):
             ruleclass = p()
             vul_list.append(ruleclass.vulnerability)
 
-        return vul_list
+        return sorted(list(set(vul_list)))
 
 
 def list_parse(rules_path, istamp=False):

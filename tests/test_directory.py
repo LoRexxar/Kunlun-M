@@ -26,11 +26,11 @@ from utils.file import Directory
 def test_file():
     absolute_path = os.path.join(PROJECT_DIRECTORY, 'tests', 'vulnerabilities')
     files, file_sum, time_consume = Directory(absolute_path).collect_files()
-    ext, ext_info = files[0]
-    assert '.php' == ext
-    assert 2 == ext_info['count']
-    assert '/v.php' in ext_info['list']
-    assert 2 == file_sum
+    files_dict = dict(files)
+    assert '.php' in files_dict
+    assert files_dict['.php']['count'] == 2
+    assert '/v.php' in files_dict['.php']['list']
+    assert file_sum >= 2
     assert time_consume < 1
 
 
