@@ -192,3 +192,49 @@ $s = "($a)() should stay";
     repaired = Pretreatment._repair_php_code_for_parser(code)
     assert '$a();' in repaired
     assert '"($a)() should stay"' in repaired
+
+
+def test_anlysis_params_require_assignment_in_private_method():
+    """
+    回归测试：类私有方法中 `$var = require($file)` 的赋值链应可继续回溯。
+    """
+    code = """<?php
+class LangLoader {
+    private function getLangFileFullPath($local, $module) {
+        return $local;
+    }
+
+    private function getArrayFromPhp($file) {
+        $array = require($file);
+        return $array;
+    }
+
+    public function getPhpLangArrayByModule($local, $module) {
+        return $this->getArrayFromPhp($this->getLangFileFullPath($local, $module));
+    }
+}
+
+$loader = new LangLoader();
+$input = $_GET['lang'];
+$ret = $loader->getPhpLangArrayByModule($input, 'common');
+print($ret);
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_require_assignment_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_require_assignment_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$ret', temp_file, 20)
+
+        assert is_co == 1
+        assert cp.name == '$_GET'
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
