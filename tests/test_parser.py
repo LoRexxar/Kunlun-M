@@ -222,6 +222,34 @@ define(__NAMESPACE__ . "1", __NAMESPACE__ . "2");
         ast_object.pre_ast_all(['php'])
 
 
+def test_scan_parser_echo_assignment_with_user_input():
+    """
+    回归测试：`echo $a = $_GET['a'];` 应识别为 echo sink 且可追踪到可控来源。
+    """
+    code = """<?php
+echo $a = $_GET['a'];
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_echo_assignment_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_echo_assignment_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        result = scan_parser(['echo'], 2, temp_file)
+
+        assert isinstance(result, list)
+        assert result
+        assert result[0].get('source') is not None
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
 def test_anlysis_params_require_assignment_in_private_method():
     """
     回归测试：类私有方法中 `$var = require($file)` 的赋值链应可继续回溯。
