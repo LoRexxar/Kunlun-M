@@ -1705,6 +1705,56 @@ def anlysis_function(node, back_node, vul_function, function_params, vul_lineno,
                     if isinstance(param, php.ArrayOffset):
                         analysis_arrayoffset_node(param, vul_function, vul_lineno)
 
+                    if isinstance(param, php.Assignment):
+                        if isinstance(param.node, php.Variable):
+                            analysis_variable_node(param.node, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                        if isinstance(param.expr, php.FunctionCall) or isinstance(param.expr, php.MethodCall) or isinstance(
+                                param.expr, php.StaticMethodCall):
+                            analysis_functioncall_node(param.expr, back_node, vul_function, vul_lineno, function_params,
+                                                       file_path=file_path)
+
+                        if isinstance(param.expr, php.Variable):
+                            analysis_variable_node(param.expr, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                        if isinstance(param.expr, php.BinaryOp):
+                            analysis_binaryop_node(param.expr, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                        if isinstance(param.expr, php.ArrayOffset):
+                            analysis_arrayoffset_node(param.expr, vul_function, vul_lineno)
+
+                        if isinstance(param.expr, php.TernaryOp):
+                            analysis_ternaryop_node(param.expr, back_node, vul_function, vul_lineno, function_params,
+                                                    file_path=file_path)
+
+                    if isinstance(param, php.AssignOp):
+                        if isinstance(param.left, php.Variable):
+                            analysis_variable_node(param.left, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                        if isinstance(param.right, php.FunctionCall) or isinstance(param.right, php.MethodCall) or isinstance(
+                                param.right, php.StaticMethodCall):
+                            analysis_functioncall_node(param.right, back_node, vul_function, vul_lineno, function_params,
+                                                       file_path=file_path)
+
+                        if isinstance(param.right, php.Variable):
+                            analysis_variable_node(param.right, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                        if isinstance(param.right, php.BinaryOp):
+                            analysis_binaryop_node(param.right, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                        if isinstance(param.right, php.ArrayOffset):
+                            analysis_arrayoffset_node(param.right, vul_function, vul_lineno)
+
+                        if isinstance(param.right, php.TernaryOp):
+                            analysis_ternaryop_node(param.right, back_node, vul_function, vul_lineno, function_params,
+                                                    file_path=file_path)
+
                     if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
                         analysis_special_functioncall_node(param, back_node, vul_function, vul_lineno, function_params,
                                                            file_path=file_path)
@@ -2060,6 +2110,52 @@ def analysis_echo_print(node, back_node, vul_function, vul_lineno, function_para
                 if isinstance(k_node, php.TernaryOp) and vul_function == 'echo':
                     analysis_ternaryop_node(k_node, back_node, vul_function, vul_lineno, function_params,
                                             file_path=file_path)
+
+                if isinstance(k_node, php.Assignment) and vul_function == 'echo':
+                    analysis_variable_node(k_node.node, back_node, vul_function, vul_lineno, function_params,
+                                           file_path=file_path)
+                    if isinstance(k_node.expr, php.FunctionCall) or isinstance(k_node.expr, php.MethodCall) or isinstance(
+                            k_node.expr, php.StaticMethodCall):
+                        analysis_functioncall_node(k_node.expr, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                    if isinstance(k_node.expr, php.Variable):
+                        analysis_variable_node(k_node.expr, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
+                    if isinstance(k_node.expr, php.BinaryOp):
+                        analysis_binaryop_node(k_node.expr, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
+                    if isinstance(k_node.expr, php.ArrayOffset):
+                        analysis_arrayoffset_node(k_node.expr, vul_function, vul_lineno)
+
+                    if isinstance(k_node.expr, php.TernaryOp):
+                        analysis_ternaryop_node(k_node.expr, back_node, vul_function, vul_lineno, function_params,
+                                                file_path=file_path)
+
+                if isinstance(k_node, php.AssignOp) and vul_function == 'echo':
+                    analysis_variable_node(k_node.left, back_node, vul_function, vul_lineno, function_params,
+                                           file_path=file_path)
+                    if isinstance(k_node.right, php.FunctionCall) or isinstance(k_node.right, php.MethodCall) or isinstance(
+                            k_node.right, php.StaticMethodCall):
+                        analysis_functioncall_node(k_node.right, back_node, vul_function, vul_lineno, function_params,
+                                                   file_path=file_path)
+
+                    if isinstance(k_node.right, php.Variable):
+                        analysis_variable_node(k_node.right, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
+                    if isinstance(k_node.right, php.BinaryOp):
+                        analysis_binaryop_node(k_node.right, back_node, vul_function, vul_lineno, function_params,
+                                               file_path=file_path)
+
+                    if isinstance(k_node.right, php.ArrayOffset):
+                        analysis_arrayoffset_node(k_node.right, vul_function, vul_lineno)
+
+                    if isinstance(k_node.right, php.TernaryOp):
+                        analysis_ternaryop_node(k_node.right, back_node, vul_function, vul_lineno, function_params,
+                                                file_path=file_path)
 
                 if param_node_typename in SPECIAL_FUNCTIONCALL_LIST:
                     analysis_special_functioncall_node(k_node, back_node, vul_function, vul_lineno, function_params,
