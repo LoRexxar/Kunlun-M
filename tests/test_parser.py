@@ -194,6 +194,34 @@ $s = "($a)() should stay";
     assert '"($a)() should stay"' in repaired
 
 
+def test_pre_ast_define_namespace_concat_key():
+    """
+    回归测试：define(__NAMESPACE__ . "X", ...) 不应在预处理阶段触发
+    `TypeError: unhashable type: 'BinaryOp'`。
+    """
+    code = """<?php
+namespace Demo;
+define(__NAMESPACE__ . "1", __NAMESPACE__ . "2");
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_define_namespace_concat.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_define_namespace_concat.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        assert temp_file in ast_object.pre_result
+        # 关键断言：预处理执行完成且常量键可成功写入 define_dict。
+        assert "__NAMESPACE__1" in ast_object.define_dict
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
 def test_anlysis_params_require_assignment_in_private_method():
     """
     回归测试：类私有方法中 `$var = require($file)` 的赋值链应可继续回溯。

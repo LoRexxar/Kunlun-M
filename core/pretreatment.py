@@ -28,6 +28,7 @@ import traceback
 import zipfile
 import queue
 import asyncio
+from collections.abc import Hashable
 
 could_ast_pase_lans = ["php", "chromeext", "javascript", "html"]
 
@@ -65,6 +66,31 @@ class Pretreatment:
             return os.path.normpath(self.target_directory)
         else:
             return os.path.normpath(os.path.join(self.target_directory, filepath))
+
+    def _normalize_define_key(self, key_node):
+        """
+        将 define 的第一个参数归一化为可哈希键，避免 AST 节点直接作为 dict key 导致 TypeError。
+        """
+        if isinstance(key_node, php.Constant):
+            return key_node.name
+
+        # 处理诸如 __NAMESPACE__ . "FOO" 的字符串拼接常量名
+        if isinstance(key_node, php.BinaryOp) and key_node.op == ".":
+            left = self._normalize_define_key(key_node.left)
+            right = self._normalize_define_key(key_node.right)
+            if left is not None and right is not None:
+                return "{}{}".format(left, right)
+
+        if isinstance(key_node, php.MagicConstant):
+            return key_node.name
+
+        if isinstance(key_node, str):
+            return key_node
+
+        if isinstance(key_node, Hashable):
+            return key_node
+
+        return repr(key_node)
 
     def pre_ast_all(self, lan=None, is_unprecom=False):
 
@@ -214,10 +240,7 @@ class Pretreatment:
                                     "[AST][Pretreatment] new define {}={}".format(define_params[0].node,
                                                                                   define_params[1].node))
 
-                                key = define_params[0].node
-                                if isinstance(key, php.Constant):
-                                    key = key.name
-
+                                key = self._normalize_define_key(define_params[0].node)
                                 self.define_dict[key] = define_params[1].node
 
             elif fileext[0] in ext_dict['chromeext'] and 'chromeext' in self.lan:
