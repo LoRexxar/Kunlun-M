@@ -641,20 +641,21 @@ class PhpUnSerChain(BasePluginClass):
         :param var_name:
         :return:
         """
-        # 检查是否为函数调用
+        # MethodCall-/FunctionCall-场景仅关注调用目标，参数中包含->不应命中动态方法调用
         if var_name.startswith('FunctionCall-') or var_name.startswith('MethodCall-'):
-            var_name_list = re.split("[()]", var_name)
-            var_name = ",".join(var_name_list)
+            var_name = var_name.split('-', 1)[1]
 
         for var_node in var_name.split(','):
+            call_target = var_node.split('(', 1)[0]
 
-            if '->' in var_node:
-                var_node_parts = var_node.split('->')
+            # 仅处理 $this->a->b 一类动态类变量，普通 $this->method(...) 不应进入该分支
+            if call_target.count('->') < 2:
+                continue
 
-                var_node_left = '->'.join(var_node_parts[:-1])
-                var_node_right = var_node_parts[-1]
+            var_node_parts = call_target.split('->')
+            var_node_left = '->'.join(var_node_parts[:-1])
 
-                return self.check_param_controllable(var_node_left, now_node)
+            return self.check_param_controllable(var_node_left, now_node)
 
         return False
 
