@@ -757,6 +757,16 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
         is_co, cp = is_controllable(param)
 
+    if isinstance(param, php.Include) or isinstance(param, php.Require):
+        # include/require 也可能作为赋值右值或 return 值参与数据流，继续回溯其参数表达式
+        logger.debug("[AST] AST analysis for Include/Require in line {}".format(param.lineno))
+        param = param.expr
+        if hasattr(param, "name"):
+            param_name = get_node_name(param)
+        else:
+            param_name = param
+        is_co, cp = is_controllable(param)
+
     if isinstance(param, php.New) or (
                 hasattr(param, "name") and isinstance(param.name, php.New)):  # 当污点为新建类事，进入类中tostring函数分析
         logger.debug("[AST] AST analysis for New Class {} in line {}".format(param.name, param.lineno))
@@ -913,6 +923,23 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 # 将右值置为methodcall
                 param = node.expr
                 is_co = 3
+
+            if param_name == param_node and (isinstance(node.expr, php.Include) or isinstance(node.expr, php.Require)):
+                logger.debug("[AST] Find {} from Include/Require in line {}.".format(param_name, node.lineno))
+
+                file_path = os.path.normpath(file_path)
+                code = "{}={}".format(param_name, node.expr)
+                scan_chain.append(('Include', code, file_path, node.lineno))
+
+                param = node.expr.expr
+                if hasattr(param, "name"):
+                    param_name = get_node_name(param)
+                else:
+                    param_name = param
+                is_co, cp = is_controllable(param)
+
+                if is_co in [-1, 1, 2]:
+                    return is_co, cp, expr_lineno
 
             if param_name == param_node and isinstance(param_expr, list):
 
