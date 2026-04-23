@@ -125,9 +125,16 @@ def display_result(scan_id, is_ask=False):
 
             else:
                 rule = Rules.objects.filter(svid=sr.cvi_id).first()
-                rule_name = rule.rule_name
-                author = rule.author
-                level = VUL_LEVEL[rule.level]
+                if rule:
+                    rule_name = rule.rule_name
+                    author = rule.author
+                    level = VUL_LEVEL[rule.level]
+                else:
+                    # 规则表缺失或未初始化时，不应阻断扫描结果展示
+                    rule_name = "Unknown Rule"
+                    author = "Unknown"
+                    level = VUL_LEVEL[1]
+                    logger.warning("[SCAN] Rule CVI_{} not found in database, fallback display.".format(sr.cvi_id))
 
             row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                    author, sr.source_code, sr.result_type]
@@ -462,6 +469,5 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
         logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
 
     return True
-
 
 
