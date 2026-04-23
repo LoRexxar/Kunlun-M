@@ -974,6 +974,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     cp = param
 
                 else:
+                    fallback_cp = None
                     for expr in param_expr:
                         param = expr
                         is_co, cp = is_controllable(expr)
@@ -1002,10 +1003,8 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                             # 当前分支中未找到来源时，变量可能定义在外层作用域（如 if/else 外层赋值）
                             # 透传该变量给上层继续回溯，避免在分支内直接丢失数据流
                             if _is_co in [-1, 3] and isinstance(expr, str) and expr.startswith('$'):
-                                is_co = 3
-                                cp = _cp if _is_co == 3 else build_ast_param(expr)
-                                param = cp
-                                break
+                                fallback_cp = _cp if _is_co == 3 else build_ast_param(expr)
+                                continue
 
                             file_path = os.path.normpath(file_path)
                             code = "param {} find fail. continue".format(param)
@@ -1013,6 +1012,11 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                             logger.debug("[AST] Uncontrollable Param {}. continue ast.".format(param))
                             continue
+
+                    if fallback_cp is not None:
+                        is_co = 3
+                        cp = fallback_cp
+                        param = cp
 
         elif isinstance(node, php.Function) or isinstance(node, php.Method):
             function_nodes = node.nodes
