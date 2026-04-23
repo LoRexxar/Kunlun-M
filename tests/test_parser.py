@@ -238,3 +238,41 @@ print($ret);
             os.remove(temp_file)
         ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
         ast_object.pre_ast_all(['php'])
+
+
+def test_anlysis_params_interpolated_string_var_from_outer_if_scope():
+    """
+    回归测试：if/else 分支中的拼接列表回溯失败时，
+    应继续向外层作用域回溯变量来源（Issue #231）。
+    """
+    code = """<?php
+$html = '';
+if(isset($_GET['submit']) && $_GET['message'] != null){
+    $message= $_GET['message'];
+    if($message == 'yes'){
+        $html.="<p>那就去人民广场一个人坐一会儿吧!</p>";
+    }else{
+        $html = "<p>别说这些'{$message}'的话,不要怕,就是干!</p>";
+        echo $html;
+    }
+}
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_issue_231_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_issue_231_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$html', temp_file, 9)
+
+        assert is_co == 1
+        assert cp.name == '$_GET'
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
