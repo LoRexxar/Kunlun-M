@@ -392,10 +392,26 @@ def get_filename(node, file_path):  # 获取filename
             constant_node_name = constant_node.name
 
             # 尝试做一些处理针对右值非常量的问题
+            define_value = ast_object.get_define(constant_node_name)
 
-            filenames[i] = ast_object.get_define(constant_node_name)
+            # define 右值可能不是纯字符串，例如 BinaryOp('.', $prefix, 'users')。
+            # 将其尽可能展开为字符串片段列表，避免后续 join 时出现类型错误。
+            if isinstance(define_value, php.BinaryOp):
+                filenames[i] = get_binaryop_params(define_value)
+            elif isinstance(define_value, php.Variable):
+                filenames[i] = define_value.name
+            elif isinstance(define_value, php.Constant):
+                nested_define = ast_object.get_define(define_value.name)
+                if isinstance(nested_define, php.BinaryOp):
+                    filenames[i] = get_binaryop_params(nested_define)
+                elif isinstance(nested_define, php.Variable):
+                    filenames[i] = nested_define.name
+                else:
+                    filenames[i] = nested_define
+            else:
+                filenames[i] = define_value
 
-    return filenames
+    return export_list(filenames, [])
 
 
 def is_repair(expr):
