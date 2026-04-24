@@ -153,6 +153,40 @@ print($x);
         ast_object.pre_ast_all(['php'])
 
 
+def test_anlysis_params_foreach_from_functioncall_source():
+    """
+    回归测试：foreach 源为函数调用时，应继续沿函数返回值回溯污点来源。
+    """
+    code = """<?php
+function getItems() {
+    return $_GET['items'];
+}
+foreach (getItems() as $item) {
+    $x = $item;
+}
+print($x);
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_foreach_function_source_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_foreach_function_source_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$x', temp_file, 8)
+
+        assert is_co == 1
+        assert cp.name == '$_GET'
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
 def test_pre_ast_php_parenthesized_callable_variable():
     """
     回归测试：($a)() 语法不应导致整个文件 AST 预处理失败。
