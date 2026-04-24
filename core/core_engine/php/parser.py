@@ -38,6 +38,11 @@ SPECIAL_FUNCTIONCALL_LIST = ['Eval', 'Echo', 'Print', 'Return', 'Break', 'Includ
                          'Require', 'Exit', 'Throw', 'Unset', 'Continue', 'Yield', 'Silence']
 
 FUNCTIONCALL_LIST = BASE_FUNCTIONCALL_LIST + SPECIAL_FUNCTIONCALL_LIST
+# 针对部分函数仅分析特定参数，避免盲目分析全部参数导致误报
+# 下标从 0 开始
+FUNCTIONCALL_PARAM_WHITELIST = {
+    'array_map': [0],
+}
 
 
 def export(items):
@@ -110,6 +115,24 @@ def get_all_params(nodes):  # 用来获取调用函数的参数列表，nodes为
                 params.append(param)
 
     return params
+
+
+def get_functioncall_params_by_index(node):
+    """
+    根据函数名选择需要参与回溯的参数。
+    默认返回全部参数；命中白名单时仅返回指定下标对应参数。
+    """
+    function_name = get_node_name(node)
+    raw_params = node.params
+
+    if function_name in FUNCTIONCALL_PARAM_WHITELIST:
+        selected_params = []
+        for index in FUNCTIONCALL_PARAM_WHITELIST[function_name]:
+            if 0 <= index < len(raw_params):
+                selected_params.append(raw_params[index])
+        return selected_params
+
+    return raw_params
 
 
 def get_all_functioncall_params(node):
@@ -1915,7 +1938,7 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
     :return:
     """
     logger.debug('[AST] vul_function:{v}'.format(v=vul_function))
-    params = get_all_params(node.params)
+    params = get_all_params(get_functioncall_params_by_index(node))
     function_name = get_node_name(node)
 
     if is_repair(function_name):
