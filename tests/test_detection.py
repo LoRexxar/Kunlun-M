@@ -123,3 +123,19 @@ def test_count_total_num():
 
 def test_cloc():
     assert Detection(EXAMPLES_PATH, '.').cloc()
+
+
+def test_language_detection_does_not_treat_inc_as_php():
+    files = [
+        ('.inc', {'count': 1, 'list': ['/example.inc']}),
+    ]
+    detection = Detection(EXAMPLES_PATH, files)
+    assert detection.language == []
+
+
+def test_language_detection_still_treats_php_as_php():
+    files = [
+        ('.php', {'count': 1, 'list': ['/example.php']}),
+    ]
+    detection = Detection(EXAMPLES_PATH, files)
+    assert detection.language == ['php']

@@ -12,7 +12,6 @@
         <extension value=".pht"/>
         <extension value=".phs"/>
         <extension value=".phtml"/>
-        <extension value=".inc"/>
     </language>
     <language name="Java" chiefly="True">
         <extension value=".java"/>
