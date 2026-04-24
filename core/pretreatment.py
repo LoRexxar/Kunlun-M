@@ -121,7 +121,9 @@ class Pretreatment:
     def _repair_php_code_for_parser(code_content):
         """
         尝试修复 phply 暂不支持的部分语法，避免整个文件 AST 预处理失败。
-        当前仅处理：($a)() 这类「括号包裹变量再调用」语法。
+        当前处理：
+        1. ($a)() 这类「括号包裹变量再调用」语法；
+        2. PHP7 null coalescing（??）语法，降级为 ?: 以便 phply 继续解析。
         """
         repaired_content = code_content
         token_stream = lexer.clone()
@@ -134,9 +136,22 @@ class Pretreatment:
                 break
             tokens.append(token)
 
-        # 仅在词法级别命中 ( VARIABLE ) ( 这种模式时进行修复，避免正则替换误伤字符串、注释等内容。
+        # 仅在词法级别命中特定模式时进行修复，避免正则替换误伤字符串、注释等内容。
         edits = []
         token_count = len(tokens)
+
+        # 修复 phply 不支持的 null coalescing 运算符 ??。
+        # 这里仅做语法层面的降级（?? -> ?:），目标是让 AST 预处理不中断。
+        for index in range(token_count - 1):
+            token_q1 = tokens[index]
+            token_q2 = tokens[index + 1]
+
+            if token_q1.type == 'QUESTION' and token_q2.type == 'QUESTION':
+                start = token_q1.lexpos
+                end = token_q2.lexpos + len(token_q2.value)
+                edits.append((start, end, '?:'))
+
+        # 修复 ( VARIABLE ) ( 语法模式。
         for index in range(token_count - 3):
             token_lparen = tokens[index]
             token_var = tokens[index + 1]
@@ -161,6 +176,9 @@ class Pretreatment:
         pieces = []
         cursor = 0
         for start, end, replacement in sorted(edits, key=lambda item: item[0]):
+            if start < cursor:
+                # 重叠编辑（理论上不应出现），跳过后续冲突项。
+                continue
             pieces.append(repaired_content[cursor:start])
             pieces.append(replacement)
             cursor = end

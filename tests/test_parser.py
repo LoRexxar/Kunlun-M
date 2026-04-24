@@ -228,6 +228,44 @@ $s = "($a)() should stay";
     assert '"($a)() should stay"' in repaired
 
 
+def test_repair_php_code_for_parser_null_coalesce():
+    """
+    回归测试：PHP7 null coalescing（??）语法应被降级修复为可解析形式。
+    """
+    code = """<?php
+$a = $_GET["name"] ?? "guest";
+"""
+    repaired = Pretreatment._repair_php_code_for_parser(code)
+    assert '??' not in repaired
+    assert '?:' in repaired
+
+
+def test_pre_ast_php_null_coalesce_operator():
+    """
+    回归测试：包含 ?? 的 PHP 文件不应导致整个文件 AST 预处理失败（Issue #130）。
+    """
+    code = """<?php
+$name = $_GET['name'] ?? 'guest';
+echo $name;
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_php7_null_coalesce.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_php7_null_coalesce.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        assert temp_file in ast_object.pre_result
+        assert ast_object.pre_result[temp_file]['ast_nodes']
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
 def test_pre_ast_define_namespace_concat_key():
     """
     回归测试：define(__NAMESPACE__ . "X", ...) 不应在预处理阶段触发
