@@ -32,6 +32,7 @@ scan_results = []  # 结果存放列表初始化
 is_repair_functions = []  # 修复函数初始化
 is_controlled_params = []
 scan_chain = []  # 回溯链变量
+scan_function_stack = []  # 函数回溯栈，用于避免 A->B->A 这类互相递归导致的无限回溯
 all_nodes = []
 BASE_FUNCTIONCALL_LIST = ['FunctionCall', 'MethodCall', 'StaticMethodCall', 'ObjectProperty']
 SPECIAL_FUNCTIONCALL_LIST = ['Eval', 'Echo', 'Print', 'Return', 'Break', 'Include',
@@ -553,40 +554,56 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
     cp = param
     expr_lineno = 0
 
-    for node in nodes[::-1]:
-        if isinstance(node, php.Function):
-            if node.name == function_name:
-                function_nodes = node.nodes
+    global scan_function_stack
+    if function_name in scan_function_stack:
+        logger.info("[AST] Recursive function trace detected: {}, skip to avoid endless loop.".format(
+            " -> ".join(scan_function_stack + [function_name])))
+        return -1, cp, expr_lineno
 
-                # 进入递归函数内语句
-                for function_node in function_nodes:
-                    if isinstance(function_node, php.Return):
-                        return_node = function_node.node
-                        # return_param = return_node.node
+    scan_function_stack.append(function_name)
 
-                        is_co, cp, expr_lineno = parameters_back(return_node, function_nodes, function_params,
-                                                                 vul_function=vul_function, file_path=file_path,
-                                                                 isback=isback, parent_node=parent_node)
+    try:
+        for node in nodes[::-1]:
+            if isinstance(node, php.Function):
+                if node.name == function_name:
+                    function_nodes = node.nodes
 
-                        return is_co, cp, expr_lineno
-
-        if isinstance(node, php.Class):
-            class_nodes = node.nodes
-
-            for class_node in class_nodes:
-                if isinstance(class_node, php.Method) and class_node.name == function_name:
-                    method_nodes = class_node.nodes
-
-                    for method_node in method_nodes:
-
-                        if isinstance(method_node, php.Return):
-                            return_node = method_node.node
+                    # 进入递归函数内语句
+                    for function_node in function_nodes:
+                        if isinstance(function_node, php.Return):
+                            return_node = function_node.node
                             # return_param = return_node.node
 
-                            is_co, cp, expr_lineno = parameters_back(return_node, method_nodes, function_params,
+                            is_co, cp, expr_lineno = parameters_back(return_node, function_nodes, function_params,
                                                                      vul_function=vul_function, file_path=file_path,
                                                                      isback=isback, parent_node=parent_node)
+
                             return is_co, cp, expr_lineno
+
+            if isinstance(node, php.Class):
+                class_nodes = node.nodes
+
+                for class_node in class_nodes:
+                    if isinstance(class_node, php.Method) and class_node.name == function_name:
+                        method_nodes = class_node.nodes
+
+                        for method_node in method_nodes:
+                            if isinstance(method_node, php.Return):
+                                return_node = method_node.node
+                                # return_param = return_node.node
+
+                                is_co, cp, expr_lineno = parameters_back(return_node, method_nodes, function_params,
+                                                                         vul_function=vul_function, file_path=file_path,
+                                                                         isback=isback, parent_node=parent_node)
+                                return is_co, cp, expr_lineno
+    finally:
+        if scan_function_stack and scan_function_stack[-1] == function_name:
+            scan_function_stack.pop()
+        else:
+            try:
+                scan_function_stack.remove(function_name)
+            except ValueError:
+                pass
 
     return is_co, cp, expr_lineno
 
@@ -1758,7 +1775,7 @@ def anlysis_params(param, file_path, vul_lineno, vul_function=None, repair_funct
     :param file_path: 
     :return: 
     """
-    global is_repair_functions, is_controlled_params, scan_chain
+    global is_repair_functions, is_controlled_params, scan_chain, scan_function_stack
     count = 0
     function_params = None
     if repair_functions is not None:
@@ -1774,6 +1791,7 @@ def anlysis_params(param, file_path, vul_lineno, vul_function=None, repair_funct
 
     if isexternal:
         scan_chain = ['start']
+        scan_function_stack = []
 
     all_nodes = ast_object.get_nodes(file_path)
 
