@@ -454,6 +454,15 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
     # 传入合并
     controlled_params += is_controlled_params
 
+    if isinstance(expr, php.ArrayOffset):
+        array_name = get_node_name(expr.node)
+
+        if array_name in controlled_params:
+            logger.debug('[AST] is_controllable --> {expr}'.format(expr=array_name))
+            if flag:
+                return 1, array_name
+            return 1, php.Variable(array_name)
+
     if isinstance(expr, php.ObjectProperty):
         return 3, expr
 
@@ -598,9 +607,14 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
     # print(param_name)
     # print(param_expr)
 
+    is_co, cp = is_controllable(param)
+    expr_lineno = param.lineno
+
+    if is_co == 1:
+        return is_co, cp, expr_lineno
+
     is_co = 3
     cp = param
-    expr_lineno = param.lineno
 
     for node in nodes[::-1]:
         if isinstance(node, php.Assignment):
@@ -1122,6 +1136,20 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                                                          isback=isback, parent_node=None)
                 function_flag = 0
 
+                if is_co == 5:
+                    logger.debug("[AST] param {} declared as global in function {}, trace from outer scope.".format(
+                        param_name, node.name))
+
+                    file_path = os.path.normpath(file_path)
+                    code = "param {} declared by global in function {}".format(param_name, node.name)
+                    scan_chain.append(('Global', code, file_path, node.lineno))
+
+                    is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
+                                                             function_flag=0, vul_function=vul_function,
+                                                             file_path=file_path,
+                                                             isback=isback, parent_node=0)
+                    return is_co, cp, expr_lineno
+
                 if is_co == 3:  # 出现新的敏感函数，重新生成新的漏洞结构，进入新的遍历结构
 
                     # 检查函数是不是魔术方法
@@ -1561,6 +1589,17 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                                 logger.debug("[AST] Uncontrollable  Param {}. continue ast.")
                                 continue
+
+        elif isinstance(node, php.Global):
+            global_params = []
+            for global_node in node.nodes:
+                global_name = get_node_name(global_node)
+                if global_name is not None:
+                    global_params.append(global_name)
+
+            if param_name in global_params:
+                logger.debug("[AST] Find global {} in line {}, trace in outer scope.".format(param_name, node.lineno))
+                return 5, param, node.lineno
 
         if is_co == 3 or int(lineno) == node.lineno:  # 当is_co为True时找到可控，停止递归
             is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
