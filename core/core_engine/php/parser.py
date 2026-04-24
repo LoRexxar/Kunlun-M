@@ -1922,6 +1922,14 @@ def analysis_functioncall_node(node, back_node, vul_function, vul_lineno, functi
         logger.info("[AST] Function {} is repair func. fail control back.".format(function_name))
         return False
 
+    # 如果危险函数参数本身是可控函数调用（例如 system(input('get.id'))），
+    # 直接按可控处理，避免继续回溯 input 的字面量参数导致漏报。
+    is_co, cp = is_controllable(function_name)
+    if is_co == 1:
+        expr_lineno = node.lineno
+        set_scan_results(is_co, cp, expr_lineno, vul_function, node, vul_lineno)
+        return True
+
     for param in params:
         param = php.Variable(param)
         param_lineno = node.lineno
