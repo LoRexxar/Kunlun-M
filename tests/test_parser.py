@@ -267,6 +267,40 @@ echo $name;
         ast_object.pre_ast_all(['php'])
 
 
+def test_anlysis_params_php_global_variable_flow():
+    """
+    回归测试：函数内通过 global 引入的变量应回溯到外层作用域（Issue #38）。
+    """
+    code = """<?php
+$b = $_GET['cmd'];
+function a() {
+    global $b;
+    eval($b);
+}
+a();
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_global_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_global_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$b', temp_file, 5)
+
+        assert is_co == 1
+        assert cp.name == '$_GET'
+        assert expr_lineno == 2
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
 def test_javascript_eval_pseudo_syntax_issue_50():
     """
     回归测试（Issue #50）：
