@@ -468,7 +468,7 @@ class DataflowGenerate:
                     if node_typename in ['While', 'DoWhile']:
 
                         # 处理expr op
-                        node_id, new_node = self.deep_obj_address_generate(node.expr, new_locate, -1)
+                        node_id, new_node = self.deep_obj_address_generate(node.expr, new_locate, now_sort)
 
                         if node_id:
                             node_sink = '&{}'.format(node_id)
@@ -479,7 +479,7 @@ class DataflowGenerate:
 
                     elif node_typename == 'If':
                         # 处理expr op
-                        node_id, new_node = self.deep_obj_address_generate(node.expr, new_locate, -1)
+                        node_id, new_node = self.deep_obj_address_generate(node.expr, new_locate, now_sort)
 
                         if node_id:
                             node_sink = '&{}'.format(node_id)
@@ -508,7 +508,7 @@ class DataflowGenerate:
                             node_source = node_typename
                             flow_type = node_typename
 
-                            node_id, new_node = self.deep_obj_address_generate(node_elseif.expr, new_locate, -1)
+                            node_id, new_node = self.deep_obj_address_generate(node_elseif.expr, new_locate, now_sort)
 
                             if node_id:
                                 node_sink = '&{}'.format(node_id)
