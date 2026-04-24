@@ -1335,7 +1335,7 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 if isinstance(node.expr, php.ArrayOffset):
                     param_expr = node.expr.node
                 else:
-                    param_expr = node.expr.name
+                    param_expr = node.expr
                 expr_lineno = node.lineno
                 # 找到变量的来源，开始继续分析变量的赋值表达式是否可控
                 logger.debug(
@@ -1344,17 +1344,34 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 file_path = os.path.normpath(file_path)
                 code = "foreach ({} as {})".format(param_expr, param_name)
                 scan_chain.append(('Foreach', code, file_path, node.lineno))
-                param = php.Variable(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
-                param_name = param_expr
+                param = build_ast_param(param_expr)  # 每次找到一个污点的来源时，开始跟踪新污点，覆盖旧污点
+                param_name = get_node_name(param) if hasattr(param, 'name') else param
             else:
                 foreach_nodes = node.node.nodes
                 foreach_node_lineno = node.node.lineno
                 logger.debug("[AST] Find foreach, start ast in foreach")
 
-                is_co, cp, expr_lineno = parameters_back(param, foreach_nodes, function_params, foreach_node_lineno,
+                is_co, cp, expr_lineno = parameters_back(param, foreach_nodes, function_params, lineno,
                                                          function_flag=1, vul_function=vul_function, file_path=file_path,
                                                          isback=isback, parent_node=node)
                 function_flag = 0
+                if is_co == 3:
+                    _is_co = is_co
+                    _cp = cp
+                    if hasattr(cp, 'name') and cp.name == node.valvar.name.name:
+                        if isinstance(node.expr, php.ArrayOffset):
+                            param_expr = node.expr.node
+                        else:
+                            param_expr = node.expr
+
+                        file_path = os.path.normpath(file_path)
+                        code = "foreach ({} as {})".format(param_expr, cp.name)
+                        scan_chain.append(('Foreach', code, file_path, node.lineno))
+
+                        param = build_ast_param(param_expr)
+                        param_name = get_node_name(param) if hasattr(param, 'name') else param
+                        _is_co = 0
+                        _cp = param
 
                 if is_co in [-1, 1, 2]:  # 目标确定直接返回
                     return is_co, cp, expr_lineno
