@@ -463,3 +463,41 @@ if(isset($_GET['submit']) && $_GET['message'] != null){
             os.remove(temp_file)
         ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
         ast_object.pre_ast_all(['php'])
+
+
+def test_anlysis_params_self_concat_assignment_tracks_other_rhs_vars():
+    """
+    回归测试：`$pid = $pid . $did` 这类右值包含自身变量的拼接赋值，
+    仍应继续追踪 `$did` 等其他变量来源（Issue #62）。
+    """
+    code = """<?php
+function add_func($did){
+    $did = $_GET['maple'];
+    $pid = "random";
+    $pid = $pid . $did;
+    $a = $pid ^ 'randow';
+    $b = $a . 'aaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    mysql_query($b);
+}
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_issue_62_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_issue_62_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        result = scan_parser(['mysql_query'], 8, temp_file)
+
+        assert isinstance(result, list)
+        assert result
+        assert result[0].get('code') == 1
+        assert result[0].get('source') is not None
+        assert result[0].get('source').name == '$_GET'
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
