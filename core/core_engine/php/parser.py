@@ -993,20 +993,43 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                 code = "{}={}".format(param_name, param_expr)
                 scan_chain.append(('ListAssignment', code, file_path, node.lineno))
 
-                # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
+                # 如果目标参数就在列表中，不能直接跳过，需要继续分析列表中的其他变量来源
                 if param_name in param_expr:
-                    logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
+                    logger.debug("[AST] param {} in list {}, trace other params...".format(param_name, param_expr))
 
-                    # 如果列表中直接就有可控变量，先算作漏洞
+                    fallback_cp = None
                     for p in param_expr:
-                        is_co, cp = is_controllable(p)
+                        # 跳过被赋值变量自身，避免在自拼接场景下提前中断
+                        if p == param_name:
+                            continue
 
+                        is_co, cp = is_controllable(p)
                         if is_co == 1:
                             param = p
                             return is_co, cp, expr_lineno
 
-                    is_co = 3
-                    cp = param
+                        if is_co == -1:
+                            continue
+
+                        file_path = os.path.normpath(file_path)
+                        code = "find param {}".format(p)
+                        scan_chain.append(('NewFind', code, file_path, node.lineno))
+
+                        _is_co, _cp, expr_lineno = parameters_back(php.Variable(p), nodes[:-1], function_params, lineno,
+                                                                   function_flag=1, vul_function=vul_function,
+                                                                   file_path=file_path,
+                                                                   isback=isback)
+                        if _is_co == 1:
+                            is_co = _is_co
+                            cp = _cp
+                            break
+
+                        if _is_co in [-1, 3] and isinstance(p, str) and p.startswith('$'):
+                            fallback_cp = _cp if _is_co == 3 else build_ast_param(p)
+
+                    if is_co != 1:
+                        is_co = 3
+                        cp = fallback_cp if fallback_cp is not None else param
 
                 else:
                     fallback_cp = None
@@ -1467,12 +1490,44 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
                     code = "{}.={}".format(param_name, param_expr)
                     scan_chain.append(('ListAssignmentOp', code, file_path, node.lineno))
 
-                    # 如果目标参数就在列表中，就会有新的问题，这里选择，如果存在，则跳过
+                    # 如果目标参数就在列表中，继续分析列表中的其他变量来源
                     if param_name in param_expr:
-                        logger.debug("[AST] param {} in list {}, continue...".format(param_name, param_expr))
+                        logger.debug("[AST] param {} in list {}, trace other params...".format(param_name, param_expr))
 
-                        is_co = 3
-                        cp = param
+                        fallback_cp = None
+                        for expr in param_expr:
+                            # 跳过被赋值变量自身，避免在自拼接场景下提前中断
+                            if expr == param_name:
+                                continue
+
+                            is_co, cp = is_controllable(expr)
+
+                            if is_co == 1:
+                                return is_co, cp, expr_lineno
+
+                            if is_co == -1:
+                                continue
+
+                            file_path = os.path.normpath(file_path)
+                            code = "find param {}".format(expr)
+                            scan_chain.append(('NewFind', code, file_path, node.lineno))
+
+                            _is_co, _cp, expr_lineno = parameters_back(php.Variable(expr), nodes[:-1], function_params, lineno,
+                                                                       function_flag=1, vul_function=vul_function,
+                                                                       file_path=file_path,
+                                                                       isback=isback)
+
+                            if _is_co == 1:
+                                is_co = _is_co
+                                cp = _cp
+                                break
+
+                            if _is_co in [-1, 3] and isinstance(expr, str) and expr.startswith('$'):
+                                fallback_cp = _cp if _is_co == 3 else build_ast_param(expr)
+
+                        if is_co != 1:
+                            is_co = 3
+                            cp = fallback_cp if fallback_cp is not None else param
 
                     else:
                         for expr in param_expr:
