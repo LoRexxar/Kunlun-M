@@ -170,7 +170,7 @@ def get_param(param, is_eval=False, is_function_regex=False):
     elif type == "CallExpression":
         call_function = get_member_data(param.callee, isparam=True)
 
-        if is_function_regex:
+        if is_function_regex and call_function not in special_eval_function:
             params = [param.callee]
 
         else:
@@ -1149,6 +1149,14 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
                     # 恶意函数调用
                     for param in callee_params:
+                        # issue #50:
+                        # eval('callback') 这类伪语法会让参数在调用处变成字符串字面量，
+                        # 但其语义上代表变量名，需要继续按变量回溯。
+                        if vul_function in special_eval_function \
+                                and hasattr(param, "type") and param.type == "Literal" \
+                                and isinstance(param.value, str):
+                            param = check_param(param.value, vul_lineno=param.loc.start.line)
+
                         is_co, cp, expr_lineno = parameters_back(param, nodes[:-1], function_params, lineno,
                                                                  function_flag=0, vul_function=vul_function,
                                                                  file_path=file_path,

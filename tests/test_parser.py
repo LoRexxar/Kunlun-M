@@ -26,6 +26,7 @@ from core.core_engine.php.parser import anlysis_params
 from core.core_engine.php.parser import new_class_back
 from core.core_engine.php.parser import parameters_back
 from core.core_engine.php.parser import scan_parser
+from core.core_engine.javascript.parser import scan_parser as js_scan_parser
 from core.pretreatment import ast_object
 from core.pretreatment import Pretreatment
 from phply import phpast as php
@@ -259,6 +260,45 @@ echo $name;
 
         assert temp_file in ast_object.pre_result
         assert ast_object.pre_result[temp_file]['ast_nodes']
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
+def test_javascript_eval_pseudo_syntax_issue_50():
+    """
+    回归测试（Issue #50）：
+    setTimeout(eval('callback'), ...) 不应把参数退化为 `eval`，
+    应继续提取并回溯到 `callback`。
+    """
+    code = """\
+function timedMsg(abc,callback){
+if(callback){
+var t=setTimeout(eval('callback'),3000);
+return 0;
+}
+}
+function fire(){
+var call = location.hash.split("#")[1];
+timedMsg(12,"call");
+}
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_issue50_runtime.js'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.js', {'list': ["v_issue50_runtime.js"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['javascript'])
+
+        results = js_scan_parser(['setTimeout'], 3, temp_file)
+
+        assert isinstance(results, list)
+        assert any(r.get('sink_param:') == 'callback' for r in results)
+        assert not any(r.get('sink_param:') == 'eval' for r in results)
     finally:
         if os.path.exists(temp_file):
             os.remove(temp_file)
