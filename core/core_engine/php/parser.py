@@ -349,6 +349,16 @@ def get_node_name(node):  # node为'node'中的元组
     return node
 
 
+def is_same_array_index(left_index, right_index):
+    """
+    判断两个数组下标节点是否指向同一 key。
+    这里只做保守匹配：名称/字面量一致才视为同一 key。
+    """
+    left_name = get_node_name(left_index)
+    right_name = get_node_name(right_index)
+    return left_name == right_name
+
+
 def build_ast_param(param_expr):
     """
     将表达式构造成可继续回溯的参数节点。
@@ -582,7 +592,7 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
     :param nodes: 
     :return: 
     """
-    param_name = param.node.name
+    param_name = get_node_name(param.node)
     param_expr = param.expr
 
     # print(param_name)
@@ -598,38 +608,43 @@ def array_back(param, nodes, vul_function=None, file_path=None, isback=None):  #
             param_node = node.node
             param_node_expr = node.expr
 
-            if param_node_name == param_name or param == param_node:  # 处理数组中值被改变的问题
-                if isinstance(param_node_expr, php.Array):
-                    for p_node in node.expr.nodes:
-                        if p_node.key == param_expr:
-                            if isinstance(p_node.value, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
-                                is_co, cp = is_controllable(p_node.value.node.name)
+            # 仅当左值与当前追踪的数组元素为同一 key 时，才继续沿右值回溯。
+            if isinstance(param_node, php.ArrayOffset) and param_node_name == param_name:
+                if not is_same_array_index(param_node.expr, param_expr):
+                    continue
 
-                                if is_co != 1:
-                                    is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path,
-                                                                        isback=isback)
-
-                            else:
-                                n_node = php.Variable(p_node.value)
-                                is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function,
-                                                                         file_path=file_path,
-                                                                         isback=isback)
-
-            # if param == param_node:  # 处理数组一次性赋值，左值为数组
                 if isinstance(param_node_expr, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
                     is_co, cp = is_controllable(param_node_expr.node.name)
 
                     if is_co != 1:
-                        is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path,
+                        is_co, cp, expr_lineno = array_back(param_node_expr, nodes, file_path=file_path,
                                                             isback=isback)
                 else:
                     is_co, cp = is_controllable(param_node_expr)
 
                     if is_co != 1 and is_co != -1:
-                        n_node = php.Variable(param_node_expr.node.value)
-                        is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function,
+                        next_param = build_ast_param(param_node_expr)
+                        is_co, cp, expr_lineno = parameters_back(next_param, nodes, vul_function=vul_function,
                                                                  file_path=file_path,
                                                                  isback=isback)
+
+            # $arr = ['k' => xxx] 这类一次性数组赋值
+            if isinstance(param_node, php.Variable) and param_node_name == param_name:
+                if isinstance(param_node_expr, php.Array):
+                    for p_node in node.expr.nodes:
+                        if is_same_array_index(p_node.key, param_expr):
+                            if isinstance(p_node.value, php.ArrayOffset):  # 如果赋值值仍然是数组，先经过判断在进入递归
+                                is_co, cp = is_controllable(p_node.value.node.name)
+
+                                if is_co != 1:
+                                    is_co, cp, expr_lineno = array_back(p_node.value, nodes, file_path=file_path,
+                                                                        isback=isback)
+
+                            else:
+                                n_node = build_ast_param(p_node.value)
+                                is_co, cp, expr_lineno = parameters_back(n_node, nodes, vul_function=vul_function,
+                                                                         file_path=file_path,
+                                                                         isback=isback)
 
     return is_co, cp, expr_lineno
 
@@ -773,12 +788,9 @@ def parameters_back(param, nodes, function_params=None, lineno=0,
 
     if isinstance(param, php.ArrayOffset):  # 当污点为数组时，递归进入寻找数组声明或赋值
         logger.debug("[AST] AST analysis for ArrayOffset in line {}".format(param.lineno))
-        # is_co, cp, expr_lineno = array_back(param, nodes, file_path=file_path, isback=isback)
-
-        param = param.node
-        param_name = get_node_name(param)
-
-        is_co, cp = is_controllable(param)
+        is_co, cp, expr_lineno = array_back(param, nodes, vul_function=vul_function, file_path=file_path, isback=isback)
+        if is_co in [-1, 1, 2]:
+            return is_co, cp, expr_lineno
 
     if isinstance(param, php.Include) or isinstance(param, php.Require):
         # include/require 也可能作为赋值右值或 return 值参与数据流，继续回溯其参数表达式

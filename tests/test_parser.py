@@ -266,6 +266,65 @@ echo $name;
         ast_object.pre_ast_all(['php'])
 
 
+def test_anlysis_params_array_offset_respects_key_mismatch():
+    """
+    回归测试：数组元素回溯时应区分 key，避免把 $c['a'] 污点错误传播到 $c['d']。
+    """
+    code = """<?php
+$c['a'] = $_GET['a'];
+$a = $c['d'];
+echo $a;
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_array_key_mismatch_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_array_key_mismatch_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$a', temp_file, 4)
+
+        assert is_co != 1
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
+def test_anlysis_params_array_offset_respects_key_match():
+    """
+    回归测试：数组元素回溯在 key 一致时仍应正确识别可控来源。
+    """
+    code = """<?php
+$c['d'] = $_GET['d'];
+$a = $c['d'];
+echo $a;
+"""
+    temp_file = PROJECT_DIRECTORY + '/tests/vulnerabilities/v_array_key_match_runtime.php'
+    try:
+        with open(temp_file, 'w') as f:
+            f.write(code)
+
+        runtime_files = [('.php', {'list': ["v_array_key_match_runtime.php"]})]
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', runtime_files)
+        ast_object.pre_ast_all(['php'])
+
+        is_co, cp, expr_lineno, chain = anlysis_params('$a', temp_file, 4)
+
+        assert is_co == 1
+        assert cp.name == '$_GET'
+        assert isinstance(chain, list)
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        ast_object.init_pre(PROJECT_DIRECTORY + '/tests/vulnerabilities/', files)
+        ast_object.pre_ast_all(['php'])
+
+
 def test_pre_ast_define_namespace_concat_key():
     """
     回归测试：define(__NAMESPACE__ . "X", ...) 不应在预处理阶段触发
