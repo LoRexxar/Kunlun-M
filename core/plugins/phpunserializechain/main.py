@@ -457,23 +457,34 @@ class PhpUnSerChain(BasePluginClass):
 
         return False
 
-    def deep_get_node_name(self, node):
+    def deep_get_node_name(self, node, resolving_ids=None):
         """
         递归寻址获取最终node name
         :param node:
         :return:
         """
+        if resolving_ids is None:
+            resolving_ids = set()
+
         if re.search(r'&[0-9]+', node, re.I):
             address_list = re.findall(r'&[0-9]+', node, re.I)
             for address in address_list:
                 address_id = address[1:]
 
+                if address_id in resolving_ids:
+                    logger.debug("[PhpUnSerChain] Recursive address reference detected on &{}.".format(address_id))
+                    continue
+
                 chlid_node = self.dataflow_db.objects.filter(id=address_id).first()
 
-                final_name = ""
+                if not chlid_node:
+                    continue
 
-                node_left = self.deep_get_node_name(chlid_node.source_node)
-                node_right = self.deep_get_node_name(chlid_node.sink_node)
+                final_name = ""
+                resolving_ids.add(address_id)
+
+                node_left = self.deep_get_node_name(chlid_node.source_node, resolving_ids=resolving_ids)
+                node_right = self.deep_get_node_name(chlid_node.sink_node, resolving_ids=resolving_ids)
 
                 if chlid_node.node_type.split('-')[0] in self.op_node:
                     node_type = chlid_node.node_type.split('-')[0]
@@ -503,6 +514,8 @@ class PhpUnSerChain(BasePluginClass):
                 else:
                     print('---error-node---')
                     print(chlid_node)
+
+                resolving_ids.remove(address_id)
 
                 # replace
                 node = node.replace(address, final_name)
@@ -550,13 +563,22 @@ class PhpUnSerChain(BasePluginClass):
         else:
             return False
 
-    def check_param_controllable(self, param_name, now_node):
+    def check_param_controllable(self, param_name, now_node, trace_stack=None):
         """
         用于检查当前参数是否可控
         :param param_name: 参数 格式一般为Variable-$a
         :param now_node: 参数所在的node
         :return:
         """
+        if trace_stack is None:
+            trace_stack = set()
+
+        stack_key = "{}@{}".format(param_name, now_node.id)
+        if stack_key in trace_stack:
+            logger.debug("[PhpUnSerChain] Recursive controllable check detected on {}.".format(stack_key))
+            return False
+
+        trace_stack.add(stack_key)
         parent_node_list = [param_name]
 
         if '->' in param_name:
@@ -597,7 +619,7 @@ class PhpUnSerChain(BasePluginClass):
                 new_param_name = self.deep_get_node_name(back_node.sink_node)
 
                 # 递归继续
-                return self.check_param_controllable(new_param_name, back_node)
+                return self.check_param_controllable(new_param_name, back_node, trace_stack=trace_stack)
 
         # foreach 语句，没有找到很好的办法...
         back_nodes = self.dataflow_db.objects.filter(id__lt=now_id, node_locate__startswith=base_locate,
@@ -609,7 +631,7 @@ class PhpUnSerChain(BasePluginClass):
                 new_param_name = self.deep_get_node_name(ast.literal_eval(back_node.sink_node)[0])
 
                 # 递归继续
-                return self.check_param_controllable(new_param_name, back_node)
+                return self.check_param_controllable(new_param_name, back_node, trace_stack=trace_stack)
 
         # check 当param_name为方法调用
         if param_name.split('-')[0] in ['MethodCall', 'StaticMethodCall']:
@@ -632,6 +654,7 @@ class PhpUnSerChain(BasePluginClass):
                 if 'Variable-{}'.format(back_node.source_node) == param_name:
                     return True
 
+        trace_stack.remove(stack_key)
         return False
 
     def check_dynamic_class_var_exist(self, var_name, now_node):
