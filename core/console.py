@@ -140,10 +140,9 @@ class BaseInterpreter(object):
     global_help = ""
 
     def __init__(self):
-        self.setup()
         self.banner = ""
-        self.complete = None
         self.subcommand_list = []
+        self.setup()
 
     def setup(self):
         """ Initialization of third-party libraries
