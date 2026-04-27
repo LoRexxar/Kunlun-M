@@ -2,6 +2,12 @@
     min-height: 100vh;
 }
 
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
 body.dashboard-shell {
     margin: 0;
     font-family: "Inter", "Source Sans Pro", sans-serif;
@@ -205,6 +211,71 @@ body.dashboard-shell {
 .col-xs-6 { width: 50%; }
 .col-xs-4 { width: 33.333333%; }
 .col-lg-2 { width: 16.666667%; }
+
+@media (max-width: 1199px) {
+    .col-lg-2 {
+        width: 33.333333%;
+    }
+}
+
+@media (max-width: 767px) {
+    .col-xs-6,
+    .col-lg-2 {
+        width: 100%;
+    }
+}
+
+.small-box {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 18px;
+    color: #fff;
+}
+
+.small-box > .inner {
+    padding: 12px 14px;
+}
+
+.small-box h3 {
+    margin: 0 0 4px;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.small-box p {
+    margin: 0;
+    font-size: 15px;
+}
+
+.small-box .icon {
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    font-size: 56px;
+    opacity: .24;
+    line-height: 1;
+}
+
+.small-box-footer {
+    display: block;
+    padding: 8px 14px;
+    color: rgba(255, 255, 255, .95);
+    background: rgba(0, 0, 0, .12);
+}
+
+.small-box-footer:hover {
+    color: #fff;
+    background: rgba(0, 0, 0, .18);
+}
+
+.bg-aqua { background: linear-gradient(135deg, #09b8e8, #0f8fc4); }
+.bg-green { background: linear-gradient(135deg, #19b773, #14945d); }
+.bg-red { background: linear-gradient(135deg, #ef5a47, #cf3f2f); }
+.bg-yellow { background: linear-gradient(135deg, #f3b53b, #e09108); }
+.bg-orange { background: linear-gradient(135deg, #ff9d45, #f97800); }
+.bg-purple { background: linear-gradient(135deg, #766fd8, #5a53b9); }
 
 .box {
     background: #fff;
