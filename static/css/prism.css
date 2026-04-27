@@ -77,6 +77,19 @@ pre[class*="language-"] {
 	color: #ae81ff;
 }
 
+/* Prevent Bulma's `.number` component style from overriding Prism numeric tokens */
+code[class*="language-"] .token.number,
+pre[class*="language-"] .token.number {
+	background: transparent;
+	border-radius: 0;
+	display: inline;
+	height: auto;
+	margin: 0;
+	min-width: 0;
+	padding: 0;
+	vertical-align: baseline;
+}
+
 .token.selector,
 .token.attr-name,
 .token.string,
@@ -214,4 +227,3 @@ pre[class*="language-"].line-numbers > code {
 			padding-right: 0.8em;
 			text-align: right;
 		}
-
