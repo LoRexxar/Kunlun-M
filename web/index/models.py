@@ -421,21 +421,29 @@ def get_dataflow_table(name, isnew=False):
 
     table_name = "DataFlow_{}{}".format(name, prefix)
 
-    class DataFlowTemplate(models.Model):
-        node_locate = models.CharField(max_length=1000)
-        node_sort = models.IntegerField()
-        source_node = models.CharField(max_length=500)
-        node_type = models.CharField(max_length=500)
-        sink_node = models.CharField(max_length=500, null=True)
+    model_name = "DataFlowTemplate_{}".format(table_name)
 
-        @staticmethod
-        def is_exists():
-            return table_name in connection.introspection.table_names()
+    if model_name in globals():
+        return globals()[model_name]
 
-        class Meta:
-            db_table = table_name
-
-    return DataFlowTemplate
+    model_class = type(
+        model_name,
+        (models.Model,),
+        {
+            "__module__": __name__,
+            "node_locate": models.CharField(max_length=1000),
+            "node_sort": models.IntegerField(),
+            "source_node": models.CharField(max_length=500),
+            "node_type": models.CharField(max_length=500),
+            "sink_node": models.CharField(max_length=500, null=True),
+            "is_exists": staticmethod(
+                lambda: table_name in connection.introspection.table_names()
+            ),
+            "Meta": type("Meta", (), {"db_table": table_name}),
+        },
+    )
+    globals()[model_name] = model_class
+    return model_class
 
 
 def get_dataflow_class(name, isnew=False, isrenew=False):
@@ -455,23 +463,30 @@ def get_dataflow_class(name, isnew=False, isrenew=False):
 # 结果流模板表
 def get_resultflow_table(table_name):
     # prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
+    model_name = "ResultFlowTemplate_{}".format(table_name)
 
-    class ResultFlowTemplate(models.Model):
-        vul_id = models.IntegerField()
-        node_type = models.CharField(max_length=50)
-        node_content = models.CharField(max_length=500)
-        node_path = models.CharField(max_length=300)
-        node_source = models.TextField(null=True)
-        node_lineno = models.CharField(max_length=20, null=True)
+    if model_name in globals():
+        return globals()[model_name]
 
-        @staticmethod
-        def is_exists():
-            return table_name in connection.introspection.table_names()
-
-        class Meta:
-            db_table = table_name
-
-    return ResultFlowTemplate
+    model_class = type(
+        model_name,
+        (models.Model,),
+        {
+            "__module__": __name__,
+            "vul_id": models.IntegerField(),
+            "node_type": models.CharField(max_length=50),
+            "node_content": models.CharField(max_length=500),
+            "node_path": models.CharField(max_length=300),
+            "node_source": models.TextField(null=True),
+            "node_lineno": models.CharField(max_length=20, null=True),
+            "is_exists": staticmethod(
+                lambda: table_name in connection.introspection.table_names()
+            ),
+            "Meta": type("Meta", (), {"db_table": table_name}),
+        },
+    )
+    globals()[model_name] = model_class
+    return model_class
 
 
 def get_resultflow_class(scanid):
