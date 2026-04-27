@@ -19,6 +19,25 @@ body.modal-open {
     background: radial-gradient(circle at top right, #4a6bff, #20163c 60%, #0b1221);
 }
 
+.landing-hero .navbar-item,
+.landing-hero .navbar-link {
+    color: rgba(237, 242, 255, 0.92);
+}
+
+.landing-hero .navbar-item:hover,
+.landing-hero .navbar-item:focus,
+.landing-hero .navbar-link:hover,
+.landing-hero .navbar-link:focus,
+.landing-hero .navbar-item.is-active {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.landing-hero .navbar-brand h3,
+.landing-hero .navbar-end h3 {
+    color: #f8fbff;
+}
+
 .landing-title {
     font-size: 3rem;
     letter-spacing: .5px;
