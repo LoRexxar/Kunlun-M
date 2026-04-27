@@ -1,6 +1,126 @@
 html{
 	height: 100%;
 }
+body.landing-body {
+    min-height: 100%;
+    background: #091224;
+}
+
+body.modal-open {
+    overflow: hidden;
+}
+
+.landing-hero {
+    background: radial-gradient(circle at top right, #4a6bff, #20163c 60%, #0b1221);
+}
+
+.landing-title {
+    font-size: 3rem;
+    letter-spacing: .5px;
+}
+
+.landing-subtitle {
+    color: rgba(255, 255, 255, 0.9) !important;
+    margin-bottom: 12px !important;
+}
+
+.landing-content {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 16px 18px;
+    color: #eff2ff;
+    max-width: 680px;
+}
+
+.landing-badge {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    color: #81e6ff;
+    margin-bottom: 10px;
+}
+
+.landing-actions {
+    margin-top: 22px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.landing-panel {
+    background: rgba(7, 11, 22, 0.55);
+    border: 1px solid rgba(129, 190, 255, 0.35);
+    border-radius: 16px;
+    padding: 22px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .28);
+}
+
+.landing-panel h4 {
+    margin-top: 0;
+    font-size: 20px;
+    color: #fff;
+    margin-bottom: 12px;
+}
+
+.landing-panel ul {
+    margin: 0;
+    padding: 0;
+}
+
+.landing-panel li {
+    list-style: none;
+    color: #e9f5ff;
+    margin-bottom: 10px;
+}
+
+.landing-panel li i {
+    color: #6ef0b2;
+    margin-right: 8px;
+}
+
+.landing-auth-modal .modal-card {
+    width: 92%;
+    max-width: 480px;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.landing-auth-modal .modal-card-head {
+    background: linear-gradient(110deg, #1f5fff, #7338ff);
+}
+
+.landing-auth-modal .modal-card-title {
+    color: #fff;
+    font-weight: 600;
+}
+
+.landing-auth-modal .modal-card-body {
+    background: #f7f8ff;
+    padding: 24px;
+}
+
+.landing-auth-modal .tabs {
+    margin-bottom: 18px;
+}
+
+.landing-auth-modal .tabs li.is-active a {
+    background: #1f5fff;
+    border-color: #1f5fff;
+    color: #fff;
+}
+
+.auth-messages .notification {
+    margin-bottom: 14px !important;
+}
+
+@media (max-width: 768px) {
+    .landing-title {
+        font-size: 2.2rem;
+    }
+}
+
 ul.messages{
     padding-left: 0px !important;
 }
