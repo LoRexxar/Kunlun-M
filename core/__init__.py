@@ -123,8 +123,7 @@ def main():
                                                      description=__introduction__.format(detail='enter console mode'),
                                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                                      usage=argparse.SUPPRESS, add_help=True)
-        parser_group_console.add_argument('console', action='store_true', default=True,
-                                          help='enter console mode')
+        parser_group_console.set_defaults(console=True)
 
         # 加载插件参数列表以及帮助
 
