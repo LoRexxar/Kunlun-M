@@ -11,8 +11,8 @@
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 </head>
 
-<body>
-  <section class="hero is-medium is-primary is-bold">
+<body class="auth-body">
+  <section class="hero is-medium is-bold auth-hero">
 
   <div class="hero-head">
     <nav class="navbar">
@@ -67,7 +67,7 @@
 	        Register pages for <strong>{{ title }}</strong>!
 	      </p>
 
-<div class="back box is-half is-offset-one-fifth">
+<div class="box auth-card">
 
 <form id="reg" method="post" class="form-signin" action="{% url 'index:register' %}">
 
