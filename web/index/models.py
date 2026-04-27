@@ -254,7 +254,7 @@ class ScanResultTask(models.Model):
     vulfile_path = models.CharField(max_length=200)
     source_code = models.CharField(max_length=200)
     result_type = models.CharField(max_length=100)
-    vul_hash = models.CharField(max_length=32, default=None)
+    vul_hash = models.CharField(max_length=32, default='')
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
@@ -372,7 +372,7 @@ class NewEvilFunc(models.Model):
     project_id = models.IntegerField(default=0)
     func_name = models.CharField(max_length=200)
     origin_func_name = models.CharField(max_length=200, null=True)
-    func_hash = models.CharField(max_length=32, default=None)
+    func_hash = models.CharField(max_length=32, default='')
     is_active = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
