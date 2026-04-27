@@ -442,6 +442,7 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
         j = 0
 
         if not ps:
+            logger.info("Search result is empty.")
             return False
 
         for p in ps:
@@ -466,8 +467,12 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
                         table2.add_row([i, vv.vuln_id, vv.title, VENDOR_VUL_LEVEL[vv.severity], vv.cves, vv.reference, vv.vendor_name, vv.affected_versions])
 
         logger.info("Project List (Small than {} {}):\n{}".format(keyword, keyword_value, table))
-        logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
+
+        if with_vuls:
+            if j == 0:
+                logger.info("Vendor {}:{} Vul List is empty.".format(keyword, keyword_value))
+            else:
+                logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
 
     return True
-
 

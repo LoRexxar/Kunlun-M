@@ -1334,7 +1334,9 @@ Input Control:
             return
 
         if mod == 'vendor':
-            cli.search_project(mod, keyword, keyvalue, with_vuls=True)
+            status = cli.search_project(mod, keyword, keyvalue, with_vuls=True)
+            if not status:
+                logger.info("[Console] Search result is empty.")
 
     def command_config(self, *args, **kwargs):
 
