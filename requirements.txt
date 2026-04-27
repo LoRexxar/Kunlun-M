@@ -1,13 +1,23 @@
-pyjsparser
-colorlog>=6.8.2
-phply==1.0.0
-portalocker>=2.8.2
-prettytable>=3.10.0
-rarfile>=4.2
-requests>=2.32.3
+# Kunlun-M runtime dependencies (Python 3.13)
+# Install: python3.13 -m pip install -r requirements.txt
+
+# Web framework
+django>=4.2,<6
 Werkzeug>=3.0.6
+
+# Parser / analysis stack
+phply==1.0.0
 esprima==4.0.1
+pyjsparser>=2.7.1
 jsbeautifier>=1.15.1
 beautifulsoup4>=4.12.3
-django>=4.2,<6
+
+# Output & utilities
+colorlog>=6.8.2
+prettytable>=3.10.0
+portalocker>=2.8.2
+requests>=2.32.3
+rarfile>=4.2
+
+# Database drivers
 mysqlclient>=2.2.4
