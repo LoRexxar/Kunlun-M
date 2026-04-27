@@ -1,7 +1,6 @@
 - <big>**自Cobra-W 2.0版本起，Cobra-W正式更名为Kunlun-M(昆仑镜)，**</big>
-- **KunLun-M(昆仑镜)已进入弱维护阶段，如果有bug或者明显的问题会更新，但不会再更新新功能，主要是我认为Kunlun-M的架构拖累了后续的发展方向，仅在PHP扫描中以当前的架构已经几乎做到极限了，后续可能会有新的工具？也可能没有？敬请期待~**
-
 - **请使用Python 3.10+运行该工具（推荐Python 3.13），已停止维护Python 2.7环境**
+- 感谢AI时代，允许我以极低的成本解决该项目的基础维护问题，尽管该项目的理念相对于现在并不先进，但是项目内核稳定依旧是不错的工具参考，我后续将会用codex以极低的成本快速迭代更新，大胆尝试更新功能，**尝试用ai时代的方法完成一个可能很好用的工具**。
 
 # Kunlun-Mirror
 [![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
@@ -75,7 +74,7 @@ KunLun-M可能是市面上唯一的开源并长期维护的自动化代码审计
 - 多层语义解析、函数回溯，secret机制，新增多种机制应用于语义分析。
 - 新增javascript语义分析，用于扫描包含js相关代码。
 
-与Cobra-W相比(todo):
+与Cobra-W相比:
 - 深度优化AST分析流程，使其更符合QL的概念，便于下一阶段的优化。
 - 深度优化辅助审计的流程，使其更符合人类安全研究员审计辅助的习惯。
 - 深度重构代码结构，使其更符合可拓展，可优化的开源理念。
@@ -291,15 +290,12 @@ KunLun-M 是 404Team [星链计划](https://github.com/knownsec/404StarLink-Proj
 
 核心开发者：
 
-![](docs/lorexxar.jpg)
-- Knownsec 404 Team [LoRexxar](https://github.com/LoRexxar)
+-  [LoRexxar](https://github.com/LoRexxar)
 
 重要贡献者：
 
-![](docs/luckycat.jpg)
 - Vidar-Team [LuckC4t](https://github.com/LuckyC4t)
 
-![](docs/sissel.jpg)
 - Dubhe [Sissel](https://github.com/boke1208)
 
 次要贡献者：
