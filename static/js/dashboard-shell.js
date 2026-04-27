@@ -1,5 +1,9 @@
 (function () {
   function toggleSidebar() {
+    if (window.matchMedia('(max-width: 900px)').matches) {
+      document.body.classList.toggle('sidebar-open');
+      return;
+    }
     document.body.classList.toggle('sidebar-collapsed');
   }
 

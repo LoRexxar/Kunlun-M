@@ -6,6 +6,11 @@ body.landing-body {
     background: #091224;
 }
 
+body.auth-body {
+    min-height: 100%;
+    background: radial-gradient(circle at top right, #4a6bff, #20163c 60%, #0b1221);
+}
+
 body.modal-open {
     overflow: hidden;
 }
@@ -105,14 +110,54 @@ body.modal-open {
     margin-bottom: 18px;
 }
 
+.landing-auth-modal .tabs a {
+    color: #334155;
+}
+
 .landing-auth-modal .tabs li.is-active a {
     background: #1f5fff;
     border-color: #1f5fff;
     color: #fff;
 }
 
+.landing-auth-modal .input {
+    border-radius: 10px;
+    border: 1px solid #dbe4f1;
+    background: #fff;
+    color: #1f2937;
+}
+
+.landing-auth-modal .input::placeholder {
+    color: #94a3b8;
+}
+
+.landing-auth-modal .icon {
+    color: #64748b;
+}
+
 .auth-messages .notification {
     margin-bottom: 14px !important;
+}
+
+.auth-hero .title,
+.auth-hero .subtitle {
+    color: #fff !important;
+}
+
+.auth-card {
+    background: rgba(255, 255, 255, 0.98);
+    border-radius: 14px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .2);
+    padding: 22px;
+    max-width: 560px;
+}
+
+.auth-card .label,
+.auth-card p,
+.auth-card h1,
+.auth-card h2,
+.auth-card h3 {
+    color: #1f2937;
 }
 
 @media (max-width: 768px) {
