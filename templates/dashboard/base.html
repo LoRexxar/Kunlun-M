@@ -97,11 +97,13 @@ scratch. This page gets rid of all links and provides the needed markup only.
               </li>
               <!-- Menu Footer-->
               <li class="user-footer user-footer-modern">
-                <div class="pull-left">
-                  <a href="{% url 'dashboard:userinfo' %}" class="btn btn-default btn-flat btn-modern-quiet">Profile</a>
-                </div>
-                <div class="pull-right">
-                  <a href="{% url 'index:logout' %}" class="btn btn-default btn-flat">Sign out</a>
+                <div class="row">
+                  <div class="col-xs-6">
+                    <a href="{% url 'dashboard:userinfo' %}" class="btn btn-default btn-flat btn-modern-quiet btn-block text-center">Profile</a>
+                  </div>
+                  <div class="col-xs-6">
+                    <a href="{% url 'index:logout' %}" class="btn btn-default btn-flat btn-block text-center">Sign out</a>
+                  </div>
                 </div>
               </li>
             </ul>
