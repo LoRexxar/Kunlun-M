@@ -11,8 +11,8 @@
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 </head>
 
-<body>
-<section class="hero is-info is-large">
+<body class="landing-body">
+<section class="hero is-large landing-hero">
   <div class="hero-head">
     <nav class="navbar">
       <div class="container">
@@ -45,7 +45,7 @@
     </span>
 {% else %}
             <span class="navbar-item">
-              <a class="button is-info is-inverted" href="{% url 'index:register' %}">
+              <a class="button is-info is-inverted js-open-auth" data-auth-target="register" href="{% url 'index:register' %}">
                 <span class="icon">
                   <i class="fa fa-sign-in"></i>
                 </span>
@@ -53,7 +53,7 @@
               </a>
             </span>
             <span class="navbar-item">
-              <a class="button is-info is-inverted" href="{% url 'index:login' %}">
+              <a class="button is-info is-inverted js-open-auth" data-auth-target="login" href="{% url 'index:login' %}">
                 <span class="icon">
                   <i class="fa fa-sign-in"></i>
                 </span>
@@ -69,21 +69,192 @@
   </div>
 
   <div class="hero-body">
-    <div class="container has-text-centered">
-      <p class="title">
-        {{ title }}
-      </p>
-      <p class="subtitle">
-        Power by LoRexxar
-      </p>
-      <div class="content">
-        {{ description }}
+    <div class="container">
+      <div class="columns is-vcentered">
+        <div class="column is-7 has-text-left">
+          <p class="landing-badge">KUNLUN-M WEB MODE</p>
+          <p class="title landing-title">
+            {{ title }}
+          </p>
+          <p class="subtitle landing-subtitle">
+            面向代码安全审计的现代化扫描平台
+          </p>
+          <div class="content landing-content">
+            {{ description }}
+          </div>
+          <div class="landing-actions">
+            {% if user.is_authenticated %}
+              <a class="button is-primary is-medium is-rounded" href="{% url 'dashboard:index' %}">
+                进入控制台
+              </a>
+            {% else %}
+              <a class="button is-primary is-medium is-rounded js-open-auth" data-auth-target="login" href="{% url 'index:login' %}">
+                立即登录
+              </a>
+              {% if is_open_register %}
+              <a class="button is-light is-medium is-rounded js-open-auth" data-auth-target="register" href="{% url 'index:register' %}">
+                免费注册
+              </a>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+        <div class="column is-5">
+          <div class="landing-panel">
+            <h4>为什么选择 {{ title }}</h4>
+            <ul>
+              <li><i class="fa fa-check-circle"></i> 多语言规则引擎，快速发现高危漏洞</li>
+              <li><i class="fa fa-check-circle"></i> Web 页面与任务流深度整合，低学习成本</li>
+              <li><i class="fa fa-check-circle"></i> 支持项目、依赖、供应链多维安全视图</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
+{% if not user.is_authenticated %}
+<div class="modal landing-auth-modal" id="auth-modal">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head">
+      <p class="modal-card-title">账户中心</p>
+      <button class="delete js-close-auth" aria-label="close"></button>
+    </header>
+    <section class="modal-card-body">
+      <div class="tabs is-toggle is-fullwidth">
+        <ul>
+          <li class="auth-tab is-active" data-auth-target="login"><a>登录</a></li>
+          {% if is_open_register %}
+          <li class="auth-tab" data-auth-target="register"><a>注册</a></li>
+          {% endif %}
+        </ul>
+      </div>
+
+      {% if messages %}
+      <div class="auth-messages">
+        <ul class="messages">
+          {% for message in messages %}
+          <li{% if message.tags %} class="notification is-danger is-{{ message.tags }}"{% endif %}>{{ message }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <div class="auth-panel" data-auth-panel="login">
+        <form id="login-form" method="post" action="{% url 'index:login' %}">
+          {% csrf_token %}
+          <div class="field">
+            <div class="control has-icons-left">
+              <input class="input" type="text" placeholder="用户名" name="username" required>
+              <span class="icon is-small is-left"><i class="fa fa-user"></i></span>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control has-icons-left">
+              <input class="input" type="password" placeholder="密码" name="password" required>
+              <span class="icon is-small is-left"><i class="fa fa-lock"></i></span>
+            </div>
+          </div>
+          <button class="button is-info is-fullwidth">登录并继续</button>
+        </form>
+      </div>
+
+      {% if is_open_register %}
+      <div class="auth-panel is-hidden" data-auth-panel="register">
+        <form id="register-form" method="post" action="{% url 'index:register' %}">
+          {% csrf_token %}
+          <div class="field">
+            <div class="control has-icons-left">
+              <input class="input" type="text" placeholder="用户名" name="username" required minlength="3">
+              <span class="icon is-small is-left"><i class="fa fa-user"></i></span>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control has-icons-left">
+              <input class="input" type="password" placeholder="密码" name="password1" required minlength="8">
+              <span class="icon is-small is-left"><i class="fa fa-lock"></i></span>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control has-icons-left">
+              <input class="input" type="password" placeholder="确认密码" name="password2" required minlength="8">
+              <span class="icon is-small is-left"><i class="fa fa-shield"></i></span>
+            </div>
+          </div>
+          <button class="button is-primary is-fullwidth">创建账号</button>
+        </form>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endif %}
+
 <script src="{% static 'js/jquery.min.js' %}"></script>
 <script src="{% static 'js/bootstrap.min.js' %}"></script>
+<script>
+(function () {
+  var authModal = document.getElementById('auth-modal');
+  if (!authModal) {
+    return;
+  }
+
+  function switchAuthPanel(target) {
+    var tabs = authModal.querySelectorAll('.auth-tab');
+    var panels = authModal.querySelectorAll('.auth-panel');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-auth-target') === target);
+    }
+    for (var j = 0; j < panels.length; j++) {
+      panels[j].classList.toggle('is-hidden', panels[j].getAttribute('data-auth-panel') !== target);
+    }
+  }
+
+  function openAuthModal(target) {
+    switchAuthPanel(target || 'login');
+    authModal.classList.add('is-active');
+    document.body.classList.add('modal-open');
+  }
+
+  function closeAuthModal() {
+    authModal.classList.remove('is-active');
+    document.body.classList.remove('modal-open');
+  }
+
+  var openTriggers = document.querySelectorAll('.js-open-auth');
+  for (var i = 0; i < openTriggers.length; i++) {
+    openTriggers[i].addEventListener('click', function (e) {
+      e.preventDefault();
+      openAuthModal(this.getAttribute('data-auth-target') || 'login');
+    });
+  }
+
+  var closeTriggers = authModal.querySelectorAll('.js-close-auth, .modal-background');
+  for (var j = 0; j < closeTriggers.length; j++) {
+    closeTriggers[j].addEventListener('click', closeAuthModal);
+  }
+
+  var tabs = authModal.querySelectorAll('.auth-tab');
+  for (var k = 0; k < tabs.length; k++) {
+    tabs[k].addEventListener('click', function () {
+      switchAuthPanel(this.getAttribute('data-auth-target'));
+    });
+  }
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      closeAuthModal();
+    }
+  });
+
+  {% if auth_modal == 'register' %}
+  openAuthModal('register');
+  {% elif auth_modal == 'login' %}
+  openAuthModal('login');
+  {% endif %}
+})();
+</script>
 </body>
 </html>
