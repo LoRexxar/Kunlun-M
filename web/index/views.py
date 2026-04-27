@@ -15,12 +15,16 @@ from Kunlun_M.settings import TITLE, DESCRIPTION, IS_OPEN_REGISTER
 
 base = {
         "title": TITLE,
-        "description": DESCRIPTION
+        "description": DESCRIPTION,
+        "is_open_register": IS_OPEN_REGISTER
     }
 
 
 def index(req):
-    return render(req, 'index.html', base)
+    auth_modal = req.GET.get('auth', '')
+    context = dict(base)
+    context['auth_modal'] = auth_modal
+    return render(req, 'index.html', context)
 
 
 def signup(req):
@@ -41,12 +45,12 @@ def signup(req):
                 auth.login(req, user)
                 return redirect('index:index')
             else:
-                return redirect('index:register')
+                return redirect('/?auth=register')
         else:
             messages.add_message(req, messages.ERROR, form.errors)
-            return render(req, 'register.html', base)
+            return redirect('/?auth=register')
     else:
-        return render(req, 'register.html', base)
+        return redirect('/?auth=register')
 
 
 def signin(req):
@@ -61,9 +65,9 @@ def signin(req):
             return redirect('index:index')
         else:
             messages.add_message(req, messages.ERROR, "Username or Password is incorrect.")
-            return redirect('index:login')
+            return redirect('/?auth=login')
     else:
-        return render(req, 'login.html', base)
+        return redirect('/?auth=login')
 
 
 def logout(req):
