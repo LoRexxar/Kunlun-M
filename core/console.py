@@ -175,7 +175,7 @@ class BaseInterpreter(object):
             command_handler = getattr(self, "command_{}".format(command))
         except AttributeError:
             logger.error("Unknown command: '{}'".format(command))
-            return False
+            return None
 
         return command_handler
 
@@ -190,6 +190,8 @@ class BaseInterpreter(object):
                 if not command:
                     continue
                 command_handler = self.get_command_handler(command)
+                if command_handler is None:
+                    continue
                 command_handler(args)
             except EOFError:
                 logger.info("KunLun-M Console mode stopped")
