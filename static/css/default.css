@@ -180,6 +180,55 @@ ul.reset_messages{
     min-width: 260px;
 }
 
+.btn:not(.btn-box-tool) {
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-weight: 600;
+    letter-spacing: .2px;
+    transition: all .2s ease;
+}
+
+.btn:not(.btn-box-tool):hover,
+.btn:not(.btn-box-tool):focus {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .12);
+}
+
+.btn.btn-primary {
+    background: linear-gradient(120deg, #2f8dff, #3467e0);
+    border-color: #3467e0;
+}
+
+.btn.btn-default {
+    background: #ffffff;
+    border-color: #d7dfeb;
+    color: #2f3a4d;
+}
+
+.btn.btn-danger {
+    background: linear-gradient(120deg, #ff6b6b, #f14668);
+    border-color: #f14668;
+}
+
+.btn.btn-info {
+    background: linear-gradient(120deg, #31a6ff, #2d7ff9);
+    border-color: #2d7ff9;
+}
+
+.btn.btn-flat {
+    border-radius: 10px;
+}
+
+.user-footer-modern .btn {
+    min-width: 88px;
+}
+
+.btn-modern-quiet {
+    background: #f3f7ff !important;
+    border-color: #d6e3ff !important;
+    color: #2d5fbf !important;
+}
+
 .table .status-label {
     min-width: 68px;
     display: inline-block;
