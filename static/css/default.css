@@ -41,6 +41,8 @@ body.modal-open {
 .landing-title {
     font-size: 3rem;
     letter-spacing: .5px;
+    color: #f3f6ff !important;
+    text-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
 }
 
 .landing-subtitle {
@@ -52,9 +54,11 @@ body.modal-open {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 14px;
-    padding: 16px 18px;
+    padding: 12px 16px;
     color: #eff2ff;
     max-width: 680px;
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .landing-badge {
