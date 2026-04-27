@@ -9,32 +9,41 @@
 
 '''
 
+import importlib
+
 from .utils import logger
 
 from Kunlun_M.settings import PLATFORM
 
 _readline = None
 
-try:
-    from readline import *
-    import readline as _readline
-except ImportError:
-    try:
-        from pyreadline import *
-        import pyreadline as _readline
-    except ImportError:
-        # raise PocsuiteSystemException("Import pyreadline faild,try pip3 install pyreadline")
-        pass
+
+def _load_readline():
+    for module_name in ("readline", "pyreadline", "pyreadline3"):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+
+        for attr in dir(module):
+            if not attr.startswith("_"):
+                globals()[attr] = getattr(module, attr)
+
+        return module
+
+    return None
+
+
+_readline = _load_readline()
 
 if PLATFORM == 'windows' and _readline:
     try:
-        _outputfile = _readline.GetOutputFile()
+        if hasattr(_readline, "GetOutputFile"):
+            _outputfile = _readline.GetOutputFile()
     except AttributeError:
         debugMsg = "Failed GetOutputFile when using platform's "
         debugMsg += "readline library"
         logger.debug(debugMsg)
-
-        _readline = None
 
 # Test to see if libedit is being used instead of GNU readline.
 # Thanks to Boyd Waters for this patch.
