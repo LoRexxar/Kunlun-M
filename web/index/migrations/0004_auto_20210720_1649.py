@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='newevilfunc',
             name='func_hash',
-            field=models.CharField(default=None, max_length=32),
+            field=models.CharField(default='', max_length=32),
         ),
         migrations.AddField(
             model_name='newevilfunc',
@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='scanresulttask',
             name='vul_hash',
-            field=models.CharField(default=None, max_length=32),
+            field=models.CharField(default='', max_length=32),
         ),
         migrations.AddField(
             model_name='scantask',
