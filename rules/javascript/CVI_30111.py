@@ -52,7 +52,7 @@ class CVI_30111():
         :return:
         """
         sql_sen = regex_string[0][1]
-        reg = "((?<=\()\s*([\w_\.]+))"
+        reg = r"((?<=\()\s*([\w_\.]+))"
         if re.search(reg, sql_sen, re.I):
             p = re.compile(reg)
             match = p.findall(sql_sen)

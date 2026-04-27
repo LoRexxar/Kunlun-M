@@ -63,7 +63,7 @@ class CVI_3005():
             return result
         sql_sen = regex_string[0][0]
         # reg = "[\w_.]+"
-        reg = "((?<=\(|,|=|\+)\s*((\"[^\"]+?\")|('[^']+')|[\w_\.]+))"
+        reg = r"((?<=\(|,|=|\+)\s*((\"[^\"]+?\")|('[^']+')|[\w_\.]+))"
 
         if re.search(reg, sql_sen, re.I):
 
