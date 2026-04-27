@@ -1324,6 +1324,7 @@ Input Control:
 
         if len(param) < 3:
             logger.error("[Console] Command Search need to set 'mod' 'keyword' 'keyvalue'.e.g.: search vendor flask 0.10.1")
+            return
 
         mod = param[0]
         keyword = param[1]
@@ -1342,6 +1343,7 @@ Input Control:
 
         if len(param) < 2:
             logger.error("[Console] Command Config need to set 'mod' and 'keyword'.e.g.: config rule 1001")
+            return
 
         mod = param[0]
         keyword = param[1]
