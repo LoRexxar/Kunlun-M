@@ -306,6 +306,24 @@ body.dashboard-shell {
     border-radius: 50%;
 }
 
+.navbar-nav > .user-menu .user-image {
+    width: 30px;
+    height: 30px;
+    object-fit: cover;
+    vertical-align: middle;
+}
+
+.navbar-nav > .user-menu > a > .hidden-xs {
+    margin-left: 6px;
+}
+
+.user-menu .dropdown-menu > li.user-header > img {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 50%;
+}
+
 .control-sidebar,
 .control-sidebar-bg {
     display: none !important;
