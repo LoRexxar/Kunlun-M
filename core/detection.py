@@ -23,9 +23,6 @@ try:  # for pip >= 10
 except ImportError:  # for pip <= 9.0.3
     from pip.req import parse_requirements
 
-file_type = []
-
-
 class Detection(object):
     def __init__(self, target_directory, files):
         """
@@ -46,11 +43,12 @@ class Detection(object):
     @property
     def language(self):
         """Detection main language"""
+        self.lang = []
         language_extensions = {}
         xml_languages = self._read_xml('languages.xml')
         if xml_languages is None:
             logger.error('languages read failed!!!')
-            languages = None
+            return self.lang
         for language in xml_languages:
             l_name = language.get('name').lower()
             l_chiefly = 'false'
@@ -81,11 +79,12 @@ class Detection(object):
                         if language == 'chromeext':
                             self.lang.append('javascript')
 
-                        self.lang.append(language)
+                        if language not in self.lang:
+                            self.lang.append(language)
                     else:
                         logger.debug('[DETECTION] [LANGUAGE] not chiefly, continue...'.format(language=language))
                         tmp_language = language
-            if self.lang is []:
+            if not self.lang and tmp_language is not None:
                 logger.debug(
                     '[DETECTION] [LANGUAGE] not found chiefly language, use the largest language(language) replace'.format(
                         language=tmp_language))
@@ -182,7 +181,7 @@ class Detection(object):
                 frame_data[frame_name].append(root.attrib['value'])
                 return frame_data, language_data
             except KeyError as e:
-                logger.warning(e.message)
+                logger.warning(str(e))
 
     def _read_xml(self, filename):
         """
@@ -237,214 +236,122 @@ class Detection(object):
     @staticmethod
     def count_py_line(filename):
         count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
-        fi = open(filename, 'r')
-        file_line = fi.readline()
-        while fi.tell() != os.path.getsize(filename):
-            file_line = file_line.strip()
-            if len(file_line) == 0:
-                count['count_blank'] += 1
-            elif file_line.startswith('#'):
-                count['count_pound'] += 1
-            elif file_line.count('"""') == 2 or file_line.count("'''") == 2:
-                if file_line.startswith('"""') or file_line.startswith("'''"):
+        in_multiline_comment = False
+        multiline_delimiter = None
+
+        with open(filename, 'r') as fi:
+            for raw_line in fi:
+                line = raw_line.strip()
+
+                if not line:
+                    count['count_blank'] += 1
+                    continue
+
+                if in_multiline_comment:
                     count['count_pound'] += 1
-                else:
-                    count['count_code'] += 1
-            elif file_line.count('"""') == 1 or file_line.count("'''") == 1:
-                if file_line.startswith('"""') or file_line.startswith("'''"):
+                    if multiline_delimiter and multiline_delimiter in line:
+                        in_multiline_comment = False
+                        multiline_delimiter = None
+                    continue
+
+                if line.startswith('#'):
                     count['count_pound'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_pound'] += 1
-                        if file_line.endswith('"""\n') or file_line.endswith("'''\n"):
-                            break
-                else:
-                    count['count_code'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_code'] += 1
-                        if file_line.find('"""') or file_line.find("'''"):
-                            break
-            else:
+                    continue
+
+                single_double = line.count('"""')
+                single_single = line.count("'''")
+                if single_double == 2 or single_single == 2:
+                    if line.startswith('"""') or line.startswith("'''"):
+                        count['count_pound'] += 1
+                    else:
+                        count['count_code'] += 1
+                    continue
+
+                if single_double == 1 or single_single == 1:
+                    if line.startswith('"""') or line.startswith("'''"):
+                        count['count_pound'] += 1
+                    else:
+                        count['count_code'] += 1
+                    in_multiline_comment = True
+                    multiline_delimiter = '"""' if single_double == 1 else "'''"
+                    continue
+
                 count['count_code'] += 1
-            file_line = fi.readline()
-        fi.close()
+
         return count
 
     # 统计PHP数据的函数
     @staticmethod
     def count_php_line(filename):
-        count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
-        fi = open(filename, 'r')
-        file_line = fi.readline()
-        while fi.tell() != os.path.getsize(filename):
-            file_line = file_line.lstrip()
-            if len(file_line) == 0:
-                count['count_blank'] += 1
-            elif file_line.startswith('//') or file_line.startswith('#'):
-                count['count_pound'] += 1
-            elif file_line.count('/*') == 1 and file_line.count('*/') == 1:
-                if file_line.startswith('/*'):
-                    count['count_pound'] += 1
-                else:
-                    count['count_code'] += 1
-            elif file_line.count('/*') == 1 and file_line.count('*/') == 0:
-                if file_line.startswith('/*'):
-                    count['count_pound'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_pound'] += 1
-                        if file_line.endswith('*/\n'):
-                            break
-                else:
-                    count['count_code'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_code'] += 1
-                        if file_line.find('*/'):
-                            break
-            else:
-                count['count_code'] += 1
-            file_line = fi.readline()
-        fi.close()
-        return count
+        return Detection._count_c_style_line(filename, allow_hash_comment=True)
 
     # 统计Java和JS数据的函数
     @staticmethod
     def count_java_line(filename):
-        count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
-        fi = open(filename, 'r')
-        file_line = fi.readline()
-        while fi.tell() != os.path.getsize(filename):
-            file_line = file_line.lstrip()
-            if len(file_line) == 0:
-                count['count_blank'] += 1
-            elif file_line.startswith('//'):
-                count['count_pound'] += 1
-            elif file_line.count('/*') == 1 and file_line.count('*/') == 1:
-                if file_line.startswith('/*'):
-                    count['count_pound'] += 1
-                else:
-                    count['count_code'] += 1
-            elif file_line.count('/*') == 1 and file_line.count('*/') == 0:
-                if file_line.startswith('/*'):
-                    count['count_pound'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_pound'] += 1
-                        if file_line.endswith('*/\n'):
-                            break
-                else:
-                    count['count_code'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_code'] += 1
-                        if file_line.find('*/'):
-                            break
-            else:
-                count['count_code'] += 1
-            file_line = fi.readline()
-        fi.close()
-        return count
+        return Detection._count_c_style_line(filename)
 
     # 统计solidity数据的函数
     @staticmethod
     def count_sol_line(filename):
-        count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
-        fi = open(filename, 'r')
-        file_line = fi.readline()
-        while fi.tell() != os.path.getsize(filename):
-            file_line = file_line.lstrip()
-            if len(file_line) == 0:
-                count['count_blank'] += 1
-            elif file_line.startswith('//'):
-                count['count_pound'] += 1
-            elif file_line.count('/*') == 1 and file_line.count('*/') == 1:
-                if file_line.startswith('/*'):
-                    count['count_pound'] += 1
-                else:
-                    count['count_code'] += 1
-            elif file_line.count('/*') == 1 and file_line.count('*/') == 0:
-                if file_line.startswith('/*'):
-                    count['count_pound'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_pound'] += 1
-                        if file_line.endswith('*/\n'):
-                            break
-                else:
-                    count['count_code'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_code'] += 1
-                        if file_line.find('*/'):
-                            break
-            elif file_line.count('/**') == 1 and file_line.count('*/') == 0:
-                if file_line.startswith('/**'):
-                    count['count_pound'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_pound'] += 1
-                        if file_line.endswith('*/\n'):
-                            break
-                else:
-                    count['count_code'] += 1
-                    while True:
-                        file_line = fi.readline()
-                        if len(file_line) == 0 or file_line == "\n":
-                            count['count_blank'] += 1
-                        else:
-                            count['count_code'] += 1
-                        if file_line.find('*/'):
-                            break
-            else:
-                count['count_code'] += 1
-            file_line = fi.readline()
-        fi.close()
-        return count
+        return Detection._count_c_style_line(filename, allow_doc_comment=True)
 
     # 统计markdown和xml数据的函数
     @staticmethod
     def count_data_line(filename):
         count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
-        fi = open(filename, 'r')
-        file_line = fi.readline()
+        with open(filename, 'r') as fi:
+            for file_line in fi:
+                file_line = file_line.lstrip()
+                if len(file_line) == 0:
+                    count['count_blank'] += 1
+                else:
+                    count['count_code'] += 1
+        return count
 
-        while fi.tell() != os.path.getsize(filename):
-            file_line = file_line.lstrip()
-            if len(file_line) == 0:
-                count['count_blank'] += 1
-            else:
+    @staticmethod
+    def _count_c_style_line(filename, allow_hash_comment=False, allow_doc_comment=False):
+        count = {'count_code': 0, 'count_blank': 0, 'count_pound': 0}
+        in_block_comment = False
+
+        with open(filename, 'r') as fi:
+            for raw_line in fi:
+                file_line = raw_line.lstrip()
+                if len(file_line.strip()) == 0:
+                    count['count_blank'] += 1
+                    continue
+
+                if in_block_comment:
+                    count['count_pound'] += 1
+                    if '*/' in file_line:
+                        in_block_comment = False
+                    continue
+
+                if file_line.startswith('//') or (allow_hash_comment and file_line.startswith('#')):
+                    count['count_pound'] += 1
+                    continue
+
+                if allow_doc_comment and file_line.startswith('/**') and '*/' not in file_line:
+                    count['count_pound'] += 1
+                    in_block_comment = True
+                    continue
+
+                if file_line.count('/*') == 1 and file_line.count('*/') == 1:
+                    if file_line.startswith('/*'):
+                        count['count_pound'] += 1
+                    else:
+                        count['count_code'] += 1
+                    continue
+
+                if file_line.count('/*') == 1 and file_line.count('*/') == 0:
+                    if file_line.startswith('/*'):
+                        count['count_pound'] += 1
+                    else:
+                        count['count_code'] += 1
+                    in_block_comment = True
+                    continue
+
                 count['count_code'] += 1
-            file_line = fi.readline()
-        fi.close()
+
         return count
 
     @staticmethod
@@ -483,11 +390,11 @@ class Detection(object):
         total_file = 0
         type_num = self.get_dict(extension, type_num)
         filelists = self.project_information(self.target_directory, extension, True)
+        detected_file_types = set()
         for filelist in filelists:
             try:
                 fileext = os.path.splitext(filelist)[1][1:]
-                if fileext not in file_type:
-                    file_type.append(fileext)
+                detected_file_types.add(fileext)
                 if fileext == 'py':
                     count = self.count_py_line(filelist)
                     type_num = self.countnum(count, type_num, fileext)
@@ -503,7 +410,7 @@ class Detection(object):
                 if fileext == 'sol':
                     count = self.count_sol_line(filelist)
                     type_num = self.countnum(count, type_num, fileext)
-            except:
+            except Exception:
                 logger.info('Part of the annotation rule does not match, press CTRL + C to continue the program')
         total_file, total_blank_line, total_pound_line, total_code_line = self.count_total_num(type_num, extension,
                                                                                                total_file,
@@ -513,7 +420,7 @@ class Detection(object):
         x = PrettyTable(["language", "files", "blank", "comment", "code"])
         x.padding_width = 2
         x.align = "l"
-        for lang in file_type:
+        for lang in sorted(detected_file_types):
             try:
                 x.add_row([lang, type_num[lang]['files'], type_num[lang]['blank'], type_num[lang]['pound'],
                            type_num[lang]['code']])

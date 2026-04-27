@@ -11,8 +11,8 @@
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 </head>
 
-<body>
-  <section class="hero is-medium is-primary is-bold">
+<body class="auth-body">
+  <section class="hero is-medium is-bold auth-hero">
   <div class="hero-head">
     <nav class="navbar">
       <div class="container">
@@ -66,7 +66,7 @@
 	        Login pages for <strong>{{ title }}</strong>!
 	      </p>
 
-	    <div class="box back">
+	    <div class="box auth-card">
             <form id="login" method="post" class="form-signin" action="{% url 'index:login' %}">
               {% csrf_token %}
               <div class="field">

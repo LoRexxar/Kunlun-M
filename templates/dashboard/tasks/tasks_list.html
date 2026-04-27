@@ -7,10 +7,13 @@
           <div class="box">
             <div class="box-header">
               <h3 class="box-title">Tasks List</h3>
+              <div class="box-tools">
+                <input id="allTaskFilterInput" class="form-control input-sm" style="width: 240px;" placeholder="Search task table...">
+              </div>
             </div>
             <!-- /.box-header -->
             <div class="box-body table-responsive no-padding">
-              <table class="table table-hover">
+              <table id="allTaskTable" class="table table-hover">
                 <tbody><tr>
                   <th>ID</th>
                   <th>Project</th>
@@ -72,6 +75,14 @@
           $("#tasks").addClass("menu-open");
           $("#tasks").find("ul").find("li#task_list").addClass("active");
           $("#tasks").find("ul").css("display","block");
+
+          $("#allTaskFilterInput").on("input", function () {
+              var text = $(this).val().toLowerCase();
+              $("#allTaskTable tbody tr").each(function () {
+                  var rowText = $(this).text().toLowerCase();
+                  $(this).toggle(rowText.indexOf(text) > -1);
+              });
+          });
       });
 </script>
 

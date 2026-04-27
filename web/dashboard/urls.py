@@ -45,6 +45,7 @@ urlpatterns = [
 
     # user
     path("userinfo", views.userinfo, name="userinfo"),
+    path("overview", views.overview, name="overview"),
 
     # interface
     # scan result

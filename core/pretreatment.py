@@ -28,6 +28,7 @@ import traceback
 import zipfile
 import queue
 import asyncio
+from collections.abc import Hashable
 
 could_ast_pase_lans = ["php", "chromeext", "javascript", "html"]
 
@@ -66,6 +67,31 @@ class Pretreatment:
         else:
             return os.path.normpath(os.path.join(self.target_directory, filepath))
 
+    def _normalize_define_key(self, key_node):
+        """
+        将 define 的第一个参数归一化为可哈希键，避免 AST 节点直接作为 dict key 导致 TypeError。
+        """
+        if isinstance(key_node, php.Constant):
+            return key_node.name
+
+        # 处理诸如 __NAMESPACE__ . "FOO" 的字符串拼接常量名
+        if isinstance(key_node, php.BinaryOp) and key_node.op == ".":
+            left = self._normalize_define_key(key_node.left)
+            right = self._normalize_define_key(key_node.right)
+            if left is not None and right is not None:
+                return "{}{}".format(left, right)
+
+        if isinstance(key_node, php.MagicConstant):
+            return key_node.name
+
+        if isinstance(key_node, str):
+            return key_node
+
+        if isinstance(key_node, Hashable):
+            return key_node
+
+        return repr(key_node)
+
     def pre_ast_all(self, lan=None, is_unprecom=False):
 
         if lan is not None:
@@ -90,6 +116,75 @@ class Pretreatment:
             await asyncio.gather(*tasks)
 
         asyncio.run(_run_pretreatment(scan_list))
+
+    @staticmethod
+    def _repair_php_code_for_parser(code_content):
+        """
+        尝试修复 phply 暂不支持的部分语法，避免整个文件 AST 预处理失败。
+        当前处理：
+        1. ($a)() 这类「括号包裹变量再调用」语法；
+        2. PHP7 null coalescing（??）语法，降级为 ?: 以便 phply 继续解析。
+        """
+        repaired_content = code_content
+        token_stream = lexer.clone()
+        token_stream.input(code_content)
+
+        tokens = []
+        while True:
+            token = token_stream.token()
+            if not token:
+                break
+            tokens.append(token)
+
+        # 仅在词法级别命中特定模式时进行修复，避免正则替换误伤字符串、注释等内容。
+        edits = []
+        token_count = len(tokens)
+
+        # 修复 phply 不支持的 null coalescing 运算符 ??。
+        # 这里仅做语法层面的降级（?? -> ?:），目标是让 AST 预处理不中断。
+        for index in range(token_count - 1):
+            token_q1 = tokens[index]
+            token_q2 = tokens[index + 1]
+
+            if token_q1.type == 'QUESTION' and token_q2.type == 'QUESTION':
+                start = token_q1.lexpos
+                end = token_q2.lexpos + len(token_q2.value)
+                edits.append((start, end, '?:'))
+
+        # 修复 ( VARIABLE ) ( 语法模式。
+        for index in range(token_count - 3):
+            token_lparen = tokens[index]
+            token_var = tokens[index + 1]
+            token_rparen = tokens[index + 2]
+            token_call_lparen = tokens[index + 3]
+
+            if not (token_lparen.type == 'LPAREN'
+                    and token_var.type == 'VARIABLE'
+                    and token_rparen.type == 'RPAREN'
+                    and token_call_lparen.type == 'LPAREN'):
+                continue
+
+            # 替换 "( $a )" 片段为 "$a"，保留后续调用参数括号。
+            start = token_lparen.lexpos
+            end = token_rparen.lexpos + len(token_rparen.value)
+            edits.append((start, end, token_var.value))
+
+        if not edits:
+            return repaired_content
+
+        # 按位置应用替换，避免下标偏移问题。
+        pieces = []
+        cursor = 0
+        for start, end, replacement in sorted(edits, key=lambda item: item[0]):
+            if start < cursor:
+                # 重叠编辑（理论上不应出现），跳过后续冲突项。
+                continue
+            pieces.append(repaired_content[cursor:start])
+            pieces.append(replacement)
+            cursor = end
+        pieces.append(repaired_content[cursor:])
+
+        return ''.join(pieces)
 
     async def pre_ast(self):
 
@@ -126,8 +221,24 @@ class Pretreatment:
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
 
                     except SyntaxError as e:
-                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
-                        continue
+                        if self.is_unprecom:
+                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            continue
+
+                        repaired_code_content = self._repair_php_code_for_parser(code_content)
+
+                        if repaired_code_content == code_content:
+                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            continue
+
+                        try:
+                            parser = make_parser()
+                            all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
+                            logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
+                            self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        except Exception:
+                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            continue
 
                     except AssertionError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
@@ -147,10 +258,7 @@ class Pretreatment:
                                     "[AST][Pretreatment] new define {}={}".format(define_params[0].node,
                                                                                   define_params[1].node))
 
-                                key = define_params[0].node
-                                if isinstance(key, php.Constant):
-                                    key = key.name
-
+                                key = self._normalize_define_key(define_params[0].node)
                                 self.define_dict[key] = define_params[1].node
 
             elif fileext[0] in ext_dict['chromeext'] and 'chromeext' in self.lan:

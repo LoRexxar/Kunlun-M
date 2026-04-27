@@ -52,7 +52,7 @@ class CVI_3006():
         :return: 
         """
         sql_sen = regex_string[0][1]
-        reg = "[\w_.]+"
+        reg = r"[\w_.]+"
         if re.search(reg, sql_sen, re.I):
 
             p = re.compile(reg)

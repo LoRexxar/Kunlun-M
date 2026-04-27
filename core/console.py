@@ -140,10 +140,9 @@ class BaseInterpreter(object):
     global_help = ""
 
     def __init__(self):
-        self.setup()
         self.banner = ""
-        self.complete = None
         self.subcommand_list = []
+        self.setup()
 
     def setup(self):
         """ Initialization of third-party libraries
@@ -175,7 +174,7 @@ class BaseInterpreter(object):
             command_handler = getattr(self, "command_{}".format(command))
         except AttributeError:
             logger.error("Unknown command: '{}'".format(command))
-            return False
+            return None
 
         return command_handler
 
@@ -190,6 +189,8 @@ class BaseInterpreter(object):
                 if not command:
                     continue
                 command_handler = self.get_command_handler(command)
+                if command_handler is None:
+                    continue
                 command_handler(args)
             except EOFError:
                 logger.info("KunLun-M Console mode stopped")
@@ -1322,6 +1323,7 @@ Input Control:
 
         if len(param) < 3:
             logger.error("[Console] Command Search need to set 'mod' 'keyword' 'keyvalue'.e.g.: search vendor flask 0.10.1")
+            return
 
         mod = param[0]
         keyword = param[1]
@@ -1332,7 +1334,9 @@ Input Control:
             return
 
         if mod == 'vendor':
-            cli.search_project(mod, keyword, keyvalue, with_vuls=True)
+            status = cli.search_project(mod, keyword, keyvalue, with_vuls=True)
+            if not status:
+                logger.info("[Console] Search result is empty.")
 
     def command_config(self, *args, **kwargs):
 
@@ -1340,6 +1344,7 @@ Input Control:
 
         if len(param) < 2:
             logger.error("[Console] Command Config need to set 'mod' and 'keyword'.e.g.: config rule 1001")
+            return
 
         mod = param[0]
         keyword = param[1]

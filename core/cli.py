@@ -125,9 +125,16 @@ def display_result(scan_id, is_ask=False):
 
             else:
                 rule = Rules.objects.filter(svid=sr.cvi_id).first()
-                rule_name = rule.rule_name
-                author = rule.author
-                level = VUL_LEVEL[rule.level]
+                if rule:
+                    rule_name = rule.rule_name
+                    author = rule.author
+                    level = VUL_LEVEL[rule.level]
+                else:
+                    # 规则表缺失或未初始化时，不应阻断扫描结果展示
+                    rule_name = "Unknown Rule"
+                    author = "Unknown"
+                    level = VUL_LEVEL[1]
+                    logger.warning("[SCAN] Rule CVI_{} not found in database, fallback display.".format(sr.cvi_id))
 
             row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
                    author, sr.source_code, sr.result_type]
@@ -435,6 +442,7 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
         j = 0
 
         if not ps:
+            logger.info("Search result is empty.")
             return False
 
         for p in ps:
@@ -459,9 +467,12 @@ def search_project(search_type, keyword, keyword_value, with_vuls=False):
                         table2.add_row([i, vv.vuln_id, vv.title, VENDOR_VUL_LEVEL[vv.severity], vv.cves, vv.reference, vv.vendor_name, vv.affected_versions])
 
         logger.info("Project List (Small than {} {}):\n{}".format(keyword, keyword_value, table))
-        logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
+
+        if with_vuls:
+            if j == 0:
+                logger.info("Vendor {}:{} Vul List is empty.".format(keyword, keyword_value))
+            else:
+                logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
 
     return True
-
-
 

@@ -1,6 +1,6 @@
 {% extends "dashboard/base.html" %}
 {% block body %}
-<div class="row">
+<div class="row metric-grid">
         <div class="col-lg-2 col-xs-6">
           <!-- small box -->
           <div class="small-box bg-aqua">
@@ -91,7 +91,7 @@
         </div>
 
       </div>
-      <div class="box box-info">
+      <div class="box box-info" id="overviewPanel">
             <div class="box-header with-border">
               <h3 class="box-title">Latest Tasks</h3>
 
@@ -103,8 +103,24 @@
             </div>
             <!-- /.box-header -->
             <div class="box-body">
+              <div class="dashboard-toolbar">
+                <div>
+                  <span class="status-pill">Success <span id="statusSuccess" class="num">-</span></span>
+                  <span class="status-pill">Running <span id="statusRunning" class="num">-</span></span>
+                  <span class="status-pill">Error <span id="statusError" class="num">-</span></span>
+                  <span class="status-pill">Other <span id="statusOther" class="num">-</span></span>
+                </div>
+                <div>
+                  <span class="text-muted">Last Scan: <strong id="lastScanTime">-</strong></span>&nbsp;
+                  <span class="text-muted">Task: <strong id="lastTaskName">-</strong></span>&nbsp;
+                  <button id="refreshOverview" class="btn btn-xs btn-info"><i class="fa fa-refresh"></i> Refresh</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <input id="taskFilterInput" class="form-control task-filter-input" placeholder="Filter latest task list by keyword...">
+              </div>
               <div class="table-responsive">
-                <table class="table no-margin">
+                <table id="latestTaskTable" class="table no-margin table-hover">
                   <thead>
                   <tr>
                     <th>Project</th>
@@ -124,15 +140,15 @@
                       <td>{{ task.last_scan_time }}</td>
                       <td>
                       {% if task.is_finished == 0 %}
-                      <span class="label label-danger">Error</span>
+                      <span class="label label-danger status-label">Error</span>
                       {% elif task.is_finished == -1 %}
-                      <span class="label label-danger">Error</span>
+                      <span class="label label-danger status-label">Error</span>
                       {% elif task.is_finished == 2 %}
-                      <span class="label label-warning">Running</span>
+                      <span class="label label-warning status-label">Running</span>
                       {% elif task.is_finished == 1 %}
-                      <span class="label label-success">Success</span>
+                      <span class="label label-success status-label">Success</span>
                       {% else %}
-                      <span class="label label-success">{{ task.is_finished }}</span>
+                      <span class="label label-success status-label">{{ task.is_finished }}</span>
                       {% endif %}
                       </td>
                       <td>
@@ -147,7 +163,7 @@
             </div>
             <!-- /.box-body -->
             <div class="box-footer clearfix">
-              <a href="{% url 'dashboard:tasks_list' %}" class="btn btn-sm btn-default btn-flat pull-right">View All Tasks</a>
+              <a href="{% url 'dashboard:tasks_list' %}" class="btn btn-sm btn-default btn-flat btn-modern-quiet pull-right">View All Tasks</a>
             </div>
             <!-- /.box-footer -->
           </div>

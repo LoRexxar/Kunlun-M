@@ -637,15 +637,18 @@ class Directory(object):
         self.file = []
 
         self.absolute_path = absolute_path
-        self.black_path_list = default_black_list
-
+        self.black_path_list = list(default_black_list)
         self.black_path_list.extend(black_path_list)
 
         self.ext_list = []
 
-        if lans and lans in ext_dict:
+        if isinstance(lans, str):
+            lans = [lans]
+
+        if lans:
             for lan in lans:
-                self.ext_list.extend(ext_dict[lan])
+                if lan in ext_dict:
+                    self.ext_list.extend(ext_dict[lan])
 
         else:
             for lan in ext_dict:
@@ -659,13 +662,13 @@ class Directory(object):
         t1 = time.time()
         self.files(self.absolute_path)
         self.result['no_extension'] = {'count': 0, 'list': []}
-        for extension, values in self.type_nums.items():
+        for extension, values in sorted(self.type_nums.items(), key=lambda item: item[0]):
             extension = extension.strip()
             if extension:
                 self.result[extension] = {'count': len(values), 'list': []}
             # .php : 123
             logger.debug('[PICKUP] [EXTENSION-COUNT] {0} : {1}'.format(extension, len(values)))
-            for f in self.file:
+            for f in sorted(self.file):
                 filename = f.split("/")[-1].split("\\")[-1]
                 es = filename.split(os.extsep)
                 if len(es) >= 2:
@@ -681,8 +684,7 @@ class Directory(object):
         if self.result['no_extension']['count'] == 0:
             del self.result['no_extension']
         t2 = time.time()
-        # reverse list count
-        self.result = sorted(self.result.items(), key=lambda t: t[0], reverse=False)
+        self.result = sorted(self.result.items(), key=lambda t: t[0])
         return self.result, self.file_sum, t2 - t1
 
     def files(self, absolute_path, level=1):
@@ -695,8 +697,6 @@ class Directory(object):
             else:
                 for filename in os.listdir(absolute_path):
                     directory = os.path.join(absolute_path, filename)
-
-                    flag = 0
 
                     # check black path list
                     # if self.black_path_list:
@@ -719,7 +719,7 @@ class Directory(object):
 
     def file_info(self, path, filename):
         # Statistic File Type Count
-        file_name, file_extension = os.path.splitext(path)
+        _, file_extension = os.path.splitext(path)
 
         # 当设定了lan时加入检查
         # if file_extension.lower() in self.ext_list:
@@ -763,4 +763,3 @@ class File(object):
         else:
             content = False
         return content
-

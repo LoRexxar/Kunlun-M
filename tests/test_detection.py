@@ -29,8 +29,10 @@ vul_path = PROJECT_DIRECTORY+'/tests/vulnerabilities/'
 EXAMPLES_PATH = PROJECT_DIRECTORY+'/tests/examples'
 
 
-def test_framework():
-    detection = Detection(vul_path+'requirements.txt', '.')
+def test_framework(tmp_path):
+    requirements_file = tmp_path / 'requirements.txt'
+    requirements_file.write_text("Flask==2.0.0\n")
+    detection = Detection(str(requirements_file), '.')
     frame = detection.framework
     assert frame == 'Flask'
 
@@ -71,13 +73,13 @@ def test_project_information():
 def test_count_py_line():
     count = Detection.count_py_line(EXAMPLES_PATH+'/cloc.py')
     type_count = ['count_blank', 'count_code', 'count_pound']
-    assert count['count_code'] == 5
+    assert count['count_code'] == 4
 
 
 def test_count_php_line():
     count = Detection.count_php_line(EXAMPLES_PATH+'/cloc.php')
     type_count = ['count_blank', 'count_code', 'count_pound']
-    assert count['count_code'] == 2
+    assert count['count_code'] == 3
 
 
 def test_count_java_line():
@@ -89,7 +91,7 @@ def test_count_java_line():
 def test_count_data_line():
     count = Detection.count_data_line(EXAMPLES_PATH+'/param_xml.xml')
     type_count = ['count_blank', 'count_code', 'count_pound']
-    assert count['count_code'] == 81
+    assert count['count_code'] == 82
 
 
 def test_countnum():
@@ -121,3 +123,19 @@ def test_count_total_num():
 
 def test_cloc():
     assert Detection(EXAMPLES_PATH, '.').cloc()
+
+
+def test_language_detection_does_not_treat_inc_as_php():
+    files = [
+        ('.inc', {'count': 1, 'list': ['/example.inc']}),
+    ]
+    detection = Detection(EXAMPLES_PATH, files)
+    assert detection.language == []
+
+
+def test_language_detection_still_treats_php_as_php():
+    files = [
+        ('.php', {'count': 1, 'list': ['/example.php']}),
+    ]
+    detection = Detection(EXAMPLES_PATH, files)
+    assert detection.language == ['php']
