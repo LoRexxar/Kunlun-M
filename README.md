@@ -239,6 +239,14 @@ KunLun-M (root) >
 python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ```
 
+如果插件识别到完整 php 反序列化链，会在目标目录自动生成 `.kunlunm_unserialize_poc/`，包含链路 JSON 摘要、`chain_XX.php`（一条链一个 PoC）以及批量执行脚本 `poc_all_chains.php`。
+生成的 `chain_XX.php` 会优先使用扫描递归过程保存的层级关系与属性信息来组装对象图；若信息不足，再回退到属性路径提取与兜底关系。
+同时会针对隐式魔术方法链（`__toString` / `__call` / `__wakeup` / `__invoke`）输出对应触发语法。
+
+```
+python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path} -o /tmp/unser_poc
+```
+
 ![](docs/phpunserchain.png)
 
 
