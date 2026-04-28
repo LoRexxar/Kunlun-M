@@ -1,0 +1,32 @@
+<?php
+
+class RELFLAG {
+
+    public function __construct()
+    {
+        global $flag;
+        $flag = 0;
+        $flag++;
+        echo "Constructor called " . $flag . "<br>";
+    }
+    public function __destruct()
+    {
+        global $flag;
+        $flag++;
+        echo "Destructor called " . $flag . "<br>";
+    }
+}
+
+function check(){
+    global $flag;
+    if($flag > 5){
+        echo "HelloCTF{???}";
+    }else{
+        echo "Check Detected flag is ". $flag;
+    }
+}
+
+if (isset($_POST['code'])) {
+    eval($_POST['code']);
+    check();
+}
