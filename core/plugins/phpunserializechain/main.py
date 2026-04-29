@@ -125,39 +125,6 @@ class PhpUnSerChain(BasePluginClass):
                                                                self.deep_get_node_name(unsernode.sink_node)))
                     logger.info("[PhpUnSerChain] UnSerChain is available.")
 
-    def get_destruct(self):
-
-        magic_nodes = self.dataflow_db.objects.filter(
-            node_type='newMethod',
-            source_node__startswith='Method-{}'.format(magic_method)
-        )
-
-        for node in magic_nodes:
-
-            unserchain = [node]
-            class_locate = node.node_locate
-
-            new_locate = node.node_locate + '.' + node.source_node
-
-            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
-
-            # for mnode in method_nodes:
-            #     print
-            logger.info("[PhpUnSerChain] New Chain Start in {} in {}".format(magic_method, node.node_locate))
-            self.current_chain_relations = []
-            self.current_chain_properties = []
-            status = self.deep_search_chain(method_nodes, class_locate, unserchain)
-
-            if status:
-                logger.info("[PhpUnSerChain] New Source {}{} in {}".format(magic_method, node.sink_node, node.node_locate))
-
-                for unsernode in unserchain:
-                    logger.info("{}".format(unsernode.node_locate.ljust(100,' ')))
-                    logger_console.warn("{}   {}{}".format(unsernode.node_type.ljust(30,' '), unsernode.source_node,
-                                                           self.deep_get_node_name(unsernode.sink_node)))
-                logger.info("[PhpUnSerChain] UnSerChain is available.")
-                self.record_available_chain(unserchain, self.current_chain_relations, self.current_chain_properties)
-
     def get___get(self, var_name, unserchain=[], define_param=(), deepth=0):
         """
         获取所有内置__get方法
