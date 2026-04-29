@@ -1,0 +1,40 @@
+<?php
+
+/*
+--- HelloCTF - 反序列化靶场 关卡 4 : 序列化 --- 
+
+HINT：嗯！？全是私有，怎么获取flag呢？试试序列化！
+
+# -*- coding: utf-8 -*-
+# @Author: 探姬
+# @Date:   2024-07-01 20:30
+# @Repo:   github.com/ProbiusOfficial/PHPSerialize-labs
+# @email:  admin@hello-ctf.com
+# @link:   hello-ctf.com
+
+*/
+
+class FLAG3{
+    private $flag3_object_array = array("？","？");
+}
+
+class FLAG{
+     private $flag1_string = "？";
+     private $flag2_number = '?';
+     private $flag3_object;
+
+    function __construct() {
+        $this->flag3_object = new FLAG3();
+    }
+}
+
+$flag_is_here = new FLAG();
+
+
+$code = $_POST['code'];
+
+if(isset($code)){
+    eval($code);
+} else {
+    highlight_file(__FILE__);
+}

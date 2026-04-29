@@ -1,0 +1,14 @@
+<?php
+
+$protected_key = unserialize($_POST['protected_key']);
+$private_key = unserialize($_POST['private_key']);
+
+if(isset($protected_key)&&isset($private_key)){
+    if($protected_key->get_key() == "protected_key" && $private_key->get_key() == "private_key"){
+        echo $flag;
+    } else {
+        echo "We Call it %00_Contr0l_Characters_NULL!";
+    }
+} else {
+    highlight_file(__FILE__);
+}

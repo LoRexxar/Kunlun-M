@@ -1,0 +1,111 @@
+name: Publish Docker image to GHCR
+
+on:
+  push:
+    branches: ["main", "master"]
+    tags:
+      - "v*"
+  # 允许手动触发
+  workflow_dispatch:
+
+# 赋予最小必要权限：读取代码、写入包（推送到 GHCR）
+permissions:
+  contents: read
+  packages: write
+
+# 通用环境变量
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }} # ghcr.io/<owner>/<repo>
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    # 通过服务启动 Docker Daemon（Docker 20.10），避免宿主机 containerd v2.0 的 schema1 限制
+    services:
+      docker:
+        image: docker:20.10-dind
+        env:
+          DOCKER_TLS_CERTDIR: "" # 关闭 TLS，使用明文 2375 端口（仅在 CI 内网使用）
+        options: >-
+          --privileged
+        ports:
+          - 2375:2375
+
+    steps:
+      # Step 1: 检出仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: 等待 Docker 服务端就绪（连接到 dind）
+      - name: Wait for Docker daemon
+        env:
+          DOCKER_HOST: tcp://localhost:2375
+        run: |
+          for i in {1..30}; do
+            if docker info > /dev/null 2>&1; then
+              echo "Docker daemon is ready"; exit 0;
+            fi
+            echo "Waiting for Docker daemon... ($i)"; sleep 2;
+          done
+          echo "Docker daemon failed to start in time"; exit 1
+
+      # Step 3: 登录 GHCR（使用内置的 GITHUB_TOKEN，无需 PAT）
+      - name: Log in to GHCR
+        env:
+          DOCKER_HOST: tcp://localhost:2375
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      # Step 4: 生成镜像标签与元数据
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+
+      # Step 5: 构建与（可选）推送
+      - name: Build (and optionally push) image via Docker 20.10 daemon
+        if: always() # 始终构建；推送在脚本内按事件判断
+        env:
+          DOCKER_HOST: tcp://localhost:2375
+          TAGS: ${{ steps.meta.outputs.tags }}
+          SHOULD_PUSH: ${{ github.event_name != 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Resolved tags:" && echo "$TAGS"
+          # 取第一条标签用于 build 阶段
+          FIRST_TAG=$(echo "$TAGS" | head -n1)
+          if [ -z "$FIRST_TAG" ]; then
+            echo "No tags generated"; exit 1
+          fi
+
+          echo "Building image with tag: $FIRST_TAG"
+          docker build -t "$FIRST_TAG" .
+
+          # 其余标签本地复用
+          echo "$TAGS" | tail -n +2 | while read -r TAG; do
+            if [ -n "$TAG" ]; then
+              echo "Tagging: $TAG"
+              docker tag "$FIRST_TAG" "$TAG"
+            fi
+          done
+
+          if [ "$SHOULD_PUSH" = "true" ]; then
+            echo "Pushing all tags to GHCR..."
+            echo "$TAGS" | while read -r TAG; do
+              if [ -n "$TAG" ]; then
+                echo "Pushing: $TAG"
+                docker push "$TAG"
+              fi
+            done
+          else
+            echo "Pull request context detected; skipping push."
+          fi

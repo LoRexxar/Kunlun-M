@@ -12,7 +12,10 @@
 
 import re
 import ast
+import os
+import json
 import traceback
+from datetime import datetime
 
 from utils.log import logger, logger_console
 
@@ -31,10 +34,12 @@ class PhpUnSerChain(BasePluginClass):
 
         self.parser_group_plugin.add_argument('-r', '--renew', dest='renew', action='store_true', default=False,
                                               help='renew DataFlow DB')
+        self.parser_group_plugin.add_argument('-o', '--output', dest='output', action='store', default='',
+                                              help='save generated unserialize chain poc to target path')
 
         # 参数列表
         self.required_arguments_list = ['target']
-        self.arguments_list = ['target', 'debug', 'renew']
+        self.arguments_list = ['target', 'debug', 'renew', 'output']
 
         # 检查参数
         self.check_args()
@@ -72,6 +77,10 @@ class PhpUnSerChain(BasePluginClass):
 
         # 临时全局变量
         self.dataflows = []
+        self.available_chains = []
+        self.chain_fingerprints = set()
+        self.current_chain_relations = []
+        self.current_chain_properties = []
         self.dataflow_db = DataflowGenerate().main(self.target, self.renew)
 
         # core
@@ -118,9 +127,12 @@ class PhpUnSerChain(BasePluginClass):
 
     def get_destruct(self):
 
-        destruct_nodes = self.dataflow_db.objects.filter(node_type='newMethod', source_node__startswith='Method-__destruct')
+        magic_nodes = self.dataflow_db.objects.filter(
+            node_type='newMethod',
+            source_node__startswith='Method-{}'.format(magic_method)
+        )
 
-        for node in destruct_nodes:
+        for node in magic_nodes:
 
             unserchain = [node]
             class_locate = node.node_locate
@@ -131,17 +143,20 @@ class PhpUnSerChain(BasePluginClass):
 
             # for mnode in method_nodes:
             #     print
-            logger.info("[PhpUnSerChain] New Chain Start in __destruct in {}".format(node.node_locate))
+            logger.info("[PhpUnSerChain] New Chain Start in {} in {}".format(magic_method, node.node_locate))
+            self.current_chain_relations = []
+            self.current_chain_properties = []
             status = self.deep_search_chain(method_nodes, class_locate, unserchain)
 
             if status:
-                logger.info("[PhpUnSerChain] New Source __destruct{} in {}".format(node.sink_node, node.node_locate))
+                logger.info("[PhpUnSerChain] New Source {}{} in {}".format(magic_method, node.sink_node, node.node_locate))
 
                 for unsernode in unserchain:
                     logger.info("{}".format(unsernode.node_locate.ljust(100,' ')))
                     logger_console.warn("{}   {}{}".format(unsernode.node_type.ljust(30,' '), unsernode.source_node,
                                                            self.deep_get_node_name(unsernode.sink_node)))
                 logger.info("[PhpUnSerChain] UnSerChain is available.")
+                self.record_available_chain(unserchain, self.current_chain_relations, self.current_chain_properties)
 
     def get___get(self, var_name, unserchain=[], define_param=(), deepth=0):
         """
@@ -337,6 +352,7 @@ class PhpUnSerChain(BasePluginClass):
                             "{}   {}{}".format(unsernode.node_type.ljust(30, ' '), unsernode.source_node,
                                                self.deep_get_node_name(unsernode.sink_node)))
                     logger.info("[PhpUnSerChain] UnSerChain is available.")
+                    self.record_available_chain(unserchain, self.current_chain_relations, self.current_chain_properties)
                 else:
                     unserchain.extend(newunserchain)
                     return True
@@ -769,6 +785,7 @@ class PhpUnSerChain(BasePluginClass):
                 return True
 
             if node_type == 'MethodCall' and self.check_param_controllable(source_node, node):
+                relation_snapshot = len(self.current_chain_relations)
 
                 new_method_name = source_node[16:]
                 new_source_node = 'Method-' + new_method_name
@@ -780,6 +797,25 @@ class PhpUnSerChain(BasePluginClass):
                 # 跟入method
                 unserchain.append(node)
                 logger.debug('[PhpUnSerChain] call new method {}{}'.format(source_node, sink_node))
+                source_path = self.extract_first_property_path(source_node)
+                for prop_name in source_path[:-1]:
+                    if prop_name not in self.current_chain_properties:
+                        self.current_chain_properties.append(prop_name)
+                self.record_chain_properties_from_expression(sink_node)
+                property_paths = self.extract_property_paths({
+                    'chain_nodes': [{'source_node': source_node, 'sink_node': sink_node}]
+                })
+                relation_path = property_paths[0] if property_paths else ['next']
+                if len(relation_path) > 1:
+                    relation_path = relation_path[:-1]
+                self.current_chain_relations.append({
+                    'from_class': class_locate.split('.')[-1] if class_locate else '',
+                    'to_method': new_source_node,
+                    'source_node': source_node,
+                    'sink_node': sink_node,
+                    'property_path': relation_path,
+                    'deepth': deepth,
+                })
 
                 # 如果出现$this->a->b 那么可以触发制定的__call和任意类的b方法
                 if self.check_dynamic_class_var_exist(source_node, node):
@@ -797,11 +833,13 @@ class PhpUnSerChain(BasePluginClass):
                             if status:
                                 return True
                             else:
+                                self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
                                 unserchain.pop()
                                 continue
                         else:
                             # 这里 $b不为方法参数的情况太复杂了，所以这里直接跳出，忽略
                             logger.warn('[PhpUnSerChain] Dynamic call in {} un control. continue.'.format(source_node))
+                            self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
                             unserchain.pop()
                             continue
 
@@ -832,8 +870,10 @@ class PhpUnSerChain(BasePluginClass):
                             return True
 
                         else:
+                            self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
                             unserchain.pop()
                     else:
+                        self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
                         unserchain.pop()
                         return False
                 else:
@@ -869,6 +909,7 @@ class PhpUnSerChain(BasePluginClass):
                     if status:
                         return True
 
+                    self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
                     continue
 
             elif node_type == 'StaticMethodCall':
@@ -888,6 +929,8 @@ class PhpUnSerChain(BasePluginClass):
             elif node_type == 'Assignment':
                 node_left = source_node
                 node_right = sink_node
+                self.record_chain_properties_from_expression(node_left)
+                self.record_chain_properties_from_expression(node_right)
 
                 if self.check_dynamic_class_var_exist(node_left, node):
                     # 可以触发_set
@@ -920,6 +963,354 @@ class PhpUnSerChain(BasePluginClass):
                 print(source_node, node_type, sink_node)
 
         return False
+
+    def get_output_base_path(self):
+        output = self.output.strip() if self.output else ''
+        if output:
+            return os.path.abspath(output)
+        return os.path.abspath(os.path.join(self.target, '.kunlunm_unserialize_poc'))
+
+    def parse_chain_nodes(self, unserchain):
+        chain_items = []
+        class_sequence = []
+        method_sequence = []
+
+        for node in unserchain:
+            class_name = self.extract_class_name_from_locate(node.node_locate)
+            method_name = node.source_node[7:] if node.source_node.startswith('Method-') else node.source_node
+            sink_value = self.deep_get_node_name(node.sink_node)
+
+            chain_items.append({
+                'node_type': node.node_type,
+                'class': class_name,
+                'method': method_name,
+                'source_node': node.source_node,
+                'sink_node': sink_value,
+                'node_locate': node.node_locate,
+            })
+
+            if class_name and class_name not in class_sequence:
+                class_sequence.append(class_name)
+            if node.node_type.startswith('newMethod') and method_name and method_name not in method_sequence:
+                method_sequence.append(method_name)
+
+        sink = chain_items[-1] if chain_items else {}
+        chain_id = "{}::{}=>{}".format(
+            class_sequence[0] if class_sequence else "UnknownClass",
+            method_sequence[0] if method_sequence else "unknown",
+            sink.get('source_node', 'unknown_sink')
+        )
+        return chain_id, chain_items, class_sequence, method_sequence
+
+    def normalize_class_name(self, class_name):
+        if not class_name:
+            return ''
+        if class_name.startswith('Class-'):
+            class_name = class_name[6:]
+        return class_name
+
+    def extract_class_name_from_locate(self, node_locate):
+        if not node_locate:
+            return ''
+        for token in node_locate.split('.'):
+            if token.startswith('Class-'):
+                return self.normalize_class_name(token)
+        return ''
+
+    def safe_php_identifier(self, value, default='UnknownClass'):
+        if not value:
+            return default
+        safe = re.sub(r'[^a-zA-Z0-9_]', '_', value)
+        if re.match(r'^[0-9]', safe):
+            safe = 'C_' + safe
+        return safe or default
+
+    def extract_controllable_properties(self, chain):
+        """
+        从链中提取可控属性（基于 $this->x / $obj->x 形式）
+        """
+        if chain.get('analysis_properties'):
+            return chain.get('analysis_properties')
+
+        props = []
+        seen = set()
+        pattern = re.compile(r'\$[a-zA-Z_]\w*(?:->([a-zA-Z_]\w*))')
+
+        for item in chain['chain_nodes']:
+            for field in ['source_node', 'sink_node']:
+                value = item.get(field, '')
+                if not isinstance(value, str):
+                    continue
+                for prop in pattern.findall(value):
+                    if prop and prop not in seen:
+                        seen.add(prop)
+                        props.append(prop)
+
+        return props
+
+    def extract_property_names_from_expression(self, expression):
+        names = []
+        if not isinstance(expression, str):
+            return names
+        pattern = re.compile(r'->([a-zA-Z_]\w*)')
+        for prop in pattern.findall(expression):
+            if prop and prop not in names:
+                names.append(prop)
+        return names
+
+    def extract_first_property_path(self, expression):
+        if not isinstance(expression, str):
+            return []
+        match = re.search(r'\$[a-zA-Z_]\w*->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)', expression)
+        if not match:
+            return []
+        return [seg for seg in match.group(1).split('->') if seg]
+
+    def record_chain_properties_from_expression(self, expression):
+        prop_names = self.extract_property_names_from_expression(expression)
+        for prop_name in prop_names:
+            if prop_name not in self.current_chain_properties:
+                self.current_chain_properties.append(prop_name)
+
+    def extract_property_paths(self, chain):
+        """
+        提取属性访问路径，用于递归构造对象层级关系
+        例如: $this->a->b => ['a', 'b']
+        """
+        paths = []
+        seen = set()
+        patterns = [
+            re.compile(r'\$this->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)'),
+            re.compile(r'\$[a-zA-Z_]\w*->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)'),
+        ]
+
+        for item in chain['chain_nodes']:
+            for field in ['source_node', 'sink_node']:
+                value = item.get(field, '')
+                if not isinstance(value, str):
+                    continue
+                for pattern in patterns:
+                    for match in pattern.findall(value):
+                        segments = [seg for seg in match.split('->') if seg]
+                        if not segments:
+                            continue
+                        key = ".".join(segments)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        paths.append(segments)
+
+        return paths
+
+    def build_recursive_relation_paths(self, chain):
+        classes = chain['class_sequence']
+        property_paths = self.extract_property_paths(chain)
+        relation_paths = []
+        for index in range(max(len(classes) - 1, 0)):
+            if index < len(property_paths):
+                relation_paths.append(property_paths[index])
+            else:
+                relation_paths.append(['next'])
+        return relation_paths
+
+    def render_chain_function(self, chain, chain_index):
+        classes = chain['class_sequence']
+        entry_class = self.safe_php_identifier(chain['entry_class'])
+        controllable_props = self.extract_controllable_properties(chain)
+        relation_paths = self.build_relation_paths_from_recursive(chain)
+        if not relation_paths:
+            relation_paths = self.build_recursive_relation_paths(chain)
+        object_init_lines = [
+            "    $chainObjects[{0}] = new {1}();".format(idx, self.safe_php_identifier(cname))
+            for idx, cname in enumerate(classes)
+        ]
+        relation_lines = [
+            "    set_path_value($chainObjects[{0}], [{1}], $chainObjects[{2}]);".format(
+                idx,
+                ",".join(["'{}'".format(segment) for segment in path]),
+                idx + 1
+            )
+            for idx, path in enumerate(relation_paths)
+        ]
+        prop_lines = [
+            "    $root->{0} = 'PAYLOAD_{0}';".format(prop)
+            for prop in controllable_props
+        ] if controllable_props else ["    // 未自动提取到属性，请手动补充，例如：$root->cmd = 'id';"]
+
+        function_body = """function set_path_value(&$obj, $segments, $value, $idx = 0) {{
+    if ($idx >= count($segments)) {{ return; }}
+    $key = $segments[$idx];
+    if ($idx === count($segments) - 1) {{ $obj->$key = $value; return; }}
+    if (!isset($obj->$key) || !is_object($obj->$key)) {{ $obj->$key = new stdClass(); }}
+    set_path_value($obj->$key, $segments, $value, $idx + 1);
+}}
+
+function build_payload_chain_{chain_index:02d}() {{
+    // Entry: {entry_class}::{trigger_method}
+    $root = new {entry_class}();
+
+    // Step 1) 构造类链对象（按扫描到的顺序）
+    $chainObjects = [];
+{object_init}
+    if (count($chainObjects) > 0) {{
+        $root = $chainObjects[0];
+        // Step 1.1) 递归设置每层对象关系（优先使用分析阶段记录关系）
+{relation_set}
+    }}
+
+    // Step 2) 设置可控参数（优先使用分析阶段记录属性）
+{prop_set}
+
+    // Step 3) 触发对应魔术方法（隐式链需要主动触发）
+    {trigger_code}
+
+    $payload = serialize($root);
+    return ['payload' => $payload, 'urlencode' => urlencode($payload)];
+}}""".format(
+            chain_index=chain_index,
+            entry_class=entry_class,
+            trigger_method=chain['trigger_magic_method'],
+            object_init="\n".join(object_init_lines) if object_init_lines else "    // no class nodes found",
+            relation_set="\n".join(relation_lines) if relation_lines else "        // no relation path found",
+            prop_set="\n".join(prop_lines),
+            trigger_code=self.build_trigger_code(chain['trigger_magic_method']),
+        )
+        return function_body, controllable_props
+
+    def record_available_chain(self, unserchain, recursive_relations=None, analysis_properties=None):
+        chain_id, chain_items, class_sequence, method_sequence = self.parse_chain_nodes(unserchain)
+        recursive_relations = recursive_relations if recursive_relations else []
+        analysis_properties = analysis_properties if analysis_properties else []
+        fingerprint = json.dumps(chain_items, sort_keys=True, ensure_ascii=False)
+
+        if fingerprint in self.chain_fingerprints:
+            return
+
+        self.chain_fingerprints.add(fingerprint)
+        self.available_chains.append({
+            'chain_id': chain_id,
+            'trigger_magic_method': method_sequence[0] if method_sequence else '__destruct',
+            'entry_class': class_sequence[0] if class_sequence else '',
+            'class_sequence': class_sequence,
+            'method_sequence': method_sequence,
+            'chain_nodes': chain_items,
+            'recursive_relations': recursive_relations,
+            'analysis_properties': analysis_properties,
+        })
+
+    def build_relation_paths_from_recursive(self, chain):
+        relation_paths = []
+        for relation in chain.get('recursive_relations', []):
+            path = relation.get('property_path', [])
+            if isinstance(path, list) and len(path) > 0:
+                relation_paths.append(path)
+        return relation_paths
+
+    def build_trigger_code(self, trigger_method):
+        if trigger_method == '__toString':
+            return "$trigger_result = (string)$root;"
+        if trigger_method == '__call':
+            return "$root->undefinedMethod('PAYLOAD_CALL');"
+        if trigger_method == '__invoke':
+            return "$root();"
+        if trigger_method == '__wakeup':
+            return "$trigger_payload = serialize($root);\\n    @unserialize($trigger_payload);"
+        return "// __destruct/default: trigger occurs when object lifecycle ends."
+
+    def render_chain_php(self, chain, chain_index):
+        classes = chain['class_sequence']
+        methods = chain['method_sequence']
+        entry_class = self.safe_php_identifier(chain['entry_class'])
+        trigger_method = chain['trigger_magic_method']
+
+        class_stub_lines = []
+        for class_name in classes:
+            safe_name = self.safe_php_identifier(class_name)
+            class_stub_lines.append("if (!class_exists('{0}')) {{ class {0} {{ public $next; }} }}".format(safe_name))
+        if not class_stub_lines:
+            class_stub_lines = ["class UnknownClass { public $next; }"]
+
+        chain_func, controllable_props = self.render_chain_function(chain, chain_index)
+
+        return """<?php
+/**
+ * Auto generated by KunLun-M phpunserializechain plugin.
+ * Chain ID: {chain_id}
+ * Trigger: {entry_class}::{trigger_method}
+ *
+ * This file is generated for chain #{chain_index}.
+ * It follows valid PHP syntax and provides executable payload generation logic.
+ */
+
+{class_stubs}
+
+{chain_func}
+
+$result = build_payload_chain_{chain_index:02d}();
+echo "[+] Chain Index: {chain_index}\\n";
+echo "[+] Chain: {chain_id}\\n";
+echo '[+] Methods: {methods}' . "\\n";
+echo "[+] Controllable Props: {props}\\n";
+echo "[+] Payload: " . $result['payload'] . "\\n";
+echo "[+] Payload(urlencode): " . $result['urlencode'] . "\\n";
+""".format(
+            chain_id=chain['chain_id'],
+            entry_class=entry_class,
+            trigger_method=trigger_method,
+            methods=' -> '.join(methods),
+            chain_index=chain_index,
+            class_stubs="\n".join(class_stub_lines),
+            chain_func=chain_func,
+            props=",".join(controllable_props) if controllable_props else "N/A",
+        )
+
+    def render_all_chains_php(self):
+        chain_lines = [
+            "<?php",
+            "/**",
+            " * Auto generated by KunLun-M phpunserializechain plugin.",
+            " * Multi-chain PoC launcher.",
+            " */",
+            "$chainFiles = glob(__DIR__ . '/chain_*.php');",
+            "sort($chainFiles);",
+            "echo '[+] Found ' . count($chainFiles) . ' chain poc files' . PHP_EOL;",
+            "foreach ($chainFiles as $chainFile) {",
+            "    echo '[+] Run ' . basename($chainFile) . PHP_EOL;",
+            "    passthru('php ' . escapeshellarg($chainFile));",
+            "    echo str_repeat('-', 60) . PHP_EOL;",
+            "}",
+        ]
+        return "\n".join(chain_lines) + "\n"
+
+    def generate_poc_files(self):
+        if not self.available_chains:
+            logger.info("[PhpUnSerChain] no complete unserialize chain found, skip poc generation.")
+            return
+
+        output_base_path = self.get_output_base_path()
+        if not os.path.exists(output_base_path):
+            os.makedirs(output_base_path)
+
+        summary_path = os.path.join(output_base_path, 'php_unserialize_chain_summary.json')
+        with open(summary_path, 'w', encoding='utf-8') as summary_file:
+            json.dump({
+                'generated_at': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                'target': self.target,
+                'chain_count': len(self.available_chains),
+                'chains': self.available_chains,
+            }, summary_file, indent=2, ensure_ascii=False)
+
+        for index, chain in enumerate(self.available_chains, start=1):
+            poc_filename = "chain_{0:02d}.php".format(index)
+            poc_path = os.path.join(output_base_path, poc_filename)
+            with open(poc_path, 'w', encoding='utf-8') as poc_file:
+                poc_file.write(self.render_chain_php(chain, index))
+
+        all_chains_path = os.path.join(output_base_path, 'poc_all_chains.php')
+        with open(all_chains_path, 'w', encoding='utf-8') as all_chain_file:
+            all_chain_file.write(self.render_all_chains_php())
+
+        logger.info("[PhpUnSerChain] generated {} poc files (+1 launcher) in {}".format(len(self.available_chains), output_base_path))
 
     def find_prototype_class(self, now_class, find_method_name, unserchain, define_param=(), deepth=0):
         """

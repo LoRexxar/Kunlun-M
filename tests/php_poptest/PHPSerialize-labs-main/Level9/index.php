@@ -1,0 +1,31 @@
+<?php
+
+/*
+--- HelloCTF - 反序列化靶场 关卡 9 : 构造函数的后门 --- 
+
+HINT：似曾相识
+
+# -*- coding: utf-8 -*-
+# @Author: 探姬(@ProbiusOfficial)
+# @Date:   2024-07-01 20:30
+# @Repo:   github.com/ProbiusOfficial/PHPSerialize-labs
+# @email:  admin@hello-ctf.com
+# @link:   hello-ctf.com
+
+*/
+
+class FLAG {
+    var $flag_command = "echo 'HelloCTF';";
+    public function __destruct()
+    {
+        eval ($this->flag_command);
+    }
+}
+if(isset($_POST['o']))
+{
+    unserialize($_POST['o']);
+}else {
+    highlight_file('source');
+}
+
+?>

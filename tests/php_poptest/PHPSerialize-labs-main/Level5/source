@@ -1,0 +1,24 @@
+<?php
+
+$your_object = unserialize($_POST['o']);
+$your_array = unserialize($_POST['a']);
+$your_string = unserialize($_POST['s']);
+$your_number = unserialize($_POST['i']);
+$your_boolean = unserialize($_POST['b']);
+$your_NULL = unserialize($_POST['n']);
+
+if(
+    $your_boolean && 
+    $your_NULL == null &&
+    $your_string == "IWANT" &&
+    $your_number == 1 &&
+    $your_object->a_value == "FLAG" &&
+    $your_array['a'] == "Plz" && $your_array['b'] == "Give_M3"
+){
+    echo $flag;
+}
+else{
+    echo "You really know how to serialize?";
+}
+
+
