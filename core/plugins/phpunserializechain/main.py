@@ -88,6 +88,7 @@ class PhpUnSerChain(BasePluginClass):
 
     def main(self):
         self.get_unserialize_magic_method()
+        self.generate_poc_files()
         # self.get_any_methodcall("YvGvAn", (), isnew=True)
 
     def get_unserialize_magic_method(self):
@@ -114,6 +115,8 @@ class PhpUnSerChain(BasePluginClass):
                 method_body_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
 
                 logger.info("[PhpUnSerChain] New Chain Start in {} in {}".format(method_prefix, node.node_locate))
+                self.current_chain_relations = []
+                self.current_chain_properties = []
                 status = self.deep_search_chain(method_body_nodes, class_locate, unserchain)
 
                 if status:
@@ -124,6 +127,7 @@ class PhpUnSerChain(BasePluginClass):
                         logger_console.warn("{}   {}{}".format(unsernode.node_type.ljust(30, ' '), unsernode.source_node,
                                                                self.deep_get_node_name(unsernode.sink_node)))
                     logger.info("[PhpUnSerChain] UnSerChain is available.")
+                    self.record_available_chain(unserchain, self.current_chain_relations, self.current_chain_properties)
 
     def get___get(self, var_name, unserchain=[], define_param=(), deepth=0):
         """
