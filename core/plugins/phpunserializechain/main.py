@@ -500,7 +500,7 @@ class PhpUnSerChain(BasePluginClass):
         """
         flag_pattern = re.compile(r'flag|ctf\{|\$flag|key|secret', re.I)
 
-        if node.node_type in self.special_function_multi and node.source_node == 'echo':
+        if node.node_type == 'FunctionCall' and node.source_node == 'echo':
             sink_node = self.deep_get_node_name(node.sink_node)
             if flag_pattern.search(sink_node):
                 logger.debug("[PhpUnSerChain] Found CTF flag-like sink in echo: {}".format(sink_node))
