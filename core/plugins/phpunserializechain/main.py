@@ -87,16 +87,45 @@ class PhpUnSerChain(BasePluginClass):
         self.main()
 
     def main(self):
-
-        self.scan_magic_method('__destruct')
-        self.scan_magic_method('__wakeup')
-        self.scan_magic_method('__toString')
-        self.scan_magic_method('__call')
-        self.scan_magic_method('__invoke')
-        self.generate_poc_files()
+        self.get_unserialize_magic_method()
         # self.get_any_methodcall("YvGvAn", (), isnew=True)
 
-    def scan_magic_method(self, magic_method):
+    def get_unserialize_magic_method(self):
+        """
+        从反序列化可触发的魔术方法作为入口寻找链，而不是依赖显式 unserialize 调用点。
+        """
+        unserialize_entry_methods = [
+            '__destruct', '__wakeup', '__toString', '__invoke', '__get',
+            '__set', '__call', '__callStatic', '__isset', '__unset'
+        ]
+
+        for entry_method in unserialize_entry_methods:
+            method_prefix = 'Method-{}'.format(entry_method)
+            method_nodes = self.dataflow_db.objects.filter(
+                node_type='newMethod',
+                source_node__startswith=method_prefix
+            )
+
+            for node in method_nodes:
+                unserchain = [node]
+                class_locate = node.node_locate
+
+                new_locate = node.node_locate + '.' + node.source_node
+                method_body_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+
+                logger.info("[PhpUnSerChain] New Chain Start in {} in {}".format(method_prefix, node.node_locate))
+                status = self.deep_search_chain(method_body_nodes, class_locate, unserchain)
+
+                if status:
+                    logger.info("[PhpUnSerChain] New Source {}{} in {}".format(method_prefix, node.sink_node, node.node_locate))
+
+                    for unsernode in unserchain:
+                        logger.info("{}".format(unsernode.node_locate.ljust(100, ' ')))
+                        logger_console.warn("{}   {}{}".format(unsernode.node_type.ljust(30, ' '), unsernode.source_node,
+                                                               self.deep_get_node_name(unsernode.sink_node)))
+                    logger.info("[PhpUnSerChain] UnSerChain is available.")
+
+    def get_destruct(self):
 
         magic_nodes = self.dataflow_db.objects.filter(
             node_type='newMethod',
@@ -442,6 +471,9 @@ class PhpUnSerChain(BasePluginClass):
                                 'call_user_func_array': [0],
                                 }
 
+        if self.check_flag_sink(node):
+            return True
+
         if node.node_type == 'FunctionCall' and node.source_node in self.danger_function:
             sink_node = ast.literal_eval(node.sink_node) if node.sink_node.startswith('(') else (node.sink_node)
 
@@ -475,6 +507,26 @@ class PhpUnSerChain(BasePluginClass):
                             return False
 
                         return True
+
+        return False
+
+    def check_flag_sink(self, node):
+        """
+        CTF 场景中，将输出 flag（或类似敏感字符串）的行为也作为 sink。
+        """
+        flag_pattern = re.compile(r'flag|ctf\{|\$flag|key|secret', re.I)
+
+        if node.node_type == 'FunctionCall' and node.source_node == 'echo':
+            sink_node = self.deep_get_node_name(node.sink_node)
+            if flag_pattern.search(sink_node):
+                logger.debug("[PhpUnSerChain] Found CTF flag-like sink in echo: {}".format(sink_node))
+                return True
+
+        if node.node_type == 'FunctionCall' and node.source_node in ['printf', 'print_r', 'var_dump', 'die', 'exit']:
+            sink_node = self.deep_get_node_name(node.sink_node)
+            if flag_pattern.search(sink_node):
+                logger.debug("[PhpUnSerChain] Found CTF flag-like sink in {}: {}".format(node.source_node, sink_node))
+                return True
 
         return False
 
