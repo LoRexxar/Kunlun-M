@@ -399,6 +399,9 @@ class PhpUnSerChain(BasePluginClass):
             except Exception:
                 result = []
 
+        elif node_name:
+            result = [node_name]
+
         return result
 
     def follow_call_from_sink_node(self, node_name, unserchain=[], define_param=(), deepth=0):
@@ -477,15 +480,11 @@ class PhpUnSerChain(BasePluginClass):
             return True
 
         if node.node_type == 'FunctionCall' and node.source_node in self.danger_function:
-            sink_node = ast.literal_eval(node.sink_node) if node.sink_node.startswith('(') else (node.sink_node)
-
-            if len(sink_node) >= len(self.danger_function[node.source_node]):
-
-                # 必须有更多参数
+            function_params = self.get_params_from_sink_node(node.sink_node)
+            if len(function_params) >= (max(self.danger_function[node.source_node]) + 1):
                 for i in self.danger_function[node.source_node]:
-                    if self.check_param_controllable(sink_node[i], node):
+                    if self.check_param_controllable(function_params[i], node):
                         continue
-
                     return False
                 return True
 
@@ -660,6 +659,9 @@ class PhpUnSerChain(BasePluginClass):
         """
         if trace_stack is None:
             trace_stack = set()
+
+        if isinstance(param_name, str):
+            param_name = self.deep_get_node_name(param_name)
 
         stack_key = "{}@{}".format(param_name, now_node.id)
         if stack_key in trace_stack:
@@ -1079,7 +1081,7 @@ class PhpUnSerChain(BasePluginClass):
     def extract_first_property_path(self, expression):
         if not isinstance(expression, str):
             return []
-        match = re.search(r'\$[a-zA-Z_]\w*->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)', expression)
+        match = re.search(r'(?:Variable-)?\$[a-zA-Z_]\w*->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)', expression)
         if not match:
             return []
         return [seg for seg in match.group(1).split('->') if seg]
@@ -1098,8 +1100,8 @@ class PhpUnSerChain(BasePluginClass):
         paths = []
         seen = set()
         patterns = [
-            re.compile(r'\$this->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)'),
-            re.compile(r'\$[a-zA-Z_]\w*->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)'),
+            re.compile(r'(?:Variable-)?\$this->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)'),
+            re.compile(r'(?:Variable-)?\$[a-zA-Z_]\w*->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)'),
         ]
 
         for item in chain['chain_nodes']:
@@ -1120,6 +1122,30 @@ class PhpUnSerChain(BasePluginClass):
 
         return paths
 
+    def extract_sink_property_paths_by_class(self, chain):
+        paths_by_class = {}
+        if not chain or 'chain_nodes' not in chain:
+            return paths_by_class
+        pattern = re.compile(r'(?:Variable-)?\$this->([a-zA-Z_]\w*(?:->[a-zA-Z_]\w*)*)')
+        for item in chain.get('chain_nodes', []):
+            if item.get('node_type') != 'FunctionCall':
+                continue
+            sink_value = item.get('sink_node', '')
+            if not isinstance(sink_value, str):
+                continue
+            matches = pattern.findall(sink_value)
+            if not matches:
+                continue
+            class_name = item.get('class', '') or ''
+            for m in matches:
+                segments = [seg for seg in m.split('->') if seg]
+                if not segments:
+                    continue
+                paths_by_class.setdefault(class_name, [])
+                if segments not in paths_by_class[class_name]:
+                    paths_by_class[class_name].append(segments)
+        return paths_by_class
+
     def build_recursive_relation_paths(self, chain):
         classes = chain['class_sequence']
         property_paths = self.extract_property_paths(chain)
@@ -1134,7 +1160,6 @@ class PhpUnSerChain(BasePluginClass):
     def render_chain_function(self, chain, chain_index):
         classes = chain['class_sequence']
         entry_class = self.safe_php_identifier(chain['entry_class'])
-        controllable_props = self.extract_controllable_properties(chain)
         relation_paths = self.build_relation_paths_from_recursive(chain)
         if not relation_paths:
             relation_paths = self.build_recursive_relation_paths(chain)
@@ -1146,6 +1171,16 @@ class PhpUnSerChain(BasePluginClass):
             while len(relation_paths) < expected_relations:
                 relation_paths.append(['next'])
             relation_paths = [path if isinstance(path, list) and len(path) > 0 else ['next'] for path in relation_paths]
+
+        reserved_props = set()
+        for path in relation_paths:
+            if not isinstance(path, list):
+                continue
+            for seg in path:
+                reserved_props.add(seg)
+
+        controllable_props = [p for p in self.extract_controllable_properties(chain) if p not in reserved_props]
+
         object_init_lines = [
             "    $chainObjects[{0}] = new {1}();".format(idx, self.safe_php_identifier(cname))
             for idx, cname in enumerate(classes)
@@ -1158,6 +1193,23 @@ class PhpUnSerChain(BasePluginClass):
             )
             for idx, path in enumerate(relation_paths)
         ]
+
+        sink_paths = self.extract_sink_property_paths_by_class(chain)
+        sink_set_lines = []
+        for cname, paths in sink_paths.items():
+            if cname not in classes:
+                continue
+            class_idx = classes.index(cname)
+            for segments in paths:
+                leaf = segments[-1]
+                sink_set_lines.append(
+                    "    set_path_value($chainObjects[{0}], [{1}], 'PAYLOAD_{2}');".format(
+                        class_idx,
+                        ",".join(["'{}'".format(seg) for seg in segments]),
+                        leaf
+                    )
+                )
+
         prop_lines = [
             "    $root->{0} = 'PAYLOAD_{0}';".format(prop)
             for prop in controllable_props
@@ -1184,6 +1236,9 @@ function build_payload_chain_{chain_index:02d}() {{
 {relation_set}
     }}
 
+    // Step 1.2) 从 sink 表达式补全 $this 链式属性
+{sink_set}
+
     // Step 2) 设置可控参数（优先使用分析阶段记录属性）
 {prop_set}
 
@@ -1198,6 +1253,7 @@ function build_payload_chain_{chain_index:02d}() {{
             trigger_method=chain['trigger_magic_method'],
             object_init="\n".join(object_init_lines) if object_init_lines else "    // no class nodes found",
             relation_set="\n".join(relation_lines) if relation_lines else "        // no relation path found",
+            sink_set="\n".join(sink_set_lines) if sink_set_lines else "    // no sink property path found",
             prop_set="\n".join(prop_lines),
             trigger_code=self.build_trigger_code(chain['trigger_magic_method']),
         )
@@ -1279,21 +1335,34 @@ function build_payload_chain_{chain_index:02d}() {{
                 safe_props.append(prop)
         safe_props = list(dict.fromkeys(safe_props))
 
-        relation_props = []
-        for path in relation_paths:
-            if not isinstance(path, list):
+        required_props_by_class = {c: set() for c in classes}
+        for idx, path in enumerate(relation_paths):
+            if not isinstance(path, list) or not path:
                 continue
-            for seg in path:
-                if isinstance(seg, str) and re.match(r'^[a-zA-Z_]\w*$', seg):
-                    relation_props.append(seg)
-        relation_props = list(dict.fromkeys(relation_props))
+            seg = path[0]
+            if isinstance(seg, str) and re.match(r'^[a-zA-Z_]\w*$', seg) and idx < len(classes):
+                required_props_by_class[classes[idx]].add(seg)
 
-        stub_props = list(dict.fromkeys(relation_props + safe_props))
+        sink_paths_by_class = self.extract_sink_property_paths_by_class(chain)
+        for cname, paths in sink_paths_by_class.items():
+            if cname not in required_props_by_class:
+                continue
+            for path in paths:
+                if not isinstance(path, list) or not path:
+                    continue
+                seg = path[0]
+                if isinstance(seg, str) and re.match(r'^[a-zA-Z_]\w*$', seg):
+                    required_props_by_class[cname].add(seg)
+
+        if classes:
+            for prop in safe_props:
+                required_props_by_class[classes[0]].add(prop)
 
         class_stub_lines = []
         for class_name in classes:
             safe_name = self.safe_php_identifier(class_name)
-            extra_props = " ".join(["public ${};".format(p) for p in stub_props])
+            props = sorted(required_props_by_class.get(class_name, set()))
+            extra_props = " ".join(["public ${};".format(p) for p in props])
             if extra_props:
                 extra_props = " " + extra_props
             class_stub_lines.append("if (!class_exists('{0}')) {{ class {0} {{{1} }} }}".format(safe_name, extra_props))
