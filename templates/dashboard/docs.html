@@ -2,6 +2,31 @@
 {% block title %}Documentation{% endblock %}
 
 {% block body %}
+<div class="box box-primary">
+  <div class="box-header with-border">
+    <h3 class="box-title">Kunlun-M Documentation</h3>
+  </div>
+  <div class="box-body">
+    <h4>Quick Start</h4>
+    <pre>python kunlun.py init initialize
+python kunlun.py config load
+python kunlun.py scan -t tests/vulnerabilities
+python kunlun.py web -p 9999</pre>
+
+    <h4>Auth</h4>
+    <ul>
+      <li>Dashboard：登录后访问</li>
+      <li>分享访问：URL 参数 <code>token</code>（任务的 visit_token）</li>
+      <li>API：URL/表单参数 <code>apitoken</code>（来自 settings 的 API_TOKEN）</li>
+    </ul>
+
+    <h4>Docs</h4>
+    <p>更完整的文档在仓库 <code>docs/</code> 目录（docs/README.md）。</p>
+  </div>
+</div>
+
+<details>
+<summary>历史 Cobra-W 文档（已过期，仅供参考）</summary>
 <div id="wmd-preview" class="wmd-preview wmd-preview-full-reader" data-medium-element="true" style="height: auto; left: 0px;"><div class="md-section-divider"></div><div class="md-section-divider"></div><h1 data-anchor-id="fdi8" id="cobra-w开发文档">Cobra-W开发文档</h1><div class="md-section-divider"></div><h2 data-anchor-id="qn68" id="开始">开始</h2><p data-anchor-id="smo8">使用-h可以查看使用帮助</p><div class="md-section-divider"></div><pre class="prettyprint linenums prettyprinted" data-anchor-id="k0e9" style=""><ol class="linenums"><li class="L0"><code><span class="pln">python </span><span class="pun">.</span><span class="pln">\cobra</span><span class="pun">.</span><span class="pln">py </span><span class="pun">-</span><span class="pln">h</span></code></li><li class="L1"><code></code></li><li class="L2"><code><span class="pln">usage</span><span class="pun">:</span><span class="pln"> cobra </span><span class="pun">[-</span><span class="pln">h</span><span class="pun">]</span><span class="pln"> </span><span class="pun">[-</span><span class="pln">t </span><span class="str">&lt;target&gt;</span><span class="pun">]</span><span class="pln"> </span><span class="pun">[-</span><span class="pln">f </span><span class="str">&lt;format&gt;</span><span class="pun">]</span><span class="pln"> </span><span class="pun">[-</span><span class="pln">o </span><span class="str">&lt;output&gt;</span><span class="pun">]</span><span class="pln"> </span><span class="pun">[-</span><span class="pln">r </span><span class="str">&lt;rule_id&gt;</span><span class="pun">]</span></code></li><li class="L3"><code><span class="pln">             </span><span class="pun">[-</span><span class="pln">s </span><span class="str">&lt;secret_name&gt;</span><span class="pun">]</span><span class="pln"> </span><span class="pun">[-</span><span class="pln">d</span><span class="pun">]</span></code></li><li class="L4"><code></code></li><li class="L5"><code><span class="pln">  ____      _                  __        __</span></code></li><li class="L6"><code><span class="pln"> </span><span class="pun">/</span><span class="pln"> ___</span><span class="pun">|</span><span class="pln">___ </span><span class="pun">|</span><span class="pln"> </span><span class="pun">|</span><span class="pln">__  _ __ __ _    \ \      </span><span class="pun">/</span><span class="pln"> </span><span class="pun">/</span></code></li><li class="L7"><code><span class="pun">|</span><span class="pln"> </span><span class="pun">|</span><span class="pln">   </span><span class="str">/ _ \| '_ \| '__/</span><span class="pln"> _</span><span class="str">` |    \ \ /\ / /</span></code></li><li class="L8"><code><span class="str">| |__| (_) | |_) | | | (_| | --- \ V  V /</span></code></li><li class="L9"><code><span class="str"> \____\___/|_.__/|_|  \__,_|      \_/\_/  v0.8.3</span></code></li><li class="L0"><code></code></li><li class="L1"><code><span class="str">GitHub: https://github.com/LoRexxar/Cobra-W</span></code></li><li class="L2"><code></code></li><li class="L3"><code><span class="str">Cobra is a static code analysis system that automates the detecting vulnerabilities and security issue.</span></code></li><li class="L4"><code></code></li><li class="L5"><code><span class="str">optional arguments:</span></code></li><li class="L6"><code><span class="str">  -h, --help            show this help message and exit</span></code></li><li class="L7"><code></code></li><li class="L8"><code><span class="str">Scan:</span></code></li><li class="L9"><code><span class="str">  -t &lt;target&gt;, --target &lt;target&gt;</span></code></li><li class="L0"><code><span class="str">                        file, folder, compress, or repository address</span></code></li><li class="L1"><code><span class="str">  -f &lt;format&gt;, --format &lt;format&gt;</span></code></li><li class="L2"><code><span class="str">                        vulnerability output format (formats: html, json, csv,</span></code></li><li class="L3"><code><span class="str">                        xml)</span></code></li><li class="L4"><code><span class="str">  -o &lt;output&gt;, --output &lt;output&gt;</span></code></li><li class="L5"><code><span class="str">                        vulnerability output STREAM, FILE</span></code></li><li class="L6"><code><span class="str">  -r &lt;rule_id&gt;, --rule &lt;rule_id&gt;</span></code></li><li class="L7"><code><span class="str">                        specifies rules e.g: 1000, 1001</span></code></li><li class="L8"><code><span class="str">  -s &lt;secret_name&gt;, --secret &lt;secret_name&gt;</span></code></li><li class="L9"><code><span class="str">                        secret repair function e.g: wordpress</span></code></li><li class="L0"><code><span class="str">  -d, --debug           open debug mode</span></code></li><li class="L1"><code></code></li><li class="L2"><code><span class="str">Usage:</span></code></li><li class="L3"><code><span class="str">  python cobra.py -t tests/vulnerabilities</span></code></li><li class="L4"><code><span class="str">  python cobra.py -t tests/vulnerabilities -r 1000, 1001</span></code></li><li class="L5"><code><span class="str">  python cobra.py -t tests/vulnerabilities -s wordpress</span></code></li><li class="L6"><code><span class="str">  python cobra.py -t tests/vulnerabilities -f json -o /tmp/report.json</span></code></li><li class="L7"><code><span class="str">  python cobra.py -t tests/vulnerabilities --debug</span></code></li></ol></pre><div class="md-section-divider"></div><h2 data-anchor-id="priy" id="核心代码">核心代码</h2><p data-anchor-id="hu6j">整个核心代码的运行逻辑：</p><div class="md-section-divider"></div><pre class="prettyprint linenums prettyprinted" data-anchor-id="my66" style=""><ol class="linenums"><li class="L0"><code><span class="pln">__init__</span><span class="pun">.</span><span class="pln">py </span><span class="pun">-&gt;</span><span class="pln"> cli</span><span class="pun">.</span><span class="pln">py</span><span class="pun">主线程</span><span class="pln"> </span><span class="pun">-&gt;</span><span class="pln"> </span><span class="kwd">until</span><span class="pun">.</span><span class="pln">py</span><span class="pun">加载规则库</span><span class="pln"> </span><span class="pun">-&gt;</span><span class="pln"> detection</span><span class="pun">.</span><span class="pln">py </span><span class="pun">判断扫描对象的语言和框架</span><span class="pln"> </span><span class="pun">-&gt;</span><span class="pln"> engine</span><span class="pun">.</span><span class="pln">py</span><span class="pun">(</span><span class="pln">scan</span><span class="pun">)</span><span class="pln"> </span><span class="pun">启动扫描</span><span class="pln"> </span><span class="pun">-&gt;</span><span class="pln"> cast</span><span class="pun">.</span><span class="pln">py ast </span><span class="pun">-&gt;</span><span class="pln"> parser</span><span class="pun">.</span><span class="pln">py ast</span><span class="pun">分析</span><span class="pln"> </span><span class="pun">-&gt;</span><span class="pln"> engine</span><span class="pun">.</span><span class="pln">py </span><span class="pun">整理结果</span><span class="pln"> </span><span class="pun">-&gt;</span><span class="pln"> </span><span class="kwd">export</span><span class="pun">.</span><span class="pln">py </span><span class="pun">导出结果</span></code></li></ol></pre><ul data-anchor-id="f3iy">
 <li>init.py：  参数的解析和对应配置</li>
 <li>cli.py:    开始扫描前的一些预处理</li>
@@ -35,8 +60,6 @@
 {% block script %}
 
 
-<script src="http://cdn.bootcss.com/pagedown/1.0/Markdown.Converter.js"></script>
-
 <script>
       $(document).ready(function () {
           $("#dashboard").removeClass("active menu-open");
@@ -47,4 +70,5 @@
 </script>
 
 
+</details>
 {% endblock %}

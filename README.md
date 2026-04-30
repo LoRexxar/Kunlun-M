@@ -1,10 +1,10 @@
-- <big>**自Cobra-W 2.0版本起，Cobra-W正式更名为Kunlun-M(昆仑镜)，**</big>
-- **请使用Python 3.10+运行该工具（推荐Python 3.13），已停止维护Python 2.7环境**
+- <big>**自 Cobra-W 2.0 版本起，Cobra-W 正式更名为 Kunlun-M（昆仑镜）。**</big>
+- **建议使用 Python 3.10+ 运行（推荐 Python 3.13+）；Python 2.7 已停止维护。**
 - 感谢AI时代，允许我以极低的成本解决该项目的基础维护问题，尽管该项目的理念相对于现在并不先进，但是项目内核稳定依旧是不错的工具参考，我后续将会用codex以极低的成本快速迭代更新，大胆尝试更新功能，**尝试用ai时代的方法完成一个可能很好用的工具**。
 
 # Kunlun-Mirror
-[![GitHub (pre-)release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Cobra-W/releases)
-[![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/wufeifei/cobra/blob/master/LICENSE)
+-[![GitHub release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Kunlun-M/releases)
+-[![license](https://img.shields.io/github/license/LoRexxar/Kunlun-M.svg)](./LICENSE)
 ![](https://img.shields.io/badge/language-python3.13-orange.svg)
 
 ```
@@ -22,12 +22,15 @@ KunLun-M is a static code analysis system that automates the detecting vulnerabi
 Main Program
 
 positional arguments:
-  {init,config,scan,show,console}
+  {init,config,scan,show,search,console,plugin,web}
     init                Kunlun-M init before use.
     config              config for rule&tamper
     scan                scan target path
     show                show rule&tamper
+    search              search vendor/project info
     console             enter console mode
+    plugin              run plugin command
+    web                 start web dashboard
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -38,7 +41,7 @@ Usage:
   python kunlun.py scan -t tests/vulnerabilities -tp wordpress
   python kunlun.py scan -t tests/vulnerabilities -d -uc
 
-  python kunlun.py list rule -k php
+  python kunlun.py show rule -k php
 ```
 
 ## Introduction
@@ -165,7 +168,7 @@ python3 .\kunlun.py web -p 9999
 
 ![](docs/web.png)
 
-修改`KunLun-M/settings.py`中的api-token，通过?token={api_token}访问api获取数据
+修改 `Kunlun_M/settings.py` 中的 `API_TOKEN`，通过 `?apitoken=...` 访问 API 获取数据
 ```
 # api profile
 API_TOKEN = "secret_api_token"
@@ -173,14 +176,14 @@ API_TOKEN = "secret_api_token"
 
 Api List
 ```
-task/list                                       查看task列表
-task/<int:task_id>                              查看task详细信息
-task/<int:task_id>/result                       查看task扫描结果
-task/<int:task_id>/resultflow                   查看task扫描结果流
-task/<int:task_id>/newevilfunc                  查看task扫描后生成的新恶意函数
+/api/task/list                                       查看task列表
+/api/task/<int:task_id>                              查看task详细信息
+/api/task/<int:task_id>/result                       查看task扫描结果
+/api/task/<int:task_id>/resultflow                   查看task扫描结果流
+/api/task/<int:task_id>/newevilfunc                  查看task扫描后生成的新恶意函数
 
-rule/list                                       查看规则列表
-rule/<int:rule_id>                              查看规则细节
+/api/rule/list                                       查看规则列表
+/api/rule/<int:rule_id>                              查看规则细节
 ```
 
 ### console mode
@@ -239,6 +242,14 @@ KunLun-M (root) >
 python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ```
 
+如果插件识别到完整 php 反序列化链，会在目标目录自动生成 `.kunlunm_unserialize_poc/`，包含链路 JSON 摘要、`chain_XX.php`（一条链一个 PoC）以及批量执行脚本 `poc_all_chains.php`。
+生成的 `chain_XX.php` 会优先使用扫描递归过程保存的层级关系与属性信息来组装对象图；若信息不足，再回退到属性路径提取与兜底关系。
+同时会针对隐式魔术方法链（`__toString` / `__call` / `__wakeup` / `__invoke`）输出对应触发语法。
+
+```
+python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path} -o /tmp/unser_poc
+```
+
 ![](docs/phpunserchain.png)
 
 
@@ -254,9 +265,10 @@ python3 .\kunlun.py plugin entrance_finder -t {target_path} -l 3
 
 ## 开发文档
 
-开发文档还未更新.相应的文档内容仅供参考。
+文档索引与开发说明：
 
-[dev.md](./docs/dev.md)
+- [docs/README.md](./docs/README.md)
+- [docs/dev.md](./docs/dev.md)
 
 ### 规则插件开发
 
@@ -271,11 +283,11 @@ rules/{语言类型}/CVI_xxxx.py
 
 ### .kunlunmignore
 
-.kunlunmignore是新引入的用于黑名单扫描目录的功能。目前只支持*语法，可以用来匹配相应的目录以及文件类型。
+.kunlunmignore 用于忽略扫描路径。当前实现仅支持 `*` 通配（会被转换成正则的 `\\w+`），适合忽略类似 `vendor/*`、`node_modules/*` 这类目录或文件模式。
 
 相匹配到的文件不会被扫描。
 
-当然，可以通过-b来实现
+也可以使用 `scan -b` 指定黑名单路径列表（逗号分隔，例如 `-b vendor,node_modules`）。
 
 ## 404StarLink Project
 ![](https://github.com/knownsec/404StarLink-Project/raw/master/logo.png)

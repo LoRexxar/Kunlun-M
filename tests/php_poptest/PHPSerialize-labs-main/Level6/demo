@@ -1,0 +1,32 @@
+<?php
+
+/*
+--- HelloCTF - 反序列化靶场 关卡 6 : 序列化规则_权限修饰 --- 
+
+HINT：各有千秋~特别注意的权限修饰符x
+
+# -*- coding: utf-8 -*-
+# @Author: 探姬
+# @Date:   2024-07-01 20:30
+# @Repo:   github.com/ProbiusOfficial/PHPSerialize-labs
+# @email:  admin@hello-ctf.com
+# @link:   hello-ctf.com
+
+*/
+
+class protectedKEY{
+    protected $protected_key;
+
+    function get_key(){
+        return $this->protected_key;
+    }
+}
+
+class privateKEY{
+    private $private_key;
+
+    function get_key(){
+        return $this->private_key;
+    }
+
+}

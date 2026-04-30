@@ -1,0 +1,38 @@
+<?php
+
+/*
+--- HelloCTF - 反序列化靶场 关卡 2 : 类值的传递 --- 
+
+HINT：尝试将flag传递出来~
+
+# -*- coding: utf-8 -*-
+# @Author: 探姬
+# @Date:   2024-07-01 20:30
+# @Repo:   github.com/ProbiusOfficial/PHPSerialize-labs
+# @email:  admin@hello-ctf.com
+# @link:   hello-ctf.com
+
+*/
+
+error_reporting(0);
+
+ $flag_string = "HelloCTF{？？？？}";
+ 
+ class FLAG{
+        public $free_flag = "???";
+
+        function get_free_flag(){
+            echo $this->free_flag;
+        }
+    }
+$target = new FLAG();
+
+$code = $_POST['code'];
+
+if(isset($code)){
+       eval($code);
+       $target->get_free_flag();
+}
+else{
+    highlight_file('source');
+}

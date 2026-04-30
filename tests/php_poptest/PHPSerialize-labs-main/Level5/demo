@@ -1,0 +1,25 @@
+<?php
+
+/*
+--- HelloCTF - 反序列化靶场 关卡 5 : 序列化规则 --- 
+
+HINT：各有千秋~
+
+# -*- coding: utf-8 -*-
+# @Author: 探姬
+# @Date:   2024-07-01 20:30
+# @Repo:   github.com/ProbiusOfficial/PHPSerialize-labs
+# @email:  admin@hello-ctf.com
+# @link:   hello-ctf.com
+
+*/
+
+class a_class{
+    public $a_value = "HelloCTF";
+}
+$a_object = new a_class();
+$a_array = array(a=>"Hello",b=>"CTF");
+$a_string = "HelloCTF";
+$a_number = 678470;
+$a_boolean = true;
+$a_null = null;

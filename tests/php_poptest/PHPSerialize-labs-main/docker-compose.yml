@@ -1,0 +1,7 @@
+version: '2'
+services:
+  phpserialize-labs:
+    build: .
+    ports:
+      - "8080:80"
+    
