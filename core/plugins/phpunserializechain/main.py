@@ -193,6 +193,28 @@ class PhpUnSerChain(BasePluginClass):
 
         return False
 
+    def get___invoke(self, var_name, unserchain=[], define_param=(), deepth=0):
+        deepth += 1
+        define_param = (var_name, *define_param)
+        get_nodes = self.dataflow_db.objects.filter(node_type='newMethod', source_node__startswith='Method-__invoke')
+        logger.debug("[PhpUnSerChain] trigger __invoke('{}'). try to found it.".format(var_name))
+
+        for node in get_nodes:
+            logger.debug("[PhpUnSerChain] Found New __invoke{} in {}".format(node.sink_node, node.node_locate))
+
+            newunserchain = [node]
+            class_locate = node.node_locate
+            new_locate = node.node_locate + '.' + node.source_node
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate).order_by('node_sort', 'id')
+
+            status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param, deepth=deepth)
+
+            if status:
+                unserchain.extend(newunserchain)
+                return True
+
+        return False
+
     def get___set(self, var_name, var_value, unserchain=[], define_param=(), deepth=0):
         """
         获取所有内置__set方法
@@ -792,6 +814,7 @@ class PhpUnSerChain(BasePluginClass):
             return False
 
         deepth += 1
+        local_var_map = {}
 
         for node in nodes:
             node_locate = node.node_locate
@@ -951,6 +974,8 @@ class PhpUnSerChain(BasePluginClass):
                 node_right = sink_node
                 self.record_chain_properties_from_expression(node_left)
                 self.record_chain_properties_from_expression(node_right)
+                if isinstance(node_left, str) and node_left.startswith('Variable-$'):
+                    local_var_map[node_left] = node_right
 
                 if self.check_dynamic_class_var_exist(node_left, node):
                     # 可以触发_set
@@ -969,7 +994,50 @@ class PhpUnSerChain(BasePluginClass):
                     if self.follow_call_from_sink_node(node_right, unserchain=unserchain, define_param=define_param, deepth=deepth):
                         return True
 
-            elif node_type in ['FunctionCall', 'newMethodparams', 'MethodCall', 'NewClass']:
+            elif node_type == 'FunctionCall':
+                if source_node in ['include', 'include_once', 'require', 'require_once', 'eval']:
+                    self.record_chain_properties_from_expression(sink_node)
+                    if isinstance(sink_node, str) and '$this->' in sink_node:
+                        unserchain.append(node)
+
+                if source_node in ['echo', 'print']:
+                    self.record_chain_properties_from_expression(sink_node)
+                    prop_path = self.extract_first_property_path(sink_node)
+                    if prop_path:
+                        relation_snapshot = len(self.current_chain_relations)
+                        self.current_chain_relations.append({
+                            'from_class': class_locate.split('.')[-1] if class_locate else '',
+                            'to_method': 'Method-__toString',
+                            'source_node': source_node,
+                            'sink_node': sink_node,
+                            'property_path': [prop_path[0]],
+                            'deepth': deepth,
+                        })
+                        status = self.get___tostring(sink_node, unserchain=unserchain, define_param=define_param, deepth=deepth)
+                        if status:
+                            return True
+                        self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
+
+                if isinstance(source_node, str) and source_node.startswith('Variable-$'):
+                    target_expr = local_var_map.get(source_node, source_node)
+                    self.record_chain_properties_from_expression(target_expr)
+                    prop_path = self.extract_first_property_path(target_expr)
+                    if prop_path:
+                        relation_snapshot = len(self.current_chain_relations)
+                        self.current_chain_relations.append({
+                            'from_class': class_locate.split('.')[-1] if class_locate else '',
+                            'to_method': 'Method-__invoke',
+                            'source_node': source_node,
+                            'sink_node': sink_node,
+                            'property_path': [prop_path[0]],
+                            'deepth': deepth,
+                        })
+                        status = self.get___invoke(target_expr, unserchain=unserchain, define_param=define_param, deepth=deepth)
+                        if status:
+                            return True
+                        self.current_chain_relations = self.current_chain_relations[:relation_snapshot]
+
+            elif node_type in ['newMethodparams', 'MethodCall', 'NewClass']:
                 pass
 
             elif node_type in self.op_node:
@@ -1298,15 +1366,16 @@ function build_payload_chain_{chain_index:02d}() {{
         return relation_paths
 
     def build_trigger_code(self, trigger_method):
-        if trigger_method == '__toString':
+        m = (trigger_method or '').lower()
+        if m == '__tostring':
             return "// Trigger hint: (string)$root;"
-        if trigger_method == '__call':
+        if m == '__call':
             return "// Trigger hint: $root->undefinedMethod('PAYLOAD_CALL');"
-        if trigger_method == '__invoke':
+        if m == '__invoke':
             return "// Trigger hint: $root();"
-        if trigger_method == '__wakeup':
+        if m == '__wakeup':
             return "// Trigger hint: target-side unserialize() will invoke __wakeup automatically."
-        if trigger_method == '__sleep':
+        if m == '__sleep':
             return "// Trigger hint: target-side serialize() will invoke __sleep automatically."
         return "// Trigger hint: target-side unserialize() may invoke the magic method depending on lifecycle."
 
