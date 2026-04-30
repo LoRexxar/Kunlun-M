@@ -98,12 +98,13 @@ class PhpUnSerChain(BasePluginClass):
         """
         从反序列化可触发的魔术方法作为入口寻找链，而不是依赖显式 unserialize 调用点。
         """
-        unserialize_entry_methods = [
+        entry_methods = [
             '__destruct', '__wakeup', '__toString', '__invoke', '__get',
-            '__set', '__call', '__callStatic', '__isset', '__unset'
+            '__set', '__call', '__callStatic', '__isset', '__unset',
+            '__sleep',
         ]
 
-        for entry_method in unserialize_entry_methods:
+        for entry_method in entry_methods:
             method_prefix = 'Method-{}'.format(entry_method)
             method_nodes = self.dataflow_db.objects.filter(
                 node_type='newMethod',
@@ -458,6 +459,20 @@ class PhpUnSerChain(BasePluginClass):
                                 'call_user_func_array': [0],
                                 }
 
+        if node.node_type == 'FunctionCall' and node.source_node == 'return':
+            if 'Method-__sleep' in node.node_locate or 'Method-chance' in node.node_locate:
+                sink_value = self.deep_get_node_name(node.sink_node)
+                if isinstance(sink_value, str) and sink_value.startswith('Array-'):
+                    try:
+                        arraylist = ast.literal_eval(sink_value[5:])
+                    except Exception:
+                        arraylist = []
+                    for item in arraylist:
+                        if isinstance(item, str) and self.check_param_controllable(item, node):
+                            return True
+                elif isinstance(sink_value, str) and self.check_param_controllable(sink_value, node):
+                    return True
+
         if self.check_flag_sink(node):
             return True
 
@@ -514,6 +529,19 @@ class PhpUnSerChain(BasePluginClass):
             if flag_pattern.search(sink_node):
                 logger.debug("[PhpUnSerChain] Found CTF flag-like sink in {}: {}".format(node.source_node, sink_node))
                 return True
+
+        if node.node_type == 'FunctionCall' and node.source_node in ['include', 'require', 'include_once', 'require_once']:
+            sink_node = self.deep_get_node_name(node.sink_node)
+            if flag_pattern.search(sink_node):
+                logger.debug("[PhpUnSerChain] Found CTF flag-like sink in {}: {}".format(node.source_node, sink_node))
+                return True
+
+        if node.node_type == 'FunctionCall' and node.source_node == 'return':
+            if 'Method-__toString' in node.node_locate or 'Method-__invoke' in node.node_locate:
+                sink_node = self.deep_get_node_name(node.sink_node)
+                if flag_pattern.search(sink_node):
+                    logger.debug("[PhpUnSerChain] Found CTF flag-like sink in return: {}".format(sink_node))
+                    return True
 
         return False
 
@@ -640,6 +668,9 @@ class PhpUnSerChain(BasePluginClass):
 
         trace_stack.add(stack_key)
         parent_node_list = [param_name]
+
+        if any(sg in param_name for sg in ['$_GET', '$_POST', '$_REQUEST', '$_COOKIE', '$_FILES', '$_SERVER']):
+            return True
 
         if '->' in param_name:
             parent_node = self.deep_get_node_name(param_name.split('->')[0])
@@ -1219,6 +1250,8 @@ function build_payload_chain_{chain_index:02d}() {{
             return "// Trigger hint: $root();"
         if trigger_method == '__wakeup':
             return "// Trigger hint: target-side unserialize() will invoke __wakeup automatically."
+        if trigger_method == '__sleep':
+            return "// Trigger hint: target-side serialize() will invoke __sleep automatically."
         return "// Trigger hint: target-side unserialize() may invoke the magic method depending on lifecycle."
 
     def render_chain_php(self, chain, chain_index):
@@ -1227,14 +1260,45 @@ function build_payload_chain_{chain_index:02d}() {{
         entry_class = self.safe_php_identifier(chain['entry_class'])
         trigger_method = chain['trigger_magic_method']
 
+        chain_func, controllable_props = self.render_chain_function(chain, chain_index)
+
+        relation_paths = self.build_relation_paths_from_recursive(chain)
+        if not relation_paths:
+            relation_paths = self.build_recursive_relation_paths(chain)
+        expected_relations = max(len(classes) - 1, 0)
+        if expected_relations == 0:
+            relation_paths = []
+        else:
+            relation_paths = relation_paths[:expected_relations]
+            while len(relation_paths) < expected_relations:
+                relation_paths.append(['next'])
+
+        safe_props = []
+        for prop in controllable_props:
+            if isinstance(prop, str) and re.match(r'^[a-zA-Z_]\w*$', prop):
+                safe_props.append(prop)
+        safe_props = list(dict.fromkeys(safe_props))
+
+        relation_props = []
+        for path in relation_paths:
+            if not isinstance(path, list):
+                continue
+            for seg in path:
+                if isinstance(seg, str) and re.match(r'^[a-zA-Z_]\w*$', seg):
+                    relation_props.append(seg)
+        relation_props = list(dict.fromkeys(relation_props))
+
+        stub_props = list(dict.fromkeys(relation_props + safe_props))
+
         class_stub_lines = []
         for class_name in classes:
             safe_name = self.safe_php_identifier(class_name)
-            class_stub_lines.append("if (!class_exists('{0}')) {{ class {0} {{ public $next; }} }}".format(safe_name))
+            extra_props = " ".join(["public ${};".format(p) for p in stub_props])
+            if extra_props:
+                extra_props = " " + extra_props
+            class_stub_lines.append("if (!class_exists('{0}')) {{ class {0} {{{1} }} }}".format(safe_name, extra_props))
         if not class_stub_lines:
-            class_stub_lines = ["class UnknownClass { public $next; }"]
-
-        chain_func, controllable_props = self.render_chain_function(chain, chain_index)
+            class_stub_lines = ["class UnknownClass {}"]
 
         has_wakeup = 'true' if chain.get('has_wakeup') else 'false'
         return """<?php
