@@ -20,12 +20,15 @@ import xml.etree.cElementTree as eT
 import Kunlun_M.settings as settings
 
 from core.vuln_apis import get_vulns_from_source
+from core.vuln_apis import depsdev as depsdev_api
+from core.vuln_apis import ossindex as ossindex_api
+from core.vuln_apis import osv as osv_api
 
 from utils.log import logger
 from utils.file import check_filepath
 from utils.utils import compare_vendor, abstract_version
 
-from Kunlun_M.const import VENDOR_FILE_DICT, VENDOR_CVIID, vendor_source_match
+from Kunlun_M.const import VENDOR_FILE_DICT, VENDOR_ECOSYSTEM, VENDOR_CVIID, vendor_source_match
 
 from web.index.models import ProjectVendors, update_and_new_project_vendor, update_and_new_vendor_vuln
 from web.index.models import Project, VendorVulns, check_update_or_new_scanresult, get_resultflow_class
@@ -117,6 +120,18 @@ def get_vulns(language, vendor_name, vendor_version):
     return get_vulns_from_source(language, vendor_name, vendor_version)
 
 
+def normalize_vendor_version(vendor_version):
+    if vendor_version is None:
+        return None
+
+    v = str(vendor_version).strip()
+    if not v or v.lower() == "unknown":
+        return "unknown"
+
+    av = abstract_version(v)
+    return av.strip() if av else "unknown"
+
+
 def check_and_save_result(task_id, language, vendor_name, vendor_version):
     """
     检查并保存结果。
@@ -168,6 +183,10 @@ def get_and_save_vendor_vuls(task_id, vendor_name, vendor_version, language, ext
 
     if not settings.WITH_VENDOR and task_id:
         return False
+
+    vendor_version = normalize_vendor_version(vendor_version)
+    if not vendor_version or vendor_version == "unknown":
+        return []
 
     logger.info("[Vendor Vuls] Spider {} Vendor {} Version {} Vul.".format(language, vendor_name, vendor_version))
 
@@ -260,6 +279,7 @@ class Vendors:
         return result
 
     def check_vendor(self):
+        pending_scan = []
         for file in self.exist_file_list:
 
             try:
@@ -285,12 +305,12 @@ class Vendors:
                         vendor_version = vendor[-1].strip()
                         if len(vendor) < 2:
                             vendor_version = None
-                        ext = "php"
+                        ext = "python"
 
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, source=savefilepath, ext=ext)
 
-                        get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
+                        pending_scan.append((language, vendor_name, vendor_version, ext))
 
                 elif filename == 'composer.json':
                     vendors = json.loads(filecontent)
@@ -310,7 +330,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, source=savefilepath, ext=ext)
 
-                        get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
+                        pending_scan.append((language, vendor_name, vendor_version, ext))
 
                 elif filename == 'go.mod':
 
@@ -340,7 +360,7 @@ class Vendors:
                             update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                           language=language, source=savefilepath, ext=ext)
 
-                            get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language)
+                            pending_scan.append((language, vendor_name, vendor_version, ext))
 
                 elif filename == 'pom.xml':
                     reg = r'xmlns="([\w\.\\/:]+)"'
@@ -373,7 +393,7 @@ class Vendors:
                         project_version = list(parent)[2].text
 
                         # project version 格式检查
-                        var_reg = "\${([\w\.\_-]+)}"
+                        var_reg = r"\${([\w\.\_-]+)}"
                         if re.search(var_reg, project_version, re.I):
                             p2 = re.compile(var_reg)
                             matchs = p2.finditer(project_version)
@@ -425,7 +445,7 @@ class Vendors:
                         else:
                             version = default_version
 
-                        var_reg = "\${([\w\.\_-]+)}"
+                        var_reg = r"\${([\w\.\_-]+)}"
                         if re.search(var_reg, version, re.I):
                             p2 = re.compile(var_reg)
                             matchs = p2.finditer(version)
@@ -468,7 +488,7 @@ class Vendors:
                         update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                       language=language, source=savefilepath, ext=ext)
 
-                        get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
+                        pending_scan.append((language, vendor_name, vendor_version, ext))
 
                 elif filename == 'build.gradle':
                     is_plugin_block = False
@@ -502,7 +522,7 @@ class Vendors:
                                 update_and_new_project_vendor(self.project_id, name=vendor_name, version=vendor_version,
                                                               language=language, source=savefilepath, ext=ext)
 
-                                get_and_save_vendor_vuls(self.task_id, vendor_name, vendor_version, language, ext)
+                                pending_scan.append((language, vendor_name, vendor_version, ext))
                             continue
 
                 elif filename == "package.json":
@@ -511,27 +531,27 @@ class Vendors:
                     if not len(vendors):
                         continue
 
-                    node_version = "{} {}".format(vendors['name'], vendors['version'])
-                    dependencies = vendors["dependencies"]
-                    devDependencies = vendors["devDependencies"]
+                    node_version = "{} {}".format(vendors.get('name', ''), vendors.get('version', ''))
+                    dependencies = vendors.get("dependencies", {}) or {}
+                    devDependencies = vendors.get("devDependencies", {}) or {}
 
                     for dependency in dependencies:
                         vendor_version = dependencies[dependency].strip()
                         ext = "{}.{}".format(node_version, "dependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
-                                                      language=language, source=savefilepath)
+                                                      language=language, source=savefilepath, ext=ext)
 
-                        get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
+                        pending_scan.append((language, dependency, vendor_version, ext))
 
                     for dependency in devDependencies:
                         vendor_version = devDependencies[dependency].strip()
                         ext = "{}.{}".format(node_version, "devDependencies")
 
                         update_and_new_project_vendor(self.project_id, name=dependency, version=vendor_version,
-                                                      language=language, source=savefilepath)
+                                                      language=language, source=savefilepath, ext=ext)
 
-                        get_and_save_vendor_vuls(self.task_id, dependency, vendor_version, language, ext)
+                        pending_scan.append((language, dependency, vendor_version, ext))
 
                 else:
                     logger.warn("[Vendor] Vendor file {} not support".format(filename))
@@ -539,6 +559,101 @@ class Vendors:
             except:
                 logger.error("[Vendor] Error check for Vendor file {}.\nError: {}".format(file, traceback.format_exc()))
                 continue
+
+        if settings.WITH_VENDOR:
+            self.scan_vendor_vulns(pending_scan)
+
+    def scan_vendor_vulns(self, pending_scan):
+        if not settings.WITH_VENDOR and self.task_id:
+            return False
+
+        active_sources = set(getattr(settings, "ACTIVE_SCA_SYSTEM", []) or [])
+        seen = set()
+        normalized = []
+        for language, name, version, ext in pending_scan:
+            if not name or not language:
+                continue
+            v2 = normalize_vendor_version(version)
+            if not v2 or v2 == "unknown":
+                continue
+            key = (language, name, v2, ext)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(key)
+
+        by_language = {}
+        for language, name, version, ext in normalized:
+            by_language.setdefault(language, []).append((name, version, ext))
+
+        for language, items in by_language.items():
+            eco = VENDOR_ECOSYSTEM.get(language, {})
+
+            osv_results = {}
+            if "osv" in active_sources and "osv" in eco:
+                osv_items = [(name, version) for (name, version, _ext) in items]
+                try:
+                    osv_results = osv_api.query_osv_batch(eco["osv"], osv_items, timeout=8, chunk_size=100)
+                except Exception:
+                    osv_results = {}
+
+            remaining = []
+            for name, version, ext in items:
+                vulns = osv_results.get((name, version), [])
+                if vulns:
+                    _vendor = {"name": name, "version": version}
+                    for vuln in vulns:
+                        update_and_new_vendor_vuln(_vendor, vuln)
+                    check_and_save_result(self.task_id, language, name, version)
+                    continue
+                remaining.append((name, version, ext))
+
+            ossindex_results = {}
+            if remaining and "ossindex" in active_sources and "ossindex" in eco:
+                oss_items = [(name, version) for (name, version, _ext) in remaining]
+                try:
+                    ossindex_results = ossindex_api.get_vulns_from_ossindex_batch(
+                        eco["ossindex"], oss_items, timeout=8, chunk_size=100
+                    )
+                except Exception:
+                    ossindex_results = {}
+
+            remaining2 = []
+            for name, version, ext in remaining:
+                vulns = ossindex_results.get((name, version), [])
+                if vulns:
+                    _vendor = {"name": name, "version": version}
+                    for vuln in vulns:
+                        update_and_new_vendor_vuln(_vendor, vuln)
+                    check_and_save_result(self.task_id, language, name, version)
+                    continue
+                remaining2.append((name, version, ext))
+
+            remaining3 = list(remaining2)
+            if remaining2 and "depsdev" in active_sources and "depsdev" in eco:
+                remaining3 = []
+                for name, version, ext in remaining2:
+                    if ext == "gradle":
+                        continue
+                    try:
+                        vulns = depsdev_api.get_vulns_from_depsdev(eco["depsdev"], name, version)
+                    except Exception:
+                        vulns = []
+                    if vulns:
+                        _vendor = {"name": name, "version": version}
+                        for vuln in vulns:
+                            update_and_new_vendor_vuln(_vendor, vuln)
+                        check_and_save_result(self.task_id, language, name, version)
+                    else:
+                        remaining3.append((name, version, ext))
+
+            if remaining3 and "murphysec" in active_sources and "murphysec" in eco:
+                for name, version, ext in remaining3:
+                    if ext == "gradle":
+                        continue
+                    for vuln in get_vulns_from_source(language, name, version, sources=["murphysec"]):
+                        update_and_new_vendor_vuln({"name": name, "version": version}, vuln)
+                    check_and_save_result(self.task_id, language, name, version)
 
     @staticmethod
     def parse_xml(file_path):

@@ -84,12 +84,13 @@ class ProjectVendors(models.Model):
     hash = models.CharField(max_length=32)
 
     def save(self, *args, **kwargs):
-
-        self.hash = md5("{},{},{}".format(self.project_id, self.name, self.language))
+        source = self.source or ""
+        self.hash = md5("{},{},{},{}".format(self.project_id, self.name, self.language, source))
         super().save(*args, **kwargs)
 
 
 def update_and_new_project_vendor(project_id, name, version, language, source=None, ext=None):
+    source = source or ""
     hash = md5("{},{},{},{}".format(project_id, name, language, source))
     vendor = ProjectVendors.objects.filter(project_id=project_id, name=name, language=language).first()
 
@@ -97,10 +98,9 @@ def update_and_new_project_vendor(project_id, name, version, language, source=No
         # 兼容性处理，如果source未指定，先更新source进去
         if not vendor.source:
             vendor.version = version
-            vendor.source = source
+            vendor.source = source or None
             vendor.ext = ext
             vendor.version = version
-            vendor.hash = hash
 
             try:
                 vendor.save()
@@ -115,13 +115,17 @@ def update_and_new_project_vendor(project_id, name, version, language, source=No
             logger.debug("[Vendors] Component {} update to version {}".format(name, version))
 
             vendor.version = version
+            if source and not vendor.source:
+                vendor.source = source
+            if ext and not vendor.ext:
+                vendor.ext = ext
             try:
                 vendor.save()
             except IntegrityError:
                 logger.warn("[Model Save] vendor model not changed")
 
     else:
-        v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, ext=ext)
+        v = ProjectVendors(project_id=project_id, name=name, version=version, language=language, source=source or None, ext=ext)
         v.save()
 
     return True

@@ -211,7 +211,7 @@ REMOTE_URL = "http://152.136.99.52:8085/"
 REMOTE_URL_APITOKEN = "2C87CruXwEWgTpbIHP7tjy2Lq7YyD4rQ"
 
 # vendor vuln scan
-WITH_VENDOR = True
+WITH_VENDOR = False
 ACTIVE_SCA_SYSTEM = ['depsdev', 'ossindex']
 # ['depsdev', 'ossindex', 'murphysec']
 MURPHYSEC_TOKEN = ""
