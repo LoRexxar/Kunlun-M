@@ -68,6 +68,7 @@ python kunlun.py console
 ```bash
 python kunlun.py plugin <plugin_name> -h
 python kunlun.py plugin entrance_finder -t <target_path> -l 3
+python kunlun.py plugin php_unserialize_chain_tools -t <target_path>
 ```
 
 ### web
@@ -75,4 +76,3 @@ python kunlun.py plugin entrance_finder -t <target_path> -l 3
 ```bash
 python kunlun.py web -p 9999
 ```
-

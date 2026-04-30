@@ -12,6 +12,9 @@
 python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
 ```
 
+说明：
+- `-t` 建议传目录；若传入单个文件路径，会自动使用其所在目录作为扫描目标与默认输出目录。
+
 如果发现完整反序列化链，插件会自动生成：
 
 - `php_unserialize_chain_summary.json`：完整链路信息（类、方法、节点）
@@ -33,3 +36,6 @@ python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path} -o /tmp/
 ## tests
 
 ![](../../../docs/phpunserchain.png)
+
+## 文档
+- ../../../docs/php_unserialize_chain_tools.md

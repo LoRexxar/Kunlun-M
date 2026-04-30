@@ -14,7 +14,7 @@ import traceback
 
 from core.pretreatment import ast_object
 
-from utils.file import Directory
+from utils.file import Directory, load_kunlunmignore
 from utils.utils import ParseArgs
 from utils.log import logger, logger_console
 
@@ -45,8 +45,8 @@ class DataflowGenerate:
                             'Default']
 
         self.import_node = ['UseDeclarations', 'UseDeclaration', 'ClassVariables', 'ClassVariable',
-                            'StaticVariable', 'MagicConstant', 'Constant', 'LexicalVariable'
-                                                                           'ClassConstants', 'ClassConstant',
+                            'StaticVariable', 'MagicConstant', 'Constant', 'LexicalVariable',
+                            'ClassConstants', 'ClassConstant',
                             'ConstantDeclarations', 'ConstantDeclaration', 'TraitUse']
 
         self.variable_type_node = ['Global', 'Static', 'Cast']
@@ -67,7 +67,7 @@ class DataflowGenerate:
 
         self.target = target
 
-        targetlist = re.split("[\\\/]", target)
+        targetlist = re.split(r"[\\/]", target)
         if target.endswith("/") or target.endswith("\\"):
             filename = targetlist[-2]
         else:
@@ -87,6 +87,7 @@ class DataflowGenerate:
         return self.dataflow_db
 
     def new_dataflow(self):
+        load_kunlunmignore()
         # 加载目录文件
         pa = ParseArgs(self.target, '', 'csv', '', 'php', '', a_sid=None)
         target_mode = pa.target_mode

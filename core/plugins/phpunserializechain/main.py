@@ -47,6 +47,9 @@ class PhpUnSerChain(BasePluginClass):
         # 赋值
         self.eval_args()
 
+        if os.path.isfile(self.target):
+            self.target = os.path.dirname(os.path.abspath(self.target))
+
         # 常量类型定义
         self.Object_define = ['Class', 'Function', 'Method', 'Trait']
         self.new_object_define = ['New', 'Array']
@@ -61,8 +64,8 @@ class PhpUnSerChain(BasePluginClass):
                             'Default']
 
         self.import_node = ['UseDeclarations', 'UseDeclaration', 'ClassVariables', 'ClassVariable',
-                            'StaticVariable', 'MagicConstant', 'Constant', 'LexicalVariable'
-                                                                           'ClassConstants', 'ClassConstant',
+                            'StaticVariable', 'MagicConstant', 'Constant', 'LexicalVariable',
+                            'ClassConstants', 'ClassConstant',
                             'ConstantDeclarations', 'ConstantDeclaration', 'TraitUse']
 
         self.variable_type_node = ['Global', 'Static', 'Cast']
@@ -112,7 +115,7 @@ class PhpUnSerChain(BasePluginClass):
                 class_locate = node.node_locate
 
                 new_locate = node.node_locate + '.' + node.source_node
-                method_body_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+                method_body_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate).order_by('node_sort', 'id')
 
                 logger.info("[PhpUnSerChain] New Chain Start in {} in {}".format(method_prefix, node.node_locate))
                 self.current_chain_relations = []
@@ -239,7 +242,7 @@ class PhpUnSerChain(BasePluginClass):
 
             new_locate = node.node_locate + '.' + node.source_node
 
-            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate).order_by('node_sort', 'id')
 
             status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param, deepth=deepth)
 
@@ -269,7 +272,7 @@ class PhpUnSerChain(BasePluginClass):
 
             new_locate = node.node_locate + '.' + node.source_node
 
-            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate).order_by('node_sort', 'id')
 
             status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param, deepth=deepth)
 
@@ -307,7 +310,7 @@ class PhpUnSerChain(BasePluginClass):
 
             new_locate = node.node_locate + '.' + node.source_node
 
-            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate).order_by('node_sort', 'id')
 
             status = self.deep_search_chain(method_nodes, class_locate, newunserchain, define_param=define_param,
                                             deepth=deepth)
@@ -354,7 +357,7 @@ class PhpUnSerChain(BasePluginClass):
 
             new_locate = node.node_locate + '.' + node.source_node
 
-            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate)
+            method_nodes = self.dataflow_db.objects.filter(node_locate__startswith=new_locate).order_by('node_sort', 'id')
             params_count = self.dataflow_db.objects.filter(node_locate__startswith=new_locate, node_type='newMethodparams')
 
             if params_count != len(define_param):
@@ -379,8 +382,21 @@ class PhpUnSerChain(BasePluginClass):
         elif node_name.startswith('Array-'):
             result = ast.literal_eval(node_name[5:])
 
-        elif node_name[0] == '(' and node_name[0] == ')':
-            result = list(ast.literal_eval(result))
+        elif node_name and node_name[0] == '(' and node_name[-1] == ')':
+            try:
+                result = list(ast.literal_eval(node_name))
+            except Exception:
+                inner = node_name[1:-1].strip()
+                if inner:
+                    result = [p.strip() for p in inner.split(',') if p.strip()]
+                else:
+                    result = []
+
+        elif node_name and node_name[0] == '[' and node_name[-1] == ']':
+            try:
+                result = list(ast.literal_eval(node_name))
+            except Exception:
+                result = []
 
         return result
 
@@ -831,7 +847,7 @@ class PhpUnSerChain(BasePluginClass):
                 if nm:
                     new_method_locate = class_locate + '.' + new_source_node
 
-                    nmnodes = self.dataflow_db.objects.filter(node_locate__startswith=new_method_locate, node_sort__gte=1)
+                    nmnodes = self.dataflow_db.objects.filter(node_locate__startswith=new_method_locate, node_sort__gte=1).order_by('node_sort', 'id')
 
                     if nmnodes:
                         # 递归进去子方法
@@ -860,7 +876,7 @@ class PhpUnSerChain(BasePluginClass):
                         new_unserchain = [node]
 
                         nmnodes = self.dataflow_db.objects.filter(node_locate__startswith=new_method_locate,
-                                                                  node_sort__gte=1)
+                                                                  node_sort__gte=1).order_by('node_sort', 'id')
 
                         if nmnodes:
                             # 递归进去子方法
@@ -1091,6 +1107,14 @@ class PhpUnSerChain(BasePluginClass):
         relation_paths = self.build_relation_paths_from_recursive(chain)
         if not relation_paths:
             relation_paths = self.build_recursive_relation_paths(chain)
+        expected_relations = max(len(classes) - 1, 0)
+        if expected_relations == 0:
+            relation_paths = []
+        else:
+            relation_paths = relation_paths[:expected_relations]
+            while len(relation_paths) < expected_relations:
+                relation_paths.append(['next'])
+            relation_paths = [path if isinstance(path, list) and len(path) > 0 else ['next'] for path in relation_paths]
         object_init_lines = [
             "    $chainObjects[{0}] = new {1}();".format(idx, self.safe_php_identifier(cname))
             for idx, cname in enumerate(classes)
@@ -1179,14 +1203,14 @@ function build_payload_chain_{chain_index:02d}() {{
 
     def build_trigger_code(self, trigger_method):
         if trigger_method == '__toString':
-            return "$trigger_result = (string)$root;"
+            return "// Trigger hint: (string)$root;"
         if trigger_method == '__call':
-            return "$root->undefinedMethod('PAYLOAD_CALL');"
+            return "// Trigger hint: $root->undefinedMethod('PAYLOAD_CALL');"
         if trigger_method == '__invoke':
-            return "$root();"
+            return "// Trigger hint: $root();"
         if trigger_method == '__wakeup':
-            return "$trigger_payload = serialize($root);\\n    @unserialize($trigger_payload);"
-        return "// __destruct/default: trigger occurs when object lifecycle ends."
+            return "// Trigger hint: target-side unserialize() will invoke __wakeup automatically."
+        return "// Trigger hint: target-side unserialize() may invoke the magic method depending on lifecycle."
 
     def render_chain_php(self, chain, chain_index):
         classes = chain['class_sequence']

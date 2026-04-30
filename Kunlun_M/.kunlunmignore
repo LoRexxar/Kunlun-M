@@ -6,4 +6,7 @@
 /.idea/
 /static/
 
+# phpunserializechain output
+.kunlunm_unserialize_poc
+
 # !/tests/

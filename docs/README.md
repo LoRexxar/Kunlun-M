@@ -13,5 +13,5 @@
 - [configuration.md](./configuration.md)：settings 关键配置与运行方式
 - [rules.md](./rules.md)：规则开发与调试要点
 - [tamper.md](./tamper.md)：tamper 机制说明与使用方式
+- [php_unserialize_chain_tools.md](./php_unserialize_chain_tools.md)：反序列化链挖掘与 PoC 生成逻辑复盘
 - [changelog.md](./changelog.md)：更新日志
-
