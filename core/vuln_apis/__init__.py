@@ -6,12 +6,17 @@ from Kunlun_M.const import VENDOR_ECOSYSTEM
 from Kunlun_M.settings import ACTIVE_SCA_SYSTEM
 
 
-def get_vulns_from_source(language, vendor_name, vendor_version):
+def get_vulns_from_source(language, vendor_name, vendor_version, sources=None):
     result = []
 
-    sources = VENDOR_ECOSYSTEM.get(language, {})
-    for source in sources.keys():
-        ecosystem = sources[source]
+    eco_sources = VENDOR_ECOSYSTEM.get(language, {})
+    if sources:
+        selected_sources = [s for s in sources if s in eco_sources]
+    else:
+        selected_sources = list(eco_sources.keys())
+
+    for source in selected_sources:
+        ecosystem = eco_sources[source]
 
         if source not in ACTIVE_SCA_SYSTEM:
             continue

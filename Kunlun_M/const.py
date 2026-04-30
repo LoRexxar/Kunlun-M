@@ -86,11 +86,11 @@ VENDOR_FILE_DICT = {
 }
 
 VENDOR_ECOSYSTEM = {
-    "java":    {"depsdev": "maven", "murphysec": "java"},
-    'golang': {"depsdev": "go", "murphysec": "golang"},
-    'python': {"ossindex": "pypi", "murphysec": "python"},
-    'php': {"ossindex": "composer", "murphysec": "php"},
-    'nodejs': {"depsdev": "npm", "murphysec": "js"},
+    "java": {"osv": "Maven", "depsdev": "maven", "murphysec": "java"},
+    "golang": {"osv": "Go", "depsdev": "go", "murphysec": "golang"},
+    "python": {"osv": "PyPI", "ossindex": "pypi", "murphysec": "python"},
+    "php": {"osv": "Packagist", "ossindex": "composer", "murphysec": "php"},
+    "nodejs": {"osv": "npm", "depsdev": "npm", "murphysec": "js"},
 }
 
 VENDOR_VUL_LEVEL = ['None', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'high']

@@ -137,5 +137,8 @@ task_plan.md
 findings.md
 progress.md
 
+# Trae workspace
+.trae/
+
 # php tools
 */.kunlunm_unserialize_poc/*

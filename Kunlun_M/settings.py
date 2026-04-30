@@ -204,8 +204,8 @@ REMOTE_URL = "http://127.0.0.1:9999"
 REMOTE_URL_APITOKEN = "secret_api_token_in_server"
 
 # vendor vuln scan
-WITH_VENDOR = True
-ACTIVE_SCA_SYSTEM = ['depsdev', 'ossindex']
+WITH_VENDOR = False
+ACTIVE_SCA_SYSTEM = ['osv', 'depsdev', 'ossindex']
 # ['depsdev', 'ossindex', 'murphysec']
 MURPHYSEC_TOKEN = ""
 
