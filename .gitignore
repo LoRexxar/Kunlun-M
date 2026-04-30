@@ -131,3 +131,8 @@ web/dashboard/migrations/*_auto_*.py
 # dockerfile
 Dockerfile
 !Kunlun_M/settings.py
+
+# planning-with-files-zh
+task_plan.md
+findings.md
+progress.md

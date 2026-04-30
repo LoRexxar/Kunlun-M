@@ -1,4 +1,66 @@
-# Cobra-W开发文档
+# Kunlun-M 开发文档
+
+本文档描述 Kunlun-M 当前代码库的开发与调试方式，并提供核心模块导航。
+
+- 项目架构概览：`docs/architecture.md`
+- CLI/Web 使用：`docs/cli.md`、`docs/web.md`
+- 配置说明：`docs/configuration.md`
+- 规则与 tamper：`docs/rules.md`、`docs/tamper.md`
+
+## 开发环境准备
+
+### 依赖安装
+```bash
+pip install -r requirements.txt
+```
+
+### 初始化（首次）
+```bash
+cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
+python kunlun.py init initialize
+python kunlun.py config load
+python kunlun.py config loadtamper
+```
+
+## 运行与调试
+
+### CLI
+```bash
+python kunlun.py scan -t tests/vulnerabilities -d
+```
+
+### Web
+```bash
+python kunlun.py web -p 9999
+```
+
+### Console
+```bash
+python kunlun.py console
+```
+
+## 核心入口与调用链
+
+- 入口脚本：`kunlun.py`（初始化 Django 环境后转入 `core.main()`）
+- 命令分发：`core/__init__.py`
+- 扫描编排：`core/cli.py`
+- 引擎执行：`core/engine.py`
+- 规则加载：`core/rule.py`（从 `rules/<language>/CVI_xxxx.py` 动态加载）
+- 语义分析：`core/core_engine/*`、`core/cast.py`、`core/pretreatment.py`
+- Web 模型：`web/index/models.py`
+
+## 本地修改与验证建议
+
+- 修改规则后：执行 `python kunlun.py config load` 同步到数据库（用于 Web 展示与回滚）。
+- 扫描日志：Web 侧可通过 `/backend/tasklog/<task_id>`、`/backend/debuglog/<task_id>` 查看（支持 `token` 分享访问）。
+- API 调用：需要 `apitoken`（来自 `Kunlun_M/settings.py` 的 `API_TOKEN`），参数名是 `apitoken`。
+
+---
+
+<details>
+<summary>历史 Cobra-W 开发文档（已过期，仅供参考）</summary>
+
+## Cobra-W开发文档
 
 
 ## 开始
@@ -430,3 +492,5 @@ def is_repair(expr):
           is_re = True
     return is_re
 ```
+
+</details>
