@@ -229,7 +229,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 
 ### 3.3 统一边类型 (EdgeLabel)
 
-采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 6 种核心关系。
+采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 7 种核心关系。
 
 | 边标签 | 语义 | 方向 | 属性 |
 |---------|------|------|------|
@@ -239,6 +239,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 | **ast** | 语法树子节点关系 | parent → child | role: lhs/rhs/arg/callee/left/right/operand/value, arg_index: 实参序号 |
 | **dfg** | 数据流图，Data Flow Graph | source → target | type: forward_slice/same |
 | **crg** | 类关系图，Class Relationship Graph | source → target | type: extends/implements/trait/mixin |
+| **member** | 成员访问关系 | object → member | access_type: property/array_offset/static_property |
 
 #### 3.3.1 边属性详解
 
@@ -310,6 +311,23 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 - **属性**：
   - `type: str` — 关系类型：`extends`（继承）、`implements`（实现接口）、`trait`（使用 trait）、`mixin`（混入）
 
+**member（成员访问关系）：**
+- **含义**：描述对象访问其成员属性/字段的关系（如 `$this->name`、`$arr['key']`、`self::$count`）
+- **方向**：object → member
+- **连接**：identifier → identifier
+- **示例连接**：
+  - (identifier:$this)-[:member]->(identifier:name) — 对象属性访问
+  - (identifier:$arr)-[:member]->(identifier:'key') — 数组下标访问
+  - (identifier:self)-[:member]->(identifier:$count) — 静态属性访问
+- 多层链式支持：`$this->db->query($input)` 自然表达为：
+  ```
+  (identifier:$this)-[:member]->(identifier:db)
+  (identifier:$this)-[:member]->(identifier:name)
+  (identifier:$this)-[:member]->(identifier:items)
+  ```
+- **属性**：
+  - `access_type: str` — 访问方式：`property`（对象属性 `$this->name`）、`array_offset`（数组下标 `$arr['key']`）、`static_property`（静态属性 `self::$count`）
+
 ### 3.4 图存储结构示意
 
 ```cypher
@@ -322,6 +340,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
   (operator:$cmd=$input)-[:ast {role:'rhs'}]->(identifier:$input {name:'$input', type:'variable', lineno:3})
 (function:test)-[:own]->(operator:system {type:'call', name:'system', index:1, lineno:4})
   (operator:system)-[:cg {call_type:'direct', lineno:4}]->(function:system {name:'system', type:'function'})
+  (identifier:$this)-[:member {access_type:'property'}]->(identifier:db)
   (operator:system)-[:ast {role:'arg', arg_index:0}]->(identifier:$cmd {name:'$cmd', lineno:4})
 ```
 
@@ -703,25 +722,24 @@ class AstGraphIO:
 
 ### 5.3 SQLite 索引层
 
-在现有 Django DB 中新增两张表，用于**不加载图时的快速查询**：
+在现有 Django DB 中新增两张表，用于**不加载图时的快速查询**。仅存储 5 种高频查询的核心节点，其余节点需要时从 igraph 图中遍历获取。
 
 ```python
 # 新增模型 (web/index/models.py)
 
 class AstNodeIndex(models.Model):
-    """AST 节点快速索引 — 轻量级，不含图结构"""
+    """AST 核心节点快速索引 — 仅存储高频查询的 5 种节点类型"""
     file_path = models.CharField(max_length=500)
-    node_label = models.CharField(max_length=50)    # Function, Class, Variable...
+    node_label = models.CharField(max_length=50)    # file / class / function / operator / import
     node_name = models.CharField(max_length=200, null=True)
     lineno = models.IntegerField()
     language = models.CharField(max_length=20)
-    fqn = models.CharField(max_length=500, null=True)  # Function.fqn
+    extra = models.JSONField(null=True)  # 各节点类型特有属性的 JSON，如 function 的 fullname/signature，class 的 inherits_from
 
     class Meta:
         indexes = [
             models.Index(fields=['file_path', 'node_label']),
             models.Index(fields=['node_label', 'node_name']),
-            models.Index(fields=['fqn']),
         ]
 
 
@@ -733,20 +751,36 @@ class FileHash(models.Model):
     scan_time = models.DateTimeField(auto_now=True)
 ```
 
+**索引节点范围：**
+
+| 节点类型 | 建索引理由 |
+|---------|-----------|
+| **file** | 项目文件列表、增量更新依据 |
+| **class** | 类/接口定义查询 |
+| **function** | 函数定义查询（最高频） |
+| **operator** | sink 查询（所有漏洞模式的核心入口） |
+| **import** | 跨文件追踪入口 |
+
+**不建索引的节点**：branch、parameter、return、identifier、const、annotation、dependency — 数据量大但查询频率低，需要时从 igraph 图中遍历获取。
+
 **用途示例：**
 
 ```sql
 -- Web 列表页：不加载图就能查到某文件有哪些函数
+SELECT node_name, lineno, extra FROM ast_node_index
+WHERE file_path = '/app/routes.php' AND node_label = 'function';
+
+-- Sink 查询：某文件中所有函数调用操作符
 SELECT node_name, lineno FROM ast_node_index
-WHERE file_path = '/app/routes.php' AND node_label = 'Function';
+WHERE file_path = '/app/routes.php' AND node_label = 'operator';
 
 -- 增量更新：快速判断哪些文件变了
 SELECT file_path FROM file_hashes
-WHERE project_id = 1 AND content_hash != '<new_hash>';
+WHERE content_hash != '<new_hash>';
 
 -- 全局搜索：某函数在哪些文件中定义
 SELECT DISTINCT file_path, lineno FROM ast_node_index
-WHERE node_name = 'run' AND node_label = 'Function';
+WHERE node_name = 'run' AND node_label = 'function';
 ```
 
 ## 6. 图分析层设计
