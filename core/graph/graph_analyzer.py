@@ -381,7 +381,13 @@ class GraphAnalyzer:
                     branch_chain = self.get_branch_chain(up_vid)
                     if branch_chain:
                         innermost_branch = branch_chain[-1]
-                        if self.check_branch_constraint(innermost_branch, uname):
+                        btype = _vattr(self.graph.vs[innermost_branch],
+                                       "type", "").lower()
+                        # Ternary: iffalse 分支不受 condition 约束
+                        if btype == "ternary" and self._is_in_ternary_iffalse(
+                                up_vid, innermost_branch):
+                            pass  # 不阻断，继续 BFS
+                        elif self.check_branch_constraint(innermost_branch, uname):
                             return self._cached(cache_key, AnalysisResult(
                                 code=-1,
                                 reason=f"branch constraint on '{uname}' in "
@@ -765,6 +771,36 @@ class GraphAnalyzer:
 
     # -- Branch constraint checking --------------------------------------------
 
+    def _is_in_ternary_iffalse(self, vid: int, ternary_vid: int) -> bool:
+        """检查 vid 是否在 ternary branch 的 iffalse 分支下。
+
+        从 ternary 的 iffalse 子节点向下 BFS（沿所有边类型），
+        如果能到达 vid 则认为 vid 在 iffalse 分支内。
+        """
+        # 找到 ternary 的 iffalse 子节点
+        iffalse_vids = set()
+        for e in self.graph.es.select(
+            _source=ternary_vid, label="ast"
+        ):
+            if _vattr(e, "role", "") == "iffalse":
+                iffalse_vids.add(e.target)
+
+        if not iffalse_vids:
+            return False
+
+        # BFS 沿所有边（正向）向下
+        visited = set(iffalse_vids)
+        queue = list(iffalse_vids)
+        while queue:
+            cur = queue.pop(0)
+            if cur == vid:
+                return True
+            for e in self.graph.es.select(_source=cur):
+                if e.target not in visited:
+                    visited.add(e.target)
+                    queue.append(e.target)
+        return False
+
     def _get_condition_root(self, branch_vid: int) -> int | None:
         """Get the condition expression root node vid from a branch."""
         for e in self.graph.es.select(_source=branch_vid, label="ast"):
@@ -846,6 +882,32 @@ class GraphAnalyzer:
                         arg_name = _vattr(self.graph.vs[e.target], "name", "")
                         if arg_name == var_name:
                             return True
+
+            # preg_match: anchored regex without dot wildcard → safe
+            if name == "preg_match":
+                args = []
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(e, "role", "") == "arg":
+                        args.append(e.target)
+                # args[0] = pattern, args[1] = subject
+                if len(args) >= 2:
+                    subject_name = _vattr(self.graph.vs[args[1]], "name", "")
+                    if subject_name == var_name:
+                        # 检查正则模式是否锚定
+                        pat_label = _vattr(self.graph.vs[args[0]], "label", "")
+                        pat_name = _vattr(self.graph.vs[args[0]], "name", "")
+                        if pat_label == NodeLabel.CONST.value and pat_name:
+                            # 去掉 repr 的引号，提取 PHP 正则内容
+                            raw = pat_name.strip("'\"")
+                            # PHP regex: /pattern/flags → 提取 pattern
+                            if len(raw) >= 2 and raw[0] == '/' and raw[-1] == '/':
+                                pattern = raw[1:-1]
+                            else:
+                                pattern = raw
+                            # ^ 和 $ 锚定 → 严格匹配整个字符串 → 安全
+                            if pattern.startswith("^") and pattern.endswith("$"):
+                                return True
+
             return False
 
         # Identifier in case condition: switch case with fixed value

@@ -169,6 +169,26 @@ class DataFlowBuilder(BaseEdgeBuilder):
             ):
                 self._add_dfg_edge(rhs_vid, lhs_vid, DfgType.FORWARD_SLICE.value)
 
+            # TernaryOp (branch type): 两个分支的值分别 dfg 到 LHS
+            if rhs_label == NodeLabel.BRANCH.value:
+                rhs_type = _vattr(self.graph.vs[rhs_vid], "type", "").lower()
+                if rhs_type == "ternary":
+                    # iftrue 和 iffalse 分支的值节点 dfg 到 LHS
+                    for branch_child in self.graph.es.select(
+                        _source=rhs_vid, label=EdgeLabel.AST.value
+                    ):
+                        child_vid = branch_child.target
+                        child_label = _vattr(self.graph.vs[child_vid], "label", "")
+                        # iftrue/iffalse 的值节点（identifier/const/operator）
+                        if child_label in (
+                            NodeLabel.IDENTIFIER.value,
+                            NodeLabel.CONST.value,
+                            NodeLabel.OPERATOR.value,
+                        ):
+                            self._add_dfg_edge(
+                                child_vid, lhs_vid, DfgType.FORWARD_SLICE.value
+                            )
+
     # -- 分析步骤 2：参数传递 -------------------------------------------------
 
     def _analyze_parameter_passing(self) -> None:

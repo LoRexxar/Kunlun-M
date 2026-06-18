@@ -600,14 +600,27 @@ class Normalizer:
             if body:
                 self._walk_node(body, add_node, add_edge, ctx_stack, file_path, 0)
 
-        # TernaryOp: walk iftrue and iffalse
+        # TernaryOp: walk iftrue and iffalse, connect via ast[role=iftrue/iffalse]
         if node_type_name == "TernaryOp":
-            iftrue = getattr(node, "iftrue", None)
-            iffalse = getattr(node, "iffalse", None)
-            if iftrue:
-                self._walk_node(iftrue, add_node, add_edge, ctx_stack, file_path, 0)
-            if iffalse:
-                self._walk_node(iffalse, add_node, add_edge, ctx_stack, file_path, 0)
+            for branch_attr, role_name in [("iftrue", "iftrue"), ("iffalse", "iffalse")]:
+                branch_val = getattr(node, branch_attr, None)
+                if branch_val:
+                    # 先创建节点（获取 pos），再加 ast 边到 branch
+                    if isinstance(branch_val, (str, int, float)):
+                        val_pos = add_node({
+                            "label": NodeLabel.CONST.value,
+                            "name": repr(branch_val),
+                            "lineno": getattr(node, "lineno", 0),
+                            "language": self.language,
+                            "attrs": {"type": "literal"},
+                        })
+                    else:
+                        val_pos = self._walk_node(branch_val, add_node, add_edge, ctx_stack, file_path, 0)
+                    if val_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": val_pos,
+                            "attrs": {"role": role_name},
+                        })
 
         # Foreach: walk keyvar, valvar
         if node_type_name == "Foreach":
@@ -1041,6 +1054,11 @@ class Normalizer:
             for child in ast_node:
                 self._walk_node(child, add_node, add_edge, ctx_stack, file_path, depth)
             return None
+
+        # Python primitive types from phply (string/int literals in params etc.)
+        if isinstance(ast_node, (str, int, float, bool)):
+            return self._emit_const(add_node, name=repr(ast_node),
+                                    lineno=0, const_type=ConstType.STRING)
 
         node_type_name = type(ast_node).__name__
         lineno = getattr(ast_node, "lineno", 0)
