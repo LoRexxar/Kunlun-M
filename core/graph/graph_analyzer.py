@@ -67,7 +67,11 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "is_numeric", "is_int", "is_integer", "is_float", "is_double",
     "ctype_digit", "ctype_alnum", "ctype_alpha", "ctype_xdigit",
+    "ctype_lower", "ctype_upper", "ctype_graph", "ctype_print",
+    "ctype_punct", "ctype_space", "ctype_cntrl",
 })
+
+_SAFE_CONSTRAINT_OPS: frozenset[str] = frozenset({"==", "==="})
 
 _CALL_TYPES = {
     OperatorType.CALL.value,
@@ -194,6 +198,21 @@ class GraphAnalyzer:
 
         sv = self.graph.vs[start_vid]
         sname = _vattr(sv, "name", "")
+
+        # Pre-check: branch constraint on start node
+        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value and sname:
+            branch_chain = self.get_branch_chain(start_vid)
+            if branch_chain:
+                innermost_branch = branch_chain[-1]
+                if self.check_branch_constraint(innermost_branch, sname):
+                    return self._cached(cache_key, AnalysisResult(
+                        code=-1,
+                        reason=f"branch constraint on '{sname}' in "
+                               f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
+                               f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
+                        chain=[{"step": "branch_constraint", "vid": innermost_branch,
+                                "name": sname, "code": -1}],
+                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Quick checks on start node itself
         if self._is_source_variable(sname):
@@ -355,6 +374,23 @@ class GraphAnalyzer:
                                             dep_vid, context_vid, max_depth - depth)
                                         if dep_res.is_controllable:
                                             return self._cached(cache_key, dep_res)
+
+                # Rule 6: branch constraint — identifier inside a branch
+                # whose condition constrains this variable to a safe value
+                if ulabel == NodeLabel.IDENTIFIER.value and uname:
+                    branch_chain = self.get_branch_chain(up_vid)
+                    if branch_chain:
+                        innermost_branch = branch_chain[-1]
+                        if self.check_branch_constraint(innermost_branch, uname):
+                            return self._cached(cache_key, AnalysisResult(
+                                code=-1,
+                                reason=f"branch constraint on '{uname}' in "
+                                       f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
+                                       f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
+                                chain=[{"step": "branch_constraint", "vid": innermost_branch,
+                                        "name": uname, "code": -1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Continue BFS
                 if ulabel in (NodeLabel.IDENTIFIER.value,
@@ -672,15 +708,20 @@ class GraphAnalyzer:
                 cur = self._get_ast_parent(cur)
         return None
 
+    _NEGATED_BRANCH_TYPES = frozenset({"else", "default", "case"})
+
     def get_branch_chain(self, vid: int) -> list[int]:
         """从 vid 向上搜索，返回 vid 到最近的 function/file 之间
         经过的所有 branch 节点（按从内到外排序）。
 
-        例如：vid 在 branch(case) 内部，case 在 branch(switch) 内部，
-        switch 在 function 内部，返回 [case_branch_vid, switch_branch_vid]。
+        注意：else/default 分支不会继承其父 if/switch 的条件约束，
+        所以遇到 else/default 时停止向上收集（不包含父 if/switch）。
+
+        例如：vid 在 else 内部，返回 [else_branch_vid]（不含 if_branch）。
         """
         result: list[int] = []
         cur, seen = vid, set()
+        stop_at_parent = False
         for _ in range(30):
             if cur is None or cur in seen:
                 break
@@ -689,7 +730,11 @@ class GraphAnalyzer:
             if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
                 break
             if label == NodeLabel.BRANCH.value:
+                btype = _vattr(self.graph.vs[cur], "type", "").lower()
                 result.append(cur)
+                # else/default 不继承父 if/switch 的条件
+                if btype in self._NEGATED_BRANCH_TYPES:
+                    break
             own_inc = self.graph.es.select(_target=cur, label="own")
             if own_inc:
                 cur = own_inc[0].source
@@ -716,6 +761,120 @@ class GraphAnalyzer:
             if (isinstance(btype, str) and btype.lower() == wanted) or \
                (isinstance(rtype, str) and rtype.lower() == wanted):
                 return True
+        return False
+
+    # -- Branch constraint checking --------------------------------------------
+
+    def _get_condition_root(self, branch_vid: int) -> int | None:
+        """Get the condition expression root node vid from a branch."""
+        for e in self.graph.es.select(_source=branch_vid, label="ast"):
+            if _vattr(e, "role", "") == "condition":
+                return e.target
+        return None
+
+    def check_branch_constraint(self, branch_vid: int, var_name: str) -> bool:
+        """Check if the branch condition constrains var_name to a safe value.
+
+        Returns True if:
+        - $x == "fixed" (variable compared to constant with ==)
+        - $x == "a" || $x == "b" (enum via OR of ==)
+        - is_numeric($x) / ctype_digit($x) etc. (type validator)
+        - switch case with fixed condition value
+        """
+        cond_vid = self._get_condition_root(branch_vid)
+        if cond_vid is None:
+            return False
+        return self._check_condition_node(cond_vid, var_name, depth=0)
+
+    def _check_condition_node(self, cond_vid: int, var_name: str, depth: int = 0) -> bool:
+        """Recursively analyze a condition sub-tree node."""
+        if depth > 5:
+            return False
+
+        label = _vattr(self.graph.vs[cond_vid], "label", "")
+        name = _vattr(self.graph.vs[cond_vid], "name", "")
+        ntype = _vattr(self.graph.vs[cond_vid], "type", "")
+
+        # BinaryOp: ==, ===, !=, !==, ||, &&, <, >, etc.
+        if label == NodeLabel.OPERATOR.value and ntype == OperatorType.BINARY_OP.value:
+            if name in _SAFE_CONSTRAINT_OPS:
+                # == or === : one side must be var_name, other must be constant
+                left_vid, right_vid = None, None
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    role = _vattr(e, "role", "")
+                    if role == "left":
+                        left_vid = e.target
+                    elif role == "right":
+                        right_vid = e.target
+                if left_vid is None or right_vid is None:
+                    return False
+                # Check if either side references var_name
+                left_name = _vattr(self.graph.vs[left_vid], "name", "")
+                right_name = _vattr(self.graph.vs[right_vid], "name", "")
+                right_label = _vattr(self.graph.vs[right_vid], "label", "")
+                left_label = _vattr(self.graph.vs[left_vid], "label", "")
+
+                if left_name == var_name and right_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
+                    return True  # var == constant
+                if right_name == var_name and left_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
+                    return True  # constant == var
+                return False
+
+            elif name == "||":
+                # OR: both sides must constrain → enum pattern
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if not self._check_condition_node(e.target, var_name, depth + 1):
+                        return False
+                return True
+
+            elif name == "&&":
+                # AND: either side constrains → safe
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if self._check_condition_node(e.target, var_name, depth + 1):
+                        return True
+                return False
+
+            # !=, !==, <, >, <=, >= don't constrain to safe values
+            return False
+
+        # FunctionCall: type validator (is_numeric, ctype_digit, etc.)
+        if label == NodeLabel.OPERATOR.value and ntype == OperatorType.CALL.value:
+            if name in _TYPE_VALIDATION_FUNCS:
+                # Check if any arg references var_name
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(e, "role", "") == "arg":
+                        arg_name = _vattr(self.graph.vs[e.target], "name", "")
+                        if arg_name == var_name:
+                            return True
+            return False
+
+        # Identifier in case condition: switch case with fixed value
+        # e.g. switch($x) { case "ls": ... } — condition is "ls"
+        # The branch is case type, and condition is the matched value
+        branch_parent = self._get_ast_parent(cond_vid)
+        if branch_parent is not None:
+            parent_label = _vattr(self.graph.vs[branch_parent], "label", "")
+            parent_type = _vattr(self.graph.vs[branch_parent], "type", "")
+            if parent_label == NodeLabel.BRANCH.value and parent_type == "case":
+                # case condition is a fixed value — all variables inside
+                # this case branch are constrained to that value
+                # BUT we need to check if the switch variable is var_name
+                # The switch branch owns the case branch, and switch's condition
+                # references the variable
+                switch_vid = None
+                for e in self.graph.es.select(_target=branch_parent, label="own"):
+                    switch_vid = e.source
+                    break
+                if switch_vid is not None:
+                    switch_label = _vattr(self.graph.vs[switch_vid], "label", "")
+                    switch_type = _vattr(self.graph.vs[switch_vid], "type", "")
+                    if switch_label == NodeLabel.BRANCH.value and switch_type == "switch":
+                        switch_cond = self._get_condition_root(switch_vid)
+                        if switch_cond is not None:
+                            switch_var = _vattr(self.graph.vs[switch_cond], "name", "")
+                            if switch_var == var_name:
+                                return True
+
         return False
 
     def _find_own_children(self, parent_vid: int,

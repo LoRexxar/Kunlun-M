@@ -220,6 +220,7 @@ class AstRole(str, Enum):
     RIGHT = "right"
     OPERAND = "operand"
     VALUE = "value"
+    CONDITION = "condition"
 
 
 class DfgType(str, Enum):

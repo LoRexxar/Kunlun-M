@@ -507,6 +507,34 @@ class Normalizer:
             add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
                        "attrs": {"index": depth}})
 
+        # Walk condition expression into graph (ast[role=condition])
+        _COND_EXPR_NODES = {
+            "If", "ElseIf", "TernaryOp", "While", "DoWhile",
+            "Switch", "Case", "Match", "Foreach",
+        }
+        if node_type_name in _COND_EXPR_NODES:
+            expr = getattr(node, "expr", None)
+            if expr:
+                cond_pos = self._walk_node(expr, add_node, add_edge, ctx_stack, file_path, 0)
+                if cond_pos is not None:
+                    add_edge({
+                        "label": EdgeLabel.AST.value, "source": pos, "target": cond_pos,
+                        "attrs": {"role": AstRole.CONDITION.value},
+                    })
+                elif isinstance(expr, (str, int, float, bool)):
+                    # phply Case/Switch expr can be raw Python types
+                    cond_pos = add_node({
+                        "label": NodeLabel.CONST.value,
+                        "name": repr(expr),
+                        "lineno": getattr(node, "lineno", 0),
+                        "language": self.language,
+                        "attrs": {"type": "literal"},
+                    })
+                    add_edge({
+                        "label": EdgeLabel.AST.value, "source": pos, "target": cond_pos,
+                        "attrs": {"role": AstRole.CONDITION.value},
+                    })
+
         # Walk body children
         ctx_stack.append((pos, NodeLabel.BRANCH.value))
 
@@ -799,9 +827,31 @@ class Normalizer:
                 if l_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": l_pos,
                                "attrs": {"role": AstRole.LEFT.value}})
+                elif isinstance(left, (str, int, float, bool)):
+                    # phply string/number literals are raw Python types, not AST nodes
+                    l_pos = add_node({
+                        "label": NodeLabel.CONST.value,
+                        "name": repr(left),
+                        "lineno": getattr(node, "lineno", 0),
+                        "language": self.language,
+                        "attrs": {"type": "literal"},
+                    })
+                    add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": l_pos,
+                               "attrs": {"role": AstRole.LEFT.value}})
             if right:
                 r_pos = self._walk_node(right, add_node, add_edge, ctx_stack, file_path, 0)
                 if r_pos is not None:
+                    add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": r_pos,
+                               "attrs": {"role": AstRole.RIGHT.value}})
+                elif isinstance(right, (str, int, float, bool)):
+                    # phply string/number literals are raw Python types, not AST nodes
+                    r_pos = add_node({
+                        "label": NodeLabel.CONST.value,
+                        "name": repr(right),
+                        "lineno": getattr(node, "lineno", 0),
+                        "language": self.language,
+                        "attrs": {"type": "literal"},
+                    })
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": r_pos,
                                "attrs": {"role": AstRole.RIGHT.value}})
 
