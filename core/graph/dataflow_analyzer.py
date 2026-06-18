@@ -251,8 +251,8 @@ class DataFlowAnalyzer:
 
         规则：
         - 在同一函数/文件作用域下（通过 own 边的公共父节点）
-        - 收集所有 identifier 节点，按 name 分组
-        - 组内按 lineno 排序，创建 dfg(same) 边（低行号 → 高行号）
+        - 收集所有 identifier 节点（包括嵌套在 operator ast 子树中的）
+        - 按 name 分组，组内按 lineno 排序，创建 dfg(same) 边（低行号 → 高行号）
         """
         # 收集作用域 → identifier 映射
         # scope: (parent_vid, parent_label)
@@ -260,25 +260,19 @@ class DataFlowAnalyzer:
             lambda: defaultdict(list)
         )
 
-        # 遍历所有 own 边，建立 parent → child 的索引
-        own_edges = self._get_edges_by_label(EdgeLabel.OWN.value)
-
-        for eid in own_edges:
-            e = self.graph.es[eid]
-            parent_vid = e.source
-            child_vid = e.target
-            child_label = _vattr(self.graph.vs[child_vid], "label", "")
-
-            if child_label != NodeLabel.IDENTIFIER.value:
+        # 遍历所有 identifier 节点，确定其所属作用域
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
                 continue
-
-            child_name = _vattr(self.graph.vs[child_vid], "name", "")
-            if not child_name:
+            vname = _vattr(v, "name", "")
+            if not vname:
                 continue
-
-            parent_label = _vattr(self.graph.vs[parent_vid], "label", "")
-            scope_key = (parent_vid, parent_label)
-            scope_vars[scope_key][child_name].append(child_vid)
+            # 沿 own 边向上找到最近的 function/file 作用域
+            scope_vid = self._get_scope_parent(v.index)
+            if scope_vid is None:
+                continue
+            scope_label = _vattr(self.graph.vs[scope_vid], "label", "")
+            scope_vars[(scope_vid, scope_label)][vname].append(v.index)
 
         # 对每个作用域中同名的 identifier 组，按 lineno 排序后建边
         for scope_key, name_groups in scope_vars.items():
@@ -487,6 +481,35 @@ class DataFlowAnalyzer:
             if _vattr(e, "label") == label:
                 result.append(e.index)
         return result
+
+    def _get_scope_parent(self, vid: int) -> int | None:
+        """沿 own/ast 边向上找到最近的 function/file 作用域节点。
+
+        identifier 节点通常通过 ast 边挂在 operator 下，operator 再通过 own
+        边挂在 function/file 下，因此需要同时遍历 own 和 ast 两种边。
+
+        Args:
+            vid: 任意节点的索引。
+
+        Returns:
+            作用域节点的索引（function 或 file），或 None。
+        """
+        cur = vid
+        seen: set[int] = set()
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            label = _vattr(self.graph.vs[cur], "label", "")
+            if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                return cur
+            # 优先沿 own 边向上（operator → function/file）
+            inc_own = self.graph.es.select(_target=cur, label="own")
+            if inc_own:
+                cur = inc_own[0].source
+            else:
+                # 回退：沿 ast 边向上（identifier → operator）
+                inc_ast = self.graph.es.select(_target=cur, label="ast")
+                cur = inc_ast[0].source if inc_ast else None
+        return None
 
     def _get_callee_name(self, vid: int) -> str:
         """获取调用 operator 的被调用函数名。
