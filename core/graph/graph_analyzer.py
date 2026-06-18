@@ -1,6 +1,6 @@
 """Graph-based vulnerability backtracking analyzer.
 
-Operates on an already-built igraph AST graph (with ast/own/cg/dfg edges)
+Operates on an already-built igraph AST graph (with ast/own/use/cg/dfg edges)
 to perform taint analysis.  Graph-native replacement for the legacy
 ``_parameters_back_impl`` and ``function_back`` in php/parser.py.
 """
@@ -271,10 +271,10 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
                     callee = self._resolve_callee_name(up_vid)
 
-                    # 沿 cg 边找到 function 节点，读 taint_type
+                    # 沿 use 边找到 function 节点，读 taint_type
                     func_taint = ""
                     func_vid = None
-                    for ce in self.graph.es.select(_source=up_vid, label="cg"):
+                    for ce in self.graph.es.select(_source=up_vid, label="use"):
                         fv = self.graph.vs[ce.target]
                         if _vattr(fv, "label") == NodeLabel.FUNCTION.value:
                             func_vid = ce.target
@@ -660,8 +660,8 @@ class GraphAnalyzer:
             if _vattr(e, "role") == "callee":
                 t = self.graph.vs[e.target]
                 return _vattr(t, "name") or _vattr(t, "value")
-        # Fallback: cg edge target
-        for e in self.graph.es.select(_source=op_vid, label="cg"):
+        # Fallback: use edge target
+        for e in self.graph.es.select(_source=op_vid, label="use"):
             return _vattr(self.graph.vs[e.target], "name")
         # Last resort: operator's own name
         return _vattr(self.graph.vs[op_vid], "name")

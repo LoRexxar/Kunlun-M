@@ -67,9 +67,9 @@ class NodeLabel(str, Enum):
 class EdgeLabel(str, Enum):
     """Unified AST graph edge labels.
 
-    7 core relationship types: file dependency (frg), hierarchy containment
+    8 core relationship types: file dependency (frg), hierarchy containment
     (own), call graph (cg), AST child (ast), data flow (dfg), class
-    relationship (crg), member access (member).
+    relationship (crg), member access (member), reference/usage (use).
     """
 
     FRG = "frg"
@@ -79,6 +79,7 @@ class EdgeLabel(str, Enum):
     DFG = "dfg"
     CRG = "crg"
     MEMBER = "member"
+    USE = "use"
 
 
 # ---------------------------------------------------------------------------

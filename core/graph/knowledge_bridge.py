@@ -15,7 +15,7 @@ taint_passthrough 是 function 上的常驻属性，与 parameter 上的 passthr
     - 正向分析（function body 内）：读 parameter.taint_type="passthrough_arg"
 
 分析器遇到 call operator 时：
-    call → cg 边 → function(读 taint_type)
+    call → use 边 → function(读 taint_type)
       → source/safe: 直接判定
       → passthrough: 读 taint_passthrough → 映射 call 的 ast[role=arg] → 追踪实参
 

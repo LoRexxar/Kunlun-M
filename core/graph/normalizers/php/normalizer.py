@@ -5,7 +5,7 @@ representation used by the AST graph engine.  Each PHP file produces:
   - 1 file node
   - N class/function/import/dependency nodes (top-level declarations)
   - M operator/branch/return/identifier/const nodes (statement/expression level)
-  - edges: own, ast, cg, member, crg, frg
+  - edges: own, ast, use, member, crg, frg
 """
 
 from __future__ import annotations
@@ -631,7 +631,7 @@ class Normalizer:
             add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
                        "attrs": {"index": depth}})
 
-        # cg edge to function (if callee is a simple name)
+        # use edge to function (if callee is a simple name)
         if callee_name and isinstance(callee_name, str):
             # Create target function node (may be external)
             target_pos = add_node({
@@ -645,7 +645,7 @@ class Normalizer:
                     "is_external": True,
                 },
             })
-            add_edge({"label": EdgeLabel.CG.value, "source": pos, "target": target_pos,
+            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
                        "attrs": {
                            "call_type": call_type.value,
                            "lineno": lineno,

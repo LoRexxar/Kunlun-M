@@ -149,17 +149,17 @@ def build_ast_graph(
     # ── 数据流分析 ──
     edge_count_before = graph.ecount()
     try:
-        from core.graph.dataflow_analyzer import DataFlowAnalyzer
+        from core.graph.edge_builders import run_all
 
         # TODO: 从处理文件中自动检测语言
-        analyzer = DataFlowAnalyzer(graph)
-        dfg_added = analyzer.analyze(language="php")
+        results = run_all(graph, language="php")
+        total_added = sum(results.values())
         logger.info(
-            "[GraphPipeline] DFG 分析完成: 新增 %d 条 dfg 边（总边数: %d → %d）",
-            dfg_added, edge_count_before, graph.ecount(),
+            "[GraphPipeline] Edge builders 完成: %s（总边数: %d → %d）",
+            results, edge_count_before, graph.ecount(),
         )
     except Exception as e:
-        logger.warning("[GraphPipeline] DFG 分析失败，跳过: %s", e)
+        logger.warning("[GraphPipeline] Edge builders 失败，跳过: %s", e)
 
     logger.info(
         "[GraphPipeline] Build complete: %d processed, "
