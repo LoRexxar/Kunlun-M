@@ -304,31 +304,3 @@ class UnifiedEdge:
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<{self.label.value}: {self.source}->{self.target}>"
-
-
-# ---------------------------------------------------------------------------
-# igraph 1.0 属性访问封装
-#
-# igraph 1.0 的 Vertex/Edge 没有 dict 风格的 .get() 方法。
-# 所有模块统一使用 vattr() 访问属性，禁止直接 v["key"] 访问
-# 可能不存在的属性。
-# ---------------------------------------------------------------------------
-
-def vattr(vertex_or_edge, key: str, default=None):
-    """安全读取 igraph Vertex/Edge 属性，等价于 dict.get(key, default)。
-
-    Usage::
-
-        name = vattr(v, "name", "")
-        label = vattr(e, "label", "")
-
-    禁止直接使用 ``vertex_or_edge["key"]`` 访问可能不存在的属性。
-    """
-    try:
-        return vertex_or_edge[key]
-    except (KeyError, TypeError):
-        return default
-
-
-# 向后兼容别名
-_vattr = vattr

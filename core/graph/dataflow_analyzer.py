@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 
 from core.graph.node_edge_schema import (
     AstRole, CgCallType, CrgType, DfgType, EdgeLabel, NodeLabel, OperatorType,
-    _vattr,
 )
+from utils.igraph_compat import _vattr
 
 __all__ = ["DataFlowAnalyzer"]
 

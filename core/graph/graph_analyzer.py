@@ -16,8 +16,9 @@ from typing import Any, Optional
 import igraph as ig
 
 from core.graph.node_edge_schema import (
-    EdgeLabel, NodeLabel, OperatorType, _vattr,
+    EdgeLabel, NodeLabel, OperatorType,
 )
+from utils.igraph_compat import _vattr
 
 __all__ = ["GraphAnalyzer", "AnalysisResult"]
 logger = logging.getLogger(__name__)
