@@ -60,7 +60,7 @@ def main():
         t1 = time.time()
 
         # 核心命令列表，在 -h 中分组展示
-        CORE_COMMANDS = {'init', 'scan', 'console', 'web'}
+        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze'}
 
         class GroupedSubparsersFormatter(argparse.RawDescriptionHelpFormatter):
             """自定义 formatter：将 subparsers 拆分为 Core Commands 和 Other Commands 两组"""
@@ -193,6 +193,23 @@ def main():
                                                      usage=argparse.SUPPRESS, add_help=True)
         parser_group_console.set_defaults(console=True)
 
+        # analyze — secondary graph analysis
+        parser_group_analyze = subparsers.add_parser('analyze', help='secondary analysis on AST graph',
+                                                    description=__introduction__.format(detail='secondary analysis on AST graph'),
+                                                    formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                    usage=argparse.SUPPRESS, add_help=True)
+        parser_group_analyze.add_argument('-g', '--graph-dir', dest='graph_dir', required=True,
+                                           help='graph directory (.kunlun_graph)')
+        parser_group_analyze.add_argument('-d', '--db', dest='db_path', default=None,
+                                           help='SQLite DB path')
+        parser_group_analyze.add_argument('-l', '--language', dest='language', default='php',
+                                           help='source language')
+        parser_group_analyze.add_argument('query_type', nargs='?', default='overview',
+                                           help='query type: overview/file/function/trace/search')
+        parser_group_analyze.add_argument('query_arg', nargs='?', default=None,
+                                           help='argument for query (file path / function name / file:line)')
+        parser_group_analyze.set_defaults(analyze="analyze")
+
         # 加载插件参数列表以及帮助
 
         parser_group_plugin = subparsers.add_parser('plugin', help=plugins.PLUGIN_DESCS,
@@ -321,6 +338,55 @@ def main():
             else:
                 parser_group_show.print_help()
                 exit()
+
+        if hasattr(args, "analyze") and args.analyze == "analyze":
+            import json
+            from core.graph.session import AstGraphSession
+
+            try:
+                session = AstGraphSession(args.graph_dir, db_path=args.db_path, language=args.language)
+                session.load()
+
+                if args.query_type == "overview":
+                    result = session.query.overview()
+                elif args.query_type == "file":
+                    if not args.query_arg:
+                        logger.error("Usage: kunlun.py analyze -g <dir> file <path>")
+                        exit(1)
+                    result = session.query.get_file(args.query_arg)
+                elif args.query_type == "function":
+                    if not args.query_arg:
+                        logger.error("Usage: kunlun.py analyze -g <dir> function <name>")
+                        exit(1)
+                    result = session.query.get_function(args.query_arg)
+                elif args.query_type == "trace":
+                    if not args.query_arg:
+                        logger.error("Usage: kunlun.py analyze -g <dir> trace <file:line>")
+                        exit(1)
+                    parts = args.query_arg.rsplit(":", 1)
+                    if len(parts) != 2:
+                        logger.error("trace argument format: <file_path>:<line_number>")
+                        exit(1)
+                    result = session.query.trace(parts[0], int(parts[1]))
+                elif args.query_type == "search":
+                    if not args.query_arg:
+                        result = session.query.search()
+                    else:
+                        tokens = args.query_arg.split(":", 2)
+                        label = tokens[0] if len(tokens) > 0 else None
+                        name = tokens[1] if len(tokens) > 1 else None
+                        result = session.query.search(label=label, name=name)
+                else:
+                    logger.error("Unknown query type: %s", args.query_type)
+                    exit(1)
+
+                print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+            except FileNotFoundError as e:
+                logger.error(e)
+                exit(1)
+            except Exception as e:
+                logger.error("[ANALYZE] Error: %s", e)
+                exit(1)
 
         if hasattr(args, "console"):
             # 静默同步规则和 tamper
