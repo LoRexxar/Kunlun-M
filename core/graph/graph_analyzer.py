@@ -16,22 +16,11 @@ from typing import Any, Optional
 import igraph as ig
 
 from core.graph.node_edge_schema import (
-    EdgeLabel, NodeLabel, OperatorType,
+    EdgeLabel, NodeLabel, OperatorType, _vattr,
 )
 
 __all__ = ["GraphAnalyzer", "AnalysisResult"]
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# igraph 1.0 helper — Vertex / Edge lack dict-style .get()
-# ---------------------------------------------------------------------------
-
-def _vattr(vertex_or_edge, key: str, default=None):
-    """Safely read an igraph Vertex / Edge attribute (equiv to dict.get)."""
-    try:
-        return vertex_or_edge[key]
-    except (KeyError, TypeError):
-        return default
 
 # ---------------------------------------------------------------------------
 # Constants

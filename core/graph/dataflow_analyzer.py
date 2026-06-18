@@ -19,28 +19,11 @@ if TYPE_CHECKING:
     import igraph as ig
 
 from core.graph.node_edge_schema import (
-    NodeLabel,
-    EdgeLabel,
-    OperatorType,
-    AstRole,
-    DfgType,
+    AstRole, CgCallType, CrgType, DfgType, EdgeLabel, NodeLabel, OperatorType,
+    _vattr,
 )
 
 __all__ = ["DataFlowAnalyzer"]
-
-
-# ---------------------------------------------------------------------------
-# igraph 1.0 的 Vertex/Edge 没有 dict 风格的 .get() 方法，
-# 用这个辅助函数代替。
-# ---------------------------------------------------------------------------
-_MISSING = object()
-
-def _vattr(vertex_or_edge, key: str, default=None):
-    """安全读取 igraph Vertex/Edge 属性，等价于 dict.get(key, default)。"""
-    try:
-        return vertex_or_edge[key]
-    except KeyError:
-        return default
 
 
 # ---------------------------------------------------------------------------
