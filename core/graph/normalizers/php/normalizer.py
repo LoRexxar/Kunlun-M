@@ -828,7 +828,7 @@ class Normalizer:
                 if n_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": n_pos,
                                "attrs": {"role": AstRole.CALLEE.value}})
-            for idx, param in enumerate(params if hasattr(node, "params") else []):
+            for idx, param in enumerate(node.params if hasattr(node, "params") else []):
                 p_pos = self._walk_node(param, add_node, add_edge, ctx_stack, file_path, idx)
                 if p_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": p_pos,
