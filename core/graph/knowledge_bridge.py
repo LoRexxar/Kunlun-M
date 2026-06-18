@@ -2,16 +2,22 @@
 
 在 DFG 边生成之后、图分析之前，遍历所有 function 节点，
 查询知识库（TraceCache / SourceRegistry / 函数摘要），
-将污染传播行为标注为 function 节点属性：
+将污染传播行为标注为节点属性：
 
     - function 节点: taint_type = "source" | "safe" | "passthrough"
+    - function 节点: taint_passthrough = [0, 2, ...]  （passthrough 时，常驻属性）
     - parameter 节点 (function 的 own 子节点, passthrough 时):
       taint_type = "passthrough_arg"
 
+taint_passthrough 是 function 上的常驻属性，与 parameter 上的 passthrough_arg
+是同一份数据的两个视图：
+    - 反向分析（call → function）：直接读 function.taint_passthrough
+    - 正向分析（function body 内）：读 parameter.taint_type="passthrough_arg"
+
 分析器遇到 call operator 时：
     call → cg 边 → function(读 taint_type)
-                      → passthrough? → own 边 → parameter(读 passthrough_arg)
-                      → 形参 index → 映射到 call 的 ast[role=arg] → 追踪实参
+      → source/safe: 直接判定
+      → passthrough: 读 taint_passthrough → 映射 call 的 ast[role=arg] → 追踪实参
 
 核心原则：
 - 属性标在函数定义上，不标在调用点上
@@ -106,9 +112,8 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_c
 
     if passthrough:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        _mark_passthrough_params(graph, func_vid, passthrough)
-        # 外部函数没有 parameter 节点，passthrough 索引直接存在 function 上
         graph.vs[func_vid]["taint_passthrough"] = passthrough
+        _mark_passthrough_params(graph, func_vid, passthrough)
         return True
 
     # 有记录但 safe=False 且无 passthrough
@@ -163,8 +168,8 @@ def _enrich_from_summary(
 
     if passthrough_indices:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        _mark_passthrough_params(graph, func_vid, sorted(passthrough_indices))
         graph.vs[func_vid]["taint_passthrough"] = sorted(passthrough_indices)
+        _mark_passthrough_params(graph, func_vid, sorted(passthrough_indices))
         return True
 
     # 有摘要但无可透传来源

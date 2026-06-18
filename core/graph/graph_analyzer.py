@@ -299,24 +299,16 @@ class GraphAnalyzer:
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
-                    # 4c: passthrough — 两种来源：
-                    #     a) function 有 own → parameter(taint_type=passthrough_arg)
-                    #     b) 外部函数无 body：function.taint_passthrough = [0, 2, ...]
+                    # 4c: passthrough — 读 function.taint_passthrough 常驻属性
+                    #     function.taint_passthrough 与 parameter.taint_type="passthrough_arg"
+                    #     是同一数据的两个视图：反向分析走 function，正向分析走 parameter
                     #     形参 index → 映射到 call 的 ast[role=arg] → 追踪实参
                     if func_taint == "passthrough" and func_vid is not None:
-                        # 收集 passthrough 的形参 index
-                        pt_param_indices: set[int] = set()
-                        for oe in self.graph.es.select(_source=func_vid, label="own"):
-                            pv = self.graph.vs[oe.target]
-                            if _vattr(pv, "label") == NodeLabel.PARAMETER.value:
-                                if _vattr(pv, "taint_type") == "passthrough_arg":
-                                    pidx = _vattr(pv, "index")
-                                    if pidx is not None:
-                                        pt_param_indices.add(int(pidx))
-                        # 外部函数：读 taint_passthrough 属性
-                        if not pt_param_indices:
-                            tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
-                            pt_param_indices = set(int(i) for i in tp if isinstance(i, int))
+                        # 直接读 function 节点的常驻属性
+                        tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
+                        pt_param_indices: set[int] = set(
+                            int(i) for i in tp if isinstance(i, int)
+                        )
                         # 映射到 call 的实参
                         if pt_param_indices:
                             arg_counter = 0
