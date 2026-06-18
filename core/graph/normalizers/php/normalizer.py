@@ -858,13 +858,14 @@ class Normalizer:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": e_pos,
                                "attrs": {"role": AstRole.OPERAND.value}})
 
-        elif node_type_name in ("Echo", "Print"):
-            echo_nodes = getattr(node, "nodes", []) or []
-            for idx, en in enumerate(echo_nodes):
-                e_pos = self._walk_node(en, add_node, add_edge, ctx_stack, file_path, idx)
+        elif node_type_name == "Print":
+            # Print has a single child via `node`, not `nodes`
+            echo_expr = getattr(node, "node", None)
+            if echo_expr:
+                e_pos = self._walk_node(echo_expr, add_node, add_edge, ctx_stack, file_path, 0)
                 if e_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": e_pos,
-                               "attrs": {"role": AstRole.ARG.value, "arg_index": idx}})
+                              "attrs": {"role": AstRole.ARG.value, "arg_index": 0}})
 
         elif node_type_name in ("IsSet", "Empty"):
             check_nodes = getattr(node, "nodes", []) or []

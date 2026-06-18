@@ -74,6 +74,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             return 0
 
         # 依次执行各分析步骤
+        self._analyze_operator_flows()
         self._analyze_assignments()
         self._analyze_parameter_passing()
         self._analyze_return_values()
@@ -84,6 +85,44 @@ class DataFlowBuilder(BaseEdgeBuilder):
         self._apply_dfg_edges()
 
         return len(self._dfg_edges)
+
+    # -- 分析步骤 0：表达式操作符数据流 -----------------------------------------
+
+    def _analyze_operator_flows(self) -> None:
+        """#0: 表达式操作符 — 操作数 → 操作符的 dfg 边。
+
+        对 binary_op / unary_op / type_cast / cast 等运算操作符，
+        所有操作数（ast 子节点）都向操作符本身流出数据。
+        这样 parameters_back 遇到拼接表达式时能沿 dfg 回溯到操作数。
+
+        例: mysql_query("SELECT " . $id)
+            图上: $id → dfg → binary_op(.)  → dfg → mysql_query 的 arg
+            分析: arg=binop → dfg→ $id → dfg→ $_GET → source ✅
+        """
+        expr_types = {
+            OperatorType.BINARY_OP.value,
+            OperatorType.UNARY_OP.value,
+            OperatorType.TYPE_CAST.value,
+        }
+
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") not in expr_types:
+                continue
+
+            vid = v.index
+            # 获取所有 ast 子节点（操作数）
+            for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
+                child_vid = e.target
+                child_label = _vattr(self.graph.vs[child_vid], "label", "")
+                # 操作数可以是 identifier、const、operator、literal 等
+                if child_label in (
+                    NodeLabel.IDENTIFIER.value,
+                    NodeLabel.CONST.value,
+                    NodeLabel.OPERATOR.value,
+                ):
+                    self._add_dfg_edge(child_vid, vid, DfgType.FORWARD_SLICE.value)
 
     # -- 分析步骤 1：赋值传播 -------------------------------------------------
 
