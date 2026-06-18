@@ -948,13 +948,23 @@ class Normalizer:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": e_pos,
                               "attrs": {"role": AstRole.ARG.value, "arg_index": 0}})
 
-        elif node_type_name in ("IsSet", "Empty"):
+        elif node_type_name == "IsSet":
+            # IsSet.nodes is a list of variables
             check_nodes = getattr(node, "nodes", []) or []
             for idx, cn in enumerate(check_nodes):
                 c_pos = self._walk_node(cn, add_node, add_edge, ctx_stack, file_path, idx)
                 if c_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": c_pos,
-                               "attrs": {"role": AstRole.ARG.value, "arg_index": idx}})
+                              "attrs": {"role": AstRole.ARG.value, "arg_index": idx}})
+
+        elif node_type_name == "Empty":
+            # Empty.expr is a single variable (not a list)
+            expr = getattr(node, "expr", None)
+            if expr:
+                e_pos = self._walk_node(expr, add_node, add_edge, ctx_stack, file_path, 0)
+                if e_pos is not None:
+                    add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": e_pos,
+                              "attrs": {"role": AstRole.ARG.value, "arg_index": 0}})
 
         elif node_type_name == "ListAssignment":
             list_nodes = getattr(node, "nodes", []) or []
