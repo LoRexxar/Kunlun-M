@@ -637,6 +637,87 @@ class GraphAnalyzer:
             cur = inc[0].source if inc else None
         return None
 
+    def _get_ast_parent(self, vid: int) -> int | None:
+        """从 vid 沿 ast 边反向找直接父节点（ast[source=parent, target=vid]）。"""
+        inc = self.graph.es.select(_target=vid, label="ast")
+        return inc[0].source if inc else None
+
+    def get_enclosing_branch(self, vid: int) -> int | None:
+        """从 vid 向上搜索，返回包含该节点最近的 branch 节点 vid。
+
+        搜索逻辑：
+        1. 先沿 ast 反向走到 own 边的 target（顶层语句）
+        2. 再沿 own 反向找到最近的 branch
+        3. 如果中间遇到 branch/function/file，直接判定
+
+        own 边方向是 parent own→ child，反向查找即 _target=cur 的 own 边。
+        ast 边方向是 parent ast→ child，反向查找即 _target=cur 的 ast 边。
+        """
+        cur, seen = vid, set()
+        for _ in range(30):
+            if cur is None or cur in seen:
+                return None
+            seen.add(cur)
+            label = _vattr(self.graph.vs[cur], "label", "")
+            if label == NodeLabel.BRANCH.value:
+                return cur
+            if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                return None
+            # 先检查是否是 own target（顶层语句），沿 own 反向
+            own_inc = self.graph.es.select(_target=cur, label="own")
+            if own_inc:
+                cur = own_inc[0].source
+            else:
+                # 不在 own target 上，沿 ast 反向找父节点
+                cur = self._get_ast_parent(cur)
+        return None
+
+    def get_branch_chain(self, vid: int) -> list[int]:
+        """从 vid 向上搜索，返回 vid 到最近的 function/file 之间
+        经过的所有 branch 节点（按从内到外排序）。
+
+        例如：vid 在 branch(case) 内部，case 在 branch(switch) 内部，
+        switch 在 function 内部，返回 [case_branch_vid, switch_branch_vid]。
+        """
+        result: list[int] = []
+        cur, seen = vid, set()
+        for _ in range(30):
+            if cur is None or cur in seen:
+                break
+            seen.add(cur)
+            label = _vattr(self.graph.vs[cur], "label", "")
+            if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                break
+            if label == NodeLabel.BRANCH.value:
+                result.append(cur)
+            own_inc = self.graph.es.select(_target=cur, label="own")
+            if own_inc:
+                cur = own_inc[0].source
+            else:
+                cur = self._get_ast_parent(cur)
+        return result
+
+    def is_inside_branch(self, vid: int, branch_type: str | None = None) -> bool:
+        """判断 vid 是否在 branch 节点内部。
+
+        可选参数 ``branch_type`` 用于过滤特定类型的 branch，匹配逻辑为
+        大小写不敏感地比较 branch 节点 ``attrs.type``（如 "if"/"switch"）
+        或 ``attrs.raw_type``（如 "If"/"Switch"）。未指定则只要在任意 branch
+        内即返回 True。
+        """
+        chain = self.get_branch_chain(vid)
+        if not branch_type:
+            return bool(chain)
+        wanted = branch_type.lower()
+        for bvid in chain:
+            attrs = _vattr(self.graph.vs[bvid], "attrs", {}) or {}
+            btype = attrs.get("type") if isinstance(attrs, dict) else None
+            rtype = attrs.get("raw_type") if isinstance(attrs, dict) else None
+            if (isinstance(btype, str) and btype.lower() == wanted) or \
+               (isinstance(rtype, str) and rtype.lower() == wanted):
+                return True
+        return False
+
     def _find_own_children(self, parent_vid: int,
                            child_label: str | None = None,
                            index: int | None = None) -> list[int]:
