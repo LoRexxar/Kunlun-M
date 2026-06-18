@@ -20,6 +20,7 @@ from core.graph.node_edge_schema import (
     CrgType,
     MemberAccessType,
 )
+from core.graph.dataflow_analyzer import DataFlowAnalyzer
 from core.graph.graph_io import AstGraphIO
 from core.graph.graph_pipeline import build_ast_graph
 from core.graph.sqlite_index import AstNodeIndex, FileHash
@@ -29,5 +30,6 @@ __all__ = [
     "ClassType", "FunctionType", "OperatorType", "BranchType",
     "ImportType", "IdentifierType", "ConstType",
     "FrgType", "CgCallType", "AstRole", "DfgType", "CrgType", "MemberAccessType",
+    "DataFlowAnalyzer",
     "AstGraphIO", "build_ast_graph", "AstNodeIndex", "FileHash",
 ]

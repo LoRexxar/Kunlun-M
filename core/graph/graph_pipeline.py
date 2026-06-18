@@ -146,6 +146,21 @@ def build_ast_graph(
 
     graph = builder.build()
 
+    # ── 数据流分析 ──
+    edge_count_before = graph.ecount()
+    try:
+        from core.graph.dataflow_analyzer import DataFlowAnalyzer
+
+        # TODO: 从处理文件中自动检测语言
+        analyzer = DataFlowAnalyzer(graph)
+        dfg_added = analyzer.analyze(language="php")
+        logger.info(
+            "[GraphPipeline] DFG 分析完成: 新增 %d 条 dfg 边（总边数: %d → %d）",
+            dfg_added, edge_count_before, graph.ecount(),
+        )
+    except Exception as e:
+        logger.warning("[GraphPipeline] DFG 分析失败，跳过: %s", e)
+
     logger.info(
         "[GraphPipeline] Build complete: %d processed, "
         "%d no normalizer, %d empty AST, %d errors. "
