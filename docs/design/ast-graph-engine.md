@@ -80,14 +80,18 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
                                             ↓
                                     统一中间表示 (UnifiedASTNode)
                                             ↓
-                                    igraph 图构建
+                                    igraph 图构建 (frg/own/cg/ast/crg/member 边)
                                             ↓
                               ┌──────────────┴──────────────┐
                               ↓                              ↓
-                       GraphAnalyzer                 AstGraphIO.save()
-                       (图上回溯/判定)                 (.graphmlz 持久化)
-                              ↓                              ↓
-                       分析决策标记                     SQLite 索引更新
+                       DataFlowAnalyzer              AstGraphIO.save()
+                       (独立数据流分析,                  (.graphmlz 持久化)
+                        生成 dfg 边)                        ↓
+                              ↓                         SQLite 索引更新
+                       GraphAnalyzer
+                       (图上回溯/判定)
+                              ↓
+                       分析决策标记
                               ↓
                        漏洞结果 → ScanResultTask
 
@@ -238,7 +242,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 | **own** | 层次包含关系 | parent → child | index: 子节点序号 |
 | **cg** | 函数调用图，Call Graph | operator(function_call) → function | call_type: direct/static/method/dynamic, lineno: 调用行号 |
 | **ast** | 语法树子节点关系 | parent → child | role: lhs/rhs/arg/callee/left/right/operand/value, arg_index: 实参序号 |
-| **dfg** | 数据流图，Data Flow Graph | source → target | type: forward_slice/same |
+| **dfg** | 数据流图，Data Flow Graph（独立模块生成，非 AST 映射） | source → target | type: forward_slice/same |
 | **crg** | 类关系图，Class Relationship Graph | source → target | type: extends/implements/trait/mixin |
 | **member** | 成员访问关系 | object → member | access_type: property/array_offset/static_property |
 
@@ -296,9 +300,14 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
   - `arg_index: int` — 实参序号（仅 role=arg 时有效，从 0 开始）
 
 **dfg（数据流图，Data Flow Graph）：**
+
+> ⚠️ **独立模块**：dfg 边不属于 AST 映射阶段，而是由专门的数据流分析模块（`DataFlowAnalyzer`）在 AST 图构建完成后，基于 ast/own/member 边独立分析并添加到图上。详见第 6 节图分析层。
+
 - **含义**：描述变量/常量/全局变量之间的数据流关系
 - **方向**：source → target
-- **连接**：identifier/const/global → identifier/const/global
+- **连接**：identifier/const → identifier/const
+- **生成时机**：AST 图构建完成后，由 DataFlowAnalyzer 分析 operator(ast) 子节点的数据传播关系，动态添加 dfg 边
+- **生命周期**：dfg 边可按需生成（扫描时或二次分析时），不影响基础图结构；分析完成后可选择持久化到 .graphmlz 或丢弃
 - **示例连接**：
   - (identifier:$_GET['id'])-[:dfg]->(identifier:$id) — 用户输入传递给局部变量
   - (identifier:$cmd)-[:dfg]->(identifier:$cmd) — type=same，同变量的不同引用
