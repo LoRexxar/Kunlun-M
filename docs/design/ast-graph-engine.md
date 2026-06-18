@@ -183,7 +183,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 
 **operator（执行操作）节点属性：**
 - `name: str` — 操作名（函数调用时为被调用的函数名，如 `system`、`echo`；赋值时为赋值目标变量名；运算时为运算符）
-- `type: str` — 类型分类：`call`（函数/方法调用）、`static_call`（静态方法调用）、`method_call`（对象方法调用）、`assign`（赋值）、`aug_assign`（复合赋值如 +=）、`binary_op`（二元运算）、`unary_op`（一元运算）、`new`（对象实例化）、`type_cast`（类型转换）、`throw`（抛出异常）、`yield`（生成器 yield）、`await`（异步等待）
+- `type: str` — 类型分类：`call`（函数/方法调用）、`static_call`（静态方法调用）、`method_call`（对象方法调用）、`assign`（赋值）、`aug_assign`（复合赋值如 +=）、`binary_op`（二元运算）、`unary_op`（一元运算）、`new`（对象实例化）、`type_cast`（类型转换）、`throw`（抛出异常）、`yield`（生成器 yield）、`await`（异步等待）、`break`（跳出循环）、`continue`（跳过当前迭代）、`goto`（跳转，如 PHP goto）
 - `operator: str` — 操作符（仅运算类型有效，如 `+`, `-`, `.*`, `==`）
 - `callee: str` — 被调用函数名（仅 call/method_call/static_call 类型有效）
 - `index: int` — 操作在该作用域中的序号（按代码顺序）
