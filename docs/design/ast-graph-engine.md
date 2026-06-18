@@ -108,101 +108,221 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 
 ### 3.2 统一节点类型 (NodeLabel)
 
-| 统一标签 | 语义 | 映射来源 |
+采用"同类节点合并为一个标签，用 type 属性区分"的设计思路，将原本 26 种节点类型简化为 12 种核心标签。
+
+| 节点标签 | 语义 | 核心属性 |
 |---------|------|---------|
-| **File** | 源代码文件 | 新建，非 AST 节点 |
-| **Function** | 函数/方法定义 | PHP: Function/Method, JS: FunctionDeclaration/FunctionExpression, Java: MethodDeclaration/ConstructorDeclaration, Python: FunctionDef/AsyncFunctionDef, Go: function_declaration, C: function_definition |
-| **Class** | 类/结构体定义 | PHP: Class, JS: ClassDeclaration/ClassExpression, Java: ClassDeclaration, Python: ClassDef, Go: type_declaration(struct), C: structSpecifier |
-| **Interface** | 接口定义 | Java: InterfaceDeclaration, PHP: Interface (如有), Go: interface |
-| **Variable** | 变量/标识符 | PHP: Variable, JS: Identifier, Java: MemberReference/LocalVariableDeclaration, Python: Name, Go: identifier, C: identifier |
-| **Literal** | 字面量 | PHP: String/Number/Boolean/Constant, JS: Literal, Java: Literal, Python: Constant/Num/Str, Go: literal, C: number_literal/string_literal |
-| **FunctionCall** | 函数调用 | PHP: FunctionCall, JS: CallExpression, Java: MethodInvocation/MethodInvocation, Python: Call, Go: call_expression, C: call_expression |
-| **Assignment** | 赋值语句 | PHP: Assignment, JS: AssignmentExpression, Java: Assignment, Python: Assign/AugAssign, Go: assignment_statement, C: assignment_expression |
-| **Return** | 返回语句 | PHP: Return, JS: ReturnStatement, Java: ReturnStatement, Python: Return, Go: return_statement, C: return_statement |
-| **Conditional** | 条件语句 | PHP: If/TernaryOp, JS: IfStatement/ConditionalExpression, Java: IfStatement/TernaryExpression, Python: If/IfExp, Go: if_statement, C: if_statement |
-| **Loop** | 循环语句 | PHP: For/While/Foreach, JS: ForStatement/WhileStatement/ForInStatement, Java: ForStatement/WhileStatement/EnhancedForStatement, Python: For/While, Go: for_statement, C: for_statement/while_statement |
-| **Branch** | 分支体 (if/else/elif/switch-case) | 从 Conditional/Loop 展开得到 |
-| **TryCatch** | 异常处理 | PHP: Try, JS: TryStatement, Java: TryStatement, Python: Try/ExceptHandler, Go: defer (语义等价), C: — |
-| **Import** | 导入/包含 | PHP: Include/Require/UseDeclaration, JS: ImportDeclaration/Require, Java: Import, Python: Import/ImportFrom, Go: import_declaration, C: #include |
-| **Parameter** | 函数参数定义 | PHP: FormalParameter, JS: param (FunctionDeclaration.params), Java: FormalParameter, Python: arguments, Go: parameter_list, C: parameter_declaration |
-| **BinaryOp** | 二元操作 | PHP: BinaryOp, JS: BinaryExpression, Java: BinaryOperator, Python: BinOp, Go: binary_expression, C: binary_expression |
-| **UnaryOp** | 一元操作 | PHP: UnaryOp, JS: UnaryExpression/UpdateExpression, Java: UnaryOperator, Python: UnaryOp/UAdd/USub, Go: unary_expression, C: unary_expression |
-| **MemberAccess** | 成员/属性访问 | PHP: ObjectProperty/ArrayOffset, JS: MemberExpression, Java: FieldAccess/ArrayAccess, Python: Attribute/Subscript, Go: selector_expression/index_expression, C: member_access/array_subscript |
-| **New** | 对象实例化 | PHP: New, JS: NewExpression, Java: ClassCreator, Python: Call (class 构造), Go: —, C: — |
-| **Throw** | 抛出异常 | PHP: Throw, JS: ThrowStatement, Java: ThrowStatement, Python: Raise, Go: —, C: — |
-| **TypeCast** | 类型转换 | PHP: Cast, JS: —, Java: CastExpression, Python: — (隐式), Go: call_expression(type), C: cast_expression |
-| **Lambda** | 匿名函数 | PHP: Closure, JS: ArrowFunctionExpression/FunctionExpression, Java: LambdaExpression, Python: Lambda, Go: func_literal, C: — |
-| **Property** | 类属性/字段 | PHP: ClassVariable, JS: PropertyDefinition, Java: FieldDeclaration, Python: Assign(ClassDef body), Go: var_declaration, C: struct member |
-| **Decorator** | 装饰器/注解 | PHP: —, JS: —, Java: Annotation, Python: decorator, Go: —, C: — |
+| **file** | 文件 | name, location, language, content_hash |
+| **class** | 类/接口/结构体 | name, fullname, type, inherits_from, language, lineno, end_lineno |
+| **function** | 函数/方法 | name, fullname, type, signature, modifiers, language, lineno, end_lineno, file_path |
+| **parameter** | 形参 | name, type_hint, default_value, index, language, lineno |
+| **return** | 返回值 | type_hint, lineno, language |
+| **identifier** | 变量/属性/全局变量 | name, type, scope, var_type, language, lineno, file_path |
+| **const** | 字面量/常量 | name, type, language, lineno |
+| **operator** | 执行操作 | name, type, operator, callee, index, language, lineno, end_lineno, file_path, function |
+| **branch** | 控制流分支结构 | name, type, condition, lineno, end_lineno, language, function |
+| **import** | 导入/引用 | name, fullname, type, lineno, language |
+| **annotation** | 注解/装饰器 | name, fullname, arguments, lineno, language |
+| **dependency** | 依赖包 | name, version, file |
+
+#### 3.2.1 节点属性详解
+
+**file（文件）节点属性：**
+- `name: str` — 文件名
+- `location: str` — 文件绝对路径
+- `language: str` — 语言标识（php/javascript/java/python/go/c）
+- `content_hash: str` — 文件内容 MD5（增量更新用）
+
+**class（类/接口/结构体）节点属性：**
+- `name: str` — 类名
+- `fullname: str` — 类的完整路径（如 App\Http\Controllers\UserController）
+- `type: str` — 类型分类：`class`（类）、`interface`（接口）、`struct`（结构体）、`enum`（枚举）
+- `inherits_from: str` — 父类名（如有）
+- `language: str` — 语言标识
+- `lineno: int` — 起始行号
+- `end_lineno: int` — 结束行号
+
+**function（函数/方法）节点属性：**
+- `name: str` — 函数/方法名
+- `fullname: str` — 完整路径（如 App\Http\Controllers\UserController::index）
+- `type: str` — 类型分类：`function`（普通函数）、`method`（类方法）、`constructor`（构造函数）、`lambda`（匿名函数）、`destructor`（析构函数）
+- `signature: str` — 函数签名（如 `test($input): string`）
+- `modifiers: str` — 修饰符（如 public static，多个空格分隔）
+- `language: str` — 语言标识
+- `lineno: int` — 起始行号
+- `end_lineno: int` — 结束行号
+- `file_path: str` — 所属文件路径
+
+**parameter（形参）节点属性：**
+- `name: str` — 参数名
+- `type_hint: str` — 类型提示（如 string, int, ?string）
+- `default_value: str` — 默认值（如有）
+- `index: int` — 参数序号（从 0 开始）
+- `language: str` — 语言标识
+- `lineno: int` — 行号
+
+**return（返回值）节点属性：**
+- `type_hint: str` — 返回类型提示
+- `lineno: int` — 行号
+- `language: str` — 语言标识
+
+**identifier（变量/属性/全局变量）节点属性：**
+- `name: str` — 变量名
+- `type: str` — 类型分类：`variable`（局部变量）、`property`（类属性）、`field`（结构体字段）、`global`（全局变量）、`static`（静态变量）、`super`（父类引用）、`this/self`（实例引用）
+- `scope: str` — 作用域（所属函数名或类名）
+- `var_type: str` — 变量的数据类型（如 string, int, array，可从类型推导得出）
+- `language: str` — 语言标识
+- `lineno: int` — 行号
+- `file_path: str` — 所属文件路径
+
+**const（字面量/常量）节点属性：**
+- `name: str` — 常量值（如 `"hello"`, `42`, `true`）
+- `type: str` — 类型分类：`string`（字符串）、`number`（数字）、`boolean`（布尔）、`null`（空值）、`constant`（命名常量，如 PHP 的 `PHP_EOL`）
+- `language: str` — 语言标识
+- `lineno: int` — 行号
+
+**operator（执行操作）节点属性：**
+- `name: str` — 操作名（函数调用时为被调用的函数名，如 `system`、`echo`；赋值时为赋值目标变量名；运算时为运算符）
+- `type: str` — 类型分类：`call`（函数/方法调用）、`static_call`（静态方法调用）、`method_call`（对象方法调用）、`assign`（赋值）、`aug_assign`（复合赋值如 +=）、`binary_op`（二元运算）、`unary_op`（一元运算）、`new`（对象实例化）、`type_cast`（类型转换）、`throw`（抛出异常）、`yield`（生成器 yield）、`await`（异步等待）
+- `operator: str` — 操作符（仅运算类型有效，如 `+`, `-`, `.*`, `==`）
+- `callee: str` — 被调用函数名（仅 call/method_call/static_call 类型有效）
+- `index: int` — 操作在该作用域中的序号（按代码顺序）
+- `language: str` — 语言标识
+- `lineno: int` — 行号
+- `end_lineno: int` — 结束行号
+- `file_path: str` — 所属文件路径
+- `function: str` — 所属函数名
+
+**branch（控制流分支结构）节点属性：**
+- `name: str` — 分支描述（如条件表达式文本）
+- `type: str` — 类型分类：`if`（if 语句）、`elif`（elif/elseif）、`else`（else）、`ternary`（三元表达式）、`for`（for 循环）、`while`（while 循环）、`foreach`（foreach 循环）、`switch`（switch 语句）、`case`（case 分支）、`default`（default 分支）、`try`（try 块）、`catch`（catch 块）、`finally`（finally 块）、`match`（match 表达式，PHP 8/Python 3.10+）
+- `condition: str` — 条件表达式文本（如 `is_numeric($input)`）
+- `lineno: int` — 行号
+- `end_lineno: int` — 结束行号
+- `language: str` — 语言标识
+- `function: str` — 所属函数名
+
+**import（导入/引用）节点属性：**
+- `name: str` — 导入的模块/类/文件名
+- `fullname: str` — 完整路径/命名空间
+- `type: str` — 类型分类：`import`（标准导入）、`from_import`（from...import）、`include`（PHP include）、`require`（PHP require）、`include_once`、`require_once`、`use`（PHP use namespace）
+- `lineno: int` — 行号
+- `language: str` — 语言标识
+
+**annotation（注解/装饰器）节点属性：**
+- `name: str` — 注解名（如 `@Override`, `@Route`, `@app.route`）
+- `fullname: str` — 完整路径
+- `arguments: str` — 注解参数（如 `(methods={"GET", "POST"})`）
+- `lineno: int` — 行号
+- `language: str` — 语言标识
+
+**dependency（依赖包）节点属性：**
+- `name: str` — 依赖包名（如 `laravel/framework`, `express`）
+- `version: str` — 版本号（如 `^10.0`, `4.18.2`）
+- `file: str` — 声明该依赖的文件路径（如 `composer.json`, `package.json`）
+
+**通用属性：**
+所有节点均包含以下通用属性：
+- `language: str` — 语言标识（php/javascript/java/python/go/c）
+- `lineno: int` — 起始行号
+- `end_lineno: int` — 结束行号（可选）
 
 ### 3.3 统一边类型 (EdgeLabel)
 
-| 统一边标签 | 语义 | 方向 | 典型场景 |
-|-----------|------|------|---------|
-| **CONTAINS** | 文件/类/函数包含子节点 | parent → child | File→Function, File→Class, Function→Statement, Class→Property, Class→Method |
-| **DEFINES** | 定义变量/参数 | parent → child | Function→Parameter, Class→Property, Block→Variable |
-| **ASSIGNS_TO** | 赋值目标 (LHS) | Statement → Variable | `$x = 1`, `x = 1` |
-| **ASSIGNS_FROM** | 赋值来源 (RHS) | Statement → Expression | `$x = $y`, `x = func()` |
-| **CALLS** | 函数调用 | FunctionCall → 被调用目标 | `system($cmd)`, `$obj->method()` |
-| **CALLER_ARG** | 调用参数 | FunctionCall → Argument | 第 0,1,2... 个参数 |
-| **RETURNS** | 返回值 | Return → Expression | `return $x`, `return func()` |
-| **CONDITION_OF** | 条件属于哪个控制结构 | Expression → Conditional | if 条件表达式 |
-| **TRUE_BRANCH** | if 真分支体 | Conditional → Block | if (...) { ... } |
-| **FALSE_BRANCH** | if 假分支体 | Conditional → Block | if (...) { } else { ... } |
-| **LOOP_BODY** | 循环体 | Loop → Block | for (...) { ... } |
-| **CATCHES** | catch 块 | TryCatch → Block | try { } catch (e) { } |
-| **THROWS** | try 保护的代码 | TryCatch → Block | try { ... } |
-| **IMPORTS** | 导入关系 | File → File (跨文件) | `include 'a.php'`, `import b` |
-| **CLASS_EXTENDS** | 类继承 | Class → Class | `class B extends A` |
-| **CLASS_IMPLEMENTS** | 接口实现 | Class → Interface | `class B implements I` |
-| **HAS_METHOD** | 类方法 | Class → Function | class 内的方法定义 |
-| **HAS_PROPERTY** | 类属性 | Class → Property | class 内的属性定义 |
-| **MEMBER_OF** | 属性/方法属于类 | MemberAccess → Class | `$this->prop`, `self::method` |
-| **FLOWS_TO** | 数据流（分析时生成） | Variable → Variable | `$input → $cmd → system()` |
+采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 6 种核心关系。
 
-### 3.4 节点通用属性
+| 边标签 | 语义 | 方向 | 属性 |
+|---------|------|------|------|
+| **frg** | 文件依赖关系，File Relationship Graph | file → file | type: include/import/from_import/use |
+| **own** | 层次包含关系 | parent → child | index: 子节点序号 |
+| **cg** | 函数调用图，Call Graph | caller → callee | call_type: direct/static/method/dynamic, lineno: 调用行号 |
+| **ast** | 语法树子节点关系 | parent → child | role: lhs/rhs/arg/callee/left/right/operand/value, arg_index: 实参序号 |
+| **dfg** | 数据流图，Data Flow Graph | source → target | type: forward_slice/same |
+| **crg** | 类关系图，Class Relationship Graph | source → target | type: extends/implements/trait/mixin |
 
-```python
-# 所有节点的通用属性
-{
-    'language': str,        # php / javascript / java / python / go / c
-    'raw_type': str,        # 原始 AST 节点类型名 (如 'FunctionCall', 'MethodInvocation')
-    'lineno': int,          # 起始行号
-    'end_lineno': int,      # 结束行号 (可选)
-    'file_path': str,       # 所属文件绝对路径
-    'code_snippet': str,    # 对应源码片段 (可选, 用于展示)
-}
-```
+#### 3.3.1 边属性详解
 
-**各节点类型特有属性：**
+**frg（文件依赖关系，File Relationship Graph）：**
+- **含义**：描述文件之间的依赖关系
+- **方向**：file → file
+- **示例**：(A:file)-[:frg]->(B:file) 表示文件 A 依赖（include/import）文件 B
+- **属性**：
+  - `type: str` — 依赖类型：`include`（PHP include/require）、`import`（标准 import）、`from_import`（from...import）、`use`（PHP use namespace）
 
-| 节点类型 | 特有属性 | 说明 |
-|---------|---------|------|
-| File | path, language, content_hash | 文件路径、语言、内容 MD5 |
-| Function | name, fqn, is_method, class_name, modifiers | 函数全限定名、是否方法、所属类 |
-| Class | name, fqn, parent_class, interfaces | 类全限定名、父类、接口列表 |
-| Variable | name, scope | 变量名、作用域 |
-| FunctionCall | name, callee_type | 调用名称 (function/method/static_method) |
-| Assignment | operator | 赋值运算符 (=, +=, .=) |
-| Import | import_path, import_type | 导入路径、类型 (include/require/import/from) |
-| Parameter | name, default_value, type_hint | 参数名、默认值、类型提示 |
-| Literal | value, value_type | 字面量值和类型 |
-| Branch | branch_type | true / false / elif / case |
-| BinaryOp | operator | +, -, *, /, ., ==, !=, &&, \|\| |
+**own（层次包含关系）：**
+- **含义**：描述节点之间的所有权/层次包含关系
+- **方向**：parent → child
+- **示例连接**：
+  - (file)-[:own]->(function) — 文件包含函数
+  - (file)-[:own]->(class) — 文件包含类
+  - (file)-[:own]->(import) — 文件包含导入
+  - (file)-[:own]->(dependency) — 文件声明依赖
+  - (class)-[:own]->(function) — 类包含方法
+  - (class)-[:own]->(annotation) — 类上的注解
+  - (function)-[:own]->(parameter) — 函数包含形参
+  - (function)-[:own]->(return) — 函数包含返回
+  - (function)-[:own]->(operator) — 函数包含操作
+  - (function)-[:own]->(branch) — 函数包含分支
+  - (function)-[:own]->(annotation) — 函数上的注解
+  - (branch)-[:own]->(branch) — 分支嵌套（if 里面还有 if）
+  - (branch)-[:own]->(operator) — 分支包含操作
+  - (branch)-[:own]->(return) — 分支包含返回
+  - (operator)-[:own]->(operator) — 操作嵌套（如函数调用的参数是另一个函数调用）
+- **属性**：
+  - `index: int` — 子节点在该父节点中的序号（按代码顺序）
 
-### 3.5 图存储结构示意
+**cg（函数调用图，Call Graph）：**
+- **含义**：描述函数之间的调用关系
+- **方向**：caller → callee
+- **示例**：(A:function)-[:cg]->(B:function) 表示函数 A 的函数体中调用了函数 B
+- **属性**：
+  - `call_type: str` — 调用类型：`direct`（直接调用）、`static`（静态调用）、`method`（方法调用）、`dynamic`（动态调用/回调）
+  - `lineno: int` — 调用发生的行号
+
+**ast（语法树子节点关系）：**
+- **含义**：描述表达式级别的语法结构，即操作符的子节点关系
+- **方向**：parent → child
+- **示例连接**：
+  - (operator:assign)-[:ast]->(identifier:$cmd) — 赋值的左值
+  - (operator:assign)-[:ast]->(identifier:$input) — 赋值的右值
+  - (operator:call:system)-[:ast]->(identifier:$cmd) — 函数调用的实参
+  - (operator:binary_op)-[:ast]->(identifier:$a) — 二元运算的左操作数
+  - (operator:binary_op)-[:ast]->(const:1) — 二元运算的右操作数
+  - (return)-[:ast]->(identifier:$result) — 返回值的表达式
+- **属性**：
+  - `role: str` — 子节点角色：`lhs`（赋值左值）、`rhs`（赋值右值/表达式值）、`arg`（函数实参）、`callee`（被调用目标）、`left`（二元运算左操作数）、`right`（二元运算右操作数）、`operand`（一元运算操作数）、`value`（返回值/表达式值）
+  - `arg_index: int` — 实参序号（仅 role=arg 时有效，从 0 开始）
+
+**dfg（数据流图，Data Flow Graph）：**
+- **含义**：描述变量/常量/全局变量之间的数据流关系
+- **方向**：source → target
+- **连接**：identifier/const/global → identifier/const/global
+- **示例连接**：
+  - (identifier:$_GET['id'])-[:dfg]->(identifier:$id) — 用户输入传递给局部变量
+  - (identifier:$cmd)-[:dfg]->(identifier:$cmd) — type=same，同变量的不同引用
+- **属性**：
+  - `type: str` — 数据流类型：`forward_slice`（数据从 source 传递到 target）、`same`（同变量的不同引用位置）
+
+**crg（类关系图，Class Relationship Graph）：**
+- **含义**：描述类之间的关系（继承、实现等）
+- **方向**：source → target
+- **示例**：(A:class)-[:crg]->(B:class) 表示类 A 继承/实现了类 B
+- **属性**：
+  - `type: str` — 关系类型：`extends`（继承）、`implements`（实现接口）、`trait`（使用 trait）、`mixin`（混入）
+
+### 3.4 图存储结构示意
 
 ```cypher
 # 示例: <?php function test($input) { $cmd = $input; system($cmd); }
 
-(File:app.php)-[:CONTAINS]->(Function:test {fqn:'test', lineno:2})
-(Function:test)-[:DEFINES]->(Parameter:$input {lineno:2})
-(Function:test)-[:CONTAINS]->(Assignment:$cmd=$input {lineno:3})
-  (Assignment)-[:ASSIGNS_TO]->(Variable:$cmd {lineno:3})
-  (Assignment)-[:ASSIGNS_FROM]->(Variable:$input {lineno:3})
-(Function:test)-[:CONTAINS]->(FunctionCall:system {lineno:4})
-  (FunctionCall:system)-[:CALLS]->(Function:system {name:'system', builtin:true})
-  (FunctionCall:system)-[:CALLER_ARG {index:0}]->(Variable:$cmd {lineno:4})
+(file:app.php {name:'app.php', language:'php'})-[:own]->(function:test {fullname:'test', type:'function', lineno:2})
+(function:test)-[:own]->(parameter:$input {name:'input', index:0, lineno:2})
+(function:test)-[:own]->(operator:$cmd=$input {type:'assign', name:'$cmd', index:0, lineno:3})
+  (operator:$cmd=$input)-[:ast {role:'lhs'}]->(identifier:$cmd {name:'$cmd', type:'variable', lineno:3})
+  (operator:$cmd=$input)-[:ast {role:'rhs'}]->(identifier:$input {name:'$input', type:'variable', lineno:3})
+(function:test)-[:own]->(operator:system {type:'call', name:'system', index:1, lineno:4})
+  (operator:system)-[:cg {call_type:'direct', lineno:4}]->(function:system {name:'system', type:'function'})
+  (operator:system)-[:ast {role:'arg', arg_index:0}]->(identifier:$cmd {name:'$cmd', lineno:4})
 ```
 
 ## 4. 归一化转换层
