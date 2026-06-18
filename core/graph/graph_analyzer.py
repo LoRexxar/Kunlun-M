@@ -59,6 +59,9 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "curl_exec", "curl_setopt",
     "mysqli_query", "mysql_query", "pg_query", "sqlite_query",
     "unserialize",
+    "extract", "parse_str",
+    "highlight_file", "show_source", "php_strip_whitespace",
+    "simplexml_load_string", "simplexml_load_file",
 })
 
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
