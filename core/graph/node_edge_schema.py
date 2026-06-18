@@ -221,6 +221,8 @@ class AstRole(str, Enum):
     OPERAND = "operand"
     VALUE = "value"
     CONDITION = "condition"
+    IFTRUE = "iftrue"
+    IFFALSE = "iffalse"
 
 
 class DfgType(str, Enum):

@@ -28,8 +28,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SUPERGLOBALS: frozenset[str] = frozenset({
+    # PHP superglobals
     "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES", "$_SERVER",
     "$_SESSION", "$_ENV", "$HTTP_RAW_POST_DATA", "$argc", "$argv",
+    # Python web framework sources (object names)
+    "request.GET", "request.POST", "request.REQUEST", "request.COOKIES",
+    "request.FILES", "request.data", "request.body", "request.query_params",
+    "request.query_string", "request.form",
+    # Flask/WSGI
+    "flask.request", "django.http.HttpRequest",
 })
 
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
@@ -62,13 +69,25 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "extract", "parse_str",
     "highlight_file", "show_source", "php_strip_whitespace",
     "simplexml_load_string", "simplexml_load_file",
+    # Python
+    "HttpResponse", "JsonResponse", "render", "render_to_string",
+    "write", "writelines",
+    "subprocess.run", "subprocess.call", "subprocess.Popen",
+    "pickle.loads", "yaml.load", "exec", "eval",
 })
 
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
+    # PHP
     "is_numeric", "is_int", "is_integer", "is_float", "is_double",
     "ctype_digit", "ctype_alnum", "ctype_alpha", "ctype_xdigit",
     "ctype_lower", "ctype_upper", "ctype_graph", "ctype_print",
     "ctype_punct", "ctype_space", "ctype_cntrl",
+    # Python
+    "isinstance", "issubclass", "hasattr", "callable",
+    "isdigit", "isalpha", "isalnum", "isdecimal", "isnumeric",
+    "isupper", "islower", "istitle", "isspace",
+    "isascii", "isidentifier", "isprintable",
+    "isfinite", "isinf", "isnan",
 })
 
 _SAFE_CONSTRAINT_OPS: frozenset[str] = frozenset({"==", "==="})
@@ -256,6 +275,14 @@ class GraphAnalyzer:
         queue: deque[tuple[int, int, list[int]]] = deque()
         queue.append((start_vid, 0, [start_vid]))
 
+        # Pre-compute branch chain for the sink arg (start_vid).
+        # Branch constraints protect the sink location, not intermediate
+        # trace nodes.  A variable assigned before a match/case but used
+        # inside a specific case body must be checked against that case
+        # constraint, not against the assignment's location.
+        sink_branch_chain = self.get_branch_chain(start_vid)
+        sink_branch_set: set[int] = set(sink_branch_chain)
+
         while queue:
             cur_vid, depth, path = queue.popleft()
             for up_vid in self._get_dfg_sources(cur_vid):
@@ -287,6 +314,18 @@ class GraphAnalyzer:
                         return self._cached(cache_key, AnalysisResult(
                             code=2, reason=f"repair '{callee}'",
                             chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
+                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+
+                # Rule 3b: superglobal method call (e.g., request.GET.get() in Python)
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                    is_sg, sg_name = self._is_superglobal_method_call(up_vid)
+                    if is_sg:
+                        callee = self._resolve_callee_name(up_vid)
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{sg_name}' via method '{callee}'",
+                            chain=[{"step": "sg_method", "vid": up_vid,
+                                    "name": f"{sg_name}.{callee}", "code": 1}],
                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 4: function call — cg → function(taint_type) → parameter(passthrough_arg)
@@ -377,26 +416,65 @@ class GraphAnalyzer:
 
                 # Rule 6: branch constraint — identifier inside a branch
                 # whose condition constrains this variable to a safe value
+                # Use the sink arg's branch chain (pre-computed), not the
+                # current BFS node's chain, because constraints protect the
+                # sink location.
                 if ulabel == NodeLabel.IDENTIFIER.value and uname:
-                    branch_chain = self.get_branch_chain(up_vid)
-                    if branch_chain:
-                        innermost_branch = branch_chain[-1]
-                        btype = _vattr(self.graph.vs[innermost_branch],
-                                       "type", "").lower()
-                        # Ternary: iffalse 分支不受 condition 约束
-                        if btype == "ternary" and self._is_in_ternary_iffalse(
-                                up_vid, innermost_branch):
-                            pass  # 不阻断，继续 BFS
-                        elif self.check_branch_constraint(innermost_branch, uname):
-                            return self._cached(cache_key, AnalysisResult(
-                                code=-1,
-                                reason=f"branch constraint on '{uname}' in "
-                                       f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
-                                       f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
-                                chain=[{"step": "branch_constraint", "vid": innermost_branch,
-                                        "name": uname, "code": -1}],
-                                path=new_path,
-                                expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Branch constraint check.
+                    # If the sink arg is inside a branch, use sink's chain.
+                    # If not (empty chain), fall back to current BFS node's
+                    # chain — needed for ternary where the tainted identifier
+                    # is inside the ternary but the sink arg is outside.
+                    if sink_branch_chain:
+                        # Check if current node is inside a ternary iffalse
+                        cur_branch_chain = self.get_branch_chain(up_vid)
+                        in_ternary_false = False
+                        if cur_branch_chain:
+                            innermost_cur = cur_branch_chain[0]
+                            cbtype = _vattr(self.graph.vs[innermost_cur],
+                                           "type", "").lower()
+                            if cbtype == "ternary" and self._is_in_ternary_iffalse(
+                                    up_vid, innermost_cur):
+                                in_ternary_false = True
+
+                        if not in_ternary_false:
+                            innermost_branch = sink_branch_chain[0]
+                            btype = _vattr(self.graph.vs[innermost_branch],
+                                           "type", "").lower()
+                            # Ternary: iffalse 分支不受 condition 约束
+                            if btype == "ternary" and self._is_in_ternary_iffalse(
+                                    up_vid, innermost_branch):
+                                pass  # 不阻断，继续 BFS
+                            elif self.check_branch_constraint(innermost_branch, uname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"branch constraint on '{uname}' in "
+                                           f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
+                                           f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
+                                    chain=[{"step": "branch_constraint", "vid": innermost_branch,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0)))
+                    else:
+                        # Fallback: use current BFS node's branch chain
+                        branch_chain = self.get_branch_chain(up_vid)
+                        if branch_chain:
+                            innermost_branch = branch_chain[0]
+                            btype = _vattr(self.graph.vs[innermost_branch],
+                                           "type", "").lower()
+                            if btype == "ternary" and self._is_in_ternary_iffalse(
+                                    up_vid, innermost_branch):
+                                pass  # 不阻断，继续 BFS
+                            elif self.check_branch_constraint(innermost_branch, uname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"branch constraint on '{uname}' in "
+                                           f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
+                                           f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
+                                    chain=[{"step": "branch_constraint", "vid": innermost_branch,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Continue BFS
                 if ulabel in (NodeLabel.IDENTIFIER.value,
@@ -645,6 +723,9 @@ class GraphAnalyzer:
             return True
         if "[" in name:
             return name.split("[", 1)[0] in _SUPERGLOBALS
+        if "." in name:
+            # Support dotted paths like "request.GET"
+            return name in _SUPERGLOBALS
         return False
 
     def _is_repair_function(self, name: str) -> bool:
@@ -662,6 +743,65 @@ class GraphAnalyzer:
         if "\\" in clean:
             clean = clean.rsplit("\\", 1)[-1]
         return clean in _SINK_FUNCTIONS
+
+    def _is_superglobal_method_call(self, call_vid: int) -> tuple[bool, str]:
+        """Check if a call operator's callee is a method on a superglobal object.
+
+        Walks member edges from the callee identifier to reconstruct the
+        object chain (e.g., request.GET.get → check if 'request.GET' is superglobal).
+
+        Returns (is_superglobal, superglobal_name).
+        """
+        # Find callee identifier via ast[role=callee]
+        callee_vid = None
+        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(ae, "role") == "callee":
+                callee_vid = ae.target
+                break
+        if callee_vid is None:
+            return False, ""
+
+        callee_name = _vattr(self.graph.vs[callee_vid], "name", "")
+        callee_type = _vattr(self.graph.vs[callee_vid], "type", "")
+
+        # If callee is a property (method call like .get()), walk member chain
+        if callee_type == "property":
+            # Collect member chain: callee → parent → grandparent...
+            chain = [callee_name]
+            current = callee_vid
+            visited_members: set[int] = {callee_vid}
+            while True:
+                found_member = False
+                for me in self.graph.es.select(_target=current, label="member"):
+                    obj_vid = me.source
+                    if obj_vid in visited_members:
+                        continue
+                    visited_members.add(obj_vid)
+                    obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
+                    obj_type = _vattr(self.graph.vs[obj_vid], "type", "")
+                    chain.append(obj_name)
+                    current = obj_vid
+                    found_member = True
+
+                    # Build all possible prefix paths and check
+                    # Chain: [get, GET, request] → check "request.GET.get", "request.GET", "request"
+                    reversed_chain = list(reversed(chain))
+                    for i in range(len(reversed_chain)):
+                        prefix = ".".join(reversed_chain[:i+1])
+                        if prefix in _SUPERGLOBALS:
+                            return True, prefix
+
+                    # Check if the object itself is a superglobal (non-property)
+                    if obj_type != "property" and self._is_source_variable(obj_name):
+                        return True, obj_name
+
+                    # If object is not a property, stop traversing further
+                    if obj_type != "property":
+                        break
+                if not found_member:
+                    break
+
+        return False, ""
 
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
@@ -714,7 +854,7 @@ class GraphAnalyzer:
                 cur = self._get_ast_parent(cur)
         return None
 
-    _NEGATED_BRANCH_TYPES = frozenset({"else", "default", "case"})
+    _NEGATED_BRANCH_TYPES = frozenset({"else", "default"})
 
     def get_branch_chain(self, vid: int) -> list[int]:
         """从 vid 向上搜索，返回 vid 到最近的 function/file 之间
@@ -816,7 +956,22 @@ class GraphAnalyzer:
         - $x == "a" || $x == "b" (enum via OR of ==)
         - is_numeric($x) / ctype_digit($x) etc. (type validator)
         - switch case with fixed condition value
+        - re.match anchored regex, Python str.isdigit etc.
         """
+        btype = _vattr(self.graph.vs[branch_vid], "type", "")
+
+        # Wildcard branches never constrain: else, default, case _
+        if btype in self._NEGATED_BRANCH_TYPES:
+            return False
+        if btype == "case":
+            cond_vid = self._get_condition_root(branch_vid)
+            if cond_vid is not None:
+                cond_name = _vattr(self.graph.vs[cond_vid], "name", "")
+                cond_label = _vattr(self.graph.vs[cond_vid], "label", "")
+                # MatchStar / MatchAs without pattern → wildcard
+                if cond_label == NodeLabel.CONST.value and cond_name.strip("'\"") == "_":
+                    return False
+
         cond_vid = self._get_condition_root(branch_vid)
         if cond_vid is None:
             return False
@@ -882,6 +1037,15 @@ class GraphAnalyzer:
                         arg_name = _vattr(self.graph.vs[e.target], "name", "")
                         if arg_name == var_name:
                             return True
+                # Check method receiver via member chain
+                # e.g. page.isdigit() → callee 'isdigit' → member → 'page'
+                for ae in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(ae, "role", "") == "callee":
+                        callee_vid = ae.target
+                        for me in self.graph.es.select(_target=callee_vid, label="member"):
+                            recv_name = _vattr(self.graph.vs[me.source], "name", "")
+                            if recv_name == var_name:
+                                return True
 
             # preg_match: anchored regex without dot wildcard → safe
             if name == "preg_match":
@@ -908,6 +1072,28 @@ class GraphAnalyzer:
                             if pattern.startswith("^") and pattern.endswith("$"):
                                 return True
 
+            # re.match / re.fullmatch: anchored regex → safe
+            if name in ("match", "fullmatch", "search"):
+                args = []
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(e, "role", "") == "arg":
+                        args.append(e.target)
+                # args[0] = pattern, args[1] = subject (for re.match/re.fullmatch)
+                if len(args) >= 2:
+                    subject_name = _vattr(self.graph.vs[args[1]], "name", "")
+                    if subject_name == var_name:
+                        pat_label = _vattr(self.graph.vs[args[0]], "label", "")
+                        pat_name = _vattr(self.graph.vs[args[0]], "name", "")
+                        if pat_label == NodeLabel.CONST.value and pat_name:
+                            raw = pat_name.strip("'\"")
+                            # Python regex: raw string r'...' — already the pattern
+                            # ^ and $ anchoring → strict match → safe
+                            if raw.startswith("^") and raw.endswith("$"):
+                                return True
+                            # re.fullmatch always matches the entire string
+                            if name == "fullmatch":
+                                return True
+
             return False
 
         # Identifier in case condition: switch case with fixed value
@@ -930,7 +1116,7 @@ class GraphAnalyzer:
                 if switch_vid is not None:
                     switch_label = _vattr(self.graph.vs[switch_vid], "label", "")
                     switch_type = _vattr(self.graph.vs[switch_vid], "type", "")
-                    if switch_label == NodeLabel.BRANCH.value and switch_type == "switch":
+                    if switch_label == NodeLabel.BRANCH.value and switch_type in ("switch", "match"):
                         switch_cond = self._get_condition_root(switch_vid)
                         if switch_cond is not None:
                             switch_var = _vattr(self.graph.vs[switch_cond], "name", "")
