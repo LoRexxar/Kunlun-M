@@ -21,6 +21,7 @@ from core.graph.node_edge_schema import (
     MemberAccessType,
 )
 from core.graph.graph_io import AstGraphIO
+from core.graph.graph_pipeline import build_ast_graph
 from core.graph.sqlite_index import AstNodeIndex, FileHash
 
 __all__ = [
@@ -28,5 +29,5 @@ __all__ = [
     "ClassType", "FunctionType", "OperatorType", "BranchType",
     "ImportType", "IdentifierType", "ConstType",
     "FrgType", "CgCallType", "AstRole", "DfgType", "CrgType", "MemberAccessType",
-    "AstGraphIO", "AstNodeIndex", "FileHash",
+    "AstGraphIO", "build_ast_graph", "AstNodeIndex", "FileHash",
 ]
