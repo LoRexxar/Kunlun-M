@@ -121,7 +121,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 | **const** | 字面量/常量 | name, type, language, lineno |
 | **operator** | 执行操作 | name, type, operator, callee, index, language, lineno, end_lineno, file_path, function |
 | **branch** | 控制流分支结构 | name, type, condition, lineno, end_lineno, language, function |
-| **import** | 导入/引用 | name, fullname, type, lineno, language |
+| **import** | 导入/引用 | name, fullname, alias, type, lineno, language |
 | **annotation** | 注解/装饰器 | name, fullname, arguments, lineno, language |
 | **dependency** | 依赖包 | name, version, file |
 
@@ -205,6 +205,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 **import（导入/引用）节点属性：**
 - `name: str` — 导入的模块/类/文件名
 - `fullname: str` — 完整路径/命名空间
+- `alias: str` — 别名（如有，如 `use App\Http\Controllers\UserController as UserCtrl` 中的 `UserCtrl`，`from os import path as p` 中的 `p`）
 - `type: str` — 类型分类：`import`（标准导入）、`from_import`（from...import）、`include`（PHP include）、`require`（PHP require）、`include_once`、`require_once`、`use`（PHP use namespace）
 - `lineno: int` — 行号
 - `language: str` — 语言标识
@@ -235,7 +236,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 |---------|------|------|------|
 | **frg** | 文件依赖关系，File Relationship Graph | file → file | type: include/import/from_import/use |
 | **own** | 层次包含关系 | parent → child | index: 子节点序号 |
-| **cg** | 函数调用图，Call Graph | caller → callee | call_type: direct/static/method/dynamic, lineno: 调用行号 |
+| **cg** | 函数调用图，Call Graph | operator(function_call) → function | call_type: direct/static/method/dynamic, lineno: 调用行号 |
 | **ast** | 语法树子节点关系 | parent → child | role: lhs/rhs/arg/callee/left/right/operand/value, arg_index: 实参序号 |
 | **dfg** | 数据流图，Data Flow Graph | source → target | type: forward_slice/same |
 | **crg** | 类关系图，Class Relationship Graph | source → target | type: extends/implements/trait/mixin |
@@ -273,9 +274,9 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
   - `index: int` — 子节点在该父节点中的序号（按代码顺序）
 
 **cg（函数调用图，Call Graph）：**
-- **含义**：描述函数之间的调用关系
-- **方向**：caller → callee
-- **示例**：(A:function)-[:cg]->(B:function) 表示函数 A 的函数体中调用了函数 B
+- **含义**：描述函数调用操作符到被调用函数定义的关系
+- **方向**：operator(function_call/method_call/static_call) → function
+- **示例**：(operator:system {type:'call'})-[:cg {call_type:'direct', lineno:4}]->(function:system {name:'system'})
 - **属性**：
   - `call_type: str` — 调用类型：`direct`（直接调用）、`static`（静态调用）、`method`（方法调用）、`dynamic`（动态调用/回调）
   - `lineno: int` — 调用发生的行号
