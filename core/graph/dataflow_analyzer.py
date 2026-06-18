@@ -153,7 +153,8 @@ class DataFlowAnalyzer:
         """#2: 参数传递 — 将调用参数与函数定义参数关联。
 
         规则：
-        - 找到 operator(type=call/static_call/method_call) 的 cg 目标（函数定义）
+        - 找到 operator(type=call/static_call/method_call) 的 cg 目标（函数节点）
+        - 若 cg 目标是占位节点（无 own 子节点），尝试通过同名解析到真正的函数定义
         - 调用者的 ast[arg, arg_index=N] 对应函数定义的 own[index=N] 参数
         - 创建 dfg(arg_identifier → parameter)
         - 若无 cg 目标（外部函数），则跳过
@@ -172,16 +173,19 @@ class DataFlowAnalyzer:
 
             vid = v.index
 
-            # 通过 cg 边找到函数定义
+            # 通过 cg 边找到函数节点
             func_vid = self._get_cg_target(vid)
             if func_vid is None:
                 continue
+
+            # 尝试解析到真正的函数定义（占位节点无 own 子节点）
+            resolved_vid = self._resolve_function(func_vid)
 
             # 获取该调用的所有 arg 子节点
             arg_children = self._get_ast_children_by_arg_index(vid)
 
             # 获取函数定义的参数（按 own index）
-            param_map = self._get_own_children_by_index(func_vid)
+            param_map = self._get_own_children_by_index(resolved_vid)
 
             # 匹配 arg_index → parameter own index
             for arg_idx, arg_vid in arg_children.items():
@@ -195,38 +199,50 @@ class DataFlowAnalyzer:
         """#3: 返回值传播 — 将 return 值连接到调用者的赋值目标。
 
         规则：
-        - 遍历所有 function 定义，找到函数体中的 return 节点
-        - return 节点的 ast[value] 子节点为返回值
-        - 找到调用该函数的 operator（通过 incoming cg 边）
-        - 若调用 operator 被赋值（其父级 assign 有 LHS），则创建 dfg(return_value → LHS)
+        - 遍历所有 call/static_call/method_call operator
+        - 通过 cg 边找到函数节点，再解析到真正的函数定义
+        - 找到函数定义体内的 return 节点的 ast[value] 子节点
+        - 若调用 operator 被赋值（其作为某个 assign 的 RHS），则创建 dfg(return_value → LHS)
         """
+        call_types = {
+            OperatorType.CALL.value,
+            OperatorType.STATIC_CALL.value,
+            OperatorType.METHOD_CALL.value,
+        }
+
         for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") not in call_types:
                 continue
 
-            func_vid = v.index
+            caller_vid = v.index
 
-            # 找到函数体中的 return 节点（通过 own 边）
-            return_vids = self._get_own_children_by_label(func_vid, NodeLabel.RETURN.value)
+            # 通过 cg 边找到函数节点，并解析到真正的定义
+            func_vid = self._get_cg_target(caller_vid)
+            if func_vid is None:
+                continue
 
-            # 找到所有调用此函数的 operator（incoming cg 边）
-            caller_vids = self._get_cg_callers(func_vid)
+            resolved_vid = self._resolve_function(func_vid)
+            if resolved_vid == func_vid:
+                # 仍然是占位节点，无法解析到定义
+                continue
+
+            # 找到真正的函数定义中的 return 节点
+            return_vids = self._get_own_children_by_label(resolved_vid, NodeLabel.RETURN.value)
 
             for ret_vid in return_vids:
-                # 找到 return 的 value 子节点
                 value_children = self._get_ast_children(ret_vid, role=AstRole.VALUE.value)
                 if not value_children:
                     continue
                 return_value_vid = value_children[0]
 
-                # 对每个调用者，检查是否将返回值赋给了某个变量
-                for caller_vid in caller_vids:
-                    # 查找调用者 operator 是否作为某个 assign 的 RHS
-                    assign_lhs = self._find_assign_lhs_for_callee(caller_vid)
-                    if assign_lhs is not None:
-                        self._add_dfg_edge(
-                            return_value_vid, assign_lhs, DfgType.FORWARD_SLICE.value
-                        )
+                # 检查调用者 operator 是否作为某个 assign 的 RHS
+                assign_lhs = self._find_assign_lhs_for_callee(caller_vid)
+                if assign_lhs is not None:
+                    self._add_dfg_edge(
+                        return_value_vid, assign_lhs, DfgType.FORWARD_SLICE.value
+                    )
 
     # -- 分析步骤 4：同名变量链接 ---------------------------------------------
 
@@ -409,7 +425,11 @@ class DataFlowAnalyzer:
         return result
 
     def _get_own_children_by_index(self, vid: int) -> dict[int, int]:
-        """获取函数定义的参数节点，返回 {own_index: child_vid} 映射。"""
+        """获取函数定义的参数节点，返回 {own_index: child_vid} 映射。
+
+        注意：只返回 label=parameter 的子节点，避免 body stmts 的 own index
+        与 parameter index 冲突。
+        """
         result: dict[int, int] = {}
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
@@ -417,7 +437,10 @@ class DataFlowAnalyzer:
                 continue
             idx = _vattr(e, "index")
             if idx is not None:
-                result[int(idx)] = e.target
+                # 只取 parameter 子节点
+                target_label = _vattr(self.graph.vs[e.target], "label", "")
+                if target_label == NodeLabel.PARAMETER.value:
+                    result[int(idx)] = e.target
         return result
 
     def _get_own_children_by_label(self, vid: int, child_label: str) -> list[int]:
@@ -476,6 +499,64 @@ class DataFlowAnalyzer:
             return _vattr(self.graph.vs[callee_children[0]], "name", "")
         # 回退：operator 节点的 name 属性
         return _vattr(self.graph.vs[vid], "name", "")
+
+    def _resolve_function(self, func_vid: int) -> int:
+        """尝试将函数节点解析到真正的定义。
+
+        若 func_vid 对应的 function 节点没有 own 子节点（即占位节点/外部函数），
+        则在图中搜索同名且有 own 子节点的 function 节点。
+
+        Args:
+            func_vid: 函数节点索引。
+
+        Returns:
+            解析后的函数定义节点索引。若无法解析，返回原始 func_vid。
+        """
+        # 检查是否已有 own 子节点（有则已经是真正的定义）
+        own_children = self._get_own_children_by_index(func_vid)
+        if own_children:
+            return func_vid
+
+        # 占位节点：通过同名匹配找到真正的函数定义
+        func_name = _vattr(self.graph.vs[func_vid], "name", "")
+        if not func_name:
+            return func_vid
+
+        # 同一文件作用域下找同名函数定义
+        # 通过 incoming own 边找到 func_vid 所在的文件节点
+        parent_vid = None
+        for eid in self.graph.incident(func_vid, mode="in"):
+            e = self.graph.es[eid]
+            if _vattr(e, "label") == EdgeLabel.OWN.value:
+                parent_vid = e.source
+                break
+
+        # 在同一 parent 下找同名且有 own 子节点的 function
+        best_match = func_vid  # 默认返回自身
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+                continue
+            if v.index == func_vid:
+                continue
+            if _vattr(v, "name") != func_name:
+                continue
+
+            # 检查是否有 own 子节点（真正有函数体）
+            if self._get_own_children_by_index(v.index):
+                # 优先选择同文件的
+                if parent_vid is not None:
+                    for eid2 in self.graph.incident(v.index, mode="in"):
+                        e2 = self.graph.es[eid2]
+                        if _vattr(e2, "label") == EdgeLabel.OWN.value and e2.source == parent_vid:
+                            best_match = v.index
+                            break
+                    if best_match != func_vid:
+                        break
+                else:
+                    best_match = v.index
+                    break
+
+        return best_match
 
     def _find_assign_lhs_for_callee(self, caller_vid: int) -> Optional[int]:
         """找到调用 operator 作为某个赋值语句 RHS 时的 LHS 顶点。

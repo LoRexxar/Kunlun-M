@@ -151,15 +151,19 @@ class Normalizer:
         def _add_edge(edge_dict: dict[str, Any]) -> None:
             edges.append(edge_dict)
 
+        # file_node 作为位置 0 加入 nodes 列表（用于 ctx_stack 的 own 边锚点）
+        file_pos = _add_node(file_node)
+
         # Context stack for tracking current class/function/branch
         # Each entry: (node_position, node_label)
-        ctx_stack: list[tuple[int, str]] = []
+        ctx_stack: list[tuple[int, str]] = [(file_pos, NodeLabel.FILE.value)]
 
         def current_ctx() -> tuple[int, str] | None:
             return ctx_stack[-1] if ctx_stack else None
 
         # -- walk top-level AST nodes ----------------------------------------
 
+        top_idx = 0
         for ast_node in ast_nodes:
             self._walk_node(
                 ast_node=ast_node,
@@ -167,10 +171,13 @@ class Normalizer:
                 add_edge=_add_edge,
                 ctx_stack=ctx_stack,
                 file_path=file_path,
-                depth=0,
+                depth=top_idx,
             )
+            top_idx += 1
 
-        return file_node, nodes, edges
+        # file_node 在 nodes[0]，提取后返回（nodes 不再包含 file_node）
+        assert nodes[0] is file_node
+        return file_node, nodes[1:], edges
 
     # -- internal walkers -----------------------------------------------------
 
@@ -326,10 +333,11 @@ class Normalizer:
                 add_edge({"label": EdgeLabel.OWN.value, "source": pos, "target": p_pos,
                            "attrs": {"index": idx}})
 
-        # Body statements
+        # Body statements — own index 从参数数量之后开始，避免与 parameter index 冲突
+        body_offset = len(params)
         if stmt_nodes:
             for child_idx, child in enumerate(stmt_nodes):
-                self._walk_node(child, add_node, add_edge, ctx_stack, file_path, child_idx)
+                self._walk_node(child, add_node, add_edge, ctx_stack, file_path, body_offset + child_idx)
 
         # ArrowFunction: expr instead of nodes
         if node_type_name == "ArrowFunction":
