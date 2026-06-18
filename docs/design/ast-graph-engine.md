@@ -1266,15 +1266,50 @@ Phase 3 (纯图模式):
 
 ## 11. 实施路线图
 
+### 目录结构
+
+```
+core/graph/
+  __init__.py              # 模块入口，动态加载 Normalizer
+  node_edge_schema.py      # UnifiedNode / UnifiedEdge / 节点边标签枚举
+  graph_builder.py         # AST 图构建器
+  graph_io.py              # 图持久化 save/load .graphmlz
+  sqlite_index.py          # AstNodeIndex + FileHash 索引操作
+  graph_analyzer.py        # 图上回溯分析（parameters_back 等）
+  dataflow_analyzer.py     # 数据流分析模块（独立生成 dfg 边）
+  normalizers/
+    __init__.py            # Normalizer 注册/发现机制
+    php/
+      __init__.py          # register(PhpNormalizer)
+      normalizer.py        # PHP AST → 统一节点映射
+    javascript/
+      __init__.py
+      normalizer.py        # JS AST → 统一节点映射
+    python/
+      __init__.py
+      normalizer.py        # Python AST → 统一节点映射
+    java/
+      __init__.py
+      normalizer.py        # Java AST → 统一节点映射
+    go/
+      __init__.py
+      normalizer.py        # Go AST → 统一节点映射
+    c/
+      __init__.py
+      normalizer.py        # C AST → 统一节点映射
+```
+
+**动态引入机制**：`normalizers/__init__.py` 维护 `register()` 装饰器，各语言 `__init__.py` 调用 `register('php')(PhpNormalizer)`。`get_normalizer(language)` 首次调用时自动 import 对应语言子包。新增语言零改动核心代码。
+
 ### Phase 1: 基础图构建（PHP 单语言验证）
 
 **目标**: 验证 PHP AST → igraph 的完整流程
 
-- [ ] `core/graph/base.py` — UnifiedNode / UnifiedEdge 数据类
-- [ ] `core/graph/php_normalizer.py` — PHP AST 归一化
-- [ ] `core/graph/builder.py` — AstGraphBuilder
-- [ ] `core/graph/io.py` — AstGraphIO (save/load)
-- [ ] Django migration — AstNodeIndex + FileHash 表
+- [ ] `core/graph/node_edge_schema.py` — UnifiedNode / UnifiedEdge / 节点边标签枚举
+- [ ] `core/graph/normalizers/php/normalizer.py` — PHP AST 归一化
+- [ ] `core/graph/graph_builder.py` — AstGraphBuilder
+- [ ] `core/graph/graph_io.py` — AstGraphIO (save/load)
+- [ ] `core/graph/sqlite_index.py` + Django migration — AstNodeIndex + FileHash 表
 - [ ] 集成到 Pretreatment — parse 后同步构建图
 - [ ] 测试: 与现有引擎结果对比
 
@@ -1282,9 +1317,9 @@ Phase 3 (纯图模式):
 
 **目标**: 在图上实现 parameters_back，对比结果
 
-- [ ] `core/graph/analyzer.py` — GraphAnalyzer 基础版
-- [ ] `core/graph/analyzer.py` — parameters_back 图版本
-- [ ] `core/graph/analyzer.py` — function_back 图版本
+- [ ] `core/graph/graph_analyzer.py` — GraphAnalyzer 基础版
+- [ ] `core/graph/graph_analyzer.py` — parameters_back 图版本
+- [ ] `core/graph/graph_analyzer.py` — function_back 图版本
 - [ ] 双模运行: 现有引擎 + 图引擎，对比结果
 - [ ] 测试: 对 5 个 PHP 漏洞靶场验证一致性
 
