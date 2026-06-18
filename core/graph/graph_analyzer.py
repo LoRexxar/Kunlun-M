@@ -119,9 +119,9 @@ class GraphAnalyzer:
         for sink in sinks:
             result = analyzer.parameters_back(sink["vid"])
 
-    图上的 call operator 若有 taint_propagation 属性（由 knowledge_bridge 在
-    构建阶段标注），parameters_back 会直接根据属性判定可控性，无需运行时
-    查询知识库。
+    图上的 function 节点可携带 taint_type 属性（由 knowledge_bridge 在
+    构建阶段标注）。parameters_back 遇到 call 时沿 cg 边找到 function，
+    直接根据 function 节点的 taint_type 判定可控性，无需运行时查询知识库。
     """
 
     def __init__(self, graph: ig.Graph, language: str = "php") -> None:
@@ -267,46 +267,77 @@ class GraphAnalyzer:
                             chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
-                # Rule 4: function call — check taint_type, then graph trace
+                # Rule 4: function call — cg → function(taint_type) → parameter(passthrough_arg)
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
                     callee = self._resolve_callee_name(up_vid)
-                    taint_type = _vattr(uv, "taint_type", "")
+
+                    # 沿 cg 边找到 function 节点，读 taint_type
+                    func_taint = ""
+                    func_vid = None
+                    for ce in self.graph.es.select(_source=up_vid, label="cg"):
+                        fv = self.graph.vs[ce.target]
+                        if _vattr(fv, "label") == NodeLabel.FUNCTION.value:
+                            func_vid = ce.target
+                            func_taint = _vattr(fv, "taint_type", "")
+                            break
 
                     # 4a: source — 函数本身产生可控数据
-                    if taint_type == "source":
+                    if func_taint == "source":
                         return self._cached(cache_key, AnalysisResult(
                             code=1, reason=f"taint source '{callee}'",
-                            chain=[{"step": "taint_source", "vid": up_vid,
+                            chain=[{"step": "taint_source", "vid": func_vid,
                                     "name": callee, "code": 1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
                     # 4b: safe — 函数过滤，不可控
-                    if taint_type == "safe":
+                    if func_taint == "safe":
                         return self._cached(cache_key, AnalysisResult(
                             code=-1, reason=f"taint safe '{callee}'",
-                            chain=[{"step": "taint_safe", "vid": up_vid,
+                            chain=[{"step": "taint_safe", "vid": func_vid,
                                     "name": callee, "code": -1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
-                    # 4c: passthrough — 透传参数已标记在 arg 节点上
-                    if taint_type == "passthrough":
-                        for ae in self.graph.es.select(_source=up_vid, label="ast"):
-                            if _vattr(ae, "role") != "arg":
-                                continue
-                            arg_vid = ae.target
-                            if _vattr(self.graph.vs[arg_vid], "taint_type") == "passthrough_arg":
-                                arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
-                                if arg_name:
-                                    dep_vid = self._find_identifier_by_name(
-                                        arg_name, context_vid)
-                                    if dep_vid is not None:
-                                        dep_res = self.parameters_back(
-                                            dep_vid, context_vid,
-                                            max_depth - depth)
-                                        if dep_res.is_controllable:
-                                            return self._cached(cache_key, dep_res)
+                    # 4c: passthrough — 两种来源：
+                    #     a) function 有 own → parameter(taint_type=passthrough_arg)
+                    #     b) 外部函数无 body：function.taint_passthrough = [0, 2, ...]
+                    #     形参 index → 映射到 call 的 ast[role=arg] → 追踪实参
+                    if func_taint == "passthrough" and func_vid is not None:
+                        # 收集 passthrough 的形参 index
+                        pt_param_indices: set[int] = set()
+                        for oe in self.graph.es.select(_source=func_vid, label="own"):
+                            pv = self.graph.vs[oe.target]
+                            if _vattr(pv, "label") == NodeLabel.PARAMETER.value:
+                                if _vattr(pv, "taint_type") == "passthrough_arg":
+                                    pidx = _vattr(pv, "index")
+                                    if pidx is not None:
+                                        pt_param_indices.add(int(pidx))
+                        # 外部函数：读 taint_passthrough 属性
+                        if not pt_param_indices:
+                            tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
+                            pt_param_indices = set(int(i) for i in tp if isinstance(i, int))
+                        # 映射到 call 的实参
+                        if pt_param_indices:
+                            arg_counter = 0
+                            for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                                if _vattr(ae, "role") != "arg":
+                                    continue
+                                idx = _vattr(ae, "index")
+                                actual_idx = int(idx) if idx is not None else arg_counter
+                                if actual_idx in pt_param_indices:
+                                    arg_vid = ae.target
+                                    arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                                    if arg_name:
+                                        dep_vid = self._find_identifier_by_name(
+                                            arg_name, context_vid)
+                                        if dep_vid is not None:
+                                            dep_res = self.parameters_back(
+                                                dep_vid, context_vid,
+                                                max_depth - depth)
+                                            if dep_res.is_controllable:
+                                                return self._cached(cache_key, dep_res)
+                                arg_counter += 1
 
                     # 4d: graph-based function trace (unknown or no taint attribute)
                     if callee and callee not in self._call_stack:
