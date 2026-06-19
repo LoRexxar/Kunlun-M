@@ -218,6 +218,12 @@ class Normalizer:
                 ast_node, add_node, add_edge, ctx_stack, file_path, depth,
             )
 
+        # ---- Global / Nonlocal -----------------------------------------
+        if isinstance(ast_node, (ast.Global, ast.Nonlocal)):
+            return self._walk_global(
+                ast_node, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+
         # ---- Branch nodes ---------------------------------------------
         if isinstance(ast_node, ast.If):
             return self._walk_if(
@@ -467,8 +473,36 @@ class Normalizer:
                     base, add_node, add_edge, ctx_stack, file_path, 0,
                 )
 
-        # Walk decorators
-        for dec in node.decorator_list:
+        # Walk decorators → ANNOTATION nodes
+        for dec_idx, dec in enumerate(node.decorator_list):
+            ann_name = ""
+            if isinstance(dec, ast.Call):
+                if isinstance(dec.func, ast.Name):
+                    ann_name = dec.func.id
+                elif isinstance(dec.func, ast.Attribute):
+                    ann_name = self._expr_text(dec.func)
+                else:
+                    ann_name = "<decorator>"
+            elif isinstance(dec, ast.Name):
+                ann_name = dec.id
+            elif isinstance(dec, ast.Attribute):
+                ann_name = self._expr_text(dec)
+            else:
+                ann_name = "<decorator>"
+            ann_pos = add_node({
+                "label": NodeLabel.ANNOTATION.value,
+                "name": ann_name,
+                "lineno": dec.lineno if hasattr(dec, "lineno") else 0,
+                "language": self.language,
+                "attrs": {"raw_type": "Decorator"},
+            })
+            add_edge({
+                "label": EdgeLabel.OWN.value,
+                "source": pos,
+                "target": ann_pos,
+                "attrs": {"index": dec_idx},
+            })
+            # Also walk the decorator expression for deeper analysis
             self._walk_node(dec, add_node, add_edge, ctx_stack, file_path, 0)
 
         # Push context, walk body
@@ -517,8 +551,36 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        # Walk decorators
-        for dec in node.decorator_list:
+        # Walk decorators → ANNOTATION nodes
+        for dec_idx, dec in enumerate(node.decorator_list):
+            ann_name = ""
+            if isinstance(dec, ast.Call):
+                if isinstance(dec.func, ast.Name):
+                    ann_name = dec.func.id
+                elif isinstance(dec.func, ast.Attribute):
+                    ann_name = self._expr_text(dec.func)
+                else:
+                    ann_name = "<decorator>"
+            elif isinstance(dec, ast.Name):
+                ann_name = dec.id
+            elif isinstance(dec, ast.Attribute):
+                ann_name = self._expr_text(dec)
+            else:
+                ann_name = "<decorator>"
+            ann_pos = add_node({
+                "label": NodeLabel.ANNOTATION.value,
+                "name": ann_name,
+                "lineno": dec.lineno if hasattr(dec, "lineno") else 0,
+                "language": self.language,
+                "attrs": {"raw_type": "Decorator"},
+            })
+            add_edge({
+                "label": EdgeLabel.OWN.value,
+                "source": pos,
+                "target": ann_pos,
+                "attrs": {"index": dec_idx},
+            })
+            # Also walk the decorator expression for deeper analysis
             self._walk_node(dec, add_node, add_edge, ctx_stack, file_path, 0)
 
         # Push context, walk parameters then body
@@ -697,6 +759,25 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
+        # DEPENDENCY node for file dependency tracking
+        dep_modules = [a.name for a in node.names]
+        if isinstance(node, ast.ImportFrom) and node.module:
+            dep_modules = [node.module]
+        for dep_name in dep_modules:
+            dep_pos = add_node({
+                "label": NodeLabel.DEPENDENCY.value,
+                "name": dep_name,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {"source": dep_name},
+            })
+            add_edge({
+                "label": EdgeLabel.FRG.value,
+                "source": pos,
+                "target": dep_pos,
+                "attrs": {"type": frg_type.value},
+            })
+
         # Walk individual import names for identifier nodes
         for alias in node.names:
             alias_name = alias.asname or alias.name
@@ -712,6 +793,24 @@ class Normalizer:
             })
 
         return pos
+
+    # ===================================================================
+    # Global / Nonlocal
+    # ===================================================================
+
+    def _walk_global(self, node, add_node, add_edge,
+                     ctx_stack, file_path, depth) -> int:
+        lineno = node.lineno if hasattr(node, "lineno") else 0
+        last_pos = None
+        for idx, name in enumerate(node.names):
+            pos = self._emit_identifier(
+                add_node, name=name, lineno=lineno,
+                id_type=IdentifierType.GLOBAL, file_path=file_path,
+            )
+            if pos is not None:
+                self._own_edge(add_edge, ctx_stack, pos, depth)
+                last_pos = pos
+        return last_pos
 
     # ===================================================================
     # Branch: If / Elif / Else
@@ -752,17 +851,13 @@ class Normalizer:
             self._walk_node(child, add_node, add_edge, ctx_stack, file_path, idx)
         ctx_stack.pop()
 
-        # Handle orelse: if it's a single If node → elif
+        # Handle orelse: if it's a single If node → elif chain
         # If it's a list of statements → else
         if node.orelse:
             if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
-                # elif — walk as nested If under this branch
-                ctx_stack.append((pos, NodeLabel.BRANCH.value))
-                self._walk_if(
-                    node.orelse[0], add_node, add_edge, ctx_stack, file_path,
-                    depth + 1,
-                )
-                ctx_stack.pop()
+                # elif chain
+                self._walk_elif_chain(pos, node.orelse[0],
+                                      add_node, add_edge, ctx_stack, file_path)
             else:
                 # else branch — create branch node as ast[iffalse] child of if
                 else_pos = add_node({
@@ -788,6 +883,53 @@ class Normalizer:
                 ctx_stack.pop()
 
         return pos
+
+    def _walk_elif_chain(self, parent_pos, elif_node, add_node, add_edge,
+                         ctx_stack, file_path):
+        """Handle Python elif chain (If node in orelse)."""
+        elif_cond = self._expr_text(elif_node.test)
+        elif_pos = add_node({
+            "label": NodeLabel.BRANCH.value,
+            "name": elif_cond,
+            "lineno": elif_node.lineno if hasattr(elif_node, "lineno") else 0,
+            "language": self.language,
+            "attrs": {
+                "type": BranchType.ELIF.value,
+                "condition": elif_cond,
+                "raw_type": "Elif",
+            },
+        })
+        self._ast_edge(add_edge, parent_pos, elif_pos, AstRole.IFFALSE.value)
+
+        # Walk elif body
+        ctx_stack.append((elif_pos, NodeLabel.BRANCH.value))
+        for idx, child in enumerate(elif_node.body):
+            self._walk_node(child, add_node, add_edge, ctx_stack, file_path, idx)
+        ctx_stack.pop()
+
+        # Handle next elif or else
+        if elif_node.orelse:
+            if len(elif_node.orelse) == 1 and isinstance(elif_node.orelse[0], ast.If):
+                self._walk_elif_chain(elif_pos, elif_node.orelse[0],
+                                       add_node, add_edge, ctx_stack, file_path)
+            else:
+                # else block
+                else_pos = add_node({
+                    "label": NodeLabel.BRANCH.value,
+                    "name": "<else>",
+                    "lineno": elif_node.lineno if hasattr(elif_node, "lineno") else 0,
+                    "language": self.language,
+                    "attrs": {
+                        "type": BranchType.ELSE.value,
+                        "condition": "",
+                        "raw_type": "Else",
+                    },
+                })
+                self._ast_edge(add_edge, elif_pos, else_pos, AstRole.IFFALSE.value)
+                ctx_stack.append((else_pos, NodeLabel.BRANCH.value))
+                for idx, child in enumerate(elif_node.orelse):
+                    self._walk_node(child, add_node, add_edge, ctx_stack, file_path, idx)
+                ctx_stack.pop()
 
     # ===================================================================
     # Branch: Ternary (IfExp)
