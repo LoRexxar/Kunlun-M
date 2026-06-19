@@ -1797,7 +1797,7 @@ class Normalizer:
             const_type = ConstType.BOOLEAN
             name = val_str
         elif val_str == "null":
-            const_type = ConstType.CONSTANT
+            const_type = ConstType.NULL
             name = val_str
         else:
             # Try numeric
