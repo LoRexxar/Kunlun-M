@@ -1599,11 +1599,14 @@ class Normalizer:
 
         if isinstance(node.func, ast.Name):
             callee_name = node.func.id
+            op_type = OperatorType.CALL.value
         elif isinstance(node.func, ast.Attribute):
             callee_name = node.func.attr
             call_type = CgCallType.METHOD
+            op_type = OperatorType.METHOD_CALL.value
         else:
             callee_name = self._expr_text(node.func) or "<call>"
+            op_type = OperatorType.CALL.value
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
@@ -1612,7 +1615,7 @@ class Normalizer:
             "end_lineno": end_lineno,
             "language": self.language,
             "attrs": {
-                "type": OperatorType.CALL.value,
+                "type": op_type,
                 "callee": callee_name,
                 "raw_type": "Call",
             },
