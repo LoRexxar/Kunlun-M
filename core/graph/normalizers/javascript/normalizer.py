@@ -577,6 +577,10 @@ class Normalizer:
             else:
                 func_type = FunctionType.METHOD.value
             raw_type = node_type
+        elif node_type in ("ArrowFunctionExpression",
+                           "AsyncArrowFunctionExpression"):
+            func_type = FunctionType.LAMBDA.value
+            raw_type = "ArrowFunction"
         else:
             func_type = FunctionType.FUNCTION.value
             raw_type = node_type
