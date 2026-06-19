@@ -268,6 +268,13 @@ class Normalizer:
         }
         func_type = func_type_map.get(node_type_name, FunctionType.FUNCTION)
 
+        # Detect constructor/destructor by name
+        if func_type == FunctionType.METHOD and name in ("__construct", "__destruct"):
+            if name == "__construct":
+                func_type = FunctionType.CONSTRUCTOR
+            else:
+                func_type = FunctionType.DESTRUCTOR
+
         # For closures/arrows, generate a synthetic name
         if node_type_name in ("Closure", "ArrowFunction"):
             name = f"<{node_type_name}>"
