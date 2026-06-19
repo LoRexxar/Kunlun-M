@@ -485,7 +485,7 @@ class Normalizer:
                             "lineno": self._lineno(field),
                             "language": self.language,
                             "attrs": {
-                                "type": IdentifierType.PROPERTY.value,
+                                "type": IdentifierType.FIELD.value,
                                 "raw_type": "FieldDeclaration",
                             },
                         })
@@ -533,7 +533,7 @@ class Normalizer:
                     "lineno": self._lineno(field),
                     "language": self.language,
                     "attrs": {
-                        "type": IdentifierType.PROPERTY.value,
+                        "type": IdentifierType.FIELD.value,
                         "raw_type": "FieldDeclaration",
                     },
                 })
@@ -1492,7 +1492,7 @@ class Normalizer:
                 "lineno": self._lineno(children[-1]),
                 "language": self.language,
                 "attrs": {
-                    "type": IdentifierType.PROPERTY.value,
+                    "type": IdentifierType.FIELD.value,
                     "raw_type": "FieldIdentifier",
                 },
             })
@@ -1610,7 +1610,7 @@ class Normalizer:
         if node.type == "type_identifier":
             id_type = IdentifierType.STATIC.value
         elif node.type == "field_identifier":
-            id_type = IdentifierType.PROPERTY.value
+            id_type = IdentifierType.FIELD.value
 
         return add_node({
             "label": NodeLabel.IDENTIFIER.value,
