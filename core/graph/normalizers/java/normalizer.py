@@ -226,6 +226,10 @@ class Normalizer:
             return self._walk_member_ref(ast_node, add_node, add_edge, ctx_stack,
                                           file_path, depth)
 
+        if node_type == "Cast":
+            return self._walk_cast(ast_node, add_node, add_edge, ctx_stack,
+                                    file_path, depth)
+
         if node_type == "SuperMethodInvocation":
             return self._walk_super_call(ast_node, add_node, add_edge,
                                           ctx_stack, file_path, depth)
@@ -1137,8 +1141,17 @@ class Normalizer:
         arguments = getattr(node, "arguments", []) or []
         selectors = getattr(node, "selectors", []) or []
 
-        call_type = OperatorType.METHOD_CALL.value if qualifier else OperatorType.CALL.value
-        callee_text = self._expr_text(qualifier) + "." + member if qualifier else member
+        # Detect static calls: qualifier is a plain type name (str), not a node
+        is_static_call = qualifier is not None and isinstance(qualifier, str)
+        if is_static_call:
+            call_type = OperatorType.STATIC_CALL.value
+            callee_text = qualifier + "." + member
+        elif qualifier:
+            call_type = OperatorType.METHOD_CALL.value
+            callee_text = self._expr_text(qualifier) + "." + member
+        else:
+            call_type = OperatorType.CALL.value
+            callee_text = member
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
@@ -1211,6 +1224,11 @@ class Normalizer:
         })
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
+
+        # Emit 'super' as SUPER identifier
+        super_pos = self._emit_identifier(add_node, "super", lineno,
+                                          IdentifierType.SUPER)
+        self._ast_edge(add_edge, pos, super_pos, AstRole.CALLEE.value)
 
         for idx, arg in enumerate(arguments):
             arg_pos = self._walk_node(arg, add_node, add_edge, ctx_stack,
@@ -1359,13 +1377,17 @@ class Normalizer:
         if prefix:
             full_name = "".join(prefix) + full_name
 
+        # Detect unary operators on MemberReference (e.g., x++, x--)
+        has_unary_op = bool(prefix) or bool(postfix)
+        op_type = OperatorType.UNARY_OP.value if has_unary_op else OperatorType.METHOD_CALL.value
+
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
             "name": full_name,
             "lineno": lineno,
             "language": self.language,
             "attrs": {
-                "type": OperatorType.METHOD_CALL.value,
+                "type": op_type,
                 "raw_type": "MemberReference",
             },
         })
@@ -1390,6 +1412,41 @@ class Normalizer:
 
         for sel in selectors:
             self._walk_node(sel, add_node, add_edge, ctx_stack, file_path, 0)
+
+        return pos
+
+    # ===================================================================
+    # Operator: Cast
+    # ===================================================================
+
+    def _walk_cast(self, node, add_node, add_edge,
+                   ctx_stack, file_path, depth) -> int:
+        lineno, _ = self._loc(node)
+        cast_type = getattr(node, "type", None)
+        expression = getattr(node, "expression", None)
+
+        type_text = self._type_text(cast_type) if cast_type else "<unknown>"
+        name = f"({type_text})"
+
+        pos = add_node({
+            "label": NodeLabel.OPERATOR.value,
+            "name": name,
+            "lineno": lineno,
+            "language": self.language,
+            "attrs": {
+                "type": OperatorType.TYPE_CAST.value,
+                "raw_type": "Cast",
+            },
+        })
+
+        self._own_edge(add_edge, ctx_stack, pos, depth)
+
+        # Expression being cast
+        if expression is not None:
+            expr_pos = self._walk_node(expression, add_node, add_edge,
+                                        ctx_stack, file_path, 0)
+            if expr_pos is not None:
+                self._ast_edge(add_edge, pos, expr_pos, AstRole.RIGHT.value)
 
         return pos
 
@@ -1705,6 +1762,31 @@ class Normalizer:
 
         if value is None:
             return None
+
+        # Check for prefix/postfix unary operators (e.g., !true, -1, ++count)
+        prefix = getattr(node, "prefix_operators", []) or []
+        postfix = getattr(node, "postfix_operators", []) or []
+
+        # If unary operators present, emit as UNARY_OP operator node
+        if prefix or postfix:
+            val_str = str(value)
+            full_name = ""
+            if prefix:
+                full_name += "".join(prefix)
+            full_name += val_str
+            if postfix:
+                full_name += "".join(postfix)
+            pos = add_node({
+                "label": NodeLabel.OPERATOR.value,
+                "name": full_name,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {
+                    "type": OperatorType.UNARY_OP.value,
+                    "raw_type": "Literal",
+                },
+            })
+            return pos
 
         # javalang Literal.value is source text: "10", '"hello"', 'true', etc.
         val_str = str(value)
