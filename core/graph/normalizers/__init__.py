@@ -90,5 +90,5 @@ def list_languages() -> list[str]:
 # Pre-register known languages (actual import is lazy via get_normalizer)
 # ---------------------------------------------------------------------------
 
-for _lang in ("php", "javascript", "python", "java", "go", "c", "rust", "ruby", "csharp", "kotlin"):
+for _lang in ("php", "javascript", "python", "java", "go", "c", "rust", "ruby", "csharp", "kotlin", "lua"):
     register(_lang)
