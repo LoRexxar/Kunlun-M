@@ -1065,8 +1065,14 @@ class Normalizer:
                 self._walk_node(child, add_node, add_edge, ctx_stack, file_path, depth)
             return None
 
-        # Python primitive types from phply (string/int literals in params etc.)
-        if isinstance(ast_node, (str, int, float, bool)):
+        # Python primitive types from phply (string/int/float/bool literals)
+        if isinstance(ast_node, bool):
+            return self._emit_const(add_node, name="true" if ast_node else "false",
+                                    lineno=0, const_type=ConstType.BOOLEAN)
+        if isinstance(ast_node, (int, float)):
+            return self._emit_const(add_node, name=repr(ast_node),
+                                    lineno=0, const_type=ConstType.NUMBER)
+        if isinstance(ast_node, str):
             return self._emit_const(add_node, name=repr(ast_node),
                                     lineno=0, const_type=ConstType.STRING)
 
@@ -1243,12 +1249,22 @@ class Normalizer:
             return self._walk_operator(ast_node, node_type_name, add_node, add_edge, ctx_stack, file_path, depth)
         if node_type_name == "Variable":
             name = getattr(ast_node, "name", "")
+            # PHP $this / $self → IdentifierType.THIS
+            id_type = IdentifierType.THIS if name in ("$this", "$self") else IdentifierType.VARIABLE
             return self._emit_identifier(add_node, name=name, lineno=lineno,
-                                          id_type=IdentifierType.VARIABLE, file_path=file_path)
+                                          id_type=id_type, file_path=file_path)
         if node_type_name == "Constant":
             name = getattr(ast_node, "name", "")
+            # 细分: true/false → BOOLEAN, null → NULL, 其余 → CONSTANT
+            _const_name_lower = name.lower()
+            if _const_name_lower in ("true", "false"):
+                const_type = ConstType.BOOLEAN
+            elif _const_name_lower == "null":
+                const_type = ConstType.NULL
+            else:
+                const_type = ConstType.CONSTANT
             return self._emit_const(add_node, name=name, lineno=lineno,
-                                    const_type=ConstType.CONSTANT)
+                                    const_type=const_type)
         if node_type_name == "Return":
             return self._walk_return(ast_node, add_node, add_edge, ctx_stack, file_path, depth)
         if node_type_name == "Namespace":
