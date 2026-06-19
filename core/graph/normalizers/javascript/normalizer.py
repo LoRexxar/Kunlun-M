@@ -43,6 +43,7 @@ _FUNCTION_TYPES = {
     "ArrowFunctionExpression",
     "AsyncFunctionDeclaration", "AsyncFunctionExpression",
     "AsyncArrowFunctionExpression",
+    "ClassMethod",
 }
 
 _CLASS_TYPES = {
@@ -539,9 +540,13 @@ class Normalizer:
         node_type = node.type
         func_id = getattr(node, "id", None)
         is_async = node_type.startswith("Async")
-
+        if node_type == "ClassMethod":
+            is_async = getattr(node, "is_async", False)
         if func_id and hasattr(func_id, "name"):
             name = func_id.name
+        elif node_type == "ClassMethod":
+            key = getattr(node, "key", None)
+            name = key.name if key and hasattr(key, "name") else "<anonymous>"
         elif node_type in ("ArrowFunctionExpression",
                            "AsyncArrowFunctionExpression"):
             name = "<ArrowFunction>"
@@ -563,8 +568,18 @@ class Normalizer:
         signature = f"{name}({', '.join(param_strs)})"
 
         # Determine function type
-        func_type = FunctionType.FUNCTION.value
-        raw_type = node_type
+        if node_type == "ClassMethod":
+            kind = getattr(node, "kind", "method")
+            is_generator = getattr(node, "generator", False)
+            is_static = getattr(node, "static", False)
+            if kind == "constructor":
+                func_type = FunctionType.CONSTRUCTOR.value
+            else:
+                func_type = FunctionType.METHOD.value
+            raw_type = node_type
+        else:
+            func_type = FunctionType.FUNCTION.value
+            raw_type = node_type
 
         pos = add_node({
             "label": NodeLabel.FUNCTION.value,
@@ -579,6 +594,8 @@ class Normalizer:
                 "file_path": file_path,
                 "raw_type": raw_type,
                 "async": is_async,
+                "generator": is_generator if node_type == "ClassMethod" else False,
+                "static": is_static if node_type == "ClassMethod" else False,
             },
         })
 

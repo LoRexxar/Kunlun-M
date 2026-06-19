@@ -483,7 +483,8 @@ class Normalizer:
 
         signature = f"{name}({', '.join(param_strs)})"
         if return_type:
-            signature = f"{return_type} {signature}"
+            rt_text = self._type_text(return_type) if not isinstance(return_type, str) else return_type
+            signature = f"{rt_text} {signature}"
 
         func_type = FunctionType.METHOD.value if node_type != "LambdaExpression" else FunctionType.FUNCTION.value
 
@@ -1701,23 +1702,30 @@ class Normalizer:
     def _walk_literal(self, node, add_node, file_path) -> int:
         lineno, _ = self._loc(node)
         value = getattr(node, "value", None)
-        qual_type = getattr(node, "qualifier", None)
 
         if value is None:
             return None
 
-        if isinstance(value, str):
+        # javalang Literal.value is source text: "10", '"hello"', 'true', etc.
+        val_str = str(value)
+        if val_str.startswith('"') or val_str.startswith("'"):
             const_type = ConstType.STRING
-            name = repr(value)
-        elif isinstance(value, bool):
+            name = val_str
+        elif val_str == "true" or val_str == "false":
             const_type = ConstType.BOOLEAN
-            name = str(value).lower()
-        elif isinstance(value, (int, float)):
-            const_type = ConstType.NUMBER
-            name = str(value)
-        else:
+            name = val_str
+        elif val_str == "null":
             const_type = ConstType.CONSTANT
-            name = str(value)
+            name = val_str
+        else:
+            # Try numeric
+            try:
+                float(val_str)
+                const_type = ConstType.NUMBER
+                name = val_str
+            except ValueError:
+                const_type = ConstType.CONSTANT
+                name = val_str
 
         return self._emit_const(add_node, name=name, lineno=lineno,
                                  const_type=const_type)
