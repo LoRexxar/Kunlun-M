@@ -31,6 +31,7 @@ class AstGraphBuilder:
     def __init__(self) -> None:
         self._nodes: list[dict[str, Any]] = []
         self._edges: list[dict[str, Any]] = []
+        self._node_offset = 0
 
     # -- public API -----------------------------------------------------------
 
@@ -42,18 +43,26 @@ class AstGraphBuilder:
     ) -> None:
         """Add a single file's worth of nodes and edges.
 
-        Args:
-            file_node: The file-level node dict with keys ``label``, ``name``,
-                ``lineno``, ``language``, ``attrs`` (including ``location``,
-                ``content_hash``).
-            nodes: List of non-file node dicts, each with ``label``, ``name``,
-                ``lineno``, ``end_lineno``, ``language``, ``attrs``.
-            edges: List of edge dicts, each with ``label``, ``source``,
-                ``target``, ``attrs``.
+        Edge source/target values from the Normalizer are **local** (0-based
+        per file).  This method applies a global offset so that edges from
+        later files correctly reference their own nodes.
         """
+        offset = self._node_offset
+
+        # File node becomes the first node for this file
         self._nodes.append(file_node)
+        # Offset for child nodes: file_node is at `offset`, so child
+        # source/target values (0-based relative to file_node) need +offset
         self._nodes.extend(nodes)
+
+        # Remap edge source/target to global indices
+        for edge in edges:
+            edge["source"] = edge.get("source", 0) + offset
+            edge["target"] = edge.get("target", 0) + offset
         self._edges.extend(edges)
+
+        # Update offset for next file
+        self._node_offset = len(self._nodes)
 
     def build(self) -> Any:
         """Build the final igraph Graph from accumulated nodes and edges.
@@ -155,3 +164,4 @@ class AstGraphBuilder:
         """Reset the builder, discarding all accumulated nodes and edges."""
         self._nodes.clear()
         self._edges.clear()
+        self._node_offset = 0

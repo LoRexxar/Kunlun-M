@@ -218,7 +218,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 else:
                     continue
                 for sn in names:
-                    name_str = sn.name if hasattr(sn, 'name') else str(sn)
+                    name_str = sn.method
                     all_sink_names.append(name_str)
             except Exception:
                 continue
@@ -234,11 +234,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
         for sink in sinks:
             try:
-                # 对 sink 的每个参数做污点回溯
-                arg_vids = sink.get('arg_vids', [])
+                # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
+                arg_vids = list(set(sink.get('arg_vids', [])))
                 found_controllable = False
                 result = None
                 for arg_vid in arg_vids:
+                    arg_label = _vattr(graph.vs[arg_vid], 'label', '')
+                    if arg_label == 'function':
+                        continue
                     r = analyzer.parameters_back(arg_vid)
                     if r and r.is_controllable:
                         found_controllable = True
@@ -253,10 +256,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     rule_sink_names = []
                     if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
                         for sn in parse_sink_names('|'.join(rule.vul_function)):
-                            rule_sink_names.append(sn.name if hasattr(sn, 'name') else str(sn))
+                            rule_sink_names.append(sn.method)
                     elif hasattr(rule, 'match') and rule.match:
                         for sn in parse_sink_names(rule.match):
-                            rule_sink_names.append(sn.name if hasattr(sn, 'name') else str(sn))
+                            rule_sink_names.append(sn.method)
                     if sink_name.lower() in [n.lower() for n in rule_sink_names]:
                         matched_rule = rule
                         break
