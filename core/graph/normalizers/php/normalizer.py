@@ -66,7 +66,7 @@ _BRANCH_NODES = {
 }
 
 _IMPORT_NODES = {
-    "Include", "Require", "UseDeclaration",
+    "Include", "Require", "UseDeclaration", "UseDeclarations",
 }
 
 _OPERATOR_NODES = {
@@ -377,6 +377,20 @@ class Normalizer:
         attrs: dict[str, Any] = {}
         frg_type = None
 
+        # UseDeclarations is a wrapper — walk its inner UseDeclaration nodes
+        if node_type_name == "UseDeclarations":
+            inner_nodes = getattr(node, "nodes", []) or []
+            for idx, child in enumerate(inner_nodes):
+                self._walk_node(child, add_node, add_edge, ctx_stack, file_path, depth + idx)
+            # Return a dummy position (caller doesn't use it for wrapper nodes)
+            return add_node({
+                "label": NodeLabel.IMPORT.value,
+                "name": "<use_declarations>",
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {"type": ImportType.USE.value},
+            })
+
         if node_type_name in ("Include", "Require"):
             expr = getattr(node, "expr", None)
             once = getattr(node, "once", False)
@@ -425,6 +439,22 @@ class Normalizer:
         if ctx:
             add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
                        "attrs": {"index": depth}})
+
+        # DEPENDENCY node: link import to its resolved dependency
+        if name:
+            dep_pos = add_node({
+                "label": NodeLabel.DEPENDENCY.value,
+                "name": name,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {"source": name},
+            })
+            add_edge({
+                "label": EdgeLabel.FRG.value,
+                "source": pos,
+                "target": dep_pos,
+                "attrs": {"type": frg_type.value if frg_type else FrgType.IMPORT.value},
+            })
 
         return pos
 
@@ -653,6 +683,16 @@ class Normalizer:
             callee_name = getattr(node, "name", "")
             call_type = CgCallType.STATIC
 
+        # Determine operator type based on call kind
+        if node_type_name == "FunctionCall":
+            op_type = OperatorType.CALL
+        elif node_type_name in ("MethodCall", "NullsafeMethodCall"):
+            op_type = OperatorType.METHOD_CALL
+        elif node_type_name == "StaticMethodCall":
+            op_type = OperatorType.STATIC_CALL
+        else:
+            op_type = OperatorType.CALL
+
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
             "name": callee_name,
@@ -660,7 +700,7 @@ class Normalizer:
             "end_lineno": end_lineno,
             "language": self.language,
             "attrs": {
-                "type": OperatorType.CALL.value,
+                "type": op_type.value,
                 "callee": callee_name,
                 "raw_type": node_type_name,
             },
