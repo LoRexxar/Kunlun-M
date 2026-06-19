@@ -490,7 +490,12 @@ class Normalizer:
             rt_text = self._type_text(return_type) if not isinstance(return_type, str) else return_type
             signature = f"{rt_text} {signature}"
 
-        func_type = FunctionType.METHOD.value if node_type != "LambdaExpression" else FunctionType.FUNCTION.value
+        if node_type == "ConstructorDeclaration":
+            func_type = FunctionType.CONSTRUCTOR.value
+        elif node_type == "LambdaExpression":
+            func_type = FunctionType.LAMBDA.value
+        else:
+            func_type = FunctionType.METHOD.value
 
         pos = add_node({
             "label": NodeLabel.FUNCTION.value,
@@ -1681,7 +1686,7 @@ class Normalizer:
                 "lineno": lineno,
                 "language": self.language,
                 "attrs": {
-                    "type": IdentifierType.VARIABLE.value,
+                    "type": IdentifierType.FIELD.value,
                     "raw_type": "FieldDeclaration",
                 },
             })
