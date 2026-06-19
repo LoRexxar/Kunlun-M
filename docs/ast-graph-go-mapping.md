@@ -19,13 +19,14 @@ Go 使用 `tree-sitter-go` 作为 AST 解析器（通过 `tree-sitter.Language` 
 
 ## Node Type Mapping
 
-### Class (2 types)
+### Class (3 types)
 
 | Go AST Node | Unified Label | ClassType | 备注 |
 |-------------|---------------|-----------|------|
 | `package_clause` | CLASS | class | 包名作为 class 节点 |
-| `type_spec` (含 `struct_type`) | CLASS | class | struct 定义 |
+| `type_spec` (含 `struct_type`) | CLASS | struct | struct 定义 |
 | `type_spec` (含 `interface_type`) | CLASS | interface | 接口定义 |
+| `type_spec` (含 enum 关键字) | CLASS | enum | enum 定义（如有） |
 
 ### Import (1 type)
 
@@ -85,17 +86,18 @@ Grouped import `import ("a" "b")` 展开为多个 IMPORT 节点（每个 `import
 | `selector_expression` | OPERATOR | method_call | 属性访问 a.b |
 | `index_expression` | OPERATOR | binary_op | 索引 a[i] |
 
-### Identifier (2 types)
+### Identifier (3 types)
 
 | Go AST Node | Unified Label | IdentifierType | 备注 |
 |-------------|---------------|---------------|------|
 | `identifier` | IDENTIFIER | variable | 普通标识符 |
 | `field_identifier` | IDENTIFIER | property | 字段名（struct member） |
+| `field_identifier` (struct 内部) | IDENTIFIER | field | struct 字段标识符 |
 | `type_identifier` | IDENTIFIER | static | 类型名 |
 
-`nil`/`true`/`false` 被映射为 CONST 节点。
+`nil`/`true`/`false` 被映射为 CONST 节点。其中 `nil` → ConstType=null。
 
-### Const (4 types)
+### Const (5 types)
 
 | Go AST Node | Unified Label | ConstType | 备注 |
 |-------------|---------------|-----------|------|
@@ -105,6 +107,7 @@ Grouped import `import ("a" "b")` 展开为多个 IMPORT 节点（每个 `import
 | `interpreted_string_literal` | CONST | string | 双引号字符串 |
 | `raw_string_literal` | CONST | string | 反引号字符串 |
 | `rune_literal` | CONST | string | 字符 |
+| `nil` | CONST | null | 空值 |
 
 ### Parameter
 

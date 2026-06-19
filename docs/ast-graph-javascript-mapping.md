@@ -70,10 +70,10 @@
 |-------------|-------------|-------------|--------|--------|--------|
 | `FunctionDeclaration` | function | `function` | 函数名 | fullname, signature, async=False | own→ parameter, body |
 | `FunctionExpression` | function | `function` | 函数名（或 `<anonymous>`） | 同上 | 同上 |
-| `ArrowFunctionExpression` | function | `function` | `<ArrowFunction>` | async=False | own→ parameter, body(可能是表达式) |
+| `ArrowFunctionExpression` | function | `lambda` | `<ArrowFunction>` | async=False | own→ parameter, body(可能是表达式) |
 | `AsyncFunctionDeclaration` | function | `function` | 函数名 | async=True | 同上 |
 | `AsyncFunctionExpression` | function | `function` | 函数名（或 `<anonymous>`） | async=True | 同上 |
-| `AsyncArrowFunctionExpression` | function | `function` | `<ArrowFunction>` | async=True | 同上 |
+| `AsyncArrowFunctionExpression` | function | `lambda` | `<ArrowFunction>` | async=True | 同上 |
 
 **Arrow 函数注意：** body 可能是表达式（非 BlockStatement），直接 walk 该表达式。
 

@@ -20,6 +20,7 @@
 | identifier | `Variable`, `NamedParameter`, `StaticVariable`, `Global` | `_walk_node()` / `_emit_identifier()` |
 | const | `Constant`, `ClassConstant`, `MagicConstant`, Python 原始类型(str/int/float/bool) | `_emit_const()` |
 | import | `Include`, `Require`, `UseDeclaration` | `_walk_import()` |
+| dependency | 由 import/use 生成的依赖节点 | `_walk_import()` 内部 |
 
 **特殊类型**（不直接映射为图节点，而是生成 `member` 边）：
 | phply AST 节点类型 | 图表示 | Normalizer 方法 |
@@ -65,6 +66,8 @@
 |-----------|-------------|-------------|--------|--------|--------|
 | `Function` | function | `function` | 函数名 | fullname, params, visibility, static, namespace, modifiers | own→ parameter/operator/branch/return |
 | `Method` | function | `method` | 方法名 | fullname=Class::method | 同上 |
+| `Method`（`__construct`） | function | `constructor` | `__construct` | fullname=Class::__construct | 同上 |
+| `Method`（`__destruct`） | function | `destructor` | `__destruct` | fullname=Class::__destruct | 同上 |
 | `Closure` | function | `lambda` | `{closure}` | params | own→ parameter/operator/branch/return |
 | `ArrowFunction` | function | `lambda` | `{closure}` | params | own→ parameter/operator/branch/return |
 
@@ -174,6 +177,7 @@ branch 的条件表达式（`node.expr`）如果是以下类型，会被 walk �
 | phply 类型 | graph label | graph `type` | `name` | 说明 |
 |-----------|-------------|-------------|--------|------|
 | `Variable` | identifier | `variable` | 含 `$` 前缀（如 `$id`） | phply 的 `Variable.name` 自带 `$` |
+| `Variable`（`$this`/`$self`） | identifier | `this` | `$this` 或 `$self` | PHP 当前对象引用 |
 | `NamedParameter` | identifier | `variable` | 参数名 | PHP 8 命名参数 |
 | `StaticVariable` | identifier | `static` | 变量名 | 静态变量 |
 | `Global` | identifier | `global` | 变量名 | global 声明 |
@@ -185,7 +189,9 @@ branch 的条件表达式（`node.expr`）如果是以下类型，会被 walk �
 
 | phply 类型 | graph label | graph `type` | `name` | 说明 |
 |-----------|-------------|-------------|--------|------|
-| `Constant` | const | `constant` | 常量名 (`true`/`false`/`null`/`PHP_INT_MAX`等) | — |
+| `Constant`（`true`/`false`） | const | `boolean` | `true` 或 `false` | PHP 布尔常量 |
+| `Constant`（`null`） | const | `null` | `null` | PHP null 常量 |
+| `Constant`（其他） | const | `constant` | 常量名 (`PHP_INT_MAX`等) | — |
 | `ClassConstant` | const | `constant` | 常量名 | 如 `MyClass::CONST` |
 | `MagicConstant` | const | `constant` | 魔术常量名 (`__LINE__`/`__FILE__`等) | — |
 | Python `str` | const | `string` | `repr(value)` | ⚠️ 自动创建，来自 Parameter.node、BinaryOp.right、Case.expr |
@@ -210,6 +216,16 @@ branch 的条件表达式（`node.expr`）如果是以下类型，会被 walk �
 | `UseDeclaration` | import | `use` | 类/命名空间名 | `alias`（如有别名） |
 
 `Include`/`Require` 的后缀（`_once`）通过 `expr_type` 区分 → 对应 `include_once`/`require_once`。
+
+### DEPENDENCY 节点（`_walk_import()` 内部生成）
+
+每个 import 节点会额外生成一个 `dependency` 子节点，通过 `frg` 边连接：
+
+| 图标签 | graph `type` | `name` | `attrs` | 边 | 说明 |
+|--------|-------------|--------|--------|-----|------|
+| dependency | `dependency` | 导入的类/命名空间/文件名 | `source`=导入名 | `import --frg[type=import/use/include]--> dependency` | 表示文件的外部依赖关系 |
+
+**注意**：`dependency` 节点本身无语句级语义，主要用于文件级依赖追踪。
 
 ---
 

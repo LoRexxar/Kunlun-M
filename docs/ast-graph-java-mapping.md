@@ -26,13 +26,19 @@
 | `branch:try` | `TryStatement` | `_walk_try` |
 | `branch:catch` | `CatchClause` | `_walk_catch` |
 | `branch:finally` | `TryStatement.finally_block` | `_walk_try` 内部生成 |
-| `operator:call` | `MethodInvocation` | `_walk_call` |
+| `operator:call` | `MethodInvocation`（无 qualifier） | `_walk_call` |
+| `operator:method_call` | `MethodInvocation`（有 qualifier 节点） | `_walk_call` |
+| `operator:static_call` | `MethodInvocation`（qualifier 为类型名字符串，如 `Class.method()`） | `_walk_call` |
 | `operator:new` | `ClassCreator` | `_walk_new` |
-| `operator:assign` | `Assignment`, `LocalVariableDeclaration`, `FieldDeclaration` | `_walk_assign`, `_walk_var_decl`, `_walk_field_decl` |
+| `operator:assign` | `Assignment`, `LocalVariableDeclaration` | `_walk_assign`, `_walk_var_decl` |
 | `operator:binary_op` | `BinaryOperation` | `_walk_binary` |
-| `operator:member` | `MemberReference` | `_walk_member_ref` |
+| `operator:unary_op` | `Literal`/`MemberReference`（有 prefix/postfix operators，如 `!x`/`x++`） | `_walk_literal`, `_walk_member_ref` |
+| `operator:type_cast` | `Cast`（如 `(Type)expr`） | `_walk_cast` |
+| `operator:member` | `MemberReference`（无 prefix/postfix operators） | `_walk_member_ref` |
 | `identifier:this` | `This` | 直接 emit |
-| `const` | `Literal` | `_walk_literal` |
+| `identifier:super` | `SuperMethodInvocation`/`SuperConstructorInvocation` 中的 `super` 关键字 | `_walk_super_call` |
+| `identifier:field` | `FieldDeclaration`（class 成员变量） | `_walk_field_decl` |
+| `const` | `Literal`（string / number / boolean / **null**） | `_walk_literal` |
 | `return` | `ReturnStatement` | `_walk_return` |
 | `operator:throw` | `ThrowStatement` | `_walk_throw` |
 | `operator:break` | `BreakStatement` | `_walk_break` |
@@ -70,7 +76,7 @@
 | `label` | 固定 | `function` |
 | `name` | `node.name` / `"<lambda>"` | 方法名 |
 | `attrs.fullname` | 同 name | |
-| `attrs.type` | 推导 | `method` / `function`(lambda) |
+| `attrs.type` | 推导 | `method`(MethodDeclaration) / `constructor`(ConstructorDeclaration) / `lambda`(LambdaExpression) |
 | `attrs.signature` | 拼接 | `"ReturnType name(ParamType param, ...)"` |
 | `attrs.static` | `"static" in node.modifiers` | 是否静态方法 |
 
@@ -78,6 +84,13 @@
 - `MethodDeclaration.body` 是 **list**（直接语句列表），不是 BlockStatement 包装
 - `LambdaExpression.body` 可能是表达式或 block
 - `ConstructorDeclaration.name` 是类名，不是 `"<init>"`
+
+**函数类型细分**（`attrs.type`）:
+| attrs.type 值 | 源 AST 节点 | 对应 FunctionType 枚举 |
+|---------------|-------------|----------------------|
+| `method` | `MethodDeclaration` | `FunctionType.METHOD` |
+| `constructor` | `ConstructorDeclaration` | `FunctionType.CONSTRUCTOR` |
+| `lambda` | `LambdaExpression` | `FunctionType.LAMBDA` |
 
 ---
 
@@ -156,10 +169,13 @@ TryStatement:
 
 ### 5.1 MethodInvocation
 
-| 图属性 | 来源 | 说明 |
-|--------|------|------|
-| `attrs.type` | 推导 | `method_call`(有 qualifier) / `call`(无 qualifier) |
-| `name` | 拼接 | `"qualifier.method"` 或 `"method"` |
+`MethodInvocation` 根据 qualifier 类型细分为三种 operator:
+
+| 图属性 `attrs.type` | 条件 | 示例 |
+|---------------------|------|------|
+| `call` | 无 qualifier | `method()` |
+| `method_call` | qualifier 为 AST 节点（表达式） | `obj.method()` |
+| `static_call` | qualifier 为字符串（类型名） | `Class.method()` |
 
 **边**: `CALLEE`(qualifier), `CALLEE`(member identifier), `ARG`(arguments)
 
@@ -173,13 +189,59 @@ TryStatement:
 
 ### 5.4 MemberReference
 
-`qualifier.member` → `operator:method_call`
+`qualifier.member` → 根据 prefix/postfix operators 存在与否，映射为 `operator:unary_op` 或 `operator:method_call`:
 
-**javalang 特点**: `MemberReference` 还包含 `postfix_operators`（`x++`, `x--`）和 `prefix_operators`（`++x`, `--x`）。
+| 图属性 `attrs.type` | 条件 | 示例 |
+|---------------------|------|------|
+| `method_call` | 无 prefix/postfix operators | `obj.field` |
+| `unary_op` | 有 prefix/postfix operators | `x++`, `++x`, `x--`, `--x` |
+
+**javalang 特点**: `MemberReference` 包含 `postfix_operators`（`x++`, `x--`）和 `prefix_operators`（`++x`, `--x`）。
 
 ### 5.5 Assignment
 
 `expressionl = expressionr` → `operator:assign`
+
+### 5.6 一元运算符 (unary_op)
+
+**来源**: `Literal` 或 `MemberReference` 带有 prefix/postfix operators
+
+| AST 节点 | 示例 | 映射 |
+|----------|------|------|
+| `Literal`（prefix） | `!true`, `-1` | `operator:unary_op` |
+| `MemberReference`（prefix/postfix） | `++x`, `x--` | `operator:unary_op` |
+
+**javalang 特点**: javalang 不提供独立的 UnaryExpression 节点，一元运算符作为 Literal/MemberReference 的 `prefix_operators` 或 `postfix_operators` 附加。
+
+### 5.7 类型转换 (type_cast)
+
+**源节点**: `Cast`
+
+`(Type) expression` → `operator:type_cast`, name=`"(Type)"`
+
+**边**: `AST(role=RIGHT)` 指向被转换的表达式。
+
+### 5.8 Super 标识符 (identifier:super)
+
+**来源**: `SuperMethodInvocation` / `SuperConstructorInvocation`
+
+`super.method()` / `super()` 调用中，`super` 关键字被提取为独立的 `identifier` 节点，`attrs.type` = `super`。
+
+**边**: `AST(role=CALLEE)` 从 super 调用节点指向 super 标识符节点。
+
+### 5.9 Field 标识符 (identifier:field)
+
+**源节点**: `FieldDeclaration`（class 成员变量）
+
+`FieldDeclaration` 中的每个 declarator 映射为独立的 `identifier` 节点（而非 `operator:assign`），`attrs.type` = `field`。
+
+**边**: `OWN`（从 class 节点）, `AST(role=VALUE)`（若有初始化表达式）。
+
+### 5.10 null 常量 (const:null)
+
+**源节点**: `Literal`（value 为 `"null"`）
+
+Java `null` 字面量映射为 `const` 节点，`attrs.type` = `null`。与其他 const 类型（string / number / boolean）并列。
 
 ---
 
@@ -195,11 +257,17 @@ TryStatement:
 | elif | Elif 关键字 | elseif | else if 嵌套 | else if 嵌套 |
 | 函数类型 | FunctionDef/Async | function | FunctionDeclaration/Expression | Method/Constructor/Lambda |
 | 匿名函数 | lambda | closure | ArrowFunctionExpression | LambdaExpression |
-| this | self (identifier) | $this (variable) | ThisExpression | This 节点 |
+| this/self | self (identifier) | $this (variable) | ThisExpression | This 节点 |
 | 构造函数 | __init__ | __construct | constructor | ConstructorDeclaration |
 | 枚举 | 无 | enum (JD) | 无 | EnumDeclaration |
 | 注解/装饰器 | @decorator | attribute (@) | decorator (@) | Annotation (@) |
 | 修饰符 | 无 | public/private 等 | 无 | modifiers (set) |
+| 静态方法调用 | 无特殊 | `::` 运算符 | 无特殊 | **static_call**（qualifier 为类型名） |
+| 一元运算符 | UnaryOp 节点 | 前缀/后缀运算符 | UnaryExpression | **附加在 Literal/MemberReference 上** |
+| 类型转换 | 无特殊 | 无特殊 | 无特殊 | **Cast 节点 → type_cast** |
+| super 关键字 | super() | parent:: | super | **Super 标识符节点** |
+| null 字面量 | None | null | null/null | **const:null** |
+| 类成员变量 | 无特殊 | 无特殊 | 无特殊 | **identifier:field**（非 assign） |
 
 ---
 
@@ -213,3 +281,10 @@ TryStatement:
 6. **Modifiers 是 set**: `{"public", "static", "final"}` 等
 7. **ReferenceType 用于 extends/implements**: 不是简单的字符串
 8. **Assignment 是独立节点**: 有 `expressionl` 和 `expressionr` 属性
+9. **MethodInvocation.qualifier 类型区分静态调用**: qualifier 为 `str`（类型名）→ `static_call`；qualifier 为 AST 节点 → `method_call`；无 qualifier → `call`
+10. **一元运算符无独立 AST 节点**: `prefix_operators`/`postfix_operators` 附加在 Literal 或 MemberReference 上，需在 Normalizer 中检测并映射为 `unary_op`
+11. **类型转换有独立 Cast 节点**: `(Type)expr` → `operator:type_cast`
+12. **Super 关键字作为独立标识符**: `SuperMethodInvocation`/`SuperConstructorInvocation` 中的 `super` 提取为 `identifier:super`
+13. **FieldDeclaration 映射为 identifier:field**: 类成员变量不再映射为 `operator:assign`，而是 `identifier` 节点，`attrs.type` = `field`
+14. **null 是 const 子类型**: `Literal` 值为 `"null"` 时，`attrs.type` = `null`
+15. **函数类型三分**: `ConstructorDeclaration` → `constructor`，`LambdaExpression` → `lambda`，`MethodDeclaration` → `method`

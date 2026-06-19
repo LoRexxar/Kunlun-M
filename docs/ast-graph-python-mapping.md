@@ -29,6 +29,8 @@
 | identifier | `Name`, `Attribute`（member chain） | `_walk_name()`, `_walk_attribute()` |
 | const | `Constant` | `_walk_constant()` |
 | import | `Import`, `ImportFrom` | `_walk_import()` |
+| annotation | `decorator_list`（ClassDef/FunctionDef 装饰器） | `_walk_class()`, `_walk_function()` 内部 |
+| dependency | `Import`, `ImportFrom`（每条 import 生成的依赖节点） | `_walk_import()` 内部 |
 
 **透明节点**（不创建图节点，直接 walk 子节点）：
 | stdlib ast 节点类型 | 处理方式 |
@@ -37,7 +39,7 @@
 | `ListComp`, `SetComp`, `DictComp`, `GeneratorExp` | 直接 walk generators 和元素 |
 | `Starred`, `NamedExpr` | 直接 walk 子节点 |
 | `Expr`（顶层表达式语句） | 直接 walk value |
-| `Delete`, `Global`, `Nonlocal`, `Assert`, `Pass` | 直接 walk 或跳过 |
+| `Delete`, `Nonlocal`, `Assert`, `Pass` | 直接 walk 或跳过 |
 | `With`, `AsyncWith` | 直接 walk body 和 items |
 | `AnnAssign`, `TypeAlias` | 直接 walk |
 | `JoinedStr`, `FormattedValue`（f-string） | 直接 walk |
@@ -67,6 +69,27 @@
 **命名约定：**
 - `fullname` 包含模块路径前缀（如 `django.http.HttpResponse`）
 - decorators 作为 ast[role=decorator] 子节点
+
+---
+
+## 2.5 Annotation 节点映射
+
+### 装饰器（`_walk_class()` / `_walk_function()` 内部）
+
+Python 装饰器（`@decorator`）现在会生成独立的 ANNOTATION 节点，而非被跳过。
+ClassDef 和 FunctionDef 的 `decorator_list` 中每个装饰器都会生成一个 ANNOTATION 节点。
+
+| ast 来源 | graph label | graph `type` | `name` | `attrs` | 连接方式 |
+|----------|-------------|-------------|--------|--------|----------|
+| `@simple`（`ast.Name`） | annotation | — | 装饰器名称 | raw_type=Decorator | own→ class/function（index=装饰器序号） |
+| `@obj.method()`（`ast.Call(func=Attribute)`） | annotation | — | `obj.method`（属性路径） | raw_type=Decorator | own→ class/function（index=装饰器序号） |
+| `@func(args)`（`ast.Call(func=Name)`） | annotation | — | 函数名 | raw_type=Decorator | own→ class/function（index=装饰器序号） |
+| 其他表达式 | annotation | — | `<decorator>` | raw_type=Decorator | own→ class/function |
+
+**说明：**
+- ANNOTATION 节点通过 `own` 边连接到所属的 class/function 节点，`attrs.index` 表示装饰器顺序。
+- 装饰器表达式本身也会被 walk，生成子节点（如 method_call operator、identifier 等），便于深度分析。
+- 之前装饰器被跳过/忽略，现在统一生成 ANNOTATION 节点供 analyzer 使用。
 
 ---
 
@@ -110,6 +133,20 @@
 
 **注意：** Python import 不创建 function 节点。`from django.http import HttpResponse` 创建 import 节点 + identifier 节点。如果后续使用了 `HttpResponse()` 作为调用，analyzer 通过 `use` 边找到 identifier 节点。
 
+### DEPENDENCY 节点（`_walk_import()` 内部）
+
+每条 `import` / `from ... import` 语句会额外生成 DEPENDENCY 节点，用于文件依赖追踪。
+
+| ast 来源 | graph label | `name` | `attrs` | 边 |
+|----------|-------------|--------|--------|-----|
+| `import x` | dependency | `x`（模块名） | source=模块名 | import → FRG → dependency |
+| `from x import y` | dependency | `x`（模块名） | source=模块名 | import → FRG(from_import) → dependency |
+
+**说明：**
+- `import os, sys` 会生成 2 个 DEPENDENCY 节点（`os` 和 `sys`），各通过 FRG 边连接到同一个 import 节点。
+- `from django.http import HttpResponse` 生成 1 个 DEPENDENCY 节点（`django.http`，而非 `HttpResponse`）。
+- DEPENDENCY 节点用于构建文件依赖图，不参与数据流分析。
+
 ---
 
 ## 6. Branch 节点映射
@@ -119,14 +156,16 @@
 | ast 类型 | graph label | graph `type` | `name` | `attrs` | 子节点 |
 |----------|-------------|-------------|--------|--------|--------|
 | `If` | branch | `if` | 条件文本 | condition=条件文本, raw_type=If | ast[role=condition] → 条件表达式 |
-| elif（嵌套 If） | branch | `elif` | elif 条件 | condition, raw_type=If | 同上 |
+| elif（`orelse[0]` 为 If） | branch | `elif` | elif 条件文本 | condition=条件文本, raw_type=Elif | ast[role=condition] → 条件表达式 |
 | else（orelse body） | branch | `else` | `<else>` | condition=空, raw_type=Else | ast[role=iffalse] 连接到父 if |
 
 **结构规则：**
 - If body 语句通过 `own` 边连接到 if branch（通过 `ctx_stack` 上下文）
 - Else 通过 **`ast[role=iffalse]`** 边连接到 if branch（不是 own）
 - Else body 语句通过 `own` 连接到 else branch
-- elif 作为嵌套 If 处理，own 连接到父 if
+- elif 通过 **`_walk_elif_chain()`** 递归处理，通过 `ast[role=iffalse]` 边连接到父 if/elif
+- elif body 语句通过 `own` 边连接到 elif branch
+- elif 链中后续 elif/else 同样通过 `ast[role=iffalse]` 递归连接
 
 ### `_walk_ifexp()` — 三元表达式
 
@@ -239,16 +278,22 @@
 
 | ast 类型 | graph label | graph `type` | `name` | `attrs` | ast 子节点 |
 |----------|-------------|-------------|--------|--------|-----------|
-| `Call` | operator | `call` | callee 名称 | raw_type=Call | ast[role=callee] → callee节点; ast[role=arg] → 每个参数 |
+| `Call(func=Name)` | operator | `call` | callee 名称 | callee=名称, raw_type=Call | use→ function(外部); ast[role=arg] → 每个参数 |
+| `Call(func=Attribute)` | operator | `method_call` | 方法名（attr） | callee=方法名, raw_type=Call | ast[role=callee] → identifier(property); member←obj |
+| `Call(func=其他)` | operator | `call` | 表达式文本 | callee=名称, raw_type=Call | 同上 |
 
 **callee 解析规则：**
-- `func` 是 `Name` → callee 名称 = `node.id`
-- `func` 是 `Attribute` → 生成 member chain，callee 名称 = 最后一段属性名（如 `os.system` 的 callee = `"system"`）
-- `func` 是 `Call`（IIFE） → callee 名称 = `"lambda"` 或递归
+- `func` 是 `Name` → callee 名称 = `node.id`，graph `type` = `call`
+- `func` 是 `Attribute` → callee 名称 = 最后一段属性名（如 `os.system` 的 callee = `"system"`），graph `type` = **`method_call`**
+- `func` 是 `Call`（IIFE） → callee 名称 = `"lambda"` 或递归，graph `type` = `call`
+
+**⚠️ call vs method_call：**
+- `call` — 普通函数调用（`func()`、`print()` 等），`func` 是 `Name` 或其他非 Attribute 类型。
+- `method_call` — 方法调用（`obj.method()`），`func` 是 `Attribute`。analyzer 通过 `type=method_call` 区分以检查 member chain receiver（如 `_is_superglobal_method_call`）。
 
 **Member chain 表达：** `os.system(cmd)` 创建：
 - `identifier:os` → member → `identifier:system`（property）
-- `operator:call(system)` → ast[callee] → `identifier:system`
+- `operator:method_call(system)` → ast[callee] → `identifier:system`
 - 如果 `os` 已通过 import 注册，analyzer 通过 `_is_superglobal_method_call` 检查
 
 ### Subscript (`_walk_subscript()`)
@@ -297,6 +342,20 @@
 | `ast.Store` | `variable`（赋值目标） |
 | `ast.Del` | `variable` |
 
+### Global / Nonlocal (`_walk_global()`)
+
+`global x` / `nonlocal x` 语句现在会为每个声明的变量名生成 identifier 节点，type 标记为 `global`。
+
+| ast 类型 | graph label | graph `type` | `name` | `attrs` |
+|----------|-------------|-------------|--------|--------|
+| `Global` | identifier | `global` | 变量名 | — |
+| `Nonlocal` | identifier | `global` | 变量名 | — |
+
+**说明：**
+- `global` identifier 节点通过 `own` 边连接到当前上下文。
+- `global x` 语句中的每个变量名都会生成独立的 identifier 节点。
+- `Nonlocal` 也由 `_walk_global()` 统一处理，type 同样为 `global`。
+
 ### Constant (`_walk_constant()`)
 
 | ast 类型 | graph label | graph `type` | `name` | `attrs` |
@@ -327,7 +386,7 @@
 | BinOp | `name = op_symbol`（如 `"+"`) | `name = op_symbol`（如 `"+"`)，✅ 一致 |
 | UnaryOp | `name = op_symbol`（如 `"!"`) | `name = op_symbol`（如 `"not"`, `"-"`) |
 | Assign | `name = "lhs = rhs"` 文本 | `name = "lhs = rhs"` 文本 |
-| Call | `name = callee_name` | `name = callee_name` |
+| Call | `name = callee_name` | `name = callee_name`；方法调用 `type = method_call` vs 普通调用 `type = call` |
 
 **统一规范：** 所有二元/一元/比较操作符的 `name` 必须是操作符符号，不是完整表达式文本。完整表达式文本存放在 `attrs.expr_text`。
 

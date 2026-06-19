@@ -70,15 +70,15 @@ C/C++ 使用 `tree-sitter-c` 作为 AST 解析器（通过 `tree_sitter.Language
 | `member_expression` / `field_expression` | OPERATOR | method_call | a.b / a->b |
 | `subscript_expression` | OPERATOR | binary_op | a[i] |
 
-### Identifier (2 types)
+### Identifier (3 types)
 
-| C AST Node | Unified Label | IdentifierType |
-|-----------|---------------|---------------|
-| `identifier` | IDENTIFIER | variable |
-| `field_identifier` | IDENTIFIER | property |
-| `type_identifier` | IDENTIFIER | static |
+| C AST Node | Unified Label | IdentifierType | 备注 |
+|-----------|---------------|---------------|------|
+| `identifier` | IDENTIFIER | variable | 普通变量名 |
+| `field_identifier` | IDENTIFIER | field | struct 成员（如 `user.name` 中的 `name`） |
+| `type_identifier` | IDENTIFIER | static | 类型名（struct/enum/typedef） |
 
-### Const (3 types)
+### Const (4 types)
 
 | C AST Node | Unified Label | ConstType |
 |-----------|---------------|-----------|
