@@ -12,7 +12,7 @@
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
 
-from .scanner import scan, scan_single, Running, score2level, SingleRule
+from .scanner import scan, scan_single, oldscan, Running, score2level, SingleRule
 from .matcher import VulnerabilityMatcher as Core
 from .filters import VulnerabilityFilter
 from .rule_generator import init_match_rule, NewCore
@@ -20,7 +20,7 @@ from .rule_generator import init_match_rule, NewCore
 VulnerabilityMatcher = Core
 
 __all__ = [
-    'scan', 'scan_single', 'Running', 'score2level', 'SingleRule',
+    'scan', 'oldscan', 'scan_single', 'Running', 'score2level', 'SingleRule',
     'Core', 'VulnerabilityMatcher', 'VulnerabilityFilter',
     'init_match_rule', 'NewCore',
 ]

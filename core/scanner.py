@@ -157,6 +157,183 @@ def scan_single(target_directory, single_rule, files=None, language=None, tamper
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
          extension_count=0, files=None, tamper_name=None, is_unconfirm=False):
+    """Graph-based scan — AST 图扫描引擎入口"""
+    r = Rule(language)
+    rules = r.rules(special_rules)
+    find_vulnerabilities = []
+
+    if len(rules) == 0:
+        logger.critical('no rules!')
+        return False
+    logger.info('[PUSH] {rc} Rules'.format(rc=len(rules)))
+
+    # 按语言分组规则
+    languages = language if isinstance(language, list) else [language]
+    lang_rules = {}
+    for rule_key in sorted(rules.keys()):
+        rule_cls = getattr(rules[rule_key], rule_key)
+        rule = rule_cls()
+        if rule.status is False and len(rules) != 1:
+            continue
+        lang = rule.language.lower() if rule.language else 'unknown'
+        if lang not in lang_rules:
+            lang_rules[lang] = []
+        lang_rules[lang].append(rule)
+
+    # 尝试构建 AST 图
+    graph = None
+    try:
+        from core.pretreatment import ast_object
+        from core.graph.graph_pipeline import build_ast_graph
+        db_path = os.path.join(RUNNING_PATH, 'db', 'kunlun.db')
+        graph = build_ast_graph(ast_object, db_path=db_path)
+        logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
+    except Exception as e:
+        logger.warning('[SCAN] [GRAPH] Build failed, falling back to old scan: %s', e)
+
+    if graph is None or graph.vcount() == 0:
+        logger.warning('[SCAN] [GRAPH] Empty or no graph, falling back to old scan')
+        return oldscan(target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=special_rules,
+                       language=language, framework=framework, file_count=file_count,
+                       extension_count=extension_count, files=files, tamper_name=tamper_name,
+                       is_unconfirm=is_unconfirm)
+
+    # 对每种语言使用 GraphAnalyzer 扫描
+    from core.graph.graph_analyzer import GraphAnalyzer
+    from core.utils import parse_sink_names
+    from Kunlun_M.const import VulnerabilityResult
+    from utils.igraph_compat import _vattr
+
+    for lang, lang_rule_list in lang_rules.items():
+        analyzer = GraphAnalyzer(graph, language=lang)
+
+        # 收集该语言所有规则的 sink 函数名
+        all_sink_names = []
+        for rule in lang_rule_list:
+            try:
+                if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list) and len(rule.vul_function) > 0:
+                    names = parse_sink_names('|'.join(rule.vul_function))
+                elif hasattr(rule, 'match') and rule.match:
+                    names = parse_sink_names(rule.match)
+                else:
+                    continue
+                for sn in names:
+                    name_str = sn.name if hasattr(sn, 'name') else str(sn)
+                    all_sink_names.append(name_str)
+            except Exception:
+                continue
+
+        if not all_sink_names:
+            continue
+
+        all_sink_names = list(set(all_sink_names))
+        logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
+
+        sinks = analyzer.find_sinks(sink_names=all_sink_names)
+        logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
+
+        for sink in sinks:
+            try:
+                result = analyzer.parameters_back(sink['vid'])
+                if not result or not result.is_controllable:
+                    continue
+
+                sink_name = sink.get('name', '')
+                matched_rule = None
+                for rule in lang_rule_list:
+                    rule_sink_names = []
+                    if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
+                        for sn in parse_sink_names('|'.join(rule.vul_function)):
+                            rule_sink_names.append(sn.name if hasattr(sn, 'name') else str(sn))
+                    elif hasattr(rule, 'match') and rule.match:
+                        for sn in parse_sink_names(rule.match):
+                            rule_sink_names.append(sn.name if hasattr(sn, 'name') else str(sn))
+                    if sink_name.lower() in [n.lower() for n in rule_sink_names]:
+                        matched_rule = rule
+                        break
+
+                if matched_rule is None:
+                    continue
+
+                # 构建污点传播链
+                chain = []
+                for vid in result.path:
+                    v = graph.vs[vid]
+                    node_label = _vattr(v, 'label', '')
+                    node_name = _vattr(v, 'name', '')
+                    attrs = _vattr(v, 'attrs', {})
+                    node_file = attrs.get('path', '') if isinstance(attrs, dict) else ''
+                    node_lineno = _vattr(v, 'lineno', 0)
+                    chain.append((node_label, node_name, node_file, node_lineno))
+
+                # 构建 VulnerabilityResult
+                sink_attrs = _vattr(graph.vs[sink['vid']], 'attrs', {})
+                file_path = sink_attrs.get('path', '') if isinstance(sink_attrs, dict) else ''
+                lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0)
+
+                vuln = VulnerabilityResult.from_match(
+                    (file_path, lineno, sink_name),
+                    svid=matched_rule.svid,
+                    language=matched_rule.language,
+                    rule_name=matched_rule.vulnerability,
+                    author=matched_rule.author
+                )
+                vuln.analysis = result.reason
+                vuln.chain = chain
+                find_vulnerabilities.append(vuln)
+                logger.debug('[CVI-{cvi}] [GRAPH] Found: {sink}'.format(
+                    cvi=matched_rule.svid, sink=sink_name))
+
+            except Exception as e:
+                logger.debug('[SCAN] [GRAPH] Sink analysis error: %s', e)
+                continue
+
+    # 写入数据库（复用旧逻辑）
+    data = []
+    data2 = []
+    trigger_rules = []
+    for idx, x in enumerate(find_vulnerabilities):
+        db_params = x.to_db_params(target_directory=target_directory)
+        trigger = db_params['vulfile_path']
+        code_content = db_params['source_code']
+        commit = u'@{author}'.format(author=x.commit_author)
+        row = [idx + 1, x.id, x.rule_name, x.language, trigger, commit,
+               code_content, x.analysis]
+        row2 = [idx + 1, x.chain]
+
+        sr = check_update_or_new_scanresult(scan_task_id=a_sid, is_active=True, **db_params)
+        if sr:
+            for chain in x.chain:
+                if type(chain) == tuple:
+                    ResultFlow = get_resultflow_class(int(a_sid))
+                    node_source = show_context(chain[2], chain[3], is_back=True)
+                    rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
+                                    node_path=chain[2], node_source=node_source, node_lineno=chain[3])
+                    rf.save()
+
+        data.append(row)
+        data2.append(row2)
+
+    if s_sid is not None:
+        Running(s_sid).data({
+            'code': 1001,
+            'msg': 'scan finished',
+            'result': {
+                'vulnerabilities': [x.__dict__ for x in find_vulnerabilities],
+                'language': ",".join(languages),
+                'framework': framework,
+                'extension': extension_count,
+                'file': file_count,
+                'push_rules': len(rules),
+                'trigger_rules': len(trigger_rules),
+                'target_directory': target_directory
+            }
+        })
+    return True
+
+
+def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
+            extension_count=0, files=None, tamper_name=None, is_unconfirm=False):
     r = Rule(language)
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
@@ -313,6 +490,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             }
         })
     return True
+
+old_scan = oldscan
 
 
 class SingleRule(object):

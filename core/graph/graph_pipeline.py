@@ -146,17 +146,24 @@ def build_ast_graph(
 
     graph = builder.build()
 
-    # ── 数据流分析 ──
+    # ── 数据流分析（按语言分别运行） ──
     edge_count_before = graph.ecount()
     try:
         from core.graph.edge_builders import run_all
 
-        # TODO: 从处理文件中自动检测语言
-        results = run_all(graph, language="php")
-        total_added = sum(results.values())
+        detected_languages = [lang for lang, cls in normalizer_cache.items() if cls is not None]
+        total_added = 0
+        for lang in detected_languages:
+            results = run_all(graph, language=lang)
+            added = sum(results.values())
+            total_added += added
+            logger.info(
+                "[GraphPipeline] Edge builders (%s): %s（+ %d edges）",
+                lang, results, added,
+            )
         logger.info(
-            "[GraphPipeline] Edge builders 完成: %s（总边数: %d → %d）",
-            results, edge_count_before, graph.ecount(),
+            "[GraphPipeline] Edge builders 完成: 总边数 %d → %d（+ %d）",
+            edge_count_before, graph.ecount(), total_added,
         )
     except Exception as e:
         logger.warning("[GraphPipeline] Edge builders 失败，跳过: %s", e)
