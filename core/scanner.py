@@ -234,8 +234,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
         for sink in sinks:
             try:
-                result = analyzer.parameters_back(sink['vid'])
-                if not result or not result.is_controllable:
+                # 对 sink 的每个参数做污点回溯
+                arg_vids = sink.get('arg_vids', [])
+                found_controllable = False
+                result = None
+                for arg_vid in arg_vids:
+                    r = analyzer.parameters_back(arg_vid)
+                    if r and r.is_controllable:
+                        found_controllable = True
+                        result = r
+                        break
+                if not found_controllable:
                     continue
 
                 sink_name = sink.get('name', '')
