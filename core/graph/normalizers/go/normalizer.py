@@ -50,7 +50,7 @@ _SKIP_TYPES = frozenset({
     "switch", "case", "default", "for", "if", "else",
     "break", "continue", "fallthrough", "goto",
     "package", "import", "struct", "interface", "map",
-    "nil", "true", "false",
+    "true", "false",
     "chan", "send_statement",
 })
 
@@ -379,6 +379,11 @@ class Normalizer:
         if ntype in _IDENTIFIER_TYPES:
             return self._walk_identifier(node, add_node, file_path)
 
+        # ---- Nil literal -----------------------------------------------
+        if ntype == "nil":
+            return self._emit_const(add_node, "nil", self._lineno(node),
+                                    ConstType.NULL)
+
         # ---- Ternary-like (Go has no ternary) ------------------------
         # (no-op, Go doesn't have ternary operator)
 
@@ -535,7 +540,7 @@ class Normalizer:
         iface_node = self._find_child_by_type(spec, "interface_type")
 
         if struct_node is not None:
-            cls_type = ClassType.CLASS.value
+            cls_type = ClassType.STRUCT.value
         elif iface_node is not None:
             cls_type = ClassType.INTERFACE.value
         else:
@@ -557,7 +562,10 @@ class Normalizer:
 
         # Walk struct fields
         if struct_node is not None:
-            fields = self._find_children_by_type(struct_node, "field_declaration")
+            field_list = self._find_child_by_type(struct_node,
+                                                   "field_declaration_list")
+            fields = (self._find_children_by_type(field_list,
+                        "field_declaration") if field_list else [])
             for f_idx, field in enumerate(fields):
                 fname = self._find_child_by_type(field, "field_identifier")
                 ftype = self._find_child_by_type(field, "type_identifier")
@@ -568,7 +576,7 @@ class Normalizer:
                         "lineno": self._lineno(field),
                         "language": self.language,
                         "attrs": {
-                            "type": IdentifierType.PROPERTY.value,
+                            "type": IdentifierType.FIELD.value,
                             "go_type": self._text(ftype) if ftype else "",
                             "raw_type": "FieldDeclaration",
                         },
@@ -1338,6 +1346,11 @@ class Normalizer:
                        ctx_stack, file_path, depth) -> int:
         lineno = self._lineno(node)
         specs = self._find_children_by_type(node, "var_spec")
+
+        is_const = node.type == "const_declaration"
+        if not specs and is_const:
+            specs = self._find_children_by_type(node, "const_spec")
+
         if not specs:
             # short_var_declaration
             expr_lists = self._find_children_by_type(node, "expression_list")
@@ -1382,6 +1395,81 @@ class Normalizer:
                     return self._walk_node(child, add_node, add_edge,
                                            ctx_stack, file_path, depth)
             return None
+
+        # ---- const_declaration with iota → ENUM CLASS -----------------
+        if is_const and specs:
+            has_iota = False
+            enum_type_name = ""
+            for spec in specs:
+                expr_list = self._find_child_by_type(spec, "expression_list")
+                if expr_list:
+                    for child in expr_list.children:
+                        if (child.type == "iota"
+                                or (child.type == "identifier"
+                                    and self._text(child) == "iota")):
+                            has_iota = True
+                            type_id = self._find_child_by_type(
+                                spec, "type_identifier")
+                            if type_id:
+                                enum_type_name = self._text(type_id)
+                            break
+                if has_iota:
+                    break
+
+            if has_iota:
+                if not enum_type_name:
+                    enum_type_name = "<enum>"
+
+                enum_pos = add_node({
+                    "label": NodeLabel.CLASS.value,
+                    "name": enum_type_name,
+                    "lineno": lineno,
+                    "language": self.language,
+                    "attrs": {
+                        "fullname": enum_type_name,
+                        "type": ClassType.ENUM.value,
+                        "raw_type": "const_declaration",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, enum_pos, depth)
+
+                last_pos = enum_pos
+                for s_idx, spec in enumerate(specs):
+                    names = self._find_children_by_type(spec, "identifier")
+                    expr_list = self._find_child_by_type(spec,
+                                                         "expression_list")
+                    values = expr_list.children if expr_list else []
+
+                    for n_idx, name_node in enumerate(names):
+                        id_pos = self._walk_identifier(
+                            name_node, add_node, file_path)
+                        if id_pos is not None:
+                            add_edge({
+                                "label": EdgeLabel.OWN.value,
+                                "source": enum_pos,
+                                "target": id_pos,
+                                "attrs": {"index": s_idx * 100 + n_idx},
+                            })
+                            last_pos = id_pos
+
+                        # Value
+                        val_idx = 0
+                        for child in values:
+                            if child.type in _SKIP_TYPES:
+                                continue
+                            if val_idx == n_idx:
+                                val_pos = self._walk_node(
+                                    child, add_node, add_edge,
+                                    ctx_stack, file_path, 0)
+                                if (val_pos is not None
+                                        and id_pos is not None):
+                                    self._ast_edge(
+                                        add_edge, id_pos, val_pos,
+                                        AstRole.VALUE.value)
+                                break
+                            val_idx += 1
+
+                return last_pos
 
         # var / const declaration with specs
         last_pos = None
