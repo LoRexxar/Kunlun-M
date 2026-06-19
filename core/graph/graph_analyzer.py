@@ -1153,9 +1153,82 @@ class GraphAnalyzer:
                 return _vattr(t, "name") or _vattr(t, "value")
         # Fallback: use edge target
         for e in self.graph.es.select(_source=op_vid, label="use"):
-            return _vattr(self.graph.vs[e.target], "name")
+            name = _vattr(self.graph.vs[e.target], "name")
+            if name and name.startswith('$'):
+                resolved = self._resolve_variable_callee(name)
+                if resolved:
+                    return resolved
+            return name
         # Last resort: operator's own name
-        return _vattr(self.graph.vs[op_vid], "name")
+        name = _vattr(self.graph.vs[op_vid], "name")
+        # Resolve variable callee: $func = 'system' -> 'system'
+        if name and name.startswith('$'):
+            resolved = self._resolve_variable_callee(name)
+            if resolved:
+                return resolved
+        return name
+
+    def _resolve_variable_callee(self, var_name: str, max_depth: int = 5) -> str | None:
+        """Resolve variable callee name through DFG backward tracking.
+
+        For indirect function calls like ``$func($cmd)`` where
+        ``$func = 'system'``, traces DFG edges backward from ``$func``
+        to find the assigned literal value.
+
+        Supports multi-level indirection::
+
+            $func2 = $func;  $func = 'system';  $func2($cmd)
+
+        Args:
+            var_name: Variable name (must start with ``$``).
+            max_depth: Max hops to follow (default 5).
+
+        Returns:
+            Resolved literal callee name, or None.
+        """
+        if not var_name or not var_name.startswith('$'):
+            return None
+
+        visited: set[str] = set()
+        current_name = var_name
+
+        for _ in range(max_depth):
+            if current_name in visited:
+                break
+            visited.add(current_name)
+
+            # Find identifier node matching this variable name
+            target_vid: int | None = None
+            for v in self.graph.vs:
+                if _vattr(v, "label") == NodeLabel.IDENTIFIER.value \
+                        and _vattr(v, "name") == current_name:
+                    target_vid = v.index
+                    break
+
+            if target_vid is None:
+                break
+
+            # Follow DFG edges backward from this identifier
+            resolved = False
+            for src_vid in self._get_dfg_sources(target_vid):
+                sv = self.graph.vs[src_vid]
+                slabel = _vattr(sv, "label", "")
+                sname = _vattr(sv, "name", "")
+
+                if slabel == NodeLabel.CONST.value and sname:
+                    # Strip quotes from string literals
+                    return sname.strip("'\"")
+
+                if slabel == NodeLabel.IDENTIFIER.value \
+                        and sname and sname.startswith('$'):
+                    current_name = sname
+                    resolved = True
+                    break
+
+            if not resolved:
+                break
+
+        return None
 
     def _find_identifier_by_name(self, name: str,
                                   context_vid: int | None = None) -> int | None:
