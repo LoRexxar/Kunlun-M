@@ -13,6 +13,7 @@
 """
 import json
 import os
+import re
 import asyncio
 import traceback
 import portalocker
@@ -219,7 +220,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     continue
                 for sn in names:
                     name_str = sn.method
-                    all_sink_names.append(name_str)
+                    # 清洗：从规则 match 字段提取纯函数名
+                    m = re.match(r'[a-zA-Z_][a-zA-Z0-9_]*', name_str)
+                    if m:
+                        all_sink_names.append(m.group())
             except Exception:
                 continue
 
