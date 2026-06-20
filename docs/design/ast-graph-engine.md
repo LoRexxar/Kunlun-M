@@ -265,7 +265,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
   - (file)-[:own]->(dependency) — 文件声明依赖
   - (class)-[:own]->(function) — 类包含方法
   - (class)-[:own]->(annotation) — 类上的注解
-  - (function)-[:own]->(parameter) — 函数包含形参
+  - (function)-[:ast {role:'param'}]->(parameter) — 函数包含形参
   - (function)-[:own]->(return) — 函数包含返回
   - (function)-[:own]->(operator) — 函数包含操作
   - (function)-[:own]->(branch) — 函数包含分支
@@ -344,7 +344,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 # 示例: <?php function test($input) { $cmd = $input; system($cmd); }
 
 (file:app.php {name:'app.php', language:'php'})-[:own]->(function:test {fullname:'test', type:'function', lineno:2})
-(function:test)-[:own]->(parameter:$input {name:'input', index:0, lineno:2})
+(function:test)-[:ast {role:'param'}]->(parameter:$input {name:'input', index:0, lineno:2})
 (function:test)-[:own]->(operator:$cmd=$input {type:'assign', name:'$cmd', index:0, lineno:3})
   (operator:$cmd=$input)-[:ast {role:'lhs'}]->(identifier:$cmd {name:'$cmd', type:'variable', lineno:3})
   (operator:$cmd=$input)-[:ast {role:'rhs'}]->(identifier:$input {name:'$input', type:'variable', lineno:3})
