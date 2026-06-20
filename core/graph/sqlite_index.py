@@ -18,7 +18,7 @@ import json
 import sqlite3
 from datetime import datetime
 
-__all__ = ["AstNodeIndex", "FileHash"]
+__all__ = ["AstNodeIndex", "FileHash", "ScanRecord"]
 
 
 def _iso_now() -> str:
@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS ast_node_index (
     node_name TEXT,
     lineno INTEGER NOT NULL,
     language TEXT NOT NULL,
+    scan_id INTEGER NOT NULL DEFAULT 0,
     extra TEXT
 );
 """
@@ -52,7 +53,21 @@ CREATE TABLE IF NOT EXISTS file_hash (
     file_path TEXT PRIMARY KEY,
     content_hash TEXT NOT NULL,
     language TEXT NOT NULL,
-    scan_time TEXT NOT NULL
+    scan_time TEXT NOT NULL,
+    scan_id INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+_SCAN_DDL = """
+CREATE TABLE IF NOT EXISTS scans (
+    id INTEGER PRIMARY KEY,
+    language TEXT,
+    target TEXT,
+    graph_path TEXT,
+    file_count INTEGER,
+    node_count INTEGER,
+    edge_count INTEGER,
+    created_at TEXT
 );
 """
 
@@ -87,17 +102,27 @@ class AstNodeIndex:
         return conn
 
     def ensure_tables(self) -> None:
-        """确保索引表存在（``CREATE TABLE IF NOT EXISTS`` + 索引）。"""
+        """确保索引表存在（``CREATE TABLE IF NOT EXISTS`` + 索引）。
+
+        兼容旧库：若 ``ast_node_index`` 已存在但缺少 ``scan_id`` 列，
+        则通过 ``ALTER TABLE ADD COLUMN`` 补齐。
+        """
         with self._get_conn() as conn:
             conn.execute(_AST_NODE_INDEX_DDL)
             for stmt in _AST_NODE_INDEX_INDEXES:
                 conn.execute(stmt)
+            try:
+                conn.execute(
+                    "ALTER TABLE ast_node_index ADD COLUMN scan_id INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # 列已存在
 
-    def upsert_nodes(self, file_path: str, nodes: list[dict]) -> None:
+    def upsert_nodes(self, file_path: str, nodes: list[dict], scan_id: int | str = 0) -> None:
         """批量写入/更新节点的索引。
 
-        流程：先删除该 ``file_path`` 的所有旧索引记录，再批量插入新节点。
-        仅处理 ``INDEXED_LABELS`` 中的节点类型，其余忽略。
+        流程：先删除该 ``file_path`` 在当前 ``scan_id`` 下的所有旧索引记录，
+        再批量插入新节点。仅处理 ``INDEXED_LABELS`` 中的节点类型，其余忽略。
 
         Args:
             file_path: 文件路径。
@@ -109,6 +134,7 @@ class AstNodeIndex:
                 - ``language`` (str): 语言标识。
                 - ``attrs`` (dict|None): 额外属性，将以 JSON 序列化到
                   ``extra`` 列。
+            scan_id: 关联的扫描任务 ID，默认 0。
         """
         self.ensure_tables()
 
@@ -125,20 +151,21 @@ class AstNodeIndex:
                 n.get("name"),
                 int(n.get("lineno", 0) or 0),
                 n.get("language", ""),
+                int(scan_id) if scan_id != "" else 0,
                 extra,
             ))
 
         with self._get_conn() as conn:
             conn.execute(
-                "DELETE FROM ast_node_index WHERE file_path = ?",
-                (file_path,),
+                "DELETE FROM ast_node_index WHERE file_path = ? AND scan_id = ?",
+                (file_path, int(scan_id) if scan_id != "" else 0),
             )
             if rows:
                 conn.executemany(
                     """
                     INSERT INTO ast_node_index
-                        (file_path, node_label, node_name, lineno, language, extra)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (file_path, node_label, node_name, lineno, language, scan_id, extra)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     rows,
                 )
@@ -232,11 +259,21 @@ class FileHash:
         return conn
 
     def ensure_tables(self) -> None:
-        """确保表存在（``CREATE TABLE IF NOT EXISTS``）。"""
+        """确保表存在（``CREATE TABLE IF NOT EXISTS``）。
+
+        兼容旧库：若 ``file_hash`` 已存在但缺少 ``scan_id`` 列，
+        则通过 ``ALTER TABLE ADD COLUMN`` 补齐。
+        """
         with self._get_conn() as conn:
             conn.execute(_FILE_HASH_DDL)
+            try:
+                conn.execute(
+                    "ALTER TABLE file_hash ADD COLUMN scan_id INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # 列已存在
 
-    def update_hash(self, file_path: str, content_hash: str, language: str) -> None:
+    def update_hash(self, file_path: str, content_hash: str, language: str, scan_id: int | str = 0) -> None:
         """更新/插入文件哈希。
 
         使用 ``INSERT OR REPLACE`` 语义：已存在则覆盖，不存在则插入。
@@ -246,16 +283,18 @@ class FileHash:
             file_path: 文件路径（主键）。
             content_hash: 文件内容 MD5 哈希。
             language: 语言标识（php/javascript/java/python/go/c）。
+            scan_id: 关联的扫描任务 ID，默认 0。
         """
         self.ensure_tables()
+        sid = int(scan_id) if scan_id != "" else 0
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO file_hash
-                    (file_path, content_hash, language, scan_time)
-                VALUES (?, ?, ?, ?)
+                    (file_path, content_hash, language, scan_time, scan_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (file_path, content_hash, language, _iso_now()),
+                (file_path, content_hash, language, _iso_now(), sid),
             )
 
     def get_hash(self, file_path: str) -> str | None:
@@ -326,6 +365,106 @@ class FileHash:
         """清空所有哈希数据。"""
         with self._get_conn() as conn:
             conn.execute("DELETE FROM file_hash")
+
+
+# ---------------------------------------------------------------------------
+# ScanRecord
+# ---------------------------------------------------------------------------
+
+class ScanRecord:
+    """扫描任务记录 — workspace/kunlun.db 中 scans 表的访问层。
+
+    记录每次扫描的元信息（语言、目标、图路径、节点/边数等），
+    供 ``analyze`` 子命令自动查找最新扫描结果。
+    """
+
+    def __init__(self, db_path: str):
+        """
+        Args:
+            db_path: SQLite 数据库文件路径，如 ``workspace/kunlun.db``。
+        """
+        self._db_path = db_path
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """获取数据库连接，设置 ``row_factory = sqlite3.Row``。"""
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def ensure_tables(self) -> None:
+        """确保 scans 表存在（``CREATE TABLE IF NOT EXISTS``）。"""
+        with self._get_conn() as conn:
+            conn.execute(_SCAN_DDL)
+
+    def upsert(
+        self,
+        scan_id: int | str,
+        language: str | None,
+        target: str | None,
+        graph_path: str | None,
+        file_count: int | None = None,
+        node_count: int | None = None,
+        edge_count: int | None = None,
+    ) -> None:
+        """写入或更新一条扫描记录（``INSERT OR REPLACE``）。
+
+        Args:
+            scan_id: 扫描任务 ID（主键）。
+            language: 主要语言标识（如 'go' / 'php' / 多语言用逗号分隔）。
+            target: 扫描目标路径。
+            graph_path: ``graph.graphmlz`` 的完整路径。
+            file_count: 处理的文件数。
+            node_count: 图中节点数。
+            edge_count: 图中边数。
+        """
+        self.ensure_tables()
+        sid = int(scan_id) if scan_id != "" else 0
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO scans
+                    (id, language, target, graph_path, file_count, node_count, edge_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sid,
+                    language,
+                    target,
+                    graph_path,
+                    file_count,
+                    node_count,
+                    edge_count,
+                    _iso_now(),
+                ),
+            )
+
+    def get_latest(self) -> dict | None:
+        """返回最近一次扫描记录。
+
+        Returns:
+            scans 表中 ``id`` 最大的一行（dict）；表为空返回 ``None``。
+        """
+        self.ensure_tables()
+        with self._get_conn() as conn:
+            cur = conn.execute("SELECT * FROM scans ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_by_id(self, scan_id: int | str) -> dict | None:
+        """按 id 查询扫描记录。
+
+        Args:
+            scan_id: 扫描任务 ID。
+
+        Returns:
+            匹配的 scans 行（dict）；不存在返回 ``None``。
+        """
+        self.ensure_tables()
+        sid = int(scan_id) if scan_id != "" else 0
+        with self._get_conn() as conn:
+            cur = conn.execute("SELECT * FROM scans WHERE id = ?", (sid,))
+            row = cur.fetchone()
+            return dict(row) if row else None
 
 
 # ---------------------------------------------------------------------------

@@ -188,3 +188,6 @@ docs/design/
 
 # Function summary cache
 .kunlun_cache/
+
+# Scan workspace (runtime output)
+workspace/

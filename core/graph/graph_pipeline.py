@@ -70,6 +70,7 @@ def build_ast_graph(
     pretreatment: Pretreatment,
     graph_dir: str | None = None,
     db_path: str | None = None,
+    scan_id: int | str | None = None,
 ):
     """从 Pretreatment 的 ``pre_result`` 构建 AST 图。
 
@@ -85,6 +86,9 @@ def build_ast_graph(
         pretreatment: Pretreatment 单例实例（``ast_object``）。
         graph_dir: 图文件输出目录。提供时保存 ``.graphmlz``。
         db_path: SQLite 数据库路径。提供时更新节点索引和文件哈希。
+            未提供但设置了 ``scan_id`` 时，自动使用 workspace 共享 DB。
+        scan_id: 扫描任务 ID。提供时把图保存到 ``workspace/<scan_id>/``
+            并在 workspace DB 的 ``scans`` 表中登记。
 
     Returns:
         igraph.Graph 对象。无文件可处理时返回空图。
@@ -97,12 +101,17 @@ def build_ast_graph(
 
     from core.graph.graph_builder import AstGraphBuilder
 
+    # 未指定 db_path 但有 scan_id → 使用 workspace 共享 DB
+    if db_path is None and scan_id:
+        from core.graph.workspace import get_workspace_db
+        db_path = get_workspace_db()
+
     builder = AstGraphBuilder()
 
     # 语言 → Normalizer 缓存，避免反复查询 registry
     normalizer_cache: dict[str, object] = {}
 
-    processed = 0
+    processed_count = 0
     skipped_no_normalizer = 0
     skipped_empty_ast = 0
     errors = 0
@@ -140,7 +149,7 @@ def build_ast_graph(
 
             file_node, nodes, edges = result
             builder.add_file(file_node, nodes, edges)
-            processed += 1
+            processed_count += 1
 
         except Exception as e:
             logger.warning(
@@ -177,13 +186,13 @@ def build_ast_graph(
         "[GraphPipeline] Build complete: %d processed, "
         "%d no normalizer, %d empty AST, %d errors. "
         "Graph: %d nodes, %d edges",
-        processed, skipped_no_normalizer, skipped_empty_ast, errors,
+        processed_count, skipped_no_normalizer, skipped_empty_ast, errors,
         graph.vcount(), graph.ecount(),
     )
 
     # ── 可选持久化 ──
 
-    if graph_dir and processed > 0:
+    if graph_dir and processed_count > 0:
         try:
             from core.graph.graph_io import AstGraphIO
             io = AstGraphIO(graph_dir)
@@ -192,9 +201,14 @@ def build_ast_graph(
         except Exception as e:
             logger.warning("[GraphPipeline] Failed to save graph: %s", e)
 
-    if db_path and processed > 0:
+    if db_path and processed_count > 0:
         try:
             from core.graph.sqlite_index import AstNodeIndex, FileHash
+
+            # 确保 workspace 目录存在
+            db_dir = os.path.dirname(db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
 
             node_index = AstNodeIndex(db_path)
             node_index.ensure_tables()
@@ -220,11 +234,11 @@ def build_ast_graph(
 
                     # 更新文件哈希
                     content_hash = _compute_file_hash(filepath)
-                    file_hash.update_hash(filepath, content_hash, language)
+                    file_hash.update_hash(filepath, content_hash, language, scan_id=scan_id or 0)
 
                     # 更新节点索引
                     all_index_nodes = [file_node] + nodes
-                    node_index.upsert_nodes(filepath, all_index_nodes)
+                    node_index.upsert_nodes(filepath, all_index_nodes, scan_id=scan_id or 0)
 
                 except Exception:
                     continue
@@ -233,5 +247,29 @@ def build_ast_graph(
 
         except Exception as e:
             logger.warning("[GraphPipeline] Failed to update SQLite index: %s", e)
+
+    # 保存图到 workspace/<scan_id>/
+    if graph.vcount() > 0 and scan_id:
+        try:
+            from core.graph.workspace import ensure_scan_dir, get_workspace_db
+            from core.graph.graph_io import AstGraphIO
+            from core.graph.sqlite_index import ScanRecord
+            scan_dir = ensure_scan_dir(scan_id)
+            gio = AstGraphIO(scan_dir)
+            meta = gio.save(graph)
+            sr = ScanRecord(get_workspace_db())
+            sr.upsert(
+                scan_id=scan_id,
+                language=pretreatment.lan[0] if pretreatment.lan else None,
+                target=pretreatment.target_directory,
+                graph_path=meta["file_path"],
+                file_count=processed_count,
+                node_count=graph.vcount(),
+                edge_count=graph.ecount(),
+            )
+            logger.info("[GraphPipeline] Graph saved to %s (%d nodes, %d edges)",
+                       scan_dir, graph.vcount(), graph.ecount())
+        except Exception as e:
+            logger.warning("[GraphPipeline] Failed to save graph: %s", e)
 
     return graph

@@ -43,8 +43,8 @@ class AstGraphIO:
             graph_dir: 存放图文件的目录路径。
         """
         self.graph_dir = graph_dir
-        self.graph_path = os.path.join(graph_dir, "ast_graph.graphmlz")
-        self.meta_path = os.path.join(graph_dir, "ast_graph_meta.json")
+        self.graph_path = os.path.join(graph_dir, "graph.graphmlz")
+        self.meta_path = os.path.join(graph_dir, "meta.json")
 
     def save(self, graph: "igraph.Graph") -> dict:  # type: ignore[name-defined]
         """保存图到压缩文件并更新 meta.json。

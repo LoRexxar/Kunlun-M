@@ -198,8 +198,10 @@ def main():
                                                     description=__introduction__.format(detail='secondary analysis on AST graph'),
                                                     formatter_class=argparse.RawDescriptionHelpFormatter,
                                                     usage=argparse.SUPPRESS, add_help=True)
-        parser_group_analyze.add_argument('-g', '--graph-dir', dest='graph_dir', required=True,
-                                           help='graph directory (.kunlun_graph)')
+        parser_group_analyze.add_argument('-g', '--graph-dir', dest='graph_dir', required=False, default=None,
+                                           help='graph directory (default: auto from workspace)')
+        parser_group_analyze.add_argument('-s', '--scan-id', dest='scan_id', type=int, default=None,
+                                           help='scan ID to analyze (default: latest)')
         parser_group_analyze.add_argument('-d', '--db', dest='db_path', default=None,
                                            help='SQLite DB path')
         parser_group_analyze.add_argument('-l', '--language', dest='language', default='php',
@@ -340,28 +342,48 @@ def main():
                 exit()
 
         if hasattr(args, "analyze") and args.analyze == "analyze":
-            import json
+            import json as _json
             from core.graph.session import AstGraphSession
+            from core.graph.workspace import get_workspace_db
+
+            workspace_db = get_workspace_db()
+            scan_id = getattr(args, 'scan_id', None)
+            graph_dir = args.graph_dir
+
+            # 自动查找 scan
+            if not graph_dir:
+                from core.graph.sqlite_index import ScanRecord
+                sr = ScanRecord(workspace_db)
+                if scan_id is not None:
+                    info = sr.get_by_id(scan_id)
+                else:
+                    info = sr.get_latest()
+                if not info:
+                    logger.error("No scan found in workspace. Run a scan first.")
+                    exit(1)
+                scan_id = info['id']
+                graph_dir = os.path.dirname(info['graph_path'])
+                logger.info("[ANALYZE] Using scan_id=%s, graph_dir=%s", scan_id, graph_dir)
 
             try:
-                session = AstGraphSession(args.graph_dir, db_path=args.db_path, language=args.language)
+                session = AstGraphSession(graph_dir, db_path=workspace_db, language=args.language)
                 session.load()
 
                 if args.query_type == "overview":
                     result = session.query.overview()
                 elif args.query_type == "file":
                     if not args.query_arg:
-                        logger.error("Usage: kunlun.py analyze -g <dir> file <path>")
+                        logger.error("Usage: kunlun.py analyze file <path>")
                         exit(1)
                     result = session.query.get_file(args.query_arg)
                 elif args.query_type == "function":
                     if not args.query_arg:
-                        logger.error("Usage: kunlun.py analyze -g <dir> function <name>")
+                        logger.error("Usage: kunlun.py analyze function <name>")
                         exit(1)
                     result = session.query.get_function(args.query_arg)
                 elif args.query_type == "trace":
                     if not args.query_arg:
-                        logger.error("Usage: kunlun.py analyze -g <dir> trace <file:line>")
+                        logger.error("Usage: kunlun.py analyze trace <file:line>")
                         exit(1)
                     parts = args.query_arg.rsplit(":", 1)
                     if len(parts) != 2:
@@ -380,7 +402,7 @@ def main():
                     logger.error("Unknown query type: %s", args.query_type)
                     exit(1)
 
-                print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+                print(_json.dumps(result, indent=2, ensure_ascii=False, default=str))
             except FileNotFoundError as e:
                 logger.error(e)
                 exit(1)

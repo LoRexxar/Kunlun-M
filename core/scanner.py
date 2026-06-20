@@ -191,8 +191,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         from core.pretreatment import ast_object
         from core.graph.graph_pipeline import build_ast_graph
         from Kunlun_M.settings import BASE_DIR
-        db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db')
-        graph = build_ast_graph(ast_object, db_path=db_path)
+        # db_path 传 None，让 pipeline 根据 scan_id 自动使用 workspace DB
+        # 仅在无 scan_id 时 fallback 到主库（保持 analyze 子命令可用）
+        db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db') if not a_sid else None
+        graph = build_ast_graph(ast_object, db_path=db_path, scan_id=a_sid)
         logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
     except Exception as e:
         logger.warning('[SCAN] [GRAPH] Build failed, falling back to old scan: %s', e)
