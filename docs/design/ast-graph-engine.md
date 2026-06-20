@@ -1108,17 +1108,13 @@ class AstGraphSession:
 ### 7.2 CLI 二次分析命令
 
 ```
-python kunlun.py analyze <graph_dir>
-
-# 子命令:
-  analyze functions   [-n name] [-l language] [-c class]   # 查询函数
-  analyze classes     [-n name]                             # 查询类
-  analyze calls       [-n callee_name] [-f file]             # 查询调用
-  analyze taint       --source $_GET --sink system          # 查询污点路径
-  analyze context     --vul-id 42                           # 查询漏洞分析上下文
-  analyze rejected    [-n sink_name]                        # 查询被过滤的sink
-  analyze subgraph    [-f file] [--function fqn]            # 提取子图
-  analyze visualize    [-f file] [-o output.png]             # 可视化
+python kunlun.py analyze <query_type> [query_arg] [-g <dir>] [-s <scan_id>] [-l <language>]
+# 默认自动查找 workspace 中最新 scan，无需指定 -g
+  analyze overview                                       # 项目概览
+  analyze file <path>                                    # 文件结构
+  analyze function <name>                               # 函数详情
+  analyze trace <file:line>                             # 污点路径追溯
+  analyze search [label:name]                            # 节点搜索
 ```
 
 ### 7.3 Web 界面集成
@@ -1344,8 +1340,23 @@ core/graph/
 
 - [x] `core/graph/session.py` — AstGraphSession（文件已创建，未集成到 CLI/Web）
 - [x] `core/graph/query.py` → `core/graph/graph_query_builder.py` — GraphQueryBuilder（文件已创建）
-- [ ] CLI `analyze` 子命令
+- [x] CLI `analyze` 子命令（支持自动查找最新 scan / 指定 scan_id）
 - [ ] Web 页签原型
+
+#### Workspace 存储架构
+
+```
+workspace/
+  kunlun.db              # 共享 SQLite（scans + ast_node_index + file_hash）
+  <scan_id>/              # 例: 1
+    graph.graphmlz        # 图持久化（igraph graphmlz 格式）
+    meta.json             # 元数据（节点数、边数、哈希、时间）
+```
+
+- `core/graph/workspace.py` — WorkspaceManager（目录管理 + DB 路径）
+- `core/graph/sqlite_index.py` — ScanRecord 类（scans 表 CRUD）
+- 扫描时自动创建 `workspace/<scan_id>/` 并保存图 + 索引
+- `analyze` 子命令 `-g` 参数可选，默认从 workspace DB 查最新 scan
 
 ### Phase 4: 多语言扩展
 
