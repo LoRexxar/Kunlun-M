@@ -397,7 +397,7 @@ class GraphAnalyzer:
                                 if _vattr(ae, "role") != "arg":
                                     continue
                                 idx = _vattr(ae, "index")
-                                actual_idx = int(idx) if idx is not None else arg_counter
+                                actual_idx = int(idx) if idx else arg_counter
                                 if actual_idx in pt_param_indices:
                                     arg_vid = ae.target
                                     arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
@@ -572,7 +572,7 @@ class GraphAnalyzer:
         for pvid in param_vids:
             pv = self.graph.vs[pvid]
             pidx = _vattr(pv, "index", len(formal))
-            formal[int(pidx)] = (pvid, _vattr(pv, "name", ""))
+            formal[int(pidx) if pidx else len(formal)] = (pvid, _vattr(pv, "name", ""))
 
         # Actual args: ast edges with role=arg from the call operator
         actual_args: dict[int, int] = {}
@@ -580,7 +580,7 @@ class GraphAnalyzer:
         for e in self.graph.es.select(_source=call_vid, label="ast"):
             if _vattr(e, "role") == "arg":
                 idx = _vattr(e, "index")
-                actual_args[int(idx) if idx is not None else arg_counter] = e.target
+                actual_args[int(idx) if idx else arg_counter] = e.target
                 arg_counter += 1
 
         # Classify formal params by actual arg controllability

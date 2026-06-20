@@ -112,7 +112,7 @@ class AstGraphBuilder:
                 elif k == "language":
                     v_attrs["language"].append(n.get("language", ""))
                 else:
-                    v_attrs[k].append(attrs.get(k))
+                    v_attrs[k].append(attrs.get(k, ""))
 
         # Create graph
         g = ig.Graph(
@@ -144,7 +144,7 @@ class AstGraphBuilder:
                     if k == "label":
                         e_attrs["label"].append(e.get("label", ""))
                     else:
-                        e_attrs[k].append(e_extra.get(k))
+                        e_attrs[k].append(e_extra.get(k, ""))
 
             g.add_edges(e_list, attributes=e_attrs if e_attrs else None)
 

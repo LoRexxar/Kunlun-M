@@ -128,7 +128,12 @@ def build_ast_graph(
         try:
             normalizer = norm_cls()
             # PHP Normalizer 接口: normalize(ast_nodes, file_path, source_content=None)
-            result = normalizer.normalize(ast_nodes, filepath)
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    source_content = f.read()
+            except Exception:
+                source_content = None
+            result = normalizer.normalize(ast_nodes, filepath, source_content)
             if result is None:
                 skipped_empty_ast += 1
                 continue

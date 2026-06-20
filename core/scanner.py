@@ -283,7 +283,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     node_name = _vattr(v, 'name', '')
                     attrs = _vattr(v, 'attrs', {})
                     node_file = attrs.get('path', '') if isinstance(attrs, dict) else ''
-                    node_lineno = _vattr(v, 'lineno', 0)
+                    node_lineno = _vattr(v, 'lineno', 0) or 0
                     chain.append((node_label, node_name, node_file, node_lineno))
 
                 # 构建 VulnerabilityResult
