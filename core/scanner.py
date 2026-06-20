@@ -186,7 +186,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     try:
         from core.pretreatment import ast_object
         from core.graph.graph_pipeline import build_ast_graph
-        db_path = os.path.join(RUNNING_PATH, 'db', 'kunlun.db')
+        from Kunlun_M.settings import BASE_DIR
+        db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db')
         graph = build_ast_graph(ast_object, db_path=db_path)
         logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
     except Exception as e:
