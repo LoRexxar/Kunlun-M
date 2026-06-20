@@ -75,6 +75,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         # 依次执行各分析步骤
         self._analyze_operator_flows()
+        self._analyze_method_receiver_flows()
         self._analyze_assignments()
         self._analyze_parameter_passing()
         self._analyze_return_values()
@@ -124,6 +125,68 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 ):
                     self._add_dfg_edge(child_vid, vid, DfgType.FORWARD_SLICE.value)
 
+    # -- 分析步骤 0b：method_call receiver 数据流 ------------------------------
+
+    def _analyze_method_receiver_flows(self) -> None:
+        """#0b: method_call receiver — receiver 标识符 → method_call operator 的 dfg 边。
+
+        对于 method_call/static_call 类型的 operator，从其 name 中提取
+        receiver object 名称（取第一个 '.' 前的部分），在同一函数作用域内
+        查找同名的 parameter/identifier 节点，创建 DFG 边。
+
+        例: Go:  r.URL.Query().Get("file")
+            图上: parameter(r) → dfg → method_call(r.URL.Query) → dfg → identifier(filename)
+            分析: filename ← dfg ← method_call ← dfg ← parameter(r) → entry_param ✅
+
+        例: PHP: $pdo->query($sql)
+            图上: parameter($pdo) → dfg → method_call($pdo.query) → dfg → ...
+        """
+        call_types = {OperatorType.METHOD_CALL.value, OperatorType.STATIC_CALL.value}
+
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") not in call_types:
+                continue
+
+            vid = v.index
+            name = _vattr(v, "name", "") or ""
+
+            # 从 name 中提取 receiver（第一个 '.' 前的部分）
+            # e.g. "r.URL.Query" → "r", "$pdo.query" → "$pdo"
+            dot_pos = name.find(".")
+            if dot_pos <= 0:
+                continue
+            receiver_name = name[:dot_pos]
+
+            # 在同一函数作用域内查找同名 parameter/identifier
+            # 1. 通过 own 边向上找到 parent function
+            parent_vid = None
+            for eid in self.graph.incident(vid, mode="in"):
+                e = self.graph.es[eid]
+                if _vattr(e, "label") == EdgeLabel.OWN.value:
+                    parent_vid = e.source
+                    break
+
+            if parent_vid is None:
+                continue
+
+            # 2. 在 parent function 的 own 子节点中查找同名 parameter
+            receiver_vid = None
+            for eid in self.graph.incident(parent_vid, mode="out"):
+                e = self.graph.es[eid]
+                if _vattr(e, "label") != EdgeLabel.OWN.value:
+                    continue
+                child = self.graph.vs[e.target]
+                child_name = _vattr(child, "name", "") or ""
+                child_label = _vattr(child, "label", "")
+                if child_name == receiver_name and child_label == NodeLabel.PARAMETER.value:
+                    receiver_vid = e.target
+                    break
+
+            if receiver_vid is not None:
+                self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
+
     # -- 分析步骤 1：赋值传播 -------------------------------------------------
 
     def _analyze_assignments(self) -> None:
@@ -134,6 +197,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
         - 找到 operator(type=assign) 的 LHS 子节点（ast[role=lhs]）
         - 若 RHS 是 identifier/operator → 创建 dfg(RHS → LHS)
         - aug_assign 同理
+
+        变体：部分语言（JS）的 VariableDeclaration 用 rhs+value 结构
+        （rhs→declarator(identifier) → value→init），此时 rhs 子节点本身
+        就是 lhs（declarator identifier），value 是实际数据来源。
         """
         assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
 
@@ -148,6 +215,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # 获取 LHS 和 RHS 子节点
             lhs_nodes = self._get_ast_children(vid, role=AstRole.LHS.value)
             rhs_nodes = self._get_ast_children(vid, role=AstRole.RHS.value)
+
+            # 变体：rhs 子节点是 identifier 且有 value 子边（JS VariableDeclaration）
+            # 此时 rhs 就是 lhs（被声明的变量），value 是赋值来源
+            if not lhs_nodes and rhs_nodes:
+                rhs_vid = rhs_nodes[0]
+                rhs_label = _vattr(self.graph.vs[rhs_vid], "label", "")
+                if rhs_label == NodeLabel.IDENTIFIER.value:
+                    value_nodes = self._get_ast_children(rhs_vid, role="value")
+                    if value_nodes:
+                        lhs_nodes = [rhs_vid]
+                        rhs_nodes = value_nodes
 
             if not lhs_nodes or not rhs_nodes:
                 continue
@@ -309,6 +387,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 lhs_label = _vattr(self.graph.vs[lhv], "label", "")
                 if lhs_label in (NodeLabel.IDENTIFIER.value, NodeLabel.CONST.value):
                     assign_lhs_vids.add(lhv)
+            # JS VariableDeclarator: rhs 子节点是 identifier，它有 value 子边
+            # 此时 rhs identifier 就是声明变量的 LHS
+            if not lhs_nodes:
+                rhs_nodes = self._get_ast_children(v.index, role=AstRole.RHS.value)
+                for rhv in rhs_nodes:
+                    if _vattr(self.graph.vs[rhv], "label") == NodeLabel.IDENTIFIER.value:
+                        value_nodes = self._get_ast_children(rhv, role="value")
+                        if value_nodes:
+                            assign_lhs_vids.add(rhv)
 
         # 收集作用域 → identifier 映射
         scope_vars: dict[tuple[int, str], dict[str, list[int]]] = defaultdict(
@@ -508,19 +595,23 @@ class DataFlowBuilder(BaseEdgeBuilder):
         return result
 
     def _get_cg_target(self, vid: int) -> Optional[int]:
-        """获取从调用 operator 出发的 use 边的目标函数顶点。
+        """获取从调用 operator 出发的 use/callee 边的目标函数顶点。
 
         Returns:
-            函数顶点索引，若无 use 边则返回 None。
+            函数顶点索引，若无相关边则返回 None。
         """
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
             if _vattr(e, "label") == EdgeLabel.USE.value:
                 return e.target
+        # JS 等语言用 ast[role=callee] 而非 use 边
+        for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
+            if _vattr(e, "role") == "callee":
+                return e.target
         return None
 
     def _get_cg_callers(self, func_vid: int) -> list[int]:
-        """获取所有通过 use 边调用 func_vid 的 operator 顶点。
+        """获取所有通过 use/callee 边调用 func_vid 的 operator 顶点。
 
         Returns:
             调用者顶点索引列表。
@@ -529,6 +620,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
         for eid in self.graph.incident(func_vid, mode="in"):
             e = self.graph.es[eid]
             if _vattr(e, "label") == EdgeLabel.USE.value:
+                result.append(e.source)
+        # JS 等语言用 ast[role=callee]
+        for e in self.graph.es.select(_target=func_vid, label=EdgeLabel.AST.value):
+            if _vattr(e, "role") == "callee":
                 result.append(e.source)
         return result
 
@@ -582,13 +677,13 @@ class DataFlowBuilder(BaseEdgeBuilder):
         return _vattr(self.graph.vs[vid], "name", "")
 
     def _resolve_function(self, func_vid: int) -> int:
-        """尝试将函数节点解析到真正的定义。
+        """尝试将函数节点/identifier callee 解析到真正的定义。
 
-        若 func_vid 对应的 function 节点没有 own 子节点（即占位节点/外部函数），
+        若 func_vid 对应的节点没有 own 子节点（占位/identifier callee），
         则在图中搜索同名且有 own 子节点的 function 节点。
 
         Args:
-            func_vid: 函数节点索引。
+            func_vid: 函数节点或 identifier callee 节点索引。
 
         Returns:
             解析后的函数定义节点索引。若无法解析，返回原始 func_vid。
@@ -598,22 +693,22 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if own_children:
             return func_vid
 
-        # 占位节点：通过同名匹配找到真正的函数定义
         func_name = _vattr(self.graph.vs[func_vid], "name", "")
         if not func_name:
             return func_vid
 
-        # 同一文件作用域下找同名函数定义
-        # 通过 incoming own 边找到 func_vid 所在的文件节点
+        # 通过同名匹配找真正的函数定义（支持 function 和 identifier callee）
+        # 查找 func_vid 所在的文件/函数作用域（用于优先同作用域匹配）
         parent_vid = None
         for eid in self.graph.incident(func_vid, mode="in"):
             e = self.graph.es[eid]
-            if _vattr(e, "label") == EdgeLabel.OWN.value:
+            elabel = _vattr(e, "label")
+            if elabel == EdgeLabel.OWN.value or elabel == EdgeLabel.AST.value:
                 parent_vid = e.source
                 break
 
-        # 在同一 parent 下找同名且有 own 子节点的 function
         best_match = func_vid  # 默认返回自身
+        first_global = None  # 记录第一个全局匹配（用于 parent 不匹配时回退）
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.FUNCTION.value:
                 continue
@@ -622,9 +717,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(v, "name") != func_name:
                 continue
 
-            # 检查是否有 own 子节点（真正有函数体）
             if self._get_own_children_by_index(v.index):
-                # 优先选择同文件的
+                if first_global is None:
+                    first_global = v.index
+                # 优先选择同文件/同作用域的
                 if parent_vid is not None:
                     for eid2 in self.graph.incident(v.index, mode="in"):
                         e2 = self.graph.es[eid2]
@@ -636,6 +732,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 else:
                     best_match = v.index
                     break
+
+        # 同作用域未匹配到，回退到全局匹配
+        if best_match == func_vid and first_global is not None:
+            best_match = first_global
 
         return best_match
 

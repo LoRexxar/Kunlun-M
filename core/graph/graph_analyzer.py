@@ -74,6 +74,14 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "write", "writelines",
     "subprocess.run", "subprocess.call", "subprocess.Popen",
     "pickle.loads", "yaml.load", "exec", "eval",
+    # Java
+    "start", "ProcessBuilder",
+    # Go
+    "exec.Command", "Output", "Run",
+    # C / C++
+    "system", "popen", "pclose",
+    # JavaScript
+    "write", "eval",
 })
 
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
@@ -117,7 +125,7 @@ class AnalysisResult:
     expr_lineno: int = 0
 
     @property
-    def is_controllable(self) -> bool: return self.code == 1
+    def is_controllable(self) -> bool: return self.code in (1, 4)
     @property
     def is_repaired(self) -> bool: return self.code == 2
     @property
@@ -181,7 +189,9 @@ class GraphAnalyzer:
             if callee_name.startswith("\\"):
                 callee_name = callee_name[1:]
             if callee_name not in name_set:
-                continue
+                # 后缀匹配：qualified name "ioutil.ReadFile" 匹配 sink "ReadFile"
+                if not any(callee_name.endswith("." + sn) for sn in name_set):
+                    continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")
@@ -294,6 +304,16 @@ class GraphAnalyzer:
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
                 new_path = path + [up_vid]
+
+                # Rule 0: function parameter (entry point) — assume controllable
+                if ulabel == "parameter":
+                    # If this parameter has no DFG upstream, it's an entry point
+                    if not list(self._get_dfg_sources(up_vid)):
+                        logger.debug("entry parameter '%s' vid=%d", uname, up_vid)
+                        return self._cached(cache_key, AnalysisResult(
+                            code=4, reason=f"entry parameter '{uname}'",
+                            chain=[{"step": "entry_param", "vid": up_vid, "name": uname, "code": 4}],
+                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 1: superglobal
                 if self._is_source_variable(uname):
@@ -520,8 +540,8 @@ class GraphAnalyzer:
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.FUNCTION.value:
                 continue
-            vn = _vattr(v, "name", "")
-            vf = _vattr(v, "fullname", "")
+            vn = _vattr(v, "name", "") or ""
+            vf = _vattr(v, "fullname", "") or ""
             if not (vn == func_name or vf.endswith("\\" + func_name) or vf == func_name):
                 continue
             if scope_path:
@@ -1143,74 +1163,81 @@ class GraphAnalyzer:
         """Resolve callee name from call operator.
 
         Strategy:
-        1. Look for ast[role=callee] edge → target name.
-        2. Fall back to cg edge → target function node name.
+        1. Look for ast[role=callee] edges → collect callee names.
+           For chained method calls (e.g. ``a.b.c()``), the *last*
+           callee edge whose target is an ``identifier``/``property``
+           is the actual method name (e.g. ``c``).  Intermediate
+           operator callee targets (e.g. ``a.b`` as a static_call)
+           are skipped so the real method name surfaces.
+        2. Fall back to cg/use edge → target function node name.
         3. Fall back to operator node's own ``name`` attribute.
         """
+        callee_names: list[tuple[str, int]] = []  # (name, target_vid)
         for e in self.graph.es.select(_source=op_vid, label="ast"):
             if _vattr(e, "role") == "callee":
                 t = self.graph.vs[e.target]
-                return _vattr(t, "name") or _vattr(t, "value")
+                name = _vattr(t, "name") or _vattr(t, "value")
+                if name:
+                    callee_names.append((name, t.index))
+        # Prefer the last identifier callee (actual method name in chains)
+        for name, tvid in reversed(callee_names):
+            if _vattr(self.graph.vs[tvid], "label") == "identifier":
+                resolved = self._resolve_variable_callee(tvid, name)
+                if resolved:
+                    return resolved
+                return name
+        # No identifier callee found — return the last callee name overall
+        if callee_names:
+            return callee_names[-1][0]
         # Fallback: use edge target
         for e in self.graph.es.select(_source=op_vid, label="use"):
             name = _vattr(self.graph.vs[e.target], "name")
-            if name and name.startswith('$'):
-                resolved = self._resolve_variable_callee(name)
-                if resolved:
-                    return resolved
+            resolved = self._resolve_variable_callee(e.target, name)
+            if resolved:
+                return resolved
             return name
         # Last resort: operator's own name
         name = _vattr(self.graph.vs[op_vid], "name")
-        # Resolve variable callee: $func = 'system' -> 'system'
-        if name and name.startswith('$'):
-            resolved = self._resolve_variable_callee(name)
+        if name:
+            resolved = self._resolve_variable_callee(op_vid, name)
             if resolved:
                 return resolved
         return name
 
-    def _resolve_variable_callee(self, var_name: str, max_depth: int = 5) -> str | None:
+    def _resolve_variable_callee(self, start_vid: int, var_name: str, max_depth: int = 5) -> str | None:
         """Resolve variable callee name through DFG backward tracking.
 
-        For indirect function calls like ``$func($cmd)`` where
-        ``$func = 'system'``, traces DFG edges backward from ``$func``
-        to find the assigned literal value.
+        For indirect function calls like ``$func($cmd)`` or JS ``f(userInput)``
+        where ``f = eval``, traces DFG edges backward to find the assigned
+        literal value.
 
         Supports multi-level indirection::
 
             $func2 = $func;  $func = 'system';  $func2($cmd)
+            const f = eval; f(x)
 
         Args:
-            var_name: Variable name (must start with ``$``).
+            start_vid: The callee identifier vertex index.
+            var_name: Variable/function name.
             max_depth: Max hops to follow (default 5).
 
         Returns:
             Resolved literal callee name, or None.
         """
-        if not var_name or not var_name.startswith('$'):
+        if not var_name:
             return None
 
-        visited: set[str] = set()
-        current_name = var_name
+        visited: set[int] = set()
+        current_vid = start_vid
 
         for _ in range(max_depth):
-            if current_name in visited:
+            if current_vid in visited:
                 break
-            visited.add(current_name)
-
-            # Find identifier node matching this variable name
-            target_vid: int | None = None
-            for v in self.graph.vs:
-                if _vattr(v, "label") == NodeLabel.IDENTIFIER.value \
-                        and _vattr(v, "name") == current_name:
-                    target_vid = v.index
-                    break
-
-            if target_vid is None:
-                break
+            visited.add(current_vid)
 
             # Follow DFG edges backward from this identifier
             resolved = False
-            for src_vid in self._get_dfg_sources(target_vid):
+            for src_vid in self._get_dfg_sources(current_vid):
                 sv = self.graph.vs[src_vid]
                 slabel = _vattr(sv, "label", "")
                 sname = _vattr(sv, "name", "")
@@ -1219,11 +1246,21 @@ class GraphAnalyzer:
                     # Strip quotes from string literals
                     return sname.strip("'\"")
 
-                if slabel == NodeLabel.IDENTIFIER.value \
-                        and sname and sname.startswith('$'):
-                    current_name = sname
-                    resolved = True
-                    break
+                if slabel == NodeLabel.FUNCTION.value and sname:
+                    # Direct function reference: f = eval (function node)
+                    return sname
+
+                if slabel == NodeLabel.IDENTIFIER.value and sname:
+                    # Check if this identifier has further DFG upstream
+                    if list(self._get_dfg_sources(src_vid)):
+                        # Multi-level: follow the chain
+                        current_vid = src_vid
+                        resolved = True
+                        break
+                    else:
+                        # Leaf identifier (no DFG upstream) —
+                        # treat as function name reference (e.g. const f = eval)
+                        return sname
 
             if not resolved:
                 break

@@ -219,11 +219,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 else:
                     continue
                 for sn in names:
-                    name_str = sn.method
-                    # 清洗：从规则 match 字段提取纯函数名
-                    m = re.match(r'[a-zA-Z_][a-zA-Z0-9_]*', name_str)
-                    if m:
-                        all_sink_names.append(m.group())
+                    # 使用完整限定名（class_.method）以匹配 Go/Java 的 qualified function names
+                    if sn.class_:
+                        name_str = f"{sn.class_}.{sn.method}"
+                    else:
+                        name_str = sn.method
+                    # 清洗：保留字母、数字、下划线、点号
+                    name_str = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
+                    if name_str:
+                        all_sink_names.append(name_str)
             except Exception:
                 continue
 
@@ -260,10 +264,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     rule_sink_names = []
                     if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
                         for sn in parse_sink_names('|'.join(rule.vul_function)):
-                            rule_sink_names.append(sn.method)
+                            rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
                     elif hasattr(rule, 'match') and rule.match:
                         for sn in parse_sink_names(rule.match):
-                            rule_sink_names.append(sn.method)
+                            rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
                     if sink_name.lower() in [n.lower() for n in rule_sink_names]:
                         matched_rule = rule
                         break

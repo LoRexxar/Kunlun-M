@@ -1757,7 +1757,18 @@ class Normalizer:
         obj = self._find_child_by_type(node, "identifier")
         field = self._find_child_by_type(node, "field_identifier")
 
-        obj_text = self._text(obj) if obj else ""
+        # Chained call receiver: e.g. exec.Command("sh","-c",cmd).Output
+        # The operand is a call_expression, not a plain identifier.
+        chained_call = None
+        if obj is None:
+            chained_call = self._find_child_by_type(
+                node, "call_expression", "selector_expression")
+
+        obj_text = ""
+        if obj is not None:
+            obj_text = self._text(obj)
+        elif chained_call is not None:
+            obj_text = self._text(chained_call).split("(")[0]
         field_text = self._text(field) if field else ""
         full_name = f"{obj_text}.{field_text}" if obj_text and field_text else field_text
 
@@ -1782,6 +1793,17 @@ class Normalizer:
                     "source": obj_pos,
                     "target": pos,
                     "attrs": {"access_type": MemberAccessType.PROPERTY.value},
+                })
+        elif chained_call is not None:
+            # Walk the inner call expression so its arguments are in the graph
+            callee_pos = self._walk_node(
+                chained_call, add_node, add_edge, ctx_stack, file_path, 0)
+            if callee_pos is not None:
+                add_edge({
+                    "label": EdgeLabel.AST.value,
+                    "source": pos,
+                    "target": callee_pos,
+                    "attrs": {"role": "receiver"},
                 })
 
         if field is not None:

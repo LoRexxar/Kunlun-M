@@ -629,8 +629,7 @@ class Pretreatment:
 
             elif fileext[0] in ext_dict["go"] and "go" in self.lan:
                 # 针对 Go 的预处理
-                # Go 没有 Python 端的 AST 解析器，将源码以文本形式存储，
-                # 后续由 core/core_engine/go/parser.py 做基于正则和行扫描的静态分析。
+                # 使用 tree-sitter 解析 Go 源文件，生成 AST（供图引擎使用）
                 for filepath in fileext[1]["list"]:
                     filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
@@ -642,7 +641,22 @@ class Pretreatment:
                         code_content = fi.read()
                         fi.close()
 
-                        # 存储源码行列表供 parser 使用
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_go as tsgo
+                                from tree_sitter import Language, Parser
+                                GO_LANG = Language(tsgo.language())
+                                ts_parser = Parser(GO_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-go not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        # 存储源码行列表供老引擎 parser 使用（保持向后兼容）
                         self.pre_result[filepath]["source_lines"] = code_content.splitlines()
 
                     except Exception:
