@@ -76,6 +76,11 @@ ext_dict = {
     "java": ['.java', '.jar', '.xml'],
     "go": ['.go'],
     "c": ['.c', '.cpp', '.h', '.hpp', '.cc', '.cxx'],
+    "rust": ['.rs'],
+    "ruby": ['.rb'],
+    "csharp": ['.cs'],
+    "kotlin": ['.kt', '.kts'],
+    "lua": ['.lua'],
     "base": ['*']
 }
 
@@ -86,6 +91,11 @@ ext_comment_dict = {
     "python": ['#'],
     "go": ['//'],
     "c": ['//', '/*'],
+    "rust": ['//', '/*'],
+    "ruby": ['#', '=begin'],
+    "csharp": ['//', '/*'],
+    "kotlin": ['//', '/*'],
+    "lua": ['--', '--[['],
 }
 
 default_black_list = ['.crx_files', 'vendor']

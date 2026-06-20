@@ -32,7 +32,8 @@ import asyncio
 import subprocess
 from collections.abc import Hashable
 
-could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c", "typescript"]
+could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c", "typescript",
+                       "rust", "ruby", "csharp", "kotlin", "lua", "cpp"]
 
 
 class Pretreatment:
@@ -663,7 +664,7 @@ class Pretreatment:
                         logger.warning("[AST] something error, {}".format(traceback.format_exc()))
                         continue
 
-            elif fileext[0] in ext_dict["c"] and ("c" in self.lan or "c++" in self.lan):
+            elif fileext[0] in ext_dict["c"] and ("c" in self.lan or "c++" in self.lan or "cpp" in self.lan):
                 # 针对 C/C++ 的预处理
                 # 使用 tree-sitter 解析 C/C++ 源文件，生成 AST
                 for filepath in fileext[1]["list"]:
@@ -723,6 +724,181 @@ class Pretreatment:
                                 self.pre_result[filepath]['ast_nodes'] = tree
                             except ImportError:
                                 logger.warning("[AST] tree-sitter-typescript not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["rust"] and "rust" in self.lan:
+                # 针对 Rust 的预处理
+                # 使用 tree-sitter 解析 Rust 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "rust"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_rust as tsrust
+                                from tree_sitter import Language, Parser
+                                RUST_LANG = Language(tsrust.language())
+                                ts_parser = Parser(RUST_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-rust not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["ruby"] and "ruby" in self.lan:
+                # 针对 Ruby 的预处理
+                # 使用 tree-sitter 解析 Ruby 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "ruby"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_ruby as tsruby
+                                from tree_sitter import Language, Parser
+                                RUBY_LANG = Language(tsruby.language())
+                                ts_parser = Parser(RUBY_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-ruby not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["csharp"] and "csharp" in self.lan:
+                # 针对 C# 的预处理
+                # 使用 tree-sitter 解析 C# 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "csharp"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_c_sharp as tscs
+                                from tree_sitter import Language, Parser
+                                CSHARP_LANG = Language(tscs.language())
+                                ts_parser = Parser(CSHARP_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-c-sharp not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["kotlin"] and "kotlin" in self.lan:
+                # 针对 Kotlin 的预处理
+                # 使用 tree-sitter 解析 Kotlin 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "kotlin"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_kotlin as tskt
+                                from tree_sitter import Language, Parser
+                                KOTLIN_LANG = Language(tskt.language())
+                                ts_parser = Parser(KOTLIN_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-kotlin not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["lua"] and "lua" in self.lan:
+                # 针对 Lua 的预处理
+                # 使用 tree-sitter 解析 Lua 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "lua"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_lua as tslua
+                                from tree_sitter import Language, Parser
+                                LUA_LANG = Language(tslua.language())
+                                ts_parser = Parser(LUA_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-lua not installed, skip AST for {}".format(filepath))
                             except Exception as e:
                                 logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
                         else:
