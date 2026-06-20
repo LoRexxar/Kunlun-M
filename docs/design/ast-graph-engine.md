@@ -1375,11 +1375,11 @@ workspace/
 - [x] Kotlin Normalizer (tree-sitter) ✅（超额完成）
 - [x] Lua Normalizer (tree-sitter) ✅（超额完成）
 - [x] TypeScript Normalizer (tree-sitter) ✅（超额完成）
-- [ ] Python/JS/C++/Rust/Ruby/C#/Kotlin/Lua/TypeScript 的双模验证
+- [x] 13 语言全部通过图引擎 E2E 验证 ✅
 
 ### Phase 5: 切换图模式
 
-- [ ] TypeScript core engine 模块集成（`867725d` 已创建 engine + source_discovery，未接入 scan 流程）
+- [x] TypeScript core engine 模块集成（tree-sitter-typescript + pretreatment + scan 流程）
 - [ ] 分析引擎完全切换到图（当前仍是 fallback 模式）
 - [ ] 移除内存 AST 依赖 (可选)
 - [ ] 性能优化 (批量写入、索引优化)
