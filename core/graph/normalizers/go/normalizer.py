@@ -143,6 +143,10 @@ class Normalizer:
                                    file_path, idx)
 
         assert nodes[0] is file_node
+        # 补齐所有节点缺失的 file_path
+        for n in nodes[1:]:
+            if "attrs" in n and "file_path" not in n.get("attrs", {}):
+                n.setdefault("attrs", {})["file_path"] = file_path
         return file_node, nodes[1:], edges
 
     # ===================================================================
@@ -741,10 +745,10 @@ class Normalizer:
             p_pos = self._walk_parameter(param, add_node, file_path)
             if p_pos is not None:
                 add_edge({
-                    "label": EdgeLabel.OWN.value,
+                    "label": EdgeLabel.AST.value,
                     "source": pos,
                     "target": p_pos,
-                    "attrs": {"index": idx},
+                    "attrs": {"index": idx, "role": "param"},
                 })
 
         # Body

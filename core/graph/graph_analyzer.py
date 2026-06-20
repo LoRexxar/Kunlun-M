@@ -545,8 +545,11 @@ class GraphAnalyzer:
             if not (vn == func_name or vf.endswith("\\" + func_name) or vf == func_name):
                 continue
             if scope_path:
-                (results.insert if _vattr(v, "file_path") == scope_path
-                 else results.append)(v.index)
+                fp = _vattr(v, "file_path") or ""
+                if fp == scope_path:
+                    results.insert(0, v.index)
+                else:
+                    results.append(v.index)
             else:
                 results.append(v.index)
         logger.debug("find_function_def('%s', from=%s) → %s",
@@ -1148,9 +1151,12 @@ class GraphAnalyzer:
     def _find_own_children(self, parent_vid: int,
                            child_label: str | None = None,
                            index: int | None = None) -> list[int]:
-        """Vertex IDs of children linked via own edges."""
+        """Vertex IDs of children linked via own or ast edges."""
         children: list[int] = []
-        for e in self.graph.es.select(_source=parent_vid, label="own"):
+        for e in self.graph.es.select(_source=parent_vid):
+            elabel = _vattr(e, "label")
+            if elabel not in ("own", "ast"):
+                continue
             child = self.graph.vs[e.target]
             if child_label and _vattr(child, "label") != child_label:
                 continue

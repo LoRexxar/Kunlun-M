@@ -164,7 +164,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             parent_vid = None
             for eid in self.graph.incident(vid, mode="in"):
                 e = self.graph.es[eid]
-                if _vattr(e, "label") == EdgeLabel.OWN.value:
+                if _vattr(e, "label") in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                     parent_vid = e.source
                     break
 
@@ -175,7 +175,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             receiver_vid = None
             for eid in self.graph.incident(parent_vid, mode="out"):
                 e = self.graph.es[eid]
-                if _vattr(e, "label") != EdgeLabel.OWN.value:
+                if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                     continue
                 child = self.graph.vs[e.target]
                 child_name = _vattr(child, "name", "") or ""
@@ -556,7 +556,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         result = []
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
-            if _vattr(e, "label") != EdgeLabel.OWN.value:
+            if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                 continue
             if index is not None and _vattr(e, "index") != index:
                 continue
@@ -572,7 +572,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         result: dict[int, int] = {}
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
-            if _vattr(e, "label") != EdgeLabel.OWN.value:
+            if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                 continue
             idx = _vattr(e, "index")
             if idx is not None:
@@ -587,7 +587,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         result = []
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
-            if _vattr(e, "label") != EdgeLabel.OWN.value:
+            if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                 continue
             target_label = _vattr(self.graph.vs[e.target], "label", "")
             if target_label == child_label:
@@ -724,7 +724,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 if parent_vid is not None:
                     for eid2 in self.graph.incident(v.index, mode="in"):
                         e2 = self.graph.es[eid2]
-                        if _vattr(e2, "label") == EdgeLabel.OWN.value and e2.source == parent_vid:
+                        if _vattr(e2, "label") in (EdgeLabel.OWN.value, EdgeLabel.AST.value) and e2.source == parent_vid:
                             best_match = v.index
                             break
                     if best_match != func_vid:
