@@ -32,7 +32,7 @@ import asyncio
 import subprocess
 from collections.abc import Hashable
 
-could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c"]
+could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c", "typescript"]
 
 
 class Pretreatment:
@@ -693,6 +693,41 @@ class Pretreatment:
                             self.pre_result[filepath]["ast_nodes"] = []
 
                         # 存储源码供 parser 使用
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["typescript"] and "typescript" in self.lan:
+                # 针对 TypeScript 的预处理
+                # 使用 tree-sitter 解析 TypeScript 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "typescript"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_typescript as tsts
+                                from tree_sitter import Language, Parser
+                                TS_LANG = Language(tsts.language_typescript())
+                                ts_parser = Parser(TS_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-typescript not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
                         self.pre_result[filepath]["source_lines"] = code_content.splitlines()
 
                     except Exception:

@@ -69,6 +69,7 @@ ext_dict = {
     "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml'],
     "solidity": ['.sol'],
     "javascript": ['.js'],
+    "typescript": ['.ts', '.tsx'],
     "chromeext": ['.crx'],
     "html": ['.html'],
     "python": ['.py'],
@@ -81,6 +82,7 @@ ext_dict = {
 ext_comment_dict = {
     "php": ['//', '/*'],
     "javascript": ['//', '/*'],
+    "typescript": ['//', '/*'],
     "python": ['#'],
     "go": ['//'],
     "c": ['//', '/*'],
