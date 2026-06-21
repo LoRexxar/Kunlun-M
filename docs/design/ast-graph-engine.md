@@ -234,13 +234,14 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 
 ### 3.3 统一边类型 (EdgeLabel)
 
-采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 7 种核心关系。
+采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 8 种核心关系。
 
 | 边标签 | 语义 | 方向 | 属性 |
 |---------|------|------|------|
 | **frg** | 文件依赖关系，File Relationship Graph | file → file | type: include/import/from_import/use |
 | **own** | 层次包含关系 | parent → child | index: 子节点序号 |
-| **cg** | 函数调用图，Call Graph | operator(function_call) → function | call_type: direct/static/method/dynamic, lineno: 调用行号 |
+| **use** | 函数调用引用（Normalizer 生成，cg 边的前置中间边） | operator(call) → function(callee) | call_type: direct/static/method, lineno: 调用行号 |
+| **cg** | 函数调用图，Call Graph（由 use 边 + 函数定义推导） | operator(call) → function(definition) | call_type: direct/static/method/dynamic, lineno: 调用行号 |
 | **ast** | 语法树子节点关系 | parent → child | role: lhs/rhs/arg/callee/left/right/operand/value, arg_index: 实参序号 |
 | **dfg** | 数据流图，Data Flow Graph（独立模块生成，非 AST 映射） | source → target | type: forward_slice/same |
 | **crg** | 类关系图，Class Relationship Graph | source → target | type: extends/implements/trait/mixin |
@@ -277,9 +278,23 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 - **属性**：
   - `index: int` — 子节点在该父节点中的序号（按代码顺序）
 
+**use（函数调用引用）：**
+- **含义**：由 Normalizer 在 `_walk_call`/`_walk_method_call` 中生成，连接函数调用操作符到被调用函数的 callee 目标节点（通常是 `is_external=True` 的占位 function 节点）
+- **方向**：operator(call/method_call/static_call) → function(callee)
+- **生成时机**：AST 图构建阶段（Normalizer 遍历时）
+- **作用**：作为 `cg` 边的中间表示。CallGraphBuilder 在构建阶段通过同名解析，将 `use` 边连接到真正的函数定义节点，并推导出最终的 `cg` 边。同时 DFG builder 的 `_analyze_parameter_passing` 利用 `use` 边查找 callee function 定义，创建实参→形参的 DFG 边
+- **覆盖语言**：全 14 语言（PHP/Python/Java/JS/Go/C/C++/C#/Kotlin/Lua/Ruby/Rust/TypeScript）
+- **示例**：
+  - (operator:exec {type:'call'})-[:use {call_type:'direct', lineno:4}]->(function:exec {is_external:true})
+  - (operator:getParameter {type:'method_call'})-[:use {call_type:'method', lineno:10}]->(function:getParameter {fullname:'request.getParameter', is_external:true})
+- **属性**：
+  - `call_type: str` — 调用类型：`direct`（直接调用）、`static`（静态调用）、`method`（方法调用）
+  - `lineno: int` — 调用发生的行号
+
 **cg（函数调用图，Call Graph）：**
-- **含义**：描述函数调用操作符到被调用函数定义的关系
+- **含义**：描述函数调用操作符到被调用函数**定义**的关系（与 use 边的区别：cg 连接到真正的函数定义节点，use 连接到 callee 占位节点）
 - **方向**：operator(function_call/method_call/static_call) → function
+- **生成方式**：由 CallGraphBuilder 在图构建阶段从 `use` 边 + `function` 定义节点推导生成
 - **示例**：(operator:system {type:'call'})-[:cg {call_type:'direct', lineno:4}]->(function:system {name:'system'})
 - **属性**：
   - `call_type: str` — 调用类型：`direct`（直接调用）、`static`（静态调用）、`method`（方法调用）、`dynamic`（动态调用/回调）
@@ -301,16 +316,18 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 
 **dfg（数据流图，Data Flow Graph）：**
 
-> ⚠️ **独立模块**：dfg 边不属于 AST 映射阶段，而是由专门的数据流分析模块（`DataFlowAnalyzer`）在 AST 图构建完成后，基于 ast/own/member 边独立分析并添加到图上。详见第 6 节图分析层。
+> ⚠️ **独立模块**：dfg 边不属于 AST 映射阶段，而是由专门的数据流分析模块（`DataFlowAnalyzer`）在 AST 图构建完成后，基于 ast/own/member/use 边独立分析并添加到图上。详见第 6 节图分析层。
 
-- **含义**：描述变量/常量/全局变量之间的数据流关系
+- **含义**：描述变量/常量/全局变量/参数之间的数据流关系
 - **方向**：source → target
-- **连接**：identifier/const → identifier/const
+- **连接**：identifier/const/parameter → identifier/const/parameter
 - **生成时机**：AST 图构建完成后，由 DataFlowAnalyzer 分析 operator(ast) 子节点的数据传播关系，动态添加 dfg 边
 - **生命周期**：dfg 边可按需生成（扫描时或二次分析时），不影响基础图结构；分析完成后可选择持久化到 .graphmlz 或丢弃
 - **示例连接**：
   - (identifier:$_GET['id'])-[:dfg]->(identifier:$id) — 用户输入传递给局部变量
   - (identifier:$cmd)-[:dfg]->(identifier:$cmd) — type=same，同变量的不同引用
+  - (parameter:$cmd)-[:dfg]->(identifier:$cmd) — 函数参数传递到函数体内的变量引用（parameter 节点作为定义端点）
+  - (identifier:$input {ast:arg})-[:dfg]->(parameter:$cmd {own:param}) — 实参传递给形参（跨函数调用，依赖 use 边查找 callee 定义）
 - **属性**：
   - `type: str` — 数据流类型：`forward_slice`（数据从 source 传递到 target）、`same`（同变量的不同引用位置）
 
@@ -1384,10 +1401,24 @@ workspace/
   - scan() 增强：rule.main() 二次筛选 + vendor/test 路径过滤 + unconfirm 处理
   - taint enrichment：enrich_taint 集成 + TraceCache 按语言加载 builtin_knowledge
   - JS source roots：location/document/window/process 识别为 source variable
-  - find_sinks 扩展：assign 类型属性赋值 sink（innerHTML/outerHTML）
+  - find_sinks 扩展：assign 类型属性赋值 sink（innerHTML/outerHTML）+ callee 去重
   - 新建 4 条 JS function-param-regex 规则覆盖 vustomize-match（3005/30051/3006/30061）
+  - 新建 16 条 _graph 规则覆盖 JS 所有 function-param-regex 规则
   - 图引擎覆盖：function-param-regex 113 条 + java-function-param-regex 不变
   - oldscan 覆盖：only-regex 17 + framework-dependency 17 + regex-return-regex 6 + special-crx 5 + file-path 3 + vustomize-match 7 + test 2 = 57 条
+- [x] 全语言 use 边生成（14 语言 Normalizer 均在 _walk_call 中生成 use 边）
+  - 新增：JS/Go/C/C++/C#/Kotlin/Lua/Ruby/Rust/TypeScript（11 个语言）
+  - 已有：PHP/Python/Java（3 个语言）
+  - 修复：TypeScript 函数参数 label IDENTIFIER → PARAMETER、C# 参数补齐 type 属性
+- [x] DFG builder parameter 节点支持（_analyze_same_variables 识别 parameter 标签作为定义端点）
+- [x] enrich_taint 跨语言增强
+  - SourceRegistry 跨语言统一加载（scanner.py SourceRegistryWrapper 适配 14 语言）
+  - SourceRegistry 优先级高于 builtin 知识库（避免 sink 函数被 passthrough 标注覆盖）
+  - builtin 完整限定名回退查询（短名+全名双名查询）
+  - static_call 类型支持（enrich_taint 处理 Java static_call 节点）
+- [x] Java 特殊修复
+  - Java normalizer MemberReference 类型修正（无 qualifier → identifier/variable）
+  - find_sinks assign LHS 递归 identifier/property 检查
 - [ ] 移除内存 AST 依赖 (可选)
 - [ ] 性能优化 (批量写入、索引优化)
 
@@ -1438,6 +1469,14 @@ workspace/
 | PHP | phply (phpast) | 94 | 扁平列表输出，无根节点 |
 | Go | tree-sitter-go | ~60+ | 命名节点多，goroutine/channel 独有 |
 | C | tree-sitter-c | ~40+ | 指针/struct 特有 |
+| C++ | tree-sitter-cpp | ~80+ | 类模板/运算符重载 |
+| C# | tree-sitter-csharp | ~70+ | LINQ/async/attribute |
+| Kotlin | tree-sitter-kotlin | ~80+ | 协程/扩展函数/scope function |
+| TypeScript | tree-sitter-typescript | ~110+ | type annotation/decorator/enum |
+| Lua | tree-sitter-lua | ~30+ | 极简，table 驱动 |
+| Ruby | tree-sitter-ruby | ~50+ | block/yield/mixin |
+| Rust | tree-sitter-rust | ~90+ | trait/lifetime/macro |
+| Solidity | 内置 (手工解析) | ~20 | 合约/事件/修饰符 |
 
 ## 附录 C: TraceCache 知识库覆盖
 
@@ -1449,13 +1488,30 @@ workspace/
 | Python | ~200+ | 标准库 + Web 框架 |
 | Go | ~150+ | 标准库为主 |
 | C | ~120+ | libc + 常见函数 |
+| C++ | ~100+ | STL + 常见库 |
+| C# | ~100+ | .NET BCL |
+| Kotlin | ~100+ | JDK + Kotlin stdlib |
+| TypeScript | ~200+ | 继承 JavaScript |
+| Ruby | ~100+ | 核心库 + Rails |
+| Lua | ~50+ | 基础库 |
+| Rust | ~80+ | std + 常见 crate |
+| Solidity | ~30+ | 合约 ABI |
 
 ## 附录 D: Source Discovery 框架覆盖
 
-| 语言 | 支持的框架 |
-|------|-----------|
-| PHP | Laravel, ThinkPHP, CodeIgniter, Symfony |
-| Python | Flask, Django, FastAPI |
-| JavaScript | Express, Koa, Hapi, Fastify |
-| Go | Gin, Echo, Fiber, Chi, Beego, GORM |
-| C | CGI, libcurl, OpenSSL |
+| 语言 | SourceDiscovery 模块 | SourceRegistry 接口 | 覆盖的框架/场景 |
+|------|---------------------|---------------------|----------------|
+| PHP | source_discovery.py | is_source_variable / is_source_member | Laravel, ThinkPHP, CodeIgniter, Symfony |
+| Python | source_discovery.py | is_source_variable / is_source_member | Flask, Django, FastAPI |
+| JavaScript | source_discovery.py | is_source_member | Express, Koa, Hapi, Fastify; 浏览器: location.hash, document.cookie, window.name |
+| Java | source_discovery.py | is_source_producer | Servlet (request.getParameter), Spring |
+| Go | source_discovery.py | is_source_member | net/http (r.FormValue, r.URL.Query), os.Args |
+| C | source_discovery.py | is_source_member | argv, stdin, getenv |
+| C++ | source_discovery.py | is_source_member | 继承 C |
+| C# | source_discovery.py | is_source_member | ASP.NET (Request.QueryString) |
+| Kotlin | source_discovery.py | is_source_member | 继承 Java |
+| TypeScript | source_discovery.py | is_source_member | 继承 JavaScript |
+| Ruby | source_discovery.py | is_source_member | Rails (params) |
+| Lua | source_discovery.py | is_source_member | 基础输入 |
+| Rust | source_discovery.py | is_source_member | std::env, std::io |
+| Solidity | source_discovery.py | is_source_member | msg.sender, tx.origin |
