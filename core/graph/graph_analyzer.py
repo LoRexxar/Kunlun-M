@@ -183,10 +183,21 @@ class GraphAnalyzer:
         name_set = set(sink_names)
         results: list[dict] = []
 
+        # 收集所有作为 callee 的节点 vid（MemberExpression 等），用于去重
+        # JS/PHP 中 method_call 的 callee MemberExpression 也会被标记为 operator+method_call
+        # 我们只保留真正的调用点（有 ast[role=arg] 的 operator），跳过 callee 表达式
+        callee_targets: set[int] = set()
+        for e in self.graph.es.select(label="ast"):
+            if _vattr(e, "role") == "callee":
+                callee_targets.add(e.target)
+
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.OPERATOR.value:
                 continue
             if _vattr(v, "type") not in _CALL_TYPES:
+                continue
+            # 跳过 callee 表达式节点（如 MemberExpression），只保留真正的调用 operator
+            if v.index in callee_targets:
                 continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
