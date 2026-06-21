@@ -1380,7 +1380,14 @@ workspace/
 ### Phase 5: 切换图模式
 
 - [x] TypeScript core engine 模块集成（tree-sitter-typescript + pretreatment + scan 流程）
-- [ ] 分析引擎完全切换到图（当前仍是 fallback 模式）
+- [x] 分析引擎完全切换到图（scan() 增强 + taint enrichment + 规则覆盖）
+  - scan() 增强：rule.main() 二次筛选 + vendor/test 路径过滤 + unconfirm 处理
+  - taint enrichment：enrich_taint 集成 + TraceCache 按语言加载 builtin_knowledge
+  - JS source roots：location/document/window/process 识别为 source variable
+  - find_sinks 扩展：assign 类型属性赋值 sink（innerHTML/outerHTML）
+  - 新建 4 条 JS function-param-regex 规则覆盖 vustomize-match（3005/30051/3006/30061）
+  - 图引擎覆盖：function-param-regex 113 条 + java-function-param-regex 不变
+  - oldscan 覆盖：only-regex 17 + framework-dependency 17 + regex-return-regex 6 + special-crx 5 + file-path 3 + vustomize-match 7 + test 2 = 57 条
 - [ ] 移除内存 AST 依赖 (可选)
 - [ ] 性能优化 (批量写入、索引优化)
 
