@@ -224,13 +224,29 @@ class GraphAnalyzer:
                 if _vattr(e, "role") == "lhs"
             ]
             lhs_name = None
+            lhs_identifier_vid = None
             for lhs_vid in lhs_vids:
                 lhs_v = self.graph.vs[lhs_vid]
                 lhs_label = _vattr(lhs_v, "label", "")
                 lhs_vname = _vattr(lhs_v, "name", "")
                 if lhs_label == "property" or lhs_label == "identifier":
-                    lhs_name = lhs_vname
-                    break
+                    if lhs_vname in name_set:
+                        lhs_name = lhs_vname
+                        lhs_identifier_vid = lhs_vid
+                        break
+                elif lhs_label == "operator":
+                    # LHS 是 operator（如 document.getElementById().innerHTML）
+                    # 检查其 ast 子节点中是否有 identifier/property 匹配 sink
+                    for ce in self.graph.es.select(_source=lhs_vid, label="ast"):
+                        child = self.graph.vs[ce.target]
+                        cl = _vattr(child, "label", "")
+                        cn = _vattr(child, "name", "")
+                        if cl in ("property", "identifier") and cn in name_set:
+                            lhs_name = cn
+                            lhs_identifier_vid = ce.target
+                            break
+                    if lhs_name:
+                        break
             if not lhs_name:
                 continue
             if lhs_name not in name_set:

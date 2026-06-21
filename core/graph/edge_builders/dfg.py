@@ -150,17 +150,53 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 continue
 
             vid = v.index
-            name = _vattr(v, "name", "") or ""
 
-            # 从 name 中提取 receiver（第一个 '.' 前的部分）
-            # e.g. "r.URL.Query" → "r", "$pdo.query" → "$pdo"
+            # 1. 优先沿 callee member 边链回溯 receiver（JS/Go member expression chain）
+            #    call --[ast/callee]--> callee_member <--[member]-- chain <--[member]-- identifier
+            receiver_vid = None
+            for eid in self.graph.incident(vid, mode="out"):
+                e = self.graph.es[eid]
+                if _vattr(e, "label") != EdgeLabel.AST.value:
+                    continue
+                if _vattr(e, "role", "") != "callee":
+                    continue
+                callee_vid = e.target
+                current = callee_vid
+                visited_chain = {current}
+                while True:
+                    member_found = False
+                    for eid2 in self.graph.incident(current, mode="in"):
+                        e2 = self.graph.es[eid2]
+                        if _vattr(e2, "label") == EdgeLabel.MEMBER.value:
+                            member_source = e2.source
+                            if member_source not in visited_chain:
+                                visited_chain.add(member_source)
+                                src_label = _vattr(
+                                    self.graph.vs[member_source], "label", ""
+                                )
+                                if src_label == NodeLabel.IDENTIFIER.value:
+                                    receiver_vid = member_source
+                                elif src_label == NodeLabel.OPERATOR.value:
+                                    current = member_source
+                                    member_found = True
+                                break
+                    if receiver_vid is not None or not member_found:
+                        break
+                if receiver_vid is not None:
+                    break
+
+            if receiver_vid is not None:
+                self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
+                continue
+
+            # 2. 回退到 name-based 搜索（PHP/Go 等无 member chain 的情况）
+            name = _vattr(v, "name", "") or ""
             dot_pos = name.find(".")
             if dot_pos <= 0:
                 continue
             receiver_name = name[:dot_pos]
 
-            # 在同一函数作用域内查找同名 parameter/identifier
-            # 1. 通过 own 边向上找到 parent function
+            # 通过 own 边向上找到 parent function/file
             parent_vid = None
             for eid in self.graph.incident(vid, mode="in"):
                 e = self.graph.es[eid]
@@ -171,8 +207,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if parent_vid is None:
                 continue
 
-            # 2. 在 parent function 的 own 子节点中查找同名 parameter
-            receiver_vid = None
+            # 在 parent 的 own/ast 直接子节点中查找同名 parameter/identifier
             for eid in self.graph.incident(parent_vid, mode="out"):
                 e = self.graph.es[eid]
                 if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
@@ -180,12 +215,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 child = self.graph.vs[e.target]
                 child_name = _vattr(child, "name", "") or ""
                 child_label = _vattr(child, "label", "")
-                if child_name == receiver_name and child_label == NodeLabel.PARAMETER.value:
+                if child_name == receiver_name and child_label in (
+                    NodeLabel.PARAMETER.value,
+                    NodeLabel.IDENTIFIER.value,
+                ):
                     receiver_vid = e.target
                     break
 
-            if receiver_vid is not None:
-                self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
+            if receiver_vid is None:
+                continue
+
+            self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
 
     # -- 分析步骤 1：赋值传播 -------------------------------------------------
 

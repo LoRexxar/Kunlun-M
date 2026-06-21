@@ -72,7 +72,9 @@ _BINARY_OP_TYPES = {
 }
 
 _MEMBER_ACCESS_TYPES = {
-    "StaticMemberExpression", "ComputedMemberExpression",
+    "MemberExpression",  # esprima node.type (computed=False/True 都用这个)
+    "StaticMemberExpression",  # esprima Python class name (computed=False)
+    "ComputedMemberExpression",  # esprima Python class name (computed=True)
 }
 
 
@@ -1496,7 +1498,7 @@ class Normalizer:
         # Determine call type
         call_type = OperatorType.CALL.value
         if callee is not None and hasattr(callee, "type"):
-            if callee.type == "StaticMemberExpression":
+            if callee.type == "MemberExpression":
                 call_type = OperatorType.METHOD_CALL.value
             elif callee.type == "Super":
                 call_type = OperatorType.METHOD_CALL.value
@@ -2355,7 +2357,7 @@ class Normalizer:
                 if val and hasattr(val, "cooked"):
                     parts.append(str(val.cooked))
             return "`" + "".join(parts) + "`"
-        if ntype == "StaticMemberExpression":
+        if ntype in ("MemberExpression", "StaticMemberExpression"):
             obj = self._expr_text(getattr(node, "object", None))
             prop = self._expr_text(getattr(node, "property", None))
             return f"{obj}.{prop}" if obj and prop else ""
