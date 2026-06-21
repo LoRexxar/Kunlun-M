@@ -62,7 +62,13 @@ def enrich_taint(
     """
     count = 0
     for v in graph.vs:
-        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+        vlabel = _vattr(v, "label", "")
+        vtype = _vattr(v, "type", "")
+        is_function_def = vlabel == NodeLabel.FUNCTION.value
+        is_call_node = (vlabel == NodeLabel.OPERATOR.value
+                        and vtype in ("call", "method_call"))
+
+        if not (is_function_def or is_call_node):
             continue
 
         func_vid = v.index
@@ -71,21 +77,28 @@ def enrich_taint(
         if not func_name:
             continue
 
+        # 对于 call/method_call 节点，从 name 中提取函数短名
+        # e.g. "location.hash.slice" → "slice", "document.getElementById" → "getElementById"
+        lookup_name = func_name
+        if is_call_node:
+            dot_pos = func_name.rfind(".")
+            lookup_name = func_name[dot_pos + 1:] if dot_pos >= 0 else func_name
+
         # 1. TraceCache builtin（内置函数没有图中的 body，直接查知识库）
         if trace_cache is not None:
-            if _enrich_from_builtin(graph, func_vid, func_name, trace_cache):
+            if _enrich_from_builtin(graph, func_vid, lookup_name, trace_cache):
                 count += 1
                 continue
 
         # 2. SourceRegistry（框架 source producer 方法/函数）
         if source_registry is not None:
-            if _enrich_from_source_registry(graph, func_vid, func_name, source_registry):
+            if _enrich_from_source_registry(graph, func_vid, lookup_name, source_registry):
                 count += 1
                 continue
 
         # 3. 函数摘要（用户自定义函数的返回值数据流）
         if summary_lookup is not None:
-            if _enrich_from_summary(graph, func_vid, func_name, summary_lookup):
+            if _enrich_from_summary(graph, func_vid, lookup_name, summary_lookup):
                 count += 1
                 continue
 
@@ -97,6 +110,10 @@ def enrich_taint(
 # Internal: enrichment helpers — 标注在 function + parameter 节点上
 # ---------------------------------------------------------------------------
 
+# receiver passthrough 的字符串标记 ("this"/"self")
+_RECEIVER_PT_NAMES: frozenset[str] = frozenset({"this", "self"})
+
+
 def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_cache) -> bool:
     """从 TraceCache 内置知识库标注。"""
     knowledge = trace_cache.lookup_builtin(func_name)
@@ -104,7 +121,11 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_c
         return False
 
     safe = knowledge.get("safe", False)
-    passthrough: list[int] = knowledge.get("passthrough", [])
+    passthrough: list = knowledge.get("passthrough", [])
+
+    # 分离 receiver passthrough ("this"/"self") 和位置参数 passthrough (int 索引)
+    receiver_pt = any(isinstance(x, str) and x in _RECEIVER_PT_NAMES for x in passthrough)
+    param_indices = [i for i in passthrough if isinstance(i, int)]
 
     if safe and not passthrough:
         graph.vs[func_vid]["taint_type"] = "safe"
@@ -112,8 +133,11 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_c
 
     if passthrough:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        graph.vs[func_vid]["taint_passthrough"] = [i for i in passthrough if isinstance(i, int)]
-        _mark_passthrough_params(graph, func_vid, passthrough)
+        graph.vs[func_vid]["taint_passthrough"] = param_indices
+        if receiver_pt:
+            graph.vs[func_vid]["taint_receiver_pt"] = True
+        if param_indices:
+            _mark_passthrough_params(graph, func_vid, param_indices)
         return True
 
     # 有记录但 safe=False 且无 passthrough
@@ -151,11 +175,16 @@ def _enrich_from_summary(
         return False
 
     passthrough_indices: set[int] = set()
+    # summary 一般只产出 int 索引，但为保险起见也检测 receiver 标记
+    has_receiver_pt = False
 
     for rf in summary.return_flow:
         if rf.origin_type == "param":
             for param_idx in rf.dep_params:
-                passthrough_indices.add(param_idx)
+                if isinstance(param_idx, str) and param_idx in _RECEIVER_PT_NAMES:
+                    has_receiver_pt = True
+                elif isinstance(param_idx, int):
+                    passthrough_indices.add(param_idx)
         elif rf.origin_type == "global":
             if _is_source_var(rf.origin):
                 graph.vs[func_vid]["taint_type"] = "source"
@@ -166,10 +195,14 @@ def _enrich_from_summary(
                 graph.vs[func_vid]["taint_type"] = "source"
                 return True
 
-    if passthrough_indices:
+    if passthrough_indices or has_receiver_pt:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        graph.vs[func_vid]["taint_passthrough"] = sorted(passthrough_indices)
-        _mark_passthrough_params(graph, func_vid, sorted(passthrough_indices))
+        sorted_indices = sorted(passthrough_indices)
+        graph.vs[func_vid]["taint_passthrough"] = sorted_indices
+        if has_receiver_pt:
+            graph.vs[func_vid]["taint_receiver_pt"] = True
+        if sorted_indices:
+            _mark_passthrough_params(graph, func_vid, sorted_indices)
         return True
 
     # 有摘要但无可透传来源

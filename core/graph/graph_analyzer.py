@@ -412,7 +412,7 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
                     callee = self._resolve_callee_name(up_vid)
 
-                    # 沿 use 边找到 function 节点，读 taint_type
+                    # 沿 use 边找到 function 定义节点，读 taint_type
                     func_taint = ""
                     func_vid = None
                     for ce in self.graph.es.select(_source=up_vid, label="use"):
@@ -421,6 +421,13 @@ class GraphAnalyzer:
                             func_vid = ce.target
                             func_taint = _vattr(fv, "taint_type", "")
                             break
+
+                    # 如果 use 边没找到 function 定义，检查 call 节点自身的 taint 属性
+                    # （builtin 函数调用被 enrich_taint 直接标注在 call 节点上）
+                    if not func_taint:
+                        func_taint = _vattr(uv, "taint_type", "")
+                        if func_taint:
+                            func_vid = up_vid
 
                     # 4a: source — 函数本身产生可控数据
                     if func_taint == "source":
@@ -445,7 +452,15 @@ class GraphAnalyzer:
                     #     是同一数据的两个视图：反向分析走 function，正向分析走 parameter
                     #     形参 index → 映射到 call 的 ast[role=arg] → 追踪实参
                     if func_taint == "passthrough" and func_vid is not None:
-                        # 直接读 function 节点的常驻属性
+                        # 优先追溯 receiver passthrough (this/self)
+                        if _vattr(self.graph.vs[func_vid], "taint_receiver_pt", False):
+                            receiver_result = self._trace_call_receiver(
+                                up_vid, callee, context_vid,
+                                max_depth - depth, new_path)
+                            if receiver_result is not None:
+                                return self._cached(cache_key, receiver_result)
+
+                        # 位置参数 passthrough：读 function 节点的常驻属性
                         tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
                         pt_param_indices: set[int] = set(
                             int(i) for i in tp if isinstance(i, int)
@@ -586,6 +601,122 @@ class GraphAnalyzer:
             reason=f"Inconclusive for vid={start_vid} ('{sname}') after {max_depth} hops",
             chain=[{"step": "exhausted", "vid": start_vid, "name": sname, "code": 3}],
             path=[start_vid] + list(visited), expr_lineno=_vattr(sv, "lineno", 0)))
+
+    # --- Receiver passthrough tracing ------------------------------------
+
+    def _trace_call_receiver(self, call_vid: int, callee_name: str,
+                              context_vid: int | None, max_depth: int,
+                              path: list[int]) -> AnalysisResult | None:
+        """追溯 method call 的 receiver (this/self) 的可控性。
+
+        三种追溯策略（按优先级）：
+        1. 沿已有 DFG receiver 边回溯（通用，适用于所有语言）
+        2. 沿 callee member chain 回溯到 root identifier（JS/Go 的 member expression）
+        3. 在 call 的 own/ast 子节点中查找 this/self identifier（PHP $this 等）
+        """
+        # 策略 1: 检查是否有 DFG receiver 边指向 call（forward_slice，且 source 不是 callee 的参数）
+        callee_arg_vids: set[int] = set()
+        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(ae, "role") == "arg":
+                callee_arg_vids.add(ae.target)
+        for e in self.graph.es.select(_target=call_vid, label="dfg"):
+            source_vid = e.source
+            if source_vid in callee_arg_vids:
+                continue  # source 是 call 的实参，不是 receiver
+            source_name = _vattr(self.graph.vs[source_vid], "name", "")
+            if not source_name:
+                continue
+            dep_vid = self._find_identifier_by_name(source_name, context_vid)
+            if dep_vid is None:
+                continue
+            result = self.parameters_back(dep_vid, context_vid, max_depth)
+            if result.is_controllable:
+                return AnalysisResult(
+                    code=result.code,
+                    reason=f"receiver '{source_name}' ({callee_name})",
+                    chain=[{"step": "receiver_pt", "vid": dep_vid,
+                            "name": source_name, "code": result.code}],
+                    path=path,
+                    expr_lineno=_vattr(self.graph.vs[call_vid], "lineno", 0))
+
+        # 策略 2: 沿 callee member chain 回溯到 root identifier（JS/Go）
+        callee_vid = None
+        for e in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(e, "role") == "callee":
+                callee_vid = e.target
+                break
+        if callee_vid is not None:
+            root_vid = self._trace_member_chain_root(callee_vid)
+            if root_vid is not None:
+                root_name = _vattr(self.graph.vs[root_vid], "name", "")
+                if root_name:
+                    dep_vid = self._find_identifier_by_name(root_name, context_vid)
+                    if dep_vid is not None:
+                        result = self.parameters_back(dep_vid, context_vid, max_depth)
+                        if result.is_controllable:
+                            return AnalysisResult(
+                                code=result.code,
+                                reason=f"receiver '{root_name}' ({callee_name})",
+                                chain=[{"step": "receiver_pt", "vid": dep_vid,
+                                        "name": root_name, "code": result.code}],
+                                path=path,
+                                expr_lineno=_vattr(self.graph.vs[call_vid], "lineno", 0))
+
+        # 策略 3: 在 call 的 own/ast 父节点的子节点中查找 this/self identifier
+        parent_vid = None
+        for e in self.graph.es.select(_target=call_vid):
+            elabel = _vattr(e, "label", "")
+            if elabel in ("own", "ast"):
+                parent_vid = e.source
+                break
+        if parent_vid is not None:
+            for e in self.graph.es.select(_source=parent_vid):
+                elabel = _vattr(e, "label", "")
+                if elabel not in ("own", "ast"):
+                    continue
+                child = self.graph.vs[e.target]
+                child_name = _vattr(child, "name", "")
+                if child_name in ("this", "self"):
+                    dep_vid = self._find_identifier_by_name(child_name, context_vid)
+                    if dep_vid is None:
+                        continue
+                    result = self.parameters_back(dep_vid, context_vid, max_depth)
+                    if result.is_controllable:
+                        return AnalysisResult(
+                            code=result.code,
+                            reason=f"receiver '{child_name}' ({callee_name})",
+                            chain=[{"step": "receiver_pt", "vid": dep_vid,
+                                    "name": child_name, "code": result.code}],
+                            path=path,
+                            expr_lineno=_vattr(self.graph.vs[call_vid], "lineno", 0))
+
+        return None
+
+    def _trace_member_chain_root(self, callee_vid: int) -> int | None:
+        """沿 member 边链回溯到 root identifier。
+
+        例如 callee_vid("location.hash.slice") <-- member -- ("location.hash")
+                                    <-- member -- ("location")  → 返回 root identifier
+        遇到 operator 节点（中间表达式）则继续向上回溯。
+        """
+        current = callee_vid
+        visited: set[int] = {current}
+        while True:
+            found = False
+            for e in self.graph.es.select(_target=current, label="member"):
+                source = e.source
+                if source in visited:
+                    continue
+                visited.add(source)
+                src_label = _vattr(self.graph.vs[source], "label", "")
+                if src_label == NodeLabel.IDENTIFIER.value:
+                    return source
+                elif src_label == NodeLabel.OPERATOR.value:
+                    current = source
+                    found = True
+                    break
+            if not found:
+                return None
 
     # --- Function definition lookup --------------------------------------
 
