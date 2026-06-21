@@ -28,6 +28,7 @@ from core.graph.node_edge_schema import (
     ImportType,
     IdentifierType,
     ConstType,
+    CgCallType,
     AstRole,
     FrgType,
 )
@@ -1142,6 +1143,34 @@ class Normalizer:
         if block:
             self._walk_node(block, add_node, add_edge, ctx_stack,
                             file_path, depth)
+
+        # use edge to function (callee target, may be external)
+        if method_name and isinstance(method_name, str) and method_name != "<call>":
+            func_name = method_name.rsplit(".", 1)[-1]
+            if "::" in func_name:
+                func_name = func_name.rsplit("::", 1)[-1]
+            if "static" in op_type.value:
+                cg_call_type = CgCallType.STATIC
+            elif op_type == OperatorType.METHOD_CALL:
+                cg_call_type = CgCallType.METHOD
+            else:
+                cg_call_type = CgCallType.DIRECT
+            target_pos = add_node({
+                "label": NodeLabel.FUNCTION.value,
+                "name": func_name,
+                "lineno": 0,
+                "language": self.language,
+                "attrs": {
+                    "fullname": method_name,
+                    "type": FunctionType.FUNCTION.value,
+                    "is_external": True,
+                },
+            })
+            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
+                       "attrs": {
+                           "call_type": cg_call_type.value,
+                           "lineno": lineno,
+                       }})
 
         return pos
 

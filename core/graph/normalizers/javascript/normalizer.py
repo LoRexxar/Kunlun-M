@@ -1533,6 +1533,32 @@ class Normalizer:
                 self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
                                extra={"arg_index": idx})
 
+        # use edge to function (callee target, may be external)
+        if callee_text and isinstance(callee_text, str):
+            func_name = callee_text.rsplit(".", 1)[-1]
+            if "static" in call_type:
+                cg_call_type = CgCallType.STATIC
+            elif call_type == OperatorType.METHOD_CALL.value:
+                cg_call_type = CgCallType.METHOD
+            else:
+                cg_call_type = CgCallType.DIRECT
+            target_pos = add_node({
+                "label": NodeLabel.FUNCTION.value,
+                "name": func_name,
+                "lineno": 0,
+                "language": self.language,
+                "attrs": {
+                    "fullname": callee_text,
+                    "type": FunctionType.FUNCTION.value,
+                    "is_external": True,
+                },
+            })
+            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
+                       "attrs": {
+                           "call_type": cg_call_type.value,
+                           "lineno": lineno,
+                       }})
+
         return pos
 
     # ===================================================================
