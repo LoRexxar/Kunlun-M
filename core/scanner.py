@@ -324,8 +324,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 # rule.main() 二次筛选
                 if hasattr(matched_rule, 'main') and callable(matched_rule.main):
                     try:
-                        sink_attrs_check = _vattr(graph.vs[sink['vid']], 'attrs', {})
-                        sink_file = sink_attrs_check.get('path', '') if isinstance(sink_attrs_check, dict) else ''
+                        sink_file = _vattr(graph.vs[sink['vid']], 'path', '')
                         sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
                         main_input = sink_name  # 默认用 sink 函数名
                         # 尝试读取源码行
@@ -347,8 +346,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         pass  # main() 异常不阻断
 
                 # 文件路径过滤：vendor/test 目录
-                sink_attrs_filter = _vattr(graph.vs[sink['vid']], 'attrs', {})
-                vuln_file_path = sink_attrs_filter.get('path', '') if isinstance(sink_attrs_filter, dict) else ''
+                vuln_file_path = _vattr(graph.vs[sink['vid']], 'path', '')
                 if vuln_file_path:
                     vuln_file_norm = os.path.normpath(vuln_file_path)
                     # vendor 目录
