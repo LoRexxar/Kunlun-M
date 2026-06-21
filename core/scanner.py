@@ -311,7 +311,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     elif hasattr(rule, 'match') and rule.match:
                         for sn in parse_sink_names(rule.match):
                             rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                    if sink_name.lower() in [n.lower() for n in rule_sink_names]:
+                    # 精确匹配 + 后缀匹配（qualified callee 如 document.querySelector().setAttribute 匹配 setAttribute）
+                    sn_lower = sink_name.lower()
+                    if sn_lower in [n.lower() for n in rule_sink_names] or \
+                       any(sn_lower.endswith("." + n.lower()) for n in rule_sink_names):
                         matched_rule = rule
                         break
 
