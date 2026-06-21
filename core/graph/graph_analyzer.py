@@ -222,12 +222,10 @@ class GraphAnalyzer:
             for lhs_vid in lhs_vids:
                 lhs_v = self.graph.vs[lhs_vid]
                 lhs_label = _vattr(lhs_v, "label", "")
-                if lhs_label == "property":
-                    lhs_name = _vattr(lhs_v, "name", "")
+                lhs_vname = _vattr(lhs_v, "name", "")
+                if lhs_label == "property" or lhs_label == "identifier":
+                    lhs_name = lhs_vname
                     break
-                elif lhs_label == "identifier":
-                    # 直接赋值到简单变量，不是属性赋值，跳过
-                    continue
             if not lhs_name:
                 continue
             if lhs_name not in name_set:
