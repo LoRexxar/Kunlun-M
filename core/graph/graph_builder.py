@@ -53,6 +53,15 @@ class AstGraphBuilder:
         self._nodes.append(file_node)
         # Offset for child nodes: file_node is at `offset`, so child
         # source/target values (0-based relative to file_node) need +offset
+        # 为子节点注入文件路径（供 scan 链路展示使用）
+        # 从 file_node 的 attrs.location 属性获取
+        file_loc = file_node.get("attrs", {}).get("location", "")
+        if file_loc:
+            for node in nodes:
+                if "attrs" not in node or not isinstance(node["attrs"], dict):
+                    node["attrs"] = {}
+                if "path" not in node["attrs"]:
+                    node["attrs"]["path"] = file_loc
         self._nodes.extend(nodes)
 
         # Remap edge source/target to global indices

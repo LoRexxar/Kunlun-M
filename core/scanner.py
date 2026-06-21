@@ -362,15 +362,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     v = graph.vs[vid]
                     node_label = _vattr(v, 'label', '')
                     node_name = _vattr(v, 'name', '')
-                    attrs = _vattr(v, 'attrs', {})
-                    node_file = attrs.get('path', '') if isinstance(attrs, dict) else ''
+                    node_file = _vattr(v, 'path', '')
                     node_lineno = _vattr(v, 'lineno', 0) or 0
                     chain.append((node_label, node_name, node_file, node_lineno))
 
                 # 构建 VulnerabilityResult
-                sink_attrs = _vattr(graph.vs[sink['vid']], 'attrs', {})
-                file_path = sink_attrs.get('path', '') if isinstance(sink_attrs, dict) else ''
-                lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0)
+                sink_vid = sink['vid']
+                file_path = _vattr(graph.vs[sink_vid], 'path', '')
+                lineno = _vattr(graph.vs[sink_vid], 'lineno', 0)
 
                 vuln = VulnerabilityResult.from_match(
                     (file_path, lineno, sink_name),
