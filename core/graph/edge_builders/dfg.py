@@ -437,13 +437,22 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         if value_nodes:
                             assign_lhs_vids.add(rhv)
 
+        # Parameter 节点是定义端点（类似 assign LHS）
+        # 函数参数没有显式的赋值，但同名 identifier/parameter 使用应回溯到它
+        for v in self.graph.vs:
+            if _vattr(v, "label") == NodeLabel.PARAMETER.value:
+                assign_lhs_vids.add(v.index)
+
         # 收集作用域 → identifier 映射
         scope_vars: dict[tuple[int, str], dict[str, list[int]]] = defaultdict(
             lambda: defaultdict(list)
         )
 
         for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
+            if _vattr(v, "label") not in (
+                NodeLabel.IDENTIFIER.value,
+                NodeLabel.PARAMETER.value,
+            ):
                 continue
             vname = _vattr(v, "name", "")
             if not vname:

@@ -1150,13 +1150,22 @@ class Normalizer:
         is_static_call = qualifier is not None and isinstance(qualifier, str)
         if is_static_call:
             call_type = OperatorType.STATIC_CALL.value
+            cg_call_type = CgCallType.STATIC
             callee_text = qualifier + "." + member
+            func_name = member
+            func_fullname = callee_text
         elif qualifier:
             call_type = OperatorType.METHOD_CALL.value
+            cg_call_type = CgCallType.METHOD
             callee_text = self._expr_text(qualifier) + "." + member
+            func_name = member
+            func_fullname = callee_text
         else:
             call_type = OperatorType.CALL.value
+            cg_call_type = CgCallType.DIRECT
             callee_text = member
+            func_name = callee_text
+            func_fullname = callee_text
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
@@ -1195,6 +1204,25 @@ class Normalizer:
         # selectors (chain)
         for sel in selectors:
             self._walk_node(sel, add_node, add_edge, ctx_stack, file_path, 0)
+
+        # use edge to function (callee target, may be external)
+        if func_name and isinstance(func_name, str):
+            target_pos = add_node({
+                "label": NodeLabel.FUNCTION.value,
+                "name": func_name,
+                "lineno": 0,
+                "language": self.language,
+                "attrs": {
+                    "fullname": func_fullname,
+                    "type": FunctionType.FUNCTION.value,
+                    "is_external": True,
+                },
+            })
+            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
+                       "attrs": {
+                           "call_type": cg_call_type.value,
+                           "lineno": lineno,
+                       }})
 
         return pos
 
@@ -1374,6 +1402,12 @@ class Normalizer:
         selectors = getattr(node, "selectors", []) or []
         postfix = getattr(node, "postfix_operators", []) or []
         prefix = getattr(node, "prefix_operators", []) or []
+
+        # 无 qualifier 的 MemberReference 实际上是简单变量引用（如 "cmd"、"user"）
+        # 不应作为 operator(method_call) 处理，而是作为 identifier(variable)
+        if not qualifier:
+            return self._emit_identifier(add_node, member, lineno,
+                                          IdentifierType.VARIABLE)
 
         qualifier_text = self._expr_text(qualifier)
         full_name = f"{qualifier_text}.{member}" if qualifier_text else member
