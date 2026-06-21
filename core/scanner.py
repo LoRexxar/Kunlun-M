@@ -252,18 +252,30 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                 arg_vids = list(set(sink.get('arg_vids', [])))
                 found_controllable = False
+                found_unconfirmed = False
                 result = None
+                unconfirmed_result = None
                 for arg_vid in arg_vids:
                     arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                     if arg_label == 'function':
                         continue
                     r = analyzer.parameters_back(arg_vid)
-                    if r and r.is_controllable:
-                        found_controllable = True
-                        result = r
-                        break
+                    if r is not None:
+                        if r.is_controllable:
+                            found_controllable = True
+                            result = r
+                            break
+                        elif not found_unconfirmed:
+                            # 疑似可控但未确认，记录为 unconfirmed
+                            found_unconfirmed = True
+                            unconfirmed_result = r
                 if not found_controllable:
-                    continue
+                    # unconfirm 模式：记录疑似漏洞
+                    if found_unconfirmed and is_unconfirm:
+                        result = unconfirmed_result
+                        found_controllable = True
+                    else:
+                        continue
 
                 sink_name = sink.get('name', '')
                 matched_rule = None
@@ -281,6 +293,44 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
                 if matched_rule is None:
                     continue
+
+                # rule.main() 二次筛选
+                if hasattr(matched_rule, 'main') and callable(matched_rule.main):
+                    try:
+                        sink_attrs_check = _vattr(graph.vs[sink['vid']], 'attrs', {})
+                        sink_file = sink_attrs_check.get('path', '') if isinstance(sink_attrs_check, dict) else ''
+                        sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
+                        main_input = sink_name  # 默认用 sink 函数名
+                        # 尝试读取源码行
+                        if sink_file:
+                            try:
+                                with open(sink_file, 'r', encoding='utf-8', errors='replace') as mf:
+                                    source_lines = mf.readlines()
+                                idx = int(sink_lineno) - 1
+                                if 0 <= idx < len(source_lines):
+                                    main_input = source_lines[idx].strip()
+                            except Exception:
+                                pass
+                        main_result = matched_rule.main(main_input)
+                        if main_result is False:
+                            logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip sink {sink}'.format(
+                                cvi=matched_rule.svid, sink=sink_name))
+                            continue
+                    except Exception:
+                        pass  # main() 异常不阻断
+
+                # 文件路径过滤：vendor/test 目录
+                sink_attrs_filter = _vattr(graph.vs[sink['vid']], 'attrs', {})
+                vuln_file_path = sink_attrs_filter.get('path', '') if isinstance(sink_attrs_filter, dict) else ''
+                if vuln_file_path:
+                    vuln_file_norm = os.path.normpath(vuln_file_path)
+                    # vendor 目录
+                    if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
+                        continue
+                    # test 目录
+                    for test_path in ['/test/', '/tests/', '/unitTests/']:
+                        if test_path in vuln_file_norm:
+                            continue
 
                 # 构建污点传播链
                 chain = []
