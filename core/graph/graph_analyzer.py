@@ -204,6 +204,47 @@ class GraphAnalyzer:
                 "type": _vattr(v, "type", ""),
                 "arg_vids": arg_vids,
             })
+
+        # 第二轮：查找 assign 类型节点中匹配 sink_name 的属性赋值
+        # 例如 element.innerHTML = expr → innerHTML 是 sink
+        assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") not in assign_types:
+                continue
+            # 查找 LHS 边
+            lhs_vids = [
+                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                if _vattr(e, "role") == "lhs"
+            ]
+            lhs_name = None
+            for lhs_vid in lhs_vids:
+                lhs_v = self.graph.vs[lhs_vid]
+                lhs_label = _vattr(lhs_v, "label", "")
+                if lhs_label == "property":
+                    lhs_name = _vattr(lhs_v, "name", "")
+                    break
+                elif lhs_label == "identifier":
+                    # 直接赋值到简单变量，不是属性赋值，跳过
+                    continue
+            if not lhs_name:
+                continue
+            if lhs_name not in name_set:
+                continue
+            # 查找 RHS 边作为 arg_vids（被赋值的表达式）
+            rhs_vids = [
+                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                if _vattr(e, "role") == "rhs"
+            ]
+            results.append({
+                "vid": v.index,
+                "name": lhs_name,
+                "lineno": _vattr(v, "lineno", 0),
+                "file_path": _vattr(v, "file_path", ""),
+                "type": _vattr(v, "type", ""),
+                "arg_vids": rhs_vids,
+            })
         logger.debug("find_sinks found %d sink node(s)", len(results))
         return results
 
