@@ -296,7 +296,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     from utils.igraph_compat import _vattr
 
     for lang, lang_rule_list in lang_rules.items():
-        analyzer = GraphAnalyzer(graph, language=lang)
+        analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang))
 
         # 收集该语言所有规则的 sink 函数名
         all_sink_names = []

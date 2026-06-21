@@ -163,11 +163,13 @@ class GraphAnalyzer:
     直接根据 function 节点的 taint_type 判定可控性，无需运行时查询知识库。
     """
 
-    def __init__(self, graph: ig.Graph, language: str = "php") -> None:
+    def __init__(self, graph: ig.Graph, language: str = "php",
+                 source_registry=None) -> None:
         self.graph = graph
         self.language = language
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._call_stack: list[str] = []
+        self._source_registry = source_registry
 
     # --- Sink discovery ---------------------------------------------------
 
@@ -955,6 +957,14 @@ class GraphAnalyzer:
         if self.language in ("javascript", "typescript"):
             if name in _JS_SOURCE_ROOTS:
                 return True
+        # SourceRegistry: builtin source members for all languages
+        # (e.g., Go: os.Args, os.Getenv; C: argv, getenv; Python: sys.argv, os.environ)
+        if self._source_registry is not None:
+            try:
+                if self._source_registry.is_source_member(name):
+                    return True
+            except Exception:
+                pass
         return False
 
     def _is_repair_function(self, name: str) -> bool:
