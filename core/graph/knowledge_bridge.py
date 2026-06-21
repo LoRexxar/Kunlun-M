@@ -77,24 +77,30 @@ def enrich_taint(
         if not func_name:
             continue
 
-        # 对于 call/method_call 节点，从 name 中提取函数短名
-        # e.g. "location.hash.slice" → "slice", "document.getElementById" → "getElementById"
+        # 对于 call/method_call 节点，提取短名和完整名
+        # e.g. "fmt.Sprintf" → lookup_name="Sprintf", full_lookup="fmt.Sprintf"
+        # TraceCache knowledge 中 key 是完整名（如 "fmt.Sprintf"），需同时尝试
         lookup_name = func_name
+        full_lookup = func_name
         if is_call_node:
             dot_pos = func_name.rfind(".")
             lookup_name = func_name[dot_pos + 1:] if dot_pos >= 0 else func_name
 
-        # 1. TraceCache builtin（内置函数没有图中的 body，直接查知识库）
-        if trace_cache is not None:
-            if _enrich_from_builtin(graph, func_vid, lookup_name, trace_cache):
+        # 1. SourceRegistry（框架 source producer + builtin source member）
+        #    source 标注优先级最高 — 如果函数本身就是 source（接收外部数据），
+        #    则直接标记为 source，不再查 builtin 知识库（避免 sink 函数被 builtin
+        #    的 passthrough 语义错误覆盖）。
+        #    传完整 func_name（如 "document.cookie"），内部用短名查 source producer，
+        #    用完整 chain 查 source member。
+        if source_registry is not None:
+            if _enrich_from_source_registry(graph, func_vid, func_name, source_registry):
                 count += 1
                 continue
 
-        # 2. SourceRegistry（框架 source producer 方法/函数 + builtin source member）
-        #    传完整 func_name（如 "document.cookie"），_enrich_from_source_registry 内部
-        #    用 _get_simple_name 提取短名查 source producer，用完整 chain 查 source member
-        if source_registry is not None:
-            if _enrich_from_source_registry(graph, func_vid, func_name, source_registry):
+        # 2. TraceCache builtin（内置函数的返回值可控性知识库）
+        #    仅在 source_registry 未匹配时使用。先短名查，再完整名查。
+        if trace_cache is not None:
+            if _enrich_from_builtin(graph, func_vid, lookup_name, full_lookup, trace_cache):
                 count += 1
                 continue
 
@@ -116,9 +122,11 @@ def enrich_taint(
 _RECEIVER_PT_NAMES: frozenset[str] = frozenset({"this", "self"})
 
 
-def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_cache) -> bool:
-    """从 TraceCache 内置知识库标注。"""
-    knowledge = trace_cache.lookup_builtin(func_name)
+def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache) -> bool:
+    """从 TraceCache 内置知识库标注。先短名查，再完整名查。"""
+    knowledge = trace_cache.lookup_builtin(short_name)
+    if not knowledge and full_name != short_name:
+        knowledge = trace_cache.lookup_builtin(full_name)
     if not knowledge:
         return False
 

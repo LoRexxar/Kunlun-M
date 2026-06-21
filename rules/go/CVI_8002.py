@@ -44,11 +44,15 @@ class CVI_8002(SingleRuleMixin):
 
     def main(self, regex_string):
         """
-        二次筛选：片段模式下无法判断参数化查询。
-        保守策略：匹配到数据库查询函数就检出。
+        二次筛选：检查是否为参数化查询（占位符?或$1）。
+        如果包含参数化查询特征，返回 False（安全）。
         """
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
+        # 检查 unmatch 规则（参数化查询特征）
+        for pattern in self.unmatch:
+            if re.search(pattern, regex_string):
+                return False
         if re.search(r'\.(Query|Exec|QueryRow|Raw|Where|Select|Having)\s*\(', regex_string):
             return True
         return None
