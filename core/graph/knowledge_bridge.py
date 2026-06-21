@@ -66,7 +66,7 @@ def enrich_taint(
         vtype = _vattr(v, "type", "")
         is_function_def = vlabel == NodeLabel.FUNCTION.value
         is_call_node = (vlabel == NodeLabel.OPERATOR.value
-                        and vtype in ("call", "method_call"))
+                        and vtype in ("call", "method_call", "static_call"))
 
         if not (is_function_def or is_call_node):
             continue
