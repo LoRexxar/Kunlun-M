@@ -90,9 +90,11 @@ def enrich_taint(
                 count += 1
                 continue
 
-        # 2. SourceRegistry（框架 source producer 方法/函数）
+        # 2. SourceRegistry（框架 source producer 方法/函数 + builtin source member）
+        #    传完整 func_name（如 "document.cookie"），_enrich_from_source_registry 内部
+        #    用 _get_simple_name 提取短名查 source producer，用完整 chain 查 source member
         if source_registry is not None:
-            if _enrich_from_source_registry(graph, func_vid, lookup_name, source_registry):
+            if _enrich_from_source_registry(graph, func_vid, func_name, source_registry):
                 count += 1
                 continue
 
@@ -148,12 +150,19 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_c
 def _enrich_from_source_registry(
     graph: ig.Graph, func_vid: int, func_name: str, source_registry,
 ) -> bool:
-    """从 SourceRegistry 标注框架 source producer。"""
+    """从 SourceRegistry 标注框架 source producer 和 builtin source member。"""
     simple_name = _get_simple_name(func_name)
 
-    # source producer 函数
+    # 1. source producer 函数（用户定义的返回可控数据的函数）
     info = source_registry.is_source_producer(simple_name)
     if info:
+        graph.vs[func_vid]["taint_type"] = "source"
+        return True
+
+    # 2. builtin source member expression（JS/TS: document.cookie, location.hash, process.env 等）
+    #    注意：这里用完整的 func_name（如 "document.cookie"），不是 short name（"cookie"）
+    #    is_source_member 支持前缀匹配（如 process.env.USER_INPUT 匹配 process.env）
+    if source_registry.is_source_member(func_name):
         graph.vs[func_vid]["taint_type"] = "source"
         return True
 
@@ -246,7 +255,14 @@ def _is_source_var(name: str) -> bool:
     """判断是否是 source variable。"""
     if not name:
         return False
-    return name.lstrip("\\") in {
+    clean = name.lstrip("\\")
+    # PHP superglobals
+    if clean in {
         "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_SERVER",
         "$_FILES", "$_SESSION", "$_ENV",
-    }
+    }:
+        return True
+    # JS/TS source roots（通过 member chain 访问的根对象）
+    if clean in {"location", "document", "window", "process"}:
+        return True
+    return False
