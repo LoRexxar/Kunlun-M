@@ -212,14 +212,73 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         from core.graph.knowledge_bridge import enrich_taint
         from core.core_engine.trace_cache import TraceCache
 
+        # 语言 → (模块路径, builtin sources 属性名)
+        # 对有 _BUILTIN_SOURCE_MEMBERS 的语言，创建轻量 SourceRegistry
+        # 对 JS/TS 用 discover_sources（包含框架检测 + AST 遍历）
+        _LANG_BUILTIN_SOURCE = {
+            'go': ('core.core_engine.go.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'c': ('core.core_engine.c.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'python': ('core.core_engine.python.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'ruby': ('core.core_engine.ruby.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'rust': ('core.core_engine.rust.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'csharp': ('core.core_engine.csharp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'kotlin': ('core.core_engine.kotlin.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'lua': ('core.core_engine.lua.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'cpp': ('core.core_engine.cpp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            'typescript': ('core.core_engine.typescript.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+        }
+        # PHP/Java 的 SourceRegistry 接口不同（无 is_source_member），需适配
+
+        def _make_source_registry(lang):
+            """为指定语言创建 source_registry（轻量，仅 builtin）"""
+            # JS/TS 使用完整 discover（含框架 + AST 遍历）
+            if lang == 'javascript':
+                from core.core_engine.javascript.source_discovery import discover_sources
+                return discover_sources(ast_object.target_directory, ast_object)
+            # PHP：dataclass，builtin_sources 字段已含 superglobals
+            if lang == 'php':
+                from core.core_engine.php.source_discovery import SourceRegistry as _SR
+                _php_sr = _SR()
+                # 适配接口：添加 is_source_member 方法
+                _orig_isv = _php_sr.is_source_variable
+                _php_sr.source_members = _php_sr.builtin_sources
+                def _php_ism(expr):
+                    return _orig_isv(expr.split('.')[0].split('(')[0]) if expr else False
+                _php_sr.is_source_member = _php_ism
+                return _php_sr
+            # Java：无 is_source_member，需适配
+            if lang == 'java':
+                from core.core_engine.java.source_discovery import SourceRegistry as _SR, _BUILTIN_SOURCE_MEMBERS
+                _java_sr = _SR()
+                _java_sr.source_members = set(_BUILTIN_SOURCE_MEMBERS)
+                def _java_ism(expr):
+                    for sm in _java_sr.source_members:
+                        if expr == sm or expr.startswith(sm + '.') or expr.startswith(sm + '('):
+                            return True
+                    return False
+                _java_sr.is_source_member = _java_ism
+                return _java_sr
+            # 其他语言：从 _BUILTIN_SOURCE_MEMBERS 创建轻量 SourceRegistry
+            entry = _LANG_BUILTIN_SOURCE.get(lang)
+            if not entry:
+                return None
+            try:
+                mod = __import__(entry[0], fromlist=['SourceRegistry', entry[1]])
+                SR = getattr(mod, 'SourceRegistry', None)
+                BSM = getattr(mod, entry[1], None)
+                if SR and BSM:
+                    sr = SR()
+                    for sm in BSM:
+                        sr.add_source_member(sm)
+                    return sr
+            except ImportError:
+                logger.debug('[SCAN] [GRAPH] No source_discovery for lang=%s', lang)
+            return None
+
         # 按语言分别创建 TraceCache 并 enrich
         for lang in lang_rules.keys():
             trace_cache = TraceCache(lang)
-            sr = None
-            # JS/TS 需要 source_registry（发现 location.hash, document.cookie 等）
-            if lang in ("javascript", "typescript"):
-                from core.core_engine.javascript.source_discovery import discover_sources
-                sr = discover_sources(ast_object.target_directory, ast_object)
+            sr = _make_source_registry(lang)
             count = enrich_taint(
                 graph, language=lang,
                 trace_cache=trace_cache,
