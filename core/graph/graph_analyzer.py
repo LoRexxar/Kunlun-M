@@ -39,6 +39,11 @@ _SUPERGLOBALS: frozenset[str] = frozenset({
     "flask.request", "django.http.HttpRequest",
 })
 
+# JS/TS source roots (location.hash, document.cookie, process.env, window.name)
+_JS_SOURCE_ROOTS: frozenset[str] = frozenset({
+    "location", "document", "window", "process",
+})
+
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "htmlspecialchars", "htmlentities", "strip_tags", "urlencode",
     "rawurlencode", "addslashes", "intval", "floatval",
@@ -788,6 +793,10 @@ class GraphAnalyzer:
         if "." in name:
             # Support dotted paths like "request.GET"
             return name in _SUPERGLOBALS
+        # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
+        if self.language in ("javascript", "typescript"):
+            if name in _JS_SOURCE_ROOTS:
+                return True
         return False
 
     def _is_repair_function(self, name: str) -> bool:

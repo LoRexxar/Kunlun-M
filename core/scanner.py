@@ -206,6 +206,30 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                        extension_count=extension_count, files=files, tamper_name=tamper_name,
                        is_unconfirm=is_unconfirm)
 
+    # ── Taint enrichment ──
+    try:
+        from core.pretreatment import ast_object
+        from core.graph.knowledge_bridge import enrich_taint
+        from core.core_engine.trace_cache import TraceCache
+
+        # 按语言分别创建 TraceCache 并 enrich
+        for lang in lang_rules.keys():
+            trace_cache = TraceCache(lang)
+            sr = None
+            # JS/TS 需要 source_registry（发现 location.hash, document.cookie 等）
+            if lang in ("javascript", "typescript"):
+                from core.core_engine.javascript.source_discovery import discover_sources
+                sr = discover_sources(ast_object.target_directory, ast_object)
+            count = enrich_taint(
+                graph, language=lang,
+                trace_cache=trace_cache,
+                source_registry=sr,
+            )
+            if count:
+                logger.info('[SCAN] [GRAPH] Enriched %d function taint annotations for %s', count, lang)
+    except Exception as e:
+        logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
+
     # 对每种语言使用 GraphAnalyzer 扫描
     from core.graph.graph_analyzer import GraphAnalyzer
     from core.utils import parse_sink_names

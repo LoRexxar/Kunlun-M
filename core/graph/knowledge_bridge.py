@@ -112,7 +112,7 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, func_name: str, trace_c
 
     if passthrough:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        graph.vs[func_vid]["taint_passthrough"] = passthrough
+        graph.vs[func_vid]["taint_passthrough"] = [i for i in passthrough if isinstance(i, int)]
         _mark_passthrough_params(graph, func_vid, passthrough)
         return True
 
@@ -186,7 +186,7 @@ def _mark_passthrough_params(graph: ig.Graph, func_vid: int, passthrough_indices
 
     遍历 function → own → parameter，匹配 index。
     """
-    idx_set = set(passthrough_indices)
+    idx_set = set(i for i in passthrough_indices if isinstance(i, int))
     for e in graph.es.select(_source=func_vid, label="own"):
         target = graph.vs[e.target]
         if _vattr(target, "label") != NodeLabel.PARAMETER.value:
