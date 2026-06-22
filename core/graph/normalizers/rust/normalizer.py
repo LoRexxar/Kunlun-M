@@ -1339,8 +1339,15 @@ class Normalizer:
 
         # callee + arguments
         callee = self._find_child_by_type(node, "identifier", "scoped_identifier",
-                                           "field_expression", "parenthesized_expression")
-        callee_name = self._text(callee) if callee else "<call>"
+                                           "field_expression", "parenthesized_expression",
+                                           "generic_function")
+        if callee is not None and callee.type == "generic_function":
+            # generic_function contains scoped_identifier + type_arguments
+            # Extract the base function name (without turbofish)
+            scoped = self._find_child_by_type(callee, "scoped_identifier", "identifier")
+            callee_name = self._text(scoped) if scoped else self._text(callee)
+        else:
+            callee_name = self._text(callee) if callee else "<call>"
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,

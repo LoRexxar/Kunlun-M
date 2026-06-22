@@ -88,7 +88,6 @@ _SKIP_TYPES = frozenset({
     "static_modifier",
     "accessibility_modifier",
     "override_modifier",
-    "export_statement",  # handled specially by _walk_export
 })
 
 _LITERAL_TYPES = frozenset({

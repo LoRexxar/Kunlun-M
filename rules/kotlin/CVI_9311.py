@@ -26,29 +26,42 @@ class CVI_9311(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"LdapContext|SearchControls|DirContext"
+        self.match = r"\.search\s*\(|\.lookup\s*\(|Context\.search\s*\("
 
         self.vul_function = [
-        "LdapContext", "SearchControls", "DirContext"
+            "search", "lookup",
         ]
 
     def main(self, regex_string):
         """
-        二次筛选：排除所有参数都是硬编码字符串字面量的情况。
+        二次筛选：检查是否为 LDAP 搜索/查找调用，且参数包含可控输入。
+        排除硬编码的搜索过滤器。
         """
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 
-        args = regex_string.strip()
+        # 提取函数调用参数部分
+        match = re.search(
+            r'(?:search|lookup)\s*\((.*)\)',
+            regex_string
+        )
+        if not match:
+            return None
+
+        args = match.group(1).strip()
 
         if not args:
             return False
 
-        # 如果参数是纯硬编码字符串字面量，排除
-        if re.match(r'^["\'][^"\']*["\']$', args):
+        # 纯字符串字面量（硬编码 LDAP filter）
+        if re.match(r'^"[^"]*"$', args):
             return False
 
-        return True
+        # 包含字符串模板变量 ($var) 或字符串拼接
+        if re.search(r'\$\w+', args) or re.search(r'"\s*\+\s*\w+', args):
+            return True
+
+        return None
 
     def _split_args(self, args_str):
         """简单按逗号分割参数，处理嵌套括号和字符串"""

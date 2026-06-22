@@ -375,6 +375,39 @@ class Normalizer:
                         self._walk_interpolation(child, add_node, add_edge,
                                                  str_pos, ctx_stack,
                                                  file_path, depth)
+            else:
+                # Kotlin simple string interpolation: $identifier (without braces)
+                # tree-sitter parses this as consecutive string_content nodes:
+                #   string_content("$") + string_content("identifier")
+                # We detect this pattern and create DFG edges for the referenced vars.
+                import re
+                children = list(node.children)
+                for i, child in enumerate(children):
+                    if child.type != "string_content":
+                        continue
+                    text = self._text(child)
+                    if text == "$" and i + 1 < len(children):
+                        next_child = children[i + 1]
+                        if next_child.type == "string_content":
+                            var_name = self._text(next_child).strip()
+                            # Kotlin identifiers: start with letter or _, followed by
+                            # alphanumeric or _
+                            if var_name and re.match(r'^[a-zA-Z_]\w*$', var_name):
+                                var_pos = add_node({
+                                    "label": NodeLabel.IDENTIFIER.value,
+                                    "name": var_name,
+                                    "lineno": self._lineno(node),
+                                    "language": self.language,
+                                    "attrs": {
+                                        "type": IdentifierType.VARIABLE.value,
+                                        "raw_type": "string_template_var",
+                                    },
+                                })
+                                add_edge({
+                                    "label": "dfg",
+                                    "source": var_pos,
+                                    "target": str_pos,
+                                })
             return str_pos
 
         # ---- True / False (boolean) -----------------------------------

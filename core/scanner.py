@@ -298,7 +298,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 
     # 对每种语言使用 GraphAnalyzer 扫描
-    from core.graph.graph_analyzer import GraphAnalyzer
+    from core.graph.graph_analyzer import GraphAnalyzer, AnalysisResult
     from core.utils import parse_sink_names
     from Kunlun_M.const import VulnerabilityResult
     from utils.igraph_compat import _vattr
@@ -365,6 +365,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     if found_unconfirmed and is_unconfirm:
                         result = unconfirmed_result
                         found_controllable = True
+                    elif not arg_vids:
+                        # 无参数的 sink（如 rand::thread_rng()）— 跳过 taint 回溯，
+                        # 依赖 rule.main() 做二次筛选
+                        found_controllable = True
+                        sink_vid = sink['vid']
+                        result = AnalysisResult(
+                            code=0,
+                            reason=f"presence of sink '{sink.get('name', '')}'",
+                            chain=[], path=[sink_vid],
+                        )
                     else:
                         continue
 

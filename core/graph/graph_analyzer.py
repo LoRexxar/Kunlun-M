@@ -109,6 +109,7 @@ _CALL_TYPES = {
     OperatorType.CALL.value,
     OperatorType.STATIC_CALL.value,
     OperatorType.METHOD_CALL.value,
+    OperatorType.NEW.value,
 }
 
 # ---------------------------------------------------------------------------
