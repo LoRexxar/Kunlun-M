@@ -1294,18 +1294,37 @@ class Normalizer:
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        # Walk initializer expression
+        # Walk initializer expression — skip variable name identifier
+        found_name = False
         for child in node.children:
-            if child.type in ("let", "mut", "ref", ";", ":", "="):
+            if child.type in _SKIP_TYPES:
+                continue
+            if child.type in ("let", "mut", "ref", ";", ":", "=", "_"):
                 continue
             if child.type == "type_identifier" or "type" in child.type.lower():
-                # Skip type annotation
                 if child.type not in ("identifier", "scoped_identifier"):
                     continue
+            # Skip the variable name identifier (first identifier is LHS)
+            if not found_name and child.type == "identifier":
+                found_name = True
+                continue
             init_pos = self._walk_node(child, add_node, add_edge,
                                         ctx_stack, file_path, 0)
             if init_pos is not None:
-                self._ast_edge(add_edge, pos, init_pos, AstRole.VALUE.value)
+                # Create assignment operator node for DFG builder
+                eq_pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": "=",
+                    "lineno": lineno,
+                    "language": self.language,
+                    "attrs": {
+                        "type": OperatorType.ASSIGN.value,
+                        "raw_type": "let_declaration",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, eq_pos, depth + 1)
+                self._ast_edge(add_edge, eq_pos, pos, AstRole.LHS.value)
+                self._ast_edge(add_edge, eq_pos, init_pos, AstRole.RHS.value)
             break
 
         return pos

@@ -270,6 +270,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     sr = SR()
                     for sm in BSM:
                         sr.add_source_member(sm)
+                    # Rust: 注册短名（use std::env → env::args）
+                    if lang == "rust":
+                        for sm in BSM:
+                            for prefix in ("std::", "std::process::", "std::io::", "std::net::"):
+                                if sm.startswith(prefix):
+                                    sr.add_source_member(sm[len(prefix):])
                     return sr
             except ImportError:
                 logger.debug('[SCAN] [GRAPH] No source_discovery for lang=%s', lang)
@@ -371,7 +377,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         for sn in parse_sink_names(rule.match):
                             rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
                     # 精确匹配 + 后缀匹配（qualified callee 如 document.querySelector().setAttribute 匹配 setAttribute）
-                    sn_lower = sink_name.lower()
+                    # Normalize :: → . for Rust/Go compatibility
+                    sn_lower = sink_name.lower().replace("::", ".")
                     if sn_lower in [n.lower() for n in rule_sink_names] or \
                        any(sn_lower.endswith("." + n.lower()) for n in rule_sink_names):
                         matched_rule = rule

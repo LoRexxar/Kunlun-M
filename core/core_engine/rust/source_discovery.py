@@ -410,6 +410,14 @@ def discover_sources(project_dir, tree, file_path=None, extra_sources=None):
     # 1. 加载内置 source
     for sm in _BUILTIN_SOURCE_MEMBERS:
         registry.add_source_member(sm)
+    # 1a. 注册短名（use 导入后代码用短名）
+    # e.g. use std::env; → env::args(), env::var()
+    for sm in _BUILTIN_SOURCE_MEMBERS:
+        # std::env::args → env::args, std::fs::read → fs::read
+        for prefix in ("std::", "std::process::", "std::io::", "std::net::"):
+            if sm.startswith(prefix):
+                short = sm[len(prefix):]
+                registry.add_source_member(short)
 
     # 1b. 加载额外 source
     if extra_sources:

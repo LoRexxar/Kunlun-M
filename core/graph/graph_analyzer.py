@@ -206,9 +206,12 @@ class GraphAnalyzer:
                 continue
             if callee_name.startswith("\\"):
                 callee_name = callee_name[1:]
-            if callee_name not in name_set:
+            # Normalize: Rust uses :: but sink names use .
+            normalized_callee = callee_name.replace("::", ".")
+            normalized_set = {sn.replace("::", ".") for sn in name_set}
+            if normalized_callee not in normalized_set:
                 # 后缀匹配：qualified name "ioutil.ReadFile" 匹配 sink "ReadFile"
-                if not any(callee_name.endswith("." + sn) for sn in name_set):
+                if not any(normalized_callee.endswith("." + sn) for sn in normalized_set):
                     continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
