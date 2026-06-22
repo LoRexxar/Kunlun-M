@@ -321,7 +321,7 @@ class Normalizer:
                                     file_path, depth)
 
         # ---- Local variable declaration --------------------------------
-        if ntype == "local_variable_declaration":
+        if ntype == "local_variable_declaration" or ntype == "variable_declaration":
             return self._walk_local_var(node, add_node, add_edge, ctx_stack,
                                         file_path, depth)
 
@@ -390,6 +390,11 @@ class Normalizer:
         if ntype == "member_access_expression":
             return self._walk_member_access(node, add_node, add_edge,
                                               ctx_stack, file_path, depth)
+
+        # ---- Element access expression (a[key]) ------------------------
+        if ntype == "element_access_expression":
+            return self._walk_element_access(node, add_node, add_edge,
+                                             ctx_stack, file_path, depth)
 
         # ---- Conditional expression (ternary) --------------------------
         if ntype == "conditional_expression":
@@ -812,14 +817,38 @@ class Normalizer:
 
             # Walk initializer
             eq_clause = self._find_child_by_type(decl, "equals_value_clause")
+            found_eq = False
+            init_children = []
             if eq_clause:
-                for child in eq_clause.children:
-                    if child.type in _SKIP_TYPES:
-                        continue
+                init_children = [c for c in eq_clause.children if c.type not in _SKIP_TYPES]
+            else:
+                for child in decl.children:
+                    if found_eq and child.type not in _SKIP_TYPES:
+                        init_children = [child]
+                        break
+                    if child.type == "=":
+                        found_eq = True
+
+            if init_children:
+                # Create assignment operator node for DFG builder
+                eq_pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": "=",
+                    "lineno": self._lineno(decl),
+                    "language": self.language,
+                    "attrs": {
+                        "type": OperatorType.ASSIGN.value,
+                        "raw_type": "field_declaration",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, eq_pos, depth + d_idx)
+                self._ast_edge(add_edge, eq_pos, d_pos, AstRole.LHS.value)
+
+                for child in init_children:
                     init_pos = self._walk_node(child, add_node, add_edge,
                                                 ctx_stack, file_path, 0)
                     if init_pos is not None:
-                        self._ast_edge(add_edge, d_pos, init_pos, AstRole.VALUE.value)
+                        self._ast_edge(add_edge, eq_pos, init_pos, AstRole.RHS.value)
                     break
 
             last_pos = d_pos
@@ -860,15 +889,42 @@ class Normalizer:
             })
             self._own_edge(add_edge, ctx_stack, d_pos, depth + d_idx)
 
+            # Find initializer: first child after identifier and "=" token
             eq_clause = self._find_child_by_type(decl, "equals_value_clause")
+            found_eq = False
+            init_children = []
             if eq_clause:
-                for child in eq_clause.children:
-                    if child.type in _SKIP_TYPES:
-                        continue
+                init_children = [c for c in eq_clause.children if c.type not in _SKIP_TYPES]
+            else:
+                # C# tree-sitter: variable_declarator children are [identifier, =, expr, ...]
+                found_eq = False
+                for child in decl.children:
+                    if found_eq and child.type not in _SKIP_TYPES:
+                        init_children = [child]
+                        break
+                    if child.type == "=":
+                        found_eq = True
+
+            if init_children:
+                # Create assignment operator node for DFG builder
+                eq_pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": "=",
+                    "lineno": self._lineno(decl),
+                    "language": self.language,
+                    "attrs": {
+                        "type": OperatorType.ASSIGN.value,
+                        "raw_type": "local_variable_declaration",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, eq_pos, depth + d_idx)
+                self._ast_edge(add_edge, eq_pos, d_pos, AstRole.LHS.value)
+
+                for child in init_children:
                     init_pos = self._walk_node(child, add_node, add_edge,
                                                 ctx_stack, file_path, 0)
                     if init_pos is not None:
-                        self._ast_edge(add_edge, d_pos, init_pos, AstRole.VALUE.value)
+                        self._ast_edge(add_edge, eq_pos, init_pos, AstRole.RHS.value)
                     break
 
             last_pos = d_pos
@@ -1790,6 +1846,42 @@ class Normalizer:
                 continue
             self._walk_node(child, add_node, add_edge, ctx_stack, file_path, 0)
 
+        return pos
+
+    # ===================================================================
+    # Element access expression (obj[key])
+    # ===================================================================
+
+    def _walk_element_access(self, node, add_node, add_edge,
+                             ctx_stack, file_path, depth) -> int:
+        lineno = self._lineno(node)
+        text = self._text(node)
+
+        # Build name: for member[key] combine member_name + "[key]"
+        name = text
+        for child in node.children:
+            if child.type == "member_access_expression":
+                member_name = ""
+                for mc in child.children:
+                    if mc.type in ("identifier", "generic_name"):
+                        member_name = self._text(mc)
+                if member_name and "[" in text:
+                    idx = text.index("[")
+                    name = member_name + text[idx:]
+                break
+
+        pos = add_node({
+            "label": NodeLabel.IDENTIFIER.value,
+            "name": name,
+            "lineno": lineno,
+            "language": self.language,
+            "attrs": {
+                "type": IdentifierType.PROPERTY.value,
+                "raw_type": "element_access_expression",
+                "full_text": text,
+            },
+        })
+        self._own_edge(add_edge, ctx_stack, pos, depth)
         return pos
 
     # ===================================================================

@@ -44,7 +44,7 @@ class SourceRegistry:
     def is_source_member(self, expr_str):
         """检查表达式字符串是否包含已知 source 成员"""
         for sm in self.source_members:
-            if sm == expr_str or expr_str.startswith(sm + '.') or expr_str.startswith(sm + '('):
+            if sm == expr_str or expr_str.startswith(sm + '.') or expr_str.startswith(sm + '(') or expr_str.startswith(sm + '['):
                 return True
         return False
 
@@ -80,6 +80,15 @@ _BUILTIN_SOURCE_MEMBERS = {
     'Request.QueryString["',
     'Request.Cookies["',
     'Request.Headers["',
+    # Short forms (normalizer may strip Request. prefix)
+    'QueryString',
+    'QueryString["',
+    'Form',
+    'Form["',
+    'Cookies',
+    'Cookies["',
+    'Headers',
+    'Headers["',
     'HttpRequest.QueryString',
     'HttpRequest.Form',
     'HttpRequest.Cookies',
