@@ -209,10 +209,25 @@ class GraphAnalyzer:
             # Normalize: Rust uses :: but sink names use .
             normalized_callee = callee_name.replace("::", ".")
             normalized_set = {sn.replace("::", ".") for sn in name_set}
-            if normalized_callee not in normalized_set:
-                # 后缀匹配：qualified name "ioutil.ReadFile" 匹配 sink "ReadFile"
-                if not any(normalized_callee.endswith("." + sn) for sn in normalized_set):
-                    continue
+            matched_name = None
+            if normalized_callee in normalized_set:
+                matched_name = normalized_callee
+            elif any(normalized_callee.endswith("." + sn) for sn in normalized_set):
+                matched_name = normalized_callee
+            else:
+                # Fallback: try operator's own name (e.g. "os.execute" when
+                # _resolve_callee_name returns only "os" from callee edge)
+                op_name = _vattr(v, "name", "")
+                if op_name:
+                    normalized_op = op_name.replace("::", ".")
+                    if normalized_op in normalized_set:
+                        matched_name = normalized_op
+                        callee_name = op_name
+                    elif any(normalized_op.endswith("." + sn) for sn in normalized_set):
+                        matched_name = normalized_op
+                        callee_name = op_name
+            if not matched_name:
+                continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")

@@ -287,22 +287,22 @@ class Normalizer:
                                           file_path, depth)
 
         # ---- Assignment -----------------------------------------------
-        if ntype == "assignment":
+        if ntype in ("assignment", "assignment_statement"):
             return self._walk_assignment(node, add_node, add_edge, ctx_stack,
                                          file_path, depth)
 
         # ---- Local declaration ----------------------------------------
-        if ntype == "local_declaration":
+        if ntype in ("local_declaration", "variable_declaration"):
             return self._walk_local_declaration(node, add_node, add_edge,
                                                 ctx_stack, file_path, depth)
 
         # ---- Binary operation ------------------------------------------
-        if ntype == "binary_operation":
+        if ntype in ("binary_operation", "binary_expression"):
             return self._walk_binary(node, add_node, add_edge, ctx_stack,
                                      file_path, depth)
 
         # ---- Unary operation -------------------------------------------
-        if ntype == "unary_operation":
+        if ntype in ("unary_operation", "unary_expression"):
             return self._walk_unary(node, add_node, add_edge, ctx_stack,
                                     file_path, depth)
 
@@ -1219,7 +1219,16 @@ class Normalizer:
                                 ctx_stack, file_path, depth) -> int:
         lineno = self._lineno(node)
 
-        # Extract variable names (identifiers before '=')
+        # Handle two formats:
+        # 1. local_declaration: [local, identifier, =, expr, ...]
+        # 2. variable_declaration (tree-sitter-lua): [local, assignment_statement > [variable_list > identifier, =, expression_list > expr]]
+        asmt = self._find_child_by_type(node, "assignment_statement")
+        if asmt:
+            # Format 2: delegate to _walk_assignment which already creates operator + LHS/RHS
+            return self._walk_assignment(asmt, add_node, add_edge, ctx_stack,
+                                         file_path, depth)
+
+        # Format 1: Extract variable names (identifiers before '=')
         names = []
         init_exprs = []
         found_eq = False
@@ -1270,8 +1279,20 @@ class Normalizer:
             init_pos = self._walk_node(init_expr, add_node, add_edge,
                                         ctx_stack, file_path, 0)
             if init_pos is not None and last_var_pos is not None:
-                self._ast_edge(add_edge, last_var_pos, init_pos,
-                               AstRole.VALUE.value)
+                # Create assignment operator node for DFG builder
+                eq_pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": "=",
+                    "lineno": lineno,
+                    "language": self.language,
+                    "attrs": {
+                        "type": OperatorType.ASSIGN.value,
+                        "raw_type": "local_declaration",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, eq_pos, depth + 1)
+                self._ast_edge(add_edge, eq_pos, last_var_pos, AstRole.LHS.value)
+                self._ast_edge(add_edge, eq_pos, init_pos, AstRole.RHS.value)
 
         return last_var_pos
 
