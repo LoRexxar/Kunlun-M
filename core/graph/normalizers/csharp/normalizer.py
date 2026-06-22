@@ -73,8 +73,7 @@ _SKIP_TYPES = frozenset({
     "parameter", "variable_declarator",
     "nullable_type", "array_type", "pointer_type",
     "tuple_type", "tuple_element",
-    "predefined_type", "interpolated_string_expression",
-    "interpolated_string_text",
+    "predefined_type", "interpolated_string_text",
     "global_attribute_list", "global_using_directive",
     "alias_qualifier",
     "when_clause",
@@ -529,8 +528,15 @@ class Normalizer:
 
         # ---- Interpolated string expression ----------------------------
         if ntype == "interpolated_string_expression":
-            return self._emit_const(add_node, self._text(node),
-                                     self._lineno(node), ConstType.STRING)
+            str_pos = self._emit_const(add_node, self._text(node),
+                                       self._lineno(node), ConstType.STRING)
+            # Walk interpolation children for DFG tracking
+            for child in node.children:
+                if child.type == "interpolation":
+                    self._walk_interpolation(child, add_node, add_edge,
+                                             str_pos, ctx_stack,
+                                             file_path, depth)
+            return str_pos
 
         # ---- Default expression ----------------------------------------
         if ntype == "default_expression":
@@ -540,6 +546,31 @@ class Normalizer:
         # ---- Fallback --------------------------------------------------
         return self._walk_children(node, add_node, add_edge, ctx_stack,
                                     file_path, depth)
+
+    # ===================================================================
+    # Import: using directive
+    # ===================================================================
+
+    def _walk_interpolation(self, node, add_node, add_edge, str_pos,
+                            ctx_stack, file_path, depth) -> None:
+        """Walk expression children inside an interpolation node.
+
+        For each expression (identifier, call, etc.), emit a DFG edge from
+        the expression to the string constant so taint can propagate.
+        """
+        if not node.children:
+            return
+        for child in node.children:
+            ctype = child.type
+            # Skip punctuation markers
+            if ctype in ("interpolation_brace", ",", ";"):
+                continue
+            expr_pos = self._walk_node(child, add_node, add_edge,
+                                       ctx_stack, file_path, depth)
+            if expr_pos is not None:
+                add_edge({"label": "dfg", "source": expr_pos, "target": str_pos})
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, expr_pos, depth)
 
     # ===================================================================
     # Import: using directive
