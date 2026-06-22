@@ -1306,12 +1306,12 @@ class Normalizer:
             left_pos = self._walk_node(left, add_node, add_edge,
                                         ctx_stack, file_path, 0)
             if left_pos is not None:
-                self._ast_edge(add_edge, pos, left_pos, AstRole.LEFT.value)
+                self._ast_edge(add_edge, pos, left_pos, AstRole.LHS.value)
         if right:
             right_pos = self._walk_node(right, add_node, add_edge,
                                          ctx_stack, file_path, 0)
             if right_pos is not None:
-                self._ast_edge(add_edge, pos, right_pos, AstRole.RIGHT.value)
+                self._ast_edge(add_edge, pos, right_pos, AstRole.RHS.value)
 
         return pos
 

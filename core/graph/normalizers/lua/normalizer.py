@@ -1313,7 +1313,7 @@ class Normalizer:
                 continue
             if child.type in _SKIP_TYPES:
                 continue
-            side = AstRole.RIGHT.value if found_op else AstRole.LEFT.value
+            side = AstRole.RHS.value if found_op else AstRole.LHS.value
             child_pos = self._walk_node(child, add_node, add_edge,
                                         ctx_stack, file_path, 0)
             if child_pos is not None:
