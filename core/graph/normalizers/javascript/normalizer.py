@@ -2227,8 +2227,25 @@ class Normalizer:
 
         name = "`" + "".join(parts) + "`"
 
-        return self._emit_const(add_node, name=name, lineno=lineno,
-                                  const_type=ConstType.STRING)
+        str_pos = self._emit_const(add_node, name=name, lineno=lineno,
+                                   const_type=ConstType.STRING)
+
+        # Walk interpolated expressions and create DFG edges
+        # e.g. `hello ${name}` → dfg(name_node → string_const)
+        expressions = getattr(node, "expressions", []) or []
+        for expr in expressions:
+            expr_pos = self._walk_node(expr, add_node, add_edge,
+                                       ctx_stack, file_path, depth)
+            if expr_pos is not None:
+                add_edge({
+                    "label": "dfg",
+                    "source": expr_pos,
+                    "target": str_pos,
+                })
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, expr_pos, depth)
+
+        return str_pos
 
     def _walk_meta_property(self, node, add_node, add_edge,
                             ctx_stack, file_path, depth) -> int:

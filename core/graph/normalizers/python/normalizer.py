@@ -355,6 +355,12 @@ class Normalizer:
                 ast_node, add_node, add_edge, ctx_stack, file_path, depth,
             )
 
+        # ---- F-string (JoinedStr) with interpolation DFG ---------------
+        if isinstance(ast_node, ast.JoinedStr):
+            return self._walk_joinedstr(
+                ast_node, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+
         # ---- Leaf nodes -----------------------------------------------
         if isinstance(ast_node, ast.Name):
             return self._walk_name(
@@ -2007,6 +2013,40 @@ class Normalizer:
 
         return self._emit_const(add_node, name=name, lineno=lineno,
                                 const_type=const_type)
+
+    # ===================================================================
+    # F-string (JoinedStr) interpolation DFG
+    # ===================================================================
+
+    def _walk_joinedstr(self, node: ast.JoinedStr, add_node, add_edge,
+                        ctx_stack, file_path, depth) -> int:
+        """Handle f-strings: emit CONST then track interpolation DFG edges.
+
+        stdlib ast: JoinedStr children are Constant (static text) and
+        FormattedValue (dynamic expression).  FormattedValue has .value
+        pointing to the actual expression (Name, Call, Attribute, etc.).
+        """
+        lineno = node.lineno if hasattr(node, "lineno") else 0
+        str_pos = self._emit_const(add_node, name='f"..."', lineno=lineno,
+                                   const_type=ConstType.STRING)
+
+        for child in node.values:
+            if isinstance(child, ast.FormattedValue):
+                # Walk the interpolated expression
+                expr_pos = self._walk_node(
+                    child.value, add_node, add_edge,
+                    ctx_stack, file_path, depth,
+                )
+                if expr_pos is not None:
+                    add_edge({
+                        "label": "dfg",
+                        "source": expr_pos,
+                        "target": str_pos,
+                    })
+                    if ctx_stack:
+                        self._own_edge(add_edge, ctx_stack, expr_pos, depth)
+
+        return str_pos
 
     # ===================================================================
     # Fallback: walk child fields
