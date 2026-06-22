@@ -29,7 +29,9 @@ class CVI_9409(SingleRuleMixin):
         self.match = r"logger\.\w+\s*\(|Rails\.logger\.\w+\(|Logger\.new.*info|Logger\.new.*warn|Logger\.new.*error|Logger\.new.*debug|Log\.info|Log\.warn|Log\.error"
 
         self.vul_function = [
-        "logger.info", "logger.warn", "logger.error", "logger.debug", "Logger.new"
+        "logger.info", "logger.warn", "logger.error", "logger.debug",
+        "Rails.logger.info", "Rails.logger.warn", "Rails.logger.error", "Rails.logger.debug",
+        "Logger.new"
         ]
 
     def main(self, regex_string):

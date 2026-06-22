@@ -1136,6 +1136,15 @@ class Normalizer:
                 recv_name = self._text(recv).strip()
                 if recv_name:
                     method_name = f"{recv_name}.{method_name}"
+            else:
+                # Chained call: receiver is a nested call node (e.g. Rails.logger
+                # in Rails.logger.info). Use its text as qualified name prefix.
+                first_child = node.children[0] if node.children else None
+                if (first_child and first_child.type == "call" and has_dot
+                        and method_node):
+                    recv_text = self._text(first_child).strip()
+                    if recv_text:
+                        method_name = f"{recv_text}.{method_name}"
 
         # Check for import/mixin calls
         if not receiver and method_name in _IMPORT_CALLS:
