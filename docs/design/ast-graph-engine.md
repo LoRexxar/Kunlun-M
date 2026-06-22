@@ -1358,7 +1358,7 @@ core/graph/
 - [x] `core/graph/session.py` — AstGraphSession（文件已创建，未集成到 CLI/Web）
 - [x] `core/graph/query.py` → `core/graph/graph_query_builder.py` — GraphQueryBuilder（文件已创建）
 - [x] CLI `analyze` 子命令（支持自动查找最新 scan / 指定 scan_id）
-- [ ] Web 页签原型
+- [x] Web 页签原型（/dashboard/graph + /api/graph/scans + /api/graph/query）
 
 #### Workspace 存储架构
 
