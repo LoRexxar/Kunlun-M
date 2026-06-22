@@ -1152,7 +1152,7 @@ class Normalizer:
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        # Walk initializer
+        # Walk initializer — create assignment operator node for DFG builder
         for child in node.children:
             if child.type in _SKIP_TYPES:
                 continue
@@ -1161,7 +1161,19 @@ class Normalizer:
             init_pos = self._walk_node(child, add_node, add_edge,
                                        ctx_stack, file_path, 0)
             if init_pos is not None:
-                self._ast_edge(add_edge, pos, init_pos, AstRole.VALUE.value)
+                eq_pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": "=",
+                    "lineno": lineno,
+                    "language": self.language,
+                    "attrs": {
+                        "type": OperatorType.ASSIGN.value,
+                        "raw_type": "variable_declarator",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, eq_pos, depth + 1)
+                self._ast_edge(add_edge, eq_pos, pos, AstRole.LHS.value)
+                self._ast_edge(add_edge, eq_pos, init_pos, AstRole.RHS.value)
             break
 
         return pos
@@ -1590,7 +1602,10 @@ class Normalizer:
         for child in node.children:
             if child.type in _SKIP_TYPES:
                 continue
-            self._walk_node(child, add_node, add_edge, ctx_stack, file_path, 0)
+            child_pos = self._walk_node(child, add_node, add_edge,
+                                         ctx_stack, file_path, 0)
+            if child_pos is not None:
+                self._ast_edge(add_edge, pos, child_pos, AstRole.OPERAND.value)
 
         return pos
 

@@ -267,6 +267,35 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         lhs_nodes = [rhs_vid]
                         rhs_nodes = value_nodes
 
+            # 变体：穿透 type_cast / subscript_expression
+            # type_cast: TS as-expression, C cast 等 — identity
+            # subscript: arr[key] — 取 object operand 作为真正的 rhs
+            if rhs_nodes:
+                real_rhs = rhs_nodes
+                changed = True
+                while changed:
+                    changed = False
+                    for rvid in list(real_rhs):
+                        rlabel = _vattr(self.graph.vs[rvid], "label", "")
+                        rtype = _vattr(self.graph.vs[rvid], "type", "")
+                        raw_type = _vattr(self.graph.vs[rvid], "raw_type", "")
+                        if rlabel == NodeLabel.OPERATOR.value and rtype == OperatorType.TYPE_CAST.value:
+                            operand_nodes = self._get_ast_children(rvid, role=AstRole.OPERAND.value)
+                            if operand_nodes:
+                                real_rhs = operand_nodes
+                                changed = True
+                                break
+                        elif (rlabel == NodeLabel.OPERATOR.value
+                              and raw_type in ("subscript_expression",
+                                                "element_access_expression")):
+                            # subscript: 取第一个 operand (the object) 作为 DFG source
+                            operand_nodes = self._get_ast_children(rvid, role=AstRole.OPERAND.value)
+                            if operand_nodes:
+                                real_rhs = operand_nodes
+                                changed = True
+                                break
+                rhs_nodes = real_rhs
+
             if not lhs_nodes or not rhs_nodes:
                 continue
 

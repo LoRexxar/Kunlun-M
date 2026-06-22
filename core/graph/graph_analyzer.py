@@ -323,6 +323,17 @@ class GraphAnalyzer:
                 chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
                 path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
+        # Quick check: field/property full_text (e.g., "process.argv" for node named "argv")
+        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
+            stype = _vattr(sv, "type", "")
+            if stype in ("field", "property"):
+                full_text = _vattr(sv, "full_text", "")
+                if full_text and full_text != sname and self._is_source_variable(full_text):
+                    return self._cached(cache_key, AnalysisResult(
+                        code=1, reason=f"'{full_text}' is a superglobal (via member '{sname}')",
+                        chain=[{"step": "source", "vid": start_vid, "name": full_text, "code": 1}],
+                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+
         if _vattr(sv, "label") == NodeLabel.CONST.value:
             return self._cached(cache_key, AnalysisResult(
                 code=-1, reason=f"'{sname}' is a constant",
@@ -395,6 +406,18 @@ class GraphAnalyzer:
                         code=1, reason=f"superglobal '{uname}'",
                         chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
                         path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+
+                # Rule 1b: member/field identifier — check full_text for source
+                if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
+                    full_text = _vattr(uv, "full_text", "")
+                    if full_text and full_text != uname:
+                        if self._is_source_variable(full_text):
+                            logger.debug("source found via full_text '%s' vid=%d", full_text, up_vid)
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1, reason=f"superglobal '{full_text}' (via member '{uname}')",
+                                chain=[{"step": "dfg", "vid": up_vid,
+                                        "name": full_text, "code": 1}],
+                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 2: constant — skip, keep searching
                 if ulabel == NodeLabel.CONST.value:
