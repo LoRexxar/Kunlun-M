@@ -882,6 +882,15 @@ class Normalizer:
         elif node_type_name == "BinaryOp":
             left = getattr(node, "left", None)
             right = getattr(node, "right", None)
+            # PHP string interpolation: phply converts "$var" and heredoc
+            # interpolation into BinaryOp('.', str_part, Variable/expr).
+            # We create DFG edges from interpolated expression children to
+            # the BinaryOp operator node so taint tracking can trace through.
+            # e.g., "Hello $name" → BinaryOp('.', 'Hello ', Variable('$name'))
+            #   → dfg(Variable('$name') → BinaryOp)
+            is_concat = getattr(node, "op", "") == "."
+            l_pos = None
+            r_pos = None
             if left:
                 l_pos = self._walk_node(left, add_node, add_edge, ctx_stack, file_path, 0)
                 if l_pos is not None:
@@ -914,6 +923,16 @@ class Normalizer:
                     })
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": r_pos,
                                "attrs": {"role": AstRole.RIGHT.value}})
+            # DFG edges for string concatenation (interpolation):
+            # Data flows from non-literal operands into the concat result.
+            if is_concat:
+                for child_pos in (l_pos, r_pos):
+                    if child_pos is not None:
+                        add_edge({
+                            "label": "dfg",
+                            "source": child_pos,
+                            "target": pos,
+                        })
 
         elif node_type_name in ("UnaryOp",):
             expr = getattr(node, "expr", None)

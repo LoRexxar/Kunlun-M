@@ -1483,6 +1483,14 @@ class Normalizer:
     # Macro invocation (treated as call)
     # ===================================================================
 
+    # Known format-string macros: first arg is a format string literal,
+    # subsequent args are interpolated values.
+    _FORMAT_MACROS = frozenset({
+        "format", "print", "println", "eprint", "eprintln",
+        "write", "writeln", "format_args", "format_args_nl",
+        "dbg", "println", "log", "info", "warn", "error", "debug", "trace",
+    })
+
     def _walk_macro(self, node, add_node, add_edge,
                     ctx_stack, file_path, depth) -> int:
         lineno = self._lineno(node)
@@ -1520,13 +1528,71 @@ class Normalizer:
         # Walk macro body (token_tree) for any expressions
         token_tree = self._find_child_by_type(node, "token_tree")
         if token_tree:
-            for child in token_tree.children:
-                if child.type in _SKIP_TYPES:
-                    continue
-                self._walk_node(child, add_node, add_edge,
-                                ctx_stack, file_path, 0)
+            # For format-string macros, create DFG edges from arguments to
+            # the format string const node (mirrors Ruby interpolation DFG).
+            # e.g., format!("Hello {}", name) → dfg(name → format_string)
+            if macro_name_clean in self._FORMAT_MACROS:
+                self._walk_format_macro_args(
+                    token_tree, pos, add_node, add_edge,
+                    ctx_stack, file_path, depth)
+            else:
+                for child in token_tree.children:
+                    if child.type in _SKIP_TYPES:
+                        continue
+                    self._walk_node(child, add_node, add_edge,
+                                    ctx_stack, file_path, 0)
 
         return pos
+
+    def _walk_format_macro_args(self, token_tree, macro_pos, add_node, add_edge,
+                                ctx_stack, file_path, depth):
+        """Walk format macro token_tree, creating DFG edges from args to
+        the format string const.
+
+        For format!("Hello {}", name):
+          1. Walk string_literal → emits CONST node (fmt_str_pos)
+          2. Walk subsequent expression nodes (identifier, call, etc.)
+          3. DFG edge: arg_expr → fmt_str_pos  (data flows into string)
+          4. DFG edge: arg_expr → macro_pos     (data flows to macro result)
+          5. own edge for each arg so same-variable linking works
+        """
+        children = token_tree.children
+        fmt_str_pos = None
+        seen_fmt_str = False
+
+        for child in children:
+            if child.type in _SKIP_TYPES:
+                continue
+            if child.type == ",":
+                continue
+
+            if not seen_fmt_str:
+                # First non-punctuation, non-comma child should be the
+                # format string literal (or first arg for write! which has
+                # a destination before the format string).
+                seen_fmt_str = True
+                fmt_str_pos = self._walk_node(child, add_node, add_edge,
+                                              ctx_stack, file_path, 0)
+            else:
+                # Subsequent children are format arguments
+                arg_pos = self._walk_node(child, add_node, add_edge,
+                                          ctx_stack, file_path, 0)
+                if arg_pos is not None:
+                    # DFG: argument → format string (taint flows into string)
+                    if fmt_str_pos is not None:
+                        add_edge({
+                            "label": "dfg",
+                            "source": arg_pos,
+                            "target": fmt_str_pos,
+                        })
+                    # DFG: argument → macro operator (taint flows to result)
+                    add_edge({
+                        "label": "dfg",
+                        "source": arg_pos,
+                        "target": macro_pos,
+                    })
+                    # own edge so same-variable linking works
+                    self._own_edge(add_edge, ctx_stack, arg_pos, depth)
 
     # ===================================================================
     # Assignment expression
