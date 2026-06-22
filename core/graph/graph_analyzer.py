@@ -363,10 +363,18 @@ class GraphAnalyzer:
                         path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         if _vattr(sv, "label") == NodeLabel.CONST.value:
-            return self._cached(cache_key, AnalysisResult(
-                code=-1, reason=f"'{sname}' is a constant",
-                chain=[{"step": "const", "vid": start_vid, "name": sname, "code": -1}],
-                path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Ruby string interpolation: a const string with DFG edges from
+            # interpolated variables (e.g. userInput → dfg → "User: #{userInput}").
+            # Continue BFS through these incoming DFG edges instead of returning constant.
+            has_dfg_in = False
+            for e in self.graph.es.select(_target=start_vid, label="dfg"):
+                has_dfg_in = True
+                break
+            if not has_dfg_in:
+                return self._cached(cache_key, AnalysisResult(
+                    code=-1, reason=f"'{sname}' is a constant",
+                    chain=[{"step": "const", "vid": start_vid, "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Check member access on start node: $_GET['cmd'] / $obj->prop
         if _vattr(sv, "type") == "property":

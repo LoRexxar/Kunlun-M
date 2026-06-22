@@ -740,6 +740,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 # 回退：沿 ast 边向上（identifier → operator）
                 inc_ast = self.graph.es.select(_target=cur, label="ast")
                 cur = inc_ast[0].source if inc_ast else None
+        # Fallback: if no scope found via edges, use file node from path
+        node_path = _vattr(self.graph.vs[vid], "path", "")
+        if node_path:
+            for v in self.graph.vs.select(label=NodeLabel.FILE.value):
+                if _vattr(v, "path", "") == node_path:
+                    return v.index
         return None
 
     def _get_callee_name(self, vid: int) -> str:

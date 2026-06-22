@@ -363,8 +363,17 @@ class Normalizer:
                                     self._lineno(node), ConstType.NUMBER)
 
         if ntype in ("string", "string_content", "heredoc"):
-            return self._emit_const(add_node, self._text(node),
-                                    self._lineno(node), ConstType.STRING)
+            str_pos = self._emit_const(add_node, self._text(node),
+                                       self._lineno(node), ConstType.STRING)
+            # Ruby string interpolation: create DFG edges from string const
+            # to interpolated variables so taint tracking can trace through
+            # e.g. "User: #{userInput}" → dfg(string_const → userInput)
+            if ntype == "string" and node.children:
+                for child in node.children:
+                    if child.type == "interpolation":
+                        self._walk_interpolation(child, add_node, add_edge,
+                                                str_pos, ctx_stack, file_path, depth)
+            return str_pos
 
         if ntype == "character":
             return self._emit_const(add_node, self._text(node),
@@ -1473,6 +1482,47 @@ class Normalizer:
                 "type": op_type.value,
             },
         })
+
+    # ===================================================================
+    # Ruby string interpolation DFG
+    # ===================================================================
+
+    def _walk_interpolation(self, node, add_node, add_edge, str_pos,
+                            ctx_stack, file_path, depth):
+        """Walk #{expr} interpolation nodes and create DFG edges.
+
+        For each identifier/call/expression inside #{...}, walk it as a
+        normal AST node, then add a DFG edge from the expression node
+        to the string const (str_pos).  This allows parameters_back()
+        to trace taint from string arguments through interpolated variables.
+
+        Also adds an own edge to the scope parent so that same-variable
+        linking in the DFG builder can match interpolation identifiers
+        with their assignment targets.
+
+        Handles: #{var}, #{obj.method}, #{a + b}, #{hash[:key]}
+        """
+        if not node.children:
+            return
+        # Skip the literal #{ and } tokens
+        for child in node.children:
+            ctype = child.type
+            if ctype in ("#{", "}", "string_content"):
+                continue
+            # Walk the expression (identifier, call, binary, etc.)
+            expr_pos = self._walk_node(child, add_node, add_edge,
+                                       ctx_stack, file_path, depth)
+            if expr_pos is not None:
+                # DFG edge: interpolated expression → string_const
+                # (data flows from variable into the string)
+                add_edge({
+                    "label": "dfg",
+                    "source": expr_pos,
+                    "target": str_pos,
+                })
+                # Own edge to scope parent so same-variable linking works
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, expr_pos, depth)
 
     # ===================================================================
     # Walk children (generic fallback)
