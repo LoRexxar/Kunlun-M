@@ -243,6 +243,11 @@ class GraphAnalyzer:
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")
                 if _vattr(e, "role") == "arg"
             ]
+            # Also collect dfg sources flowing directly into the sink node
+            # (e.g., Rust macro format args: user_input → dfg → log::info)
+            for de in self.graph.es.select(_target=v.index, label="dfg"):
+                if de.source not in arg_vids:
+                    arg_vids.append(de.source)
             results.append({
                 "vid": v.index, "name": callee_name,
                 "lineno": _vattr(v, "lineno", 0),
@@ -478,6 +483,18 @@ class GraphAnalyzer:
                             reason=f"superglobal '{sg_name}' via method '{callee}'",
                             chain=[{"step": "sg_method", "vid": up_vid,
                                     "name": f"{sg_name}.{callee}", "code": 1}],
+                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+
+                # Rule 3c: operator with taint_type="source" (enriched by knowledge_bridge)
+                # e.g., std::env::var("INPUT") in Rust, document.cookie in JS
+                if ulabel == NodeLabel.OPERATOR.value:
+                    node_taint = _vattr(uv, "taint_type", "")
+                    if node_taint == "source":
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"source function '{uname}'",
+                            chain=[{"step": "taint_source", "vid": up_vid,
+                                    "name": uname, "code": 1}],
                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 4: function call — cg → function(taint_type) → parameter(passthrough_arg)

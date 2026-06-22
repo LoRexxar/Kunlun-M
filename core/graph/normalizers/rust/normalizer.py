@@ -1532,7 +1532,8 @@ class Normalizer:
             # For format-string macros, create DFG edges from arguments to
             # the format string const node (mirrors Ruby interpolation DFG).
             # e.g., format!("Hello {}", name) → dfg(name → format_string)
-            if macro_name_clean in self._FORMAT_MACROS:
+            if (macro_name_clean in self._FORMAT_MACROS or
+                    macro_name_clean.split("::")[-1] in self._FORMAT_MACROS):
                 self._walk_format_macro_args(
                     token_tree, pos, add_node, add_edge,
                     ctx_stack, file_path, depth)
