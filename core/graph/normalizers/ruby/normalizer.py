@@ -323,6 +323,11 @@ class Normalizer:
         if ntype == "identifier":
             return self._walk_identifier(node, add_node, file_path)
 
+        # ---- Element Reference (hash/array access) ----------------------
+        if ntype == "element_reference":
+            return self._walk_element_reference(node, add_node, add_edge,
+                                                 ctx_stack, file_path, depth)
+
         # ---- Constant --------------------------------------------------
         if ntype == "constant":
             return self._emit_identifier(add_node, self._text(node),
@@ -1262,6 +1267,33 @@ class Normalizer:
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
+        return pos
+
+    # ===================================================================
+    # Element Reference (hash/array access: obj[key])
+    # ===================================================================
+
+    def _walk_element_reference(self, node, add_node, add_edge,
+                                 ctx_stack, file_path, depth) -> int:
+        """将 element_reference（如 params[:cmd]、hash["key"]）作为整体 identifier。
+
+        这样赋值 ``user_input = params[:cmd]`` 会生成 dfg(params[:cmd] → user_input)，
+        source_discovery 的 is_source_member 能匹配 params[:cmd]（startswith "params["）。
+        """
+        text = self._text(node).strip()
+        lineno = self._lineno(node)
+
+        pos = add_node({
+            "label": NodeLabel.IDENTIFIER.value,
+            "name": text,
+            "lineno": lineno,
+            "language": self.language,
+            "attrs": {
+                "type": IdentifierType.VARIABLE.value,
+                "raw_type": "element_reference",
+            },
+        })
+        self._own_edge(add_edge, ctx_stack, pos, depth)
         return pos
 
     # ===================================================================

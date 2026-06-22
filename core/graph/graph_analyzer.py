@@ -949,10 +949,14 @@ class GraphAnalyzer:
         if name in _SUPERGLOBALS:
             return True
         if "[" in name:
-            return name.split("[", 1)[0] in _SUPERGLOBALS
+            if name.split("[", 1)[0] in _SUPERGLOBALS:
+                return True
+            # Don't short-circuit — SourceRegistry may recognize it (e.g., params[:cmd])
         if "." in name:
             # Support dotted paths like "request.GET"
-            return name in _SUPERGLOBALS
+            if name in _SUPERGLOBALS:
+                return True
+            # Don't short-circuit — SourceRegistry may recognize it (e.g., params.key)
         # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
         if self.language in ("javascript", "typescript"):
             if name in _JS_SOURCE_ROOTS:
