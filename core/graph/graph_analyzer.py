@@ -210,22 +210,32 @@ class GraphAnalyzer:
             normalized_callee = callee_name.replace("::", ".")
             normalized_set = {sn.replace("::", ".") for sn in name_set}
             matched_name = None
-            if normalized_callee in normalized_set:
-                matched_name = normalized_callee
-            elif any(normalized_callee.endswith("." + sn) or sn.endswith("." + normalized_callee) for sn in normalized_set):
-                matched_name = normalized_callee
-            else:
-                # Fallback: try operator's own name (e.g. "os.execute" when
-                # _resolve_callee_name returns only "os" from callee edge)
-                op_name = _vattr(v, "name", "")
-                if op_name:
-                    normalized_op = op_name.replace("::", ".")
-                    if normalized_op in normalized_set:
-                        matched_name = normalized_op
-                        callee_name = op_name
-                    elif any(normalized_op.endswith("." + sn) or sn.endswith("." + normalized_op) for sn in normalized_set):
-                        matched_name = normalized_op
-                        callee_name = op_name
+            # Prefer operator's own qualified name (e.g. "YAML.load") over short callee name ("load")
+            # when the qualified name is in the sink set. This ensures CVI-9414 ("YAML.load")
+            # matches before CVI-9405 ("load").
+            op_name = _vattr(v, "name", "")
+            if op_name:
+                normalized_op = op_name.replace("::", ".")
+                if "." in normalized_op and (normalized_op in normalized_set or
+                    any(normalized_op.endswith("." + sn) or sn.endswith("." + normalized_op) for sn in normalized_set)):
+                    matched_name = normalized_op
+                    callee_name = op_name
+            if not matched_name:
+                if normalized_callee in normalized_set:
+                    matched_name = normalized_callee
+                elif any(normalized_callee.endswith("." + sn) or sn.endswith("." + normalized_callee) for sn in normalized_set):
+                    matched_name = normalized_callee
+                else:
+                    # Fallback: try operator's own name (e.g. "os.execute" when
+                    # _resolve_callee_name returns only "os" from callee edge)
+                    if op_name:
+                        normalized_op = op_name.replace("::", ".")
+                        if normalized_op in normalized_set:
+                            matched_name = normalized_op
+                            callee_name = op_name
+                        elif any(normalized_op.endswith("." + sn) or sn.endswith("." + normalized_op) for sn in normalized_set):
+                            matched_name = normalized_op
+                            callee_name = op_name
             if not matched_name:
                 continue
             # Collect argument vids via ast[role=arg] edges

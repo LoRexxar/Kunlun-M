@@ -1092,13 +1092,50 @@ class Normalizer:
         lineno = self._lineno(node)
         text = self._text(node).strip()
 
-        # tree-sitter-ruby call: receiver? call_operator identifier argument_list?
-        # Determine if it's a method call (with .) or function call
-        method_node = self._find_child_by_type(node, "identifier")
+        # tree-sitter-ruby call:
+        #   function_call:  identifier argument_list?
+        #   method_call:    identifier '.' identifier argument_list?
+        #                  constant  '.' identifier argument_list?
+        #                  receiver   '.' identifier argument_list?
+        method_node = None
         receiver = self._find_child_by_type(node, "receiver")
         call_op = self._find_child_by_type(node, "call_operator")
 
+        # Collect all identifier/constant children
+        idents = [c for c in node.children
+                  if c.type in ("identifier", "constant")]
+
+        # Detect dot separator (tree-sitter-ruby uses literal "." not "call_operator")
+        has_dot = call_op is not None or any(
+            c.type == "." and self._text(c).strip() == "." for c in node.children)
+
+        if has_dot and len(idents) >= 2:
+            # Method call: first ident is receiver, last is method
+            if not receiver:
+                receiver = idents[0]
+            method_node = idents[-1]
+        elif idents:
+            if not receiver:
+                # Could be constant.method (ERB.new) or just method
+                if idents[0].type == "constant":
+                    receiver = idents[0]
+                    if len(idents) > 1:
+                        method_node = idents[-1]
+                    # else: bare constant call — rare
+                else:
+                    method_node = idents[0]
+            else:
+                method_node = idents[-1] if idents else None
+
         method_name = self._text(method_node) if method_node else ""
+
+        # When receiver or constant exists, build qualified name (e.g. "ERB.new")
+        if method_name:
+            recv = receiver or self._find_child_by_type(node, "constant")
+            if recv:
+                recv_name = self._text(recv).strip()
+                if recv_name:
+                    method_name = f"{recv_name}.{method_name}"
 
         # Check for import/mixin calls
         if not receiver and method_name in _IMPORT_CALLS:
@@ -1108,7 +1145,7 @@ class Normalizer:
             return self._walk_mixin_call(node, add_node, add_edge,
                                          ctx_stack, file_path, depth)
 
-        is_method_call = call_op is not None and self._text(call_op).strip() == "."
+        is_method_call = has_dot
         op_type = (OperatorType.METHOD_CALL if is_method_call
                    else OperatorType.CALL)
 
@@ -1126,8 +1163,9 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         # Walk receiver
-        if receiver:
-            recv_pos = self._walk_node(receiver, add_node, add_edge,
+        recv_node = receiver or self._find_child_by_type(node, "constant")
+        if recv_node:
+            recv_pos = self._walk_node(recv_node, add_node, add_edge,
                                        ctx_stack, file_path, 0)
             if recv_pos is not None:
                 self._ast_edge(add_edge, pos, recv_pos, AstRole.OPERAND.value)

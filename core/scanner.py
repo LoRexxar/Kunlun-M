@@ -370,22 +370,34 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
                 sink_name = sink.get('name', '')
                 matched_rule = None
-                for rule in lang_rule_list:
-                    rule_sink_names = []
-                    if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
-                        for sn in parse_sink_names('|'.join(rule.vul_function)):
-                            rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                    elif hasattr(rule, 'match') and rule.match:
-                        for sn in parse_sink_names(rule.match):
-                            rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                    # 精确匹配 + 后缀匹配（qualified callee 如 document.querySelector().setAttribute 匹配 setAttribute）
-                    # Normalize :: → . for Rust/Go compatibility
-                    sn_lower = sink_name.lower().replace("::", ".")
-                    rsn = [n.lower() for n in rule_sink_names]
-                    if sn_lower in rsn or \
-                       any(sn_lower.endswith("." + n) for n in rsn) or \
-                       any(n.endswith("." + sn_lower) for n in rsn):
-                        matched_rule = rule
+                # Two-pass matching:
+                # Pass 1: exact match + qualified-name match (e.g. "YAML.load" → CVI-9414)
+                # Pass 2: suffix/fallback match (e.g. "load" → CVI-9405)
+                for pass_name in ("exact", "suffix"):
+                    for rule in lang_rule_list:
+                        rule_sink_names = []
+                        if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
+                            for sn in parse_sink_names('|'.join(rule.vul_function)):
+                                rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
+                        elif hasattr(rule, 'match') and rule.match:
+                            for sn in parse_sink_names(rule.match):
+                                rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
+                        sn_lower = sink_name.lower().replace("::", ".")
+                        rsn = [n.lower() for n in rule_sink_names]
+                        if pass_name == "exact":
+                            # Exact match or qualified-name matches qualified-rule (both sides have dots)
+                            if sn_lower in rsn:
+                                matched_rule = rule
+                                break
+                            if "." in sn_lower and any("." in n and sn_lower == n for n in rsn):
+                                matched_rule = rule
+                                break
+                        else:
+                            # Suffix/fallback: sn_lower.endswith(".rule") or rule.endswith(".sn_lower")
+                            if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
+                                matched_rule = rule
+                                break
+                    if matched_rule:
                         break
 
                 if matched_rule is None:
