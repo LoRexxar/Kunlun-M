@@ -366,8 +366,16 @@ class Normalizer:
             return self._emit_const(add_node, self._text(node),
                                     self._lineno(node), ConstType.NUMBER)
         if ntype == "string_literal":
-            return self._emit_const(add_node, self._text(node),
-                                    self._lineno(node), ConstType.STRING)
+            str_pos = self._emit_const(add_node, self._text(node),
+                                        self._lineno(node), ConstType.STRING)
+            has_interp = any(c.type == "interpolation" for c in node.children)
+            if has_interp:
+                for child in node.children:
+                    if child.type == "interpolation":
+                        self._walk_interpolation(child, add_node, add_edge,
+                                                 str_pos, ctx_stack,
+                                                 file_path, depth)
+            return str_pos
 
         # ---- True / False (boolean) -----------------------------------
         if ntype in ("true", "false"):
@@ -1617,6 +1625,30 @@ class Normalizer:
             self._walk_node(child, add_node, add_edge, ctx_stack,
                             file_path, depth + idx)
         return None
+
+    # ===================================================================
+    # Kotlin string interpolation DFG
+    # ===================================================================
+
+    def _walk_interpolation(self, node, add_node, add_edge, str_pos,
+                            ctx_stack, file_path, depth):
+        """Walk ${expr} interpolation nodes and create DFG edges."""
+        if not node.children:
+            return
+        for child in node.children:
+            ctype = child.type
+            if ctype in ("${", "}", "string_content"):
+                continue
+            expr_pos = self._walk_node(child, add_node, add_edge,
+                                       ctx_stack, file_path, depth)
+            if expr_pos is not None:
+                add_edge({
+                    "label": "dfg",
+                    "source": expr_pos,
+                    "target": str_pos,
+                })
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, expr_pos, depth)
 
     # ===================================================================
     # Children walker (fallback)
