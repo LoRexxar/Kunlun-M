@@ -1,0 +1,754 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block title %}图分析{% endblock %}
+
+{% block body_header %}
+<h1>
+  图分析
+  <small>AST Graph Analysis</small>
+</h1>
+{% endblock %}
+
+{% block body %}
+
+<!-- Scan 选择区 -->
+<div class="row">
+  <div class="col-xs-6 col-md-4">
+    <div class="box">
+      <div class="box-body">
+        <div class="input-group">
+          <select id="scanSelect" class="form-control">
+            <option value="">-- 选择 Scan --</option>
+          </select>
+          <span class="input-group-btn">
+            <button id="btnSelectScan" class="btn btn-primary" type="button">查询</button>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xs-6 col-md-8">
+    <div class="box" id="scanInfoBox" style="display:none;">
+      <div class="box-body">
+        <span class="km-muted">ID:</span> <span id="scanInfoId">-</span>&nbsp;&nbsp;
+        <span class="km-muted">语言:</span> <span id="scanInfoLang">-</span>&nbsp;&nbsp;
+        <span class="km-muted">节点:</span> <span id="scanInfoNodes">-</span>&nbsp;&nbsp;
+        <span class="km-muted">边:</span> <span id="scanInfoEdges">-</span>&nbsp;&nbsp;
+        <span class="km-muted">目标:</span> <span id="scanInfoTarget">-</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab 导航 -->
+<div class="row">
+  <div class="col-xs-12">
+    <div class="btn-group" style="margin-bottom: 15px;">
+      <button class="btn btn-primary btn-sm tab-btn" data-tab="tab-overview">概览</button>
+      <button class="btn btn-default btn-sm tab-btn" data-tab="tab-file">文件查询</button>
+      <button class="btn btn-default btn-sm tab-btn" data-tab="tab-function">函数查询</button>
+      <button class="btn btn-default btn-sm tab-btn" data-tab="tab-trace">污点追踪</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Tab 1: 概览 ==================== -->
+<div class="tab-pane" id="tab-overview">
+  <div class="row">
+    <div class="col-xs-12">
+      <button id="btnLoadOverview" class="btn btn-primary btn-sm" style="margin-bottom:15px;">
+        <i class="fa fa-refresh"></i> 加载概览
+      </button>
+    </div>
+  </div>
+
+  <!-- 统计卡片 -->
+  <div class="row" id="overviewCards" style="display:none;">
+    <div class="col-xs-6 col-md-3">
+      <div class="box">
+        <div class="box-body text-center">
+          <div style="font-size:28px;font-weight:700;color:#3c8dbc;" id="statNodeCount">-</div>
+          <div class="km-muted">节点总数</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xs-6 col-md-3">
+      <div class="box">
+        <div class="box-body text-center">
+          <div style="font-size:28px;font-weight:700;color:#00a65a;" id="statEdgeCount">-</div>
+          <div class="km-muted">边总数</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xs-6 col-md-3">
+      <div class="box">
+        <div class="box-body text-center">
+          <div style="font-size:28px;font-weight:700;color:#f39c12;" id="statFuncCount">-</div>
+          <div class="km-muted">函数数</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xs-6 col-md-3">
+      <div class="box">
+        <div class="box-body text-center">
+          <div style="font-size:28px;font-weight:700;color:#dd4b39;" id="statSinkCount">-</div>
+          <div class="km-muted">Sink 数</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Label Summary -->
+    <div class="col-xs-12 col-md-5">
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">Label 分布</h3>
+        </div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-striped km-table">
+            <thead><tr><th>Label</th><th style="text-align:right;">数量</th></tr></thead>
+            <tbody id="labelSummaryBody">
+              <tr><td colspan="2" class="text-center km-muted">未加载</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- 文件列表 -->
+    <div class="col-xs-12 col-md-7">
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">文件列表</h3>
+        </div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-hover km-table">
+            <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th></tr></thead>
+            <tbody id="fileListBody">
+              <tr><td colspan="3" class="text-center km-muted">未加载</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Tab 2: 文件查询 ==================== -->
+<div class="tab-pane" id="tab-file" style="display:none;">
+  <div class="row">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div class="input-group" style="max-width:600px;">
+            <input type="text" id="fileQueryInput" class="form-control" placeholder="输入文件路径，如 src/app.php">
+            <span class="input-group-btn">
+              <button id="btnQueryFile" class="btn btn-primary" type="button">查询</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" id="fileResultArea" style="display:none;">
+    <div class="col-xs-12 col-md-6">
+      <!-- Classes -->
+      <div class="box" id="fileClassesBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">Classes</h3></div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-striped km-table">
+            <thead><tr><th>Name</th><th>Line</th></tr></thead>
+            <tbody id="fileClassesBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Functions -->
+      <div class="box" id="fileFunctionsBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">Functions</h3></div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-striped km-table">
+            <thead><tr><th>Name</th><th>Line</th></tr></thead>
+            <tbody id="fileFunctionsBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Operators -->
+      <div class="box" id="fileOperatorsBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">Operators (分支数: <span id="fileBranchCount">-</span>)</h3></div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-striped km-table">
+            <thead><tr><th>Operator</th><th>Line</th></tr></thead>
+            <tbody id="fileOperatorsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-xs-12 col-md-6">
+      <!-- Imports -->
+      <div class="box" id="fileImportsBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">Imports</h3></div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-striped km-table">
+            <thead><tr><th>Import</th><th>Line</th></tr></thead>
+            <tbody id="fileImportsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" id="fileErrorArea" style="display:none;">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div id="fileErrorMsg" class="text-danger"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Tab 3: 函数查询 ==================== -->
+<div class="tab-pane" id="tab-function" style="display:none;">
+  <div class="row">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div class="input-group" style="max-width:600px;">
+            <input type="text" id="funcQueryInput" class="form-control" placeholder="输入函数名称，如 exec">
+            <span class="input-group-btn">
+              <button id="btnQueryFunc" class="btn btn-primary" type="button">查询</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" id="funcResultArea" style="display:none;">
+    <!-- 基本信息 -->
+    <div class="col-xs-12 col-md-4">
+      <div class="box">
+        <div class="box-header"><h3 class="box-title">函数信息</h3></div>
+        <div class="box-body">
+          <table class="table km-table" style="margin-bottom:0;">
+            <tr><td class="km-muted" style="width:80px;">名称</td><td id="funcName">-</td></tr>
+            <tr><td class="km-muted">全名</td><td id="funcFullname">-</td></tr>
+            <tr><td class="km-muted">行号</td><td id="funcLineno">-</td></tr>
+            <tr><td class="km-muted">文件</td><td id="funcFilepath">-</td></tr>
+            <tr><td class="km-muted">污点类型</td><td id="funcTaintType">-</td></tr>
+          </table>
+        </div>
+      </div>
+      <!-- 参数列表 -->
+      <div class="box" id="funcParamsBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">参数列表</h3></div>
+        <div class="box-body">
+          <ul id="funcParamsList" class="list-unstyled" style="margin:0;"></ul>
+        </div>
+      </div>
+      <!-- Return Nodes -->
+      <div class="box" id="funcReturnBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">Return Nodes</h3></div>
+        <div class="box-body">
+          <ul id="funcReturnList" class="list-unstyled" style="margin:0;"></ul>
+        </div>
+      </div>
+    </div>
+    <!-- Callers / Callees -->
+    <div class="col-xs-12 col-md-4">
+      <div class="box" id="funcCallersBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">调用者 (Callers)</h3></div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-hover km-table">
+            <thead><tr><th>Name</th><th>Line</th><th>File</th></tr></thead>
+            <tbody id="funcCallersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-xs-12 col-md-4">
+      <div class="box" id="funcCalleesBox" style="display:none;">
+        <div class="box-header"><h3 class="box-title">被调用 (Callees)</h3></div>
+        <div class="box-body table-responsive no-padding">
+          <table class="table table-hover km-table">
+            <thead><tr><th>Name</th><th>Line</th><th>File</th></tr></thead>
+            <tbody id="funcCalleesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" id="funcErrorArea" style="display:none;">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div id="funcErrorMsg" class="text-danger"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Tab 4: 污点追踪 ==================== -->
+<div class="tab-pane" id="tab-trace" style="display:none;">
+  <div class="row">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div class="input-group" style="max-width:600px;">
+            <input type="text" id="traceInput" class="form-control" placeholder="file:line，如 src/app.php:42">
+            <span class="input-group-btn">
+              <button id="btnTrace" class="btn btn-primary" type="button">追踪</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="traceResultArea">
+    <!-- 动态填充 -->
+  </div>
+
+  <div class="row" id="traceErrorArea" style="display:none;">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div id="traceErrorMsg" class="text-danger"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script>
+$(document).ready(function () {
+    // 侧边栏高亮
+    $("#dashboard").removeClass("active menu-open");
+    $("#dashboard").find("ul li").removeClass("active");
+    $("#graph_analysis").addClass("active");
+
+    var currentScanId = null;
+
+    // ===== 加载 scan 列表 =====
+    function loadScans() {
+        $.ajax({
+            url: '/api/graph/scans',
+            type: 'GET',
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code === 200 && resp.scans && resp.scans.length > 0) {
+                    var $sel = $('#scanSelect');
+                    $sel.empty().append('<option value="">-- 选择 Scan --</option>');
+                    $.each(resp.scans, function (i, s) {
+                        var opt = '<option value="' + s.id + '">'
+                            + 'ID:' + s.id + ' | ' + (s.language || '?') + ' | '
+                            + (s.target || '-') + ' (节点:' + (s.node_count || 0) + ' 边:' + (s.edge_count || 0) + ')'
+                            + '</option>';
+                        $sel.append(opt);
+                    });
+                    // 自动选择最新的（第一个）
+                    $sel.val(resp.scans[0].id);
+                    selectScan(resp.scans[0].id);
+                } else {
+                    $('#scanSelect').empty().append('<option value="">暂无扫描记录</option>');
+                }
+            },
+            error: function () {
+                $('#scanSelect').empty().append('<option value="">加载失败</option>');
+            }
+        });
+    }
+    loadScans();
+
+    // ===== 选择 scan =====
+    function selectScan(scanId) {
+        currentScanId = scanId;
+        var $sel = $('#scanSelect');
+        var opt = $sel.find('option:selected');
+        if (scanId && opt.val()) {
+            $('#scanInfoBox').show();
+            $('#scanInfoId').text(scanId);
+            // 从列表文本中解析基本信息
+            var text = opt.text();
+            var langMatch = text.match(/\| (\w+) \|/);
+            var nodeMatch = text.match(/节点:(\d+)/);
+            var edgeMatch = text.match(/边:(\d+)/);
+            var targetMatch = text.match(/ \| (.+?) \(节点/);
+            $('#scanInfoLang').text(langMatch ? langMatch[1] : '-');
+            $('#scanInfoNodes').text(nodeMatch ? nodeMatch[1] : '-');
+            $('#scanInfoEdges').text(edgeMatch ? edgeMatch[1] : '-');
+            $('#scanInfoTarget').text(targetMatch ? targetMatch[1] : '-');
+        } else {
+            $('#scanInfoBox').hide();
+        }
+    }
+
+    $('#btnSelectScan').on('click', function () {
+        var scanId = $('#scanSelect').val();
+        selectScan(scanId ? parseInt(scanId) : null);
+    });
+
+    $('#scanSelect').on('change', function () {
+        var scanId = $(this).val();
+        selectScan(scanId ? parseInt(scanId) : null);
+    });
+
+    // ===== Tab 切换 =====
+    $('.tab-btn').on('click', function () {
+        var tabId = $(this).data('tab');
+        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+        $(this).removeClass('btn-default').addClass('btn-primary');
+        $('.tab-pane').hide();
+        $('#' + tabId).show();
+    });
+
+    // ===== Tab 1: 概览 =====
+    $('#btnLoadOverview').on('click', function () {
+        loadOverview(currentScanId);
+    });
+
+    function loadOverview(scanId) {
+        if (!scanId) { alert('请先选择一个 Scan'); return; }
+        var $btn = $('#btnLoadOverview');
+        $btn.prop('disabled', true).text('加载中...');
+
+        $.ajax({
+            url: '/api/graph/query',
+            type: 'GET',
+            data: { scan_id: scanId, query_type: 'overview' },
+            dataType: 'json',
+            success: function (resp) {
+                $btn.prop('disabled', false).html('<i class="fa fa-refresh"></i> 加载概览');
+                if (resp.code !== 200 || !resp.data) {
+                    $('#labelSummaryBody').html('<tr><td colspan="2" class="text-center text-danger">加载失败</td></tr>');
+                    return;
+                }
+                var d = resp.data;
+
+                // 统计卡片
+                $('#overviewCards').show();
+                $('#statNodeCount').text(d.node_count || 0);
+                $('#statEdgeCount').text(d.edge_count || 0);
+                $('#statFuncCount').text(d.function_count || 0);
+                $('#statSinkCount').text(d.sink_count || 0);
+
+                // Label Summary
+                var $lb = $('#labelSummaryBody').empty();
+                if (d.label_summary) {
+                    $.each(d.label_summary, function (label, count) {
+                        $lb.append('<tr><td><code>' + escHtml(label) + '</code></td><td style="text-align:right;">' + count + '</td></tr>');
+                    });
+                } else {
+                    $lb.append('<tr><td colspan="2" class="text-center km-muted">无数据</td></tr>');
+                }
+
+                // 文件列表
+                var $fl = $('#fileListBody').empty();
+                if (d.files && d.files.length > 0) {
+                    $.each(d.files, function (i, f) {
+                        $fl.append('<tr><td><a href="#" class="file-link" data-path="' + escHtml(f.path || f.name || '') + '">' + escHtml(f.path || f.name || '-') + '</a></td>'
+                            + '<td>' + escHtml(f.language || '-') + '</td>'
+                            + '<td style="text-align:right;">' + (f.node_count || 0) + '</td></tr>');
+                    });
+                } else {
+                    $fl.append('<tr><td colspan="3" class="text-center km-muted">无数据</td></tr>');
+                }
+            },
+            error: function () {
+                $btn.prop('disabled', false).html('<i class="fa fa-refresh"></i> 加载概览');
+                $('#labelSummaryBody').html('<tr><td colspan="2" class="text-center text-danger">请求失败</td></tr>');
+            }
+        });
+    }
+
+    // 文件列表中的链接点击 -> 跳到文件查询 Tab
+    $(document).on('click', '.file-link', function (e) {
+        e.preventDefault();
+        var path = $(this).data('path');
+        $('#fileQueryInput').val(path);
+        // 切换到文件 Tab
+        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+        $('.tab-btn[data-tab="tab-file"]').removeClass('btn-default').addClass('btn-primary');
+        $('.tab-pane').hide();
+        $('#tab-file').show();
+        queryFile(currentScanId, path);
+    });
+
+    // ===== Tab 2: 文件查询 =====
+    $('#btnQueryFile').on('click', function () {
+        var filePath = $('#fileQueryInput').val().trim();
+        if (!filePath) { alert('请输入文件路径'); return; }
+        queryFile(currentScanId, filePath);
+    });
+
+    $('#fileQueryInput').on('keypress', function (e) {
+        if (e.which === 13) { $('#btnQueryFile').click(); }
+    });
+
+    function queryFile(scanId, filePath) {
+        if (!scanId) { alert('请先选择一个 Scan'); return; }
+        $('#fileResultArea').hide();
+        $('#fileErrorArea').hide();
+
+        $.ajax({
+            url: '/api/graph/query',
+            type: 'GET',
+            data: { scan_id: scanId, query_type: 'file', query_arg: filePath },
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code !== 200 || !resp.data) {
+                    $('#fileErrorArea').show();
+                    $('#fileErrorMsg').text(resp.msg || '查询失败，无返回数据');
+                    return;
+                }
+                var d = resp.data;
+                $('#fileResultArea').show();
+
+                // Classes
+                if (d.classes && d.classes.length > 0) {
+                    $('#fileClassesBox').show();
+                    var $tb = $('#fileClassesBody').empty();
+                    $.each(d.classes, function (i, c) {
+                        $tb.append('<tr><td>' + escHtml(c.name || c) + '</td><td>' + (c.lineno || '-') + '</td></tr>');
+                    });
+                } else { $('#fileClassesBox').hide(); }
+
+                // Functions
+                if (d.functions && d.functions.length > 0) {
+                    $('#fileFunctionsBox').show();
+                    var $tb = $('#fileFunctionsBody').empty();
+                    $.each(d.functions, function (i, f) {
+                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(f.name || f) + '">' + escHtml(f.name || f) + '</a></td><td>' + (f.lineno || '-') + '</td></tr>');
+                    });
+                } else { $('#fileFunctionsBox').hide(); }
+
+                // Imports
+                if (d.imports && d.imports.length > 0) {
+                    $('#fileImportsBox').show();
+                    var $tb = $('#fileImportsBody').empty();
+                    $.each(d.imports, function (i, imp) {
+                        $tb.append('<tr><td>' + escHtml(typeof imp === 'string' ? imp : (imp.name || imp.module || JSON.stringify(imp))) + '</td><td>' + (imp.lineno || '-') + '</td></tr>');
+                    });
+                } else { $('#fileImportsBox').hide(); }
+
+                // Operators
+                if (d.operators && d.operators.length > 0) {
+                    $('#fileOperatorsBox').show();
+                    $('#fileBranchCount').text(d.branch_count || '-');
+                    var $tb = $('#fileOperatorsBody').empty();
+                    $.each(d.operators, function (i, op) {
+                        $tb.append('<tr><td>' + escHtml(typeof op === 'string' ? op : (op.name || op.type || JSON.stringify(op))) + '</td><td>' + (op.lineno || '-') + '</td></tr>');
+                    });
+                } else { $('#fileOperatorsBox').hide(); }
+            },
+            error: function (xhr) {
+                $('#fileErrorArea').show();
+                $('#fileErrorMsg').text('请求失败: ' + (xhr.statusText || '网络错误'));
+            }
+        });
+    }
+
+    // 函数列表中的链接点击 -> 跳到函数查询 Tab
+    $(document).on('click', '.func-link', function (e) {
+        e.preventDefault();
+        var name = $(this).data('name');
+        $('#funcQueryInput').val(name);
+        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+        $('.tab-btn[data-tab="tab-function"]').removeClass('btn-default').addClass('btn-primary');
+        $('.tab-pane').hide();
+        $('#tab-function').show();
+        queryFunction(currentScanId, name);
+    });
+
+    // ===== Tab 3: 函数查询 =====
+    $('#btnQueryFunc').on('click', function () {
+        var funcName = $('#funcQueryInput').val().trim();
+        if (!funcName) { alert('请输入函数名称'); return; }
+        queryFunction(currentScanId, funcName);
+    });
+
+    $('#funcQueryInput').on('keypress', function (e) {
+        if (e.which === 13) { $('#btnQueryFunc').click(); }
+    });
+
+    function queryFunction(scanId, funcName) {
+        if (!scanId) { alert('请先选择一个 Scan'); return; }
+        $('#funcResultArea').hide();
+        $('#funcErrorArea').hide();
+
+        $.ajax({
+            url: '/api/graph/query',
+            type: 'GET',
+            data: { scan_id: scanId, query_type: 'function', query_arg: funcName },
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code !== 200 || !resp.data) {
+                    $('#funcErrorArea').show();
+                    $('#funcErrorMsg').text(resp.msg || '查询失败，无返回数据');
+                    return;
+                }
+                var d = resp.data;
+                $('#funcResultArea').show();
+
+                // 基本信息
+                $('#funcName').text(d.name || '-');
+                $('#funcFullname').text(d.fullname || '-');
+                $('#funcLineno').text(d.lineno || '-');
+                $('#funcFilepath').text(d.file_path || '-');
+                $('#funcTaintType').text(d.taint_type || '-');
+
+                // 参数列表
+                if (d.params && d.params.length > 0) {
+                    $('#funcParamsBox').show();
+                    var $ul = $('#funcParamsList').empty();
+                    $.each(d.params, function (i, p) {
+                        $ul.append('<li><code>' + escHtml(typeof p === 'string' ? p : (p.name || JSON.stringify(p))) + '</code></li>');
+                    });
+                } else { $('#funcParamsBox').hide(); }
+
+                // Return Nodes
+                if (d.return_nodes && d.return_nodes.length > 0) {
+                    $('#funcReturnBox').show();
+                    var $ul = $('#funcReturnList').empty();
+                    $.each(d.return_nodes, function (i, r) {
+                        $ul.append('<li><code>' + escHtml(typeof r === 'string' ? r : (r.name || JSON.stringify(r))) + '</code></li>');
+                    });
+                } else { $('#funcReturnBox').hide(); }
+
+                // Callers
+                if (d.callers && d.callers.length > 0) {
+                    $('#funcCallersBox').show();
+                    var $tb = $('#funcCallersBody').empty();
+                    $.each(d.callers, function (i, c) {
+                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a></td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
+                    });
+                } else { $('#funcCallersBox').hide(); }
+
+                // Callees
+                if (d.callees && d.callees.length > 0) {
+                    $('#funcCalleesBox').show();
+                    var $tb = $('#funcCalleesBody').empty();
+                    $.each(d.callees, function (i, c) {
+                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a></td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
+                    });
+                } else { $('#funcCalleesBox').hide(); }
+            },
+            error: function (xhr) {
+                $('#funcErrorArea').show();
+                $('#funcErrorMsg').text('请求失败: ' + (xhr.statusText || '网络错误'));
+            }
+        });
+    }
+
+    // ===== Tab 4: 污点追踪 =====
+    $('#btnTrace').on('click', function () {
+        var fileLine = $('#traceInput').val().trim();
+        if (!fileLine) { alert('请输入 file:line'); return; }
+        traceLine(currentScanId, fileLine);
+    });
+
+    $('#traceInput').on('keypress', function (e) {
+        if (e.which === 13) { $('#btnTrace').click(); }
+    });
+
+    function traceLine(scanId, fileLine) {
+        if (!scanId) { alert('请先选择一个 Scan'); return; }
+        $('#traceResultArea').html('<div class="text-center km-muted" style="padding:20px;">加载中...</div>');
+        $('#traceErrorArea').hide();
+
+        $.ajax({
+            url: '/api/graph/query',
+            type: 'GET',
+            data: { scan_id: scanId, query_type: 'trace', query_arg: fileLine },
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code !== 200 || !resp.data) {
+                    $('#traceErrorArea').show();
+                    $('#traceErrorMsg').text(resp.msg || '追踪失败，无返回数据');
+                    $('#traceResultArea').empty();
+                    return;
+                }
+                renderTraceResults(resp.data);
+            },
+            error: function (xhr) {
+                $('#traceErrorArea').show();
+                $('#traceErrorMsg').text('请求失败: ' + (xhr.statusText || '网络错误'));
+                $('#traceResultArea').empty();
+            }
+        });
+    }
+
+    function renderTraceResults(data) {
+        var $container = $('#traceResultArea').empty();
+        if (!data || data.length === 0) {
+            $container.html('<div class="box"><div class="box-body text-center km-muted">无追踪结果</div></div>');
+            return;
+        }
+
+        $.each(data, function (idx, item) {
+            var sink = item.sink || {};
+            var result = item.result || {};
+            var chain = result.chain || [];
+
+            // 结果状态样式
+            var resultCode = result.code;
+            var statusClass = resultCode === 0 ? 'label-success' : (resultCode === 1 ? 'label-danger' : 'label-warning');
+            var statusText = resultCode === 0 ? '安全' : (resultCode === 1 ? '危险' : '未知');
+
+            var html = '<div class="row"><div class="col-xs-12"><div class="box">';
+            html += '<div class="box-header"><h3 class="box-title">Sink #' + (idx + 1) + ': ' + escHtml(sink.name || '-') + '</h3></div>';
+            html += '<div class="box-body">';
+
+            // Sink 信息
+            html += '<table class="table km-table" style="margin-bottom:10px;">';
+            html += '<tr><td class="km-muted" style="width:80px;">名称</td><td>' + escHtml(sink.name || '-') + '</td></tr>';
+            html += '<tr><td class="km-muted">行号</td><td>' + (sink.lineno || '-') + '</td></tr>';
+            html += '<tr><td class="km-muted">类型</td><td>' + escHtml(sink.type || '-') + '</td></tr>';
+            html += '<tr><td class="km-muted">参数索引</td><td>' + (item.arg_index != null ? item.arg_index : '-') + '</td></tr>';
+            html += '</table>';
+
+            // Result
+            html += '<div style="margin-bottom:10px;">';
+            html += '<span class="label ' + statusClass + '">' + statusText + '</span> ';
+            html += '<strong>code:</strong> ' + (resultCode != null ? resultCode : '-') + '&nbsp;&nbsp;';
+            if (result.reason) html += '<strong>原因:</strong> ' + escHtml(result.reason);
+            if (result.description) html += '<br><strong>描述:</strong> ' + escHtml(result.description);
+            html += '</div>';
+
+            // Chain
+            if (chain.length > 0) {
+                html += '<h4>追踪链</h4>';
+                html += '<div style="border-left:3px solid #3c8dbc;padding-left:15px;margin-left:10px;">';
+                $.each(chain, function (ci, step) {
+                    html += '<div style="margin-bottom:10px;padding:8px;background:#f9f9f9;border-radius:3px;">';
+                    html += '<div><strong>Step ' + (ci + 1) + '</strong>';
+                    if (step.type) html += ' <span class="label label-info">' + escHtml(step.type) + '</span>';
+                    html += '</div>';
+                    if (step.name) html += '<div>名称: <code>' + escHtml(step.name) + '</code></div>';
+                    if (step.path || step.file_path) html += '<div>路径: ' + escHtml(step.path || step.file_path) + '</div>';
+                    if (step.lineno) html += '<div>行号: ' + step.lineno + '</div>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            html += '</div></div></div></div>';
+            $container.append(html);
+        });
+    }
+
+    // ===== 工具函数 =====
+    function escHtml(str) {
+        if (str == null) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+});
+</script>
+{% endblock %}

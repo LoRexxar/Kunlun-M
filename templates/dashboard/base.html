@@ -188,6 +188,9 @@ scratch. This page gets rid of all links and provides the needed markup only.
             <li id="tamper_list"><a href="{% url 'dashboard:tampers_list' %}"><i class="fa fa-circle-o"></i>拓展插件列表</a></li>
           </ul>
         </li>
+        <li class="treeview" id="graph_analysis">
+          <a href="{% url 'dashboard:graph_analysis' %}"><i class="fa fa-project-diagram"></i><span>图分析</span></a>
+        </li>
         <li id="docs"><a href="{% url 'dashboard:docs' %}"><i class="fa fa-book"></i><span>文档</span></a></li>
 
         <li id="user"><a href="{% url 'dashboard:userinfo' %}"><i class="fa ion-person"></i><span>用户</span></a></li>

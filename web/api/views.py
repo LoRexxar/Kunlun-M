@@ -469,3 +469,95 @@ class StatsApiView(View):
             "task_status": task_status,
             "daily_tasks": daily_tasks,
         })
+
+
+class GraphScansApiView(View):
+    """列出 workspace 中有图数据的 scan"""
+
+    @staticmethod
+    @login_or_token_required
+    def get(request):
+        from core.graph.workspace import get_workspace_db
+        from core.graph.sqlite_index import ScanRecord
+
+        workspace_db = get_workspace_db()
+        sr = ScanRecord(workspace_db)
+        sr.ensure_tables()
+
+        # Also add a get_all method if missing - use raw SQL
+        import sqlite3
+        conn = sqlite3.connect(workspace_db)
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS scans ("
+            "id INTEGER PRIMARY KEY, language TEXT, target TEXT, "
+            "graph_path TEXT, file_count INTEGER, node_count INTEGER, "
+            "edge_count INTEGER, created_at TEXT)"
+        )
+        cur = conn.execute("SELECT * FROM scans ORDER BY id DESC")
+        scans = [dict(row) for row in cur.fetchall()]
+        conn.close()
+
+        return JsonResponse({"code": 200, "scans": scans})
+
+
+class GraphQueryApiView(View):
+    """AST 图查询 API — 对应 CLI analyze 子命令"""
+
+    @staticmethod
+    @login_or_token_required
+    def get(request):
+        import os
+        from core.graph.session import AstGraphSession
+        from core.graph.workspace import get_workspace_db, get_scan_dir
+
+        scan_id = request.GET.get("scan_id")
+        query_type = request.GET.get("query_type", "overview")
+        query_arg = request.GET.get("query_arg", "")
+
+        if not scan_id:
+            return JsonResponse({"code": 400, "error": "scan_id required"})
+
+        workspace_db = get_workspace_db()
+        graph_dir = get_scan_dir(scan_id)
+
+        # Verify graph exists
+        graph_path = os.path.join(graph_dir, "graph.graphmlz")
+        if not os.path.exists(graph_path):
+            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
+
+        # Get language from scan record
+        from core.graph.sqlite_index import ScanRecord
+        sr = ScanRecord(workspace_db)
+        info = sr.get_by_id(scan_id)
+        language = info.get("language", "php") if info else "php"
+
+        try:
+            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
+            session.load()
+
+            if query_type == "overview":
+                result = session.query.overview()
+            elif query_type == "file":
+                result = session.query.get_file(query_arg)
+            elif query_type == "function":
+                result = session.query.get_function(query_arg)
+            elif query_type == "trace":
+                parts = query_arg.rsplit(":", 1)
+                if len(parts) != 2:
+                    return JsonResponse({"code": 400, "error": "trace format: file:line"})
+                result = session.query.trace(parts[0], int(parts[1]))
+            elif query_type == "search":
+                tokens = query_arg.split(":", 2)
+                label = tokens[0] if len(tokens) > 0 else None
+                name = tokens[1] if len(tokens) > 1 else None
+                result = session.query.search(label=label or None, name=name or None)
+            else:
+                return JsonResponse({"code": 400, "error": f"Unknown query type: {query_type}"})
+
+            session.close()
+            return JsonResponse({"code": 200, "data": result})
+        except FileNotFoundError as e:
+            return JsonResponse({"code": 404, "error": str(e)})
+        except Exception as e:
+            return JsonResponse({"code": 500, "error": str(e)})

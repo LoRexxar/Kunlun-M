@@ -59,4 +59,7 @@ urlpatterns = [
     # stats
     path("stats/dashboard", views.StatsApiView.as_view(), name="stats_dashboard"),
 
+    # graph analysis
+    path("graph/scans", views.GraphScansApiView.as_view(), name="graph_scans"),
+    path("graph/query", views.GraphQueryApiView.as_view(), name="graph_query"),
 ]
