@@ -232,9 +232,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         def _make_source_registry(lang):
             """为指定语言创建 source_registry（轻量，仅 builtin）"""
             # JS/TS 使用完整 discover（含框架 + AST 遍历）
-            if lang == 'javascript':
-                from core.core_engine.javascript.source_discovery import discover_sources
-                return discover_sources(ast_object.target_directory, ast_object)
+            if lang in ('javascript', 'typescript'):
+                engine = 'javascript' if lang == 'javascript' else 'typescript'
+                from importlib import import_module
+                mod = import_module(f'core.core_engine.{engine}.source_discovery')
+                return mod.discover_sources(ast_object.target_directory, ast_object)
             # PHP：dataclass，builtin_sources 字段已含 superglobals
             if lang == 'php':
                 from core.core_engine.php.source_discovery import SourceRegistry as _SR
@@ -379,8 +381,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # 精确匹配 + 后缀匹配（qualified callee 如 document.querySelector().setAttribute 匹配 setAttribute）
                     # Normalize :: → . for Rust/Go compatibility
                     sn_lower = sink_name.lower().replace("::", ".")
-                    if sn_lower in [n.lower() for n in rule_sink_names] or \
-                       any(sn_lower.endswith("." + n.lower()) for n in rule_sink_names):
+                    rsn = [n.lower() for n in rule_sink_names]
+                    if sn_lower in rsn or \
+                       any(sn_lower.endswith("." + n) for n in rsn) or \
+                       any(n.endswith("." + sn_lower) for n in rsn):
                         matched_rule = rule
                         break
 

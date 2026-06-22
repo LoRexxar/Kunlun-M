@@ -1356,17 +1356,51 @@ class Normalizer:
     # Call expression (func(args))
     # ===================================================================
 
+    def _extract_member_name(self, member_node) -> str:
+        """Extract dotted name from a member_expression node.
+
+        Handles nested member expressions like ``a.b.c`` by recursion.
+        Returns the full dotted name string, e.g. ``'console.log'``.
+        """
+        parts = []
+        self._collect_member_parts(member_node, parts)
+        return ".".join(parts)
+
+    def _collect_member_parts(self, node, parts):
+        """Recursively collect identifier/property_identifier names from member_expression."""
+        if node.type == "identifier":
+            parts.append(self._text(node))
+        elif node.type == "property_identifier":
+            parts.append(self._text(node))
+        elif node.type == "this":
+            parts.append("this")
+        elif node.type == "member_expression":
+            for child in node.children:
+                if child.type not in (".", "?."):
+                    self._collect_member_parts(child, parts)
+
     def _walk_call(self, node, add_node, add_edge,
                    ctx_stack, file_path, depth) -> int:
         lineno = self._lineno(node)
 
         callee = None
+        member_expr = None  # for a.b() style calls
         for child in node.children:
             if child.type == "identifier":
                 callee = child
                 break
+            elif child.type == "member_expression":
+                member_expr = child
+                break
 
-        callee_name = self._text(callee) if callee else "<call>"
+        if callee is not None:
+            callee_name = self._text(callee)
+        elif member_expr is not None:
+            # Extract full name from member_expression (e.g. "console.log")
+            callee_name = self._extract_member_name(member_expr)
+            callee = member_expr  # walk the whole member_expression as callee
+        else:
+            callee_name = "<call>"
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,

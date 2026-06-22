@@ -84,6 +84,13 @@ _BUILTIN_SOURCE_MEMBERS = {
     'window.name', 'window.location',
     # Node.js
     'process.env', 'process.argv',
+    # Common HTTP request sources (Express/Koa/NestJS/Fastify)
+    'req.query', 'req.body', 'req.params', 'req.headers', 'req.cookies',
+    'req.files', 'req.url', 'req.method',
+    'request.query', 'request.body', 'request.params',
+    'request.headers', 'request.cookies',
+    'ctx.query', 'ctx.querystring', 'ctx.params',
+    'ctx.request.body', 'ctx.request.query',
 }
 
 _BUILTIN_SOURCE_VARIABLES = {
