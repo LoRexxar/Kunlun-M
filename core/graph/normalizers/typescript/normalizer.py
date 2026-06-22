@@ -93,7 +93,7 @@ _SKIP_TYPES = frozenset({
 
 _LITERAL_TYPES = frozenset({
     "number", "string", "true", "false", "null", "undefined",
-    "template_string", "regex",
+    "regex",
 })
 
 _IDENTIFIER_TYPES = frozenset({
@@ -260,6 +260,11 @@ class Normalizer:
         # Skip type-only nodes
         if ntype in _SKIP_TYPES:
             return None
+
+        # Template string (has interpolation sub-expressions for DFG)
+        if ntype == "template_string":
+            return self._walk_template_string(node, add_node, add_edge,
+                                             ctx_stack, file_path, depth)
 
         # Literals
         if ntype in _LITERAL_TYPES:
@@ -1837,9 +1842,45 @@ class Normalizer:
             return self._emit_const(add_node, text, lineno, ConstType.NULL)
         if ntype == "regex":
             return self._emit_const(add_node, text, lineno, ConstType.CONSTANT)
-        if ntype == "template_string":
-            return self._emit_const(add_node, text, lineno, ConstType.STRING)
         return self._emit_const(add_node, text, lineno, ConstType.CONSTANT)
+
+    # ===================================================================
+    # Template string interpolation
+    # ===================================================================
+
+    def _walk_template_string(self, node, add_node, add_edge,
+                              ctx_stack, file_path, depth) -> int:
+        """Handle template_string: emit CONST then track interpolation DFG."""
+        str_pos = self._emit_const(add_node, self._text(node),
+                                   self._lineno(node), ConstType.STRING)
+        for child in node.children:
+            if child.type == "template_substitution":
+                self._walk_template_substitution(
+                    child, add_node, add_edge, str_pos,
+                    ctx_stack, file_path, depth)
+        return str_pos
+
+    def _walk_template_substitution(self, node, add_node, add_edge,
+                                    str_pos, ctx_stack, file_path,
+                                    depth) -> None:
+        """Walk expression children inside a template_substitution node.
+
+        For each expression (identifier, call, etc.), emit a DFG edge from
+        the expression to the string constant so taint can propagate.
+        """
+        if not node.children:
+            return
+        for child in node.children:
+            ctype = child.type
+            # Skip punctuation markers
+            if ctype in ("${", "}", ";"):
+                continue
+            expr_pos = self._walk_node(child, add_node, add_edge,
+                                       ctx_stack, file_path, depth)
+            if expr_pos is not None:
+                add_edge({"label": "dfg", "source": expr_pos, "target": str_pos})
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, expr_pos, depth)
 
     # ===================================================================
     # Identifier
