@@ -1299,11 +1299,11 @@ class Normalizer:
         for child in node.children:
             if child.type in _SKIP_TYPES:
                 continue
-            if child.type in ("let", "mut", "ref", ";", ":", "=", "_"):
+            if child.type in ("let", "mut", "ref", ";", ":", "=", "_",
+                              "mutable_specifier", "reference_type"):
                 continue
-            if child.type == "type_identifier" or "type" in child.type.lower():
-                if child.type not in ("identifier", "scoped_identifier"):
-                    continue
+            if child.type == "type_identifier":
+                continue
             # Skip the variable name identifier (first identifier is LHS)
             if not found_name and child.type == "identifier":
                 found_name = True
@@ -1515,12 +1515,13 @@ class Normalizer:
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
-            "name": macro_name_clean + "!",
+            "name": macro_name_clean,
             "lineno": lineno,
             "language": self.language,
             "attrs": {
                 "type": OperatorType.CALL.value,
                 "raw_type": "macro_invocation",
+                "macro_name": macro_name_clean + "!",
             },
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
