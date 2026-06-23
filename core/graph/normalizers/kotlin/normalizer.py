@@ -408,6 +408,8 @@ class Normalizer:
                                     "source": var_pos,
                                     "target": str_pos,
                                 })
+                                if ctx_stack:
+                                    self._own_edge(add_edge, ctx_stack, var_pos, depth)
             return str_pos
 
         # ---- True / False (boolean) -----------------------------------
