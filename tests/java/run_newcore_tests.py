@@ -14,16 +14,27 @@ output_dir = os.path.join(test_dir, '_newcore_output')
 
 test_cases = [
     # 跨文件追踪: ExecUtils.executeCommand/getParameter — 已知跨文件追踪局限
+    # 引擎检出定义处 (ExecUtils.java) 而非调用处 (MainServlet.java)
     ('MainServlet.java', True,
      'CVI-6003 命令注入: ExecUtils.executeCommand via getParameter',
      ['CVI-6003'],
      ['executeCommand'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking (ExecUtils not in same file)'}),
+     {'skip': True, 'skip_reason': 'known gap: cross-file tracking (检出点在ExecUtils.java而非MainServlet.java)'}),
     ('PathServlet.java', True,
      'CVI-6004 路径穿越: FileUtils.readConfig via getParameter',
      ['CVI-6004'],
      ['readConfig'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking (FileUtils not in same file)'}),
+     {'skip': True, 'skip_reason': 'known gap: cross-file tracking (检出点在FileUtils.java而非PathServlet.java)'}),
+    # 引擎实际检出点: ExecUtils 定义处的 Runtime.exec
+    ('ExecUtils.java', True,
+     'CVI-6003 命令注入: Runtime.exec(parameter cmd)',
+     ['CVI-6003'],
+     ['Runtime.getRuntime().exec']),
+    # 引擎实际检出点: SqlUtils 定义处的 executeQuery
+    ('SqlUtils.java', True,
+     'CVI-6001 SQL注入: executeQuery(parameter table)',
+     ['CVI-6001'],
+     ['executeQuery']),
 ]
 
 
