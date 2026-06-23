@@ -12,13 +12,15 @@ if TYPE_CHECKING:
 
 from core.graph.edge_builders.dfg import DataFlowBuilder
 from core.graph.edge_builders.cg import CallGraphBuilder
+from core.graph.edge_builders.alias import AliasBuilder
 
-__all__ = ["run_all", "DataFlowBuilder", "CallGraphBuilder"]
+__all__ = ["run_all", "DataFlowBuilder", "CallGraphBuilder", "AliasBuilder"]
 
 # Builder execution order
 _BUILDERS = [
     ("dfg", DataFlowBuilder),
     ("cg", CallGraphBuilder),
+    ("alias", AliasBuilder),
 ]
 
 

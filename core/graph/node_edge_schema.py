@@ -29,6 +29,7 @@ __all__ = [
     "DfgType",
     "CrgType",
     "MemberAccessType",
+    "AliasType",
     # Data classes
     "UnifiedNode",
     "UnifiedEdge",
@@ -67,9 +68,10 @@ class NodeLabel(str, Enum):
 class EdgeLabel(str, Enum):
     """Unified AST graph edge labels.
 
-    8 core relationship types: file dependency (frg), hierarchy containment
+    9 core relationship types: file dependency (frg), hierarchy containment
     (own), call graph (cg), AST child (ast), data flow (dfg), class
-    relationship (crg), member access (member), reference/usage (use).
+    relationship (crg), member access (member), reference/usage (use),
+    function alias (alias).
     """
 
     FRG = "frg"
@@ -80,6 +82,7 @@ class EdgeLabel(str, Enum):
     CRG = "crg"
     MEMBER = "member"
     USE = "use"
+    ALIAS = "alias"
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +252,19 @@ class MemberAccessType(str, Enum):
     STATIC_PROPERTY = "static_property"
 
 
+class AliasType(str, Enum):
+    """alias_type attribute for ``alias`` edges.
+
+    Describes how the alias relationship was derived.
+    """
+
+    DIRECT = "direct"                # func = some_function (direct assignment)
+    VIA_DFG_CHAIN = "via_dfg_chain"  # func2 = func; func = some_function (multi-level)
+    VIA_MEMBER = "via_member"        # func = obj.method (property + member edge)
+    VIA_GETATTR = "via_getattr"      # func = getattr(obj, 'method')
+    VIA_GLOBALS = "via_globals"       # func = globals().get('function_name')
+
+
 # ---------------------------------------------------------------------------
 # Data Classes
 # ---------------------------------------------------------------------------
@@ -290,7 +306,7 @@ class UnifiedEdge:
     """AST graph edge — unified relationship.
 
     Attributes:
-        label: One of 7 :class:`EdgeLabel` values.
+        label: One of 9 :class:`EdgeLabel` values.
         source: Source vertex index (igraph integer id).
         target: Target vertex index (igraph integer id).
         attrs: Edge-specific attributes stored as a flat dict.  Keys vary

@@ -20,12 +20,11 @@ test_cases = [
              ['process_command'],
              {'detect_file': '13a_cross_file_eval_utils.py'}),
 
-            # 间接调用: globals().get('os.system')(user_input) — 引擎不支持 globals() 间接解析
+            # 间接调用: globals().get('os.system')(user_input) — alias builder resolves globals() dynamic dispatch
             ('30_indirect_exec.py', True,
              'CVI-7000 os.system: globals() indirect call',
              ['CVI-7000'],
-             ['func(user_input)'],
-             {'skip': True, 'skip_reason': 'known gap: engine cannot resolve globals() dynamic dispatch'}),
+             ['func(user_input)']),
 
             # 间接调用但参数硬编码: func('ls -la') — 引擎仍检出CVI-7004，type=constant
             ('31_indirect_safe.py', True,
@@ -36,8 +35,7 @@ test_cases = [
             ('32_indirect_multilevel.py', True,
              'CVI-7000 os.system: multi-level indirect chain',
              ['CVI-7000'],
-             ['func2(user_input)'],
-             {'skip': True, 'skip_reason': 'known gap: engine cannot resolve multi-level indirect call chain'}),
+             ['func2(user_input)']),
 
             # 跨文件 import 追踪: sanitize 修复 → os.system(cmd) 不检出, passthrough 透传 → eval(data) 检出
             ('cross_file_main.py', True,
@@ -68,8 +66,7 @@ test_cases = [
             ('36_getattr_method.py', True,
              'CVI-7000 os.system: getattr class method indirect call',
              ['CVI-7000'],
-             ['func(user_input)'],
-             {'skip': True, 'skip_reason': 'known gap: engine cannot resolve getattr() dynamic dispatch'}),
+             ['func(user_input)']),
 
             # subprocess + shlex.quote 修复 — 不应检出
             ('37_subprocess_safe.py', False,

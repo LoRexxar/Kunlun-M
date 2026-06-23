@@ -1507,6 +1507,15 @@ class GraphAnalyzer:
         2. Fall back to cg/use edge → target function node name.
         3. Fall back to operator node's own ``name`` attribute.
         """
+        # Check alias edges: if any ast[callee] child identifier has an
+        # outgoing alias edge, use the resolved_name directly.
+        for e in self.graph.es.select(_source=op_vid, label="ast"):
+            if _vattr(e, "role") == "callee":
+                tvid = e.target
+                for ae in self.graph.es.select(_source=tvid, label="alias"):
+                    resolved_name = _vattr(ae, "resolved_name", "")
+                    if resolved_name:
+                        return resolved_name
         callee_names: list[tuple[str, int]] = []  # (name, target_vid)
         for e in self.graph.es.select(_source=op_vid, label="ast"):
             if _vattr(e, "role") == "callee":
@@ -1524,8 +1533,13 @@ class GraphAnalyzer:
         # No identifier callee found — return the last callee name overall
         if callee_names:
             return callee_names[-1][0]
-        # Fallback: use edge target
+        # Fallback: use edge target — check alias first, then variable callee
         for e in self.graph.es.select(_source=op_vid, label="use"):
+            # Check alias edges on the function target
+            for ae in self.graph.es.select(_source=e.target, label="alias"):
+                resolved_name = _vattr(ae, "resolved_name", "")
+                if resolved_name:
+                    return resolved_name
             name = _vattr(self.graph.vs[e.target], "name")
             resolved = self._resolve_variable_callee(e.target, name)
             if resolved:

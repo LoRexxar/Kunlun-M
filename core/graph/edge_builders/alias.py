@@ -1,0 +1,291 @@
+"""Alias edge builder - resolves indirect function call chains.
+
+After DFG and CG builders have run, this builder identifies call operators
+whose use->function target is an external placeholder (no own children)
+and traces the DFG chain backward from the callee identifier to discover
+the real target function.
+
+Creates alias edges: identifier -> function (placeholder or existing).
+
+Triggers:
+- CG builder created use -> function(is_external=True, no own children)
+- The callee identifier has incoming DFG edges (meaning it was assigned)
+- DFG backward tracking can resolve to a real function name
+
+Resolution strategies (in order):
+1. DFG chain ends at identifier with member edge -> compose qualified name
+   (e.g. os -> system via member -> os.system)
+2. DFG chain ends at identifier leaf -> return name as function reference
+   (e.g. func = eval -> name is eval)
+3. DFG chain passes through known resolver operators (getattr, globals().get)
+   -> extract string argument as target name
+4. DFG chain ends at const(string) -> use string value as function name
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+from core.graph.node_edge_schema import (
+    AliasType,
+    EdgeLabel,
+    NodeLabel,
+    OperatorType,
+)
+from utils.igraph_compat import _vattr
+
+if TYPE_CHECKING:
+    import igraph
+
+logger = logging.getLogger(__name__)
+
+
+class AliasBuilder:
+    """Build alias edges for indirect function calls.
+
+    Runs after DFG and CG builders.  Scans all call operators whose
+    use->function target is an external placeholder and attempts
+    DFG backward resolution.
+    """
+
+    def __init__(self) -> None:
+        self.graph = None
+        self.language = ""
+        self._alias_count = 0
+
+    # -- public entry ---------------------------------------------------------
+
+    def build(self, graph: "ig.Graph", language: str, **kwargs) -> int:
+        """Main entry: scan all call operators and create alias edges."""
+        self.graph = graph
+        self.language = language
+        self._alias_count = 0
+        call_types = {
+            OperatorType.CALL.value,
+            OperatorType.STATIC_CALL.value,
+            OperatorType.METHOD_CALL.value,
+        }
+
+        for v in self.graph.vs:
+            if v["label"] != NodeLabel.OPERATOR.value:
+                continue
+            if v["type"] not in call_types:
+                continue
+
+            op_vid = v.index
+            use_func = self._find_use_function(op_vid)
+            if use_func is None:
+                continue
+
+            func_vid, func_name = use_func
+
+            # Skip if function has own children (real definition)
+            if list(self.graph.es.select(_source=func_vid, label="own")):
+                continue
+
+            # Find callee identifier
+            callee_id = self._find_callee_identifier(op_vid, func_name)
+            if callee_id is None:
+                continue
+
+            # Resolve through DFG backward tracking
+            resolved_name, alias_type, target_func_vid = self._resolve_alias(
+                callee_id, func_name
+            )
+
+            if resolved_name is None:
+                continue
+
+            # Create alias edge: use->function target -> resolved_function
+            # This ensures _resolve_callee_name's use-fallback path can find it.
+            self._create_alias_edge(
+                func_vid, resolved_name, alias_type, target_func_vid
+            )
+
+        if self._alias_count:
+            logger.info(
+                "[ALIAS] Created %d alias edges for %s",
+                self._alias_count,
+                self.language,
+            )
+        return self._alias_count
+
+    # -- internal helpers -----------------------------------------------------
+
+    def _find_use_function(self, op_vid: int) -> tuple[int, str] | None:
+        """Find the use->function edge target from a call operator."""
+        for e in self.graph.es.select(_source=op_vid, label="use"):
+            target = self.graph.vs[e.target]
+            if target["label"] == NodeLabel.FUNCTION.value:
+                return e.target, target["name"]
+        return None
+
+    def _find_callee_identifier(self, op_vid: int, func_name: str) -> int | None:
+        """Find the callee identifier vertex for a call operator."""
+        # Look for ast[role=callee] child that is an identifier
+        for e in self.graph.es.select(_source=op_vid, label="ast"):
+            if _vattr(e, "role") == "callee":
+                t = self.graph.vs[e.target]
+                if t["label"] == NodeLabel.IDENTIFIER.value:
+                    return e.target
+        # Fallback: find identifier by name
+        for vid in range(self.graph.vcount()):
+            v = self.graph.vs[vid]
+            if (
+                v["label"] == NodeLabel.IDENTIFIER.value
+                and _vattr(v, "name") == func_name
+            ):
+                return vid
+        return None
+
+    def _resolve_alias(
+        self, callee_id: int, callee_name: str, max_depth: int = 8
+    ) -> tuple[str | None, str | None, int | None]:
+        """Trace DFG backward from callee identifier to resolve real function.
+
+        Returns:
+            (resolved_name, alias_type, target_func_vid or None)
+        """
+        visited: set[int] = set()
+        current = callee_id
+
+        for depth in range(max_depth):
+            if current in visited:
+                break
+            visited.add(current)
+
+            cur_v = self.graph.vs[current]
+            cur_label = cur_v["label"]
+            cur_name = _vattr(cur_v, "name", "")
+
+            # Terminal: identifier
+            if cur_label == NodeLabel.IDENTIFIER.value and cur_name:
+                # Check if any member edge points TO this identifier
+                # (means this is a property accessed via member edge)
+                member_from = list(
+                    self.graph.es.select(_target=current, label="member")
+                )
+                if member_from:
+                    parent_vid = member_from[0].source
+                    parent_name = _vattr(self.graph.vs[parent_vid], "name", "")
+                    composed = f"{parent_name}.{cur_name}"
+                    func_vid = self._find_or_create_function(composed)
+                    if func_vid is not None:
+                        return composed, AliasType.VIA_MEMBER.value, func_vid
+                    return composed, AliasType.VIA_MEMBER.value, None
+
+                # Leaf identifier: no DFG upstream
+                dfg_sources = list(
+                    self.graph.es.select(_target=current, label="dfg")
+                )
+                if not dfg_sources:
+                    func_vid = self._find_or_create_function(cur_name)
+                    atype = (
+                        AliasType.VIA_DFG_CHAIN.value
+                        if current != callee_id
+                        else AliasType.DIRECT.value
+                    )
+                    if func_vid is not None:
+                        return cur_name, atype, func_vid
+                    return cur_name, atype, None
+
+                # Has DFG upstream - continue tracing
+
+            # Terminal: const(string)
+            if cur_label == NodeLabel.CONST.value and cur_name:
+                clean = cur_name.strip("'\"")
+                func_vid = self._find_or_create_function(clean)
+                return clean, AliasType.DIRECT.value, func_vid
+
+            # Terminal: function node
+            if cur_label == NodeLabel.FUNCTION.value and cur_name:
+                return cur_name, AliasType.DIRECT.value, current
+
+            # Transit: operator node - check for resolver patterns
+            if cur_label == NodeLabel.OPERATOR.value and cur_name:
+                string_arg = self._extract_string_arg(current)
+                if string_arg:
+                    alias_type = (
+                        AliasType.VIA_GETATTR.value
+                        if "getattr" in cur_name
+                        else AliasType.VIA_GLOBALS.value
+                    )
+                    func_vid = self._find_or_create_function(string_arg)
+                    return string_arg, alias_type, func_vid
+
+            # Continue tracing via DFG
+            dfg_sources = list(
+                self.graph.es.select(_target=current, label="dfg")
+            )
+            if dfg_sources:
+                current = dfg_sources[0].source
+                continue
+
+            break
+
+        return None, None, None
+
+    def _extract_string_arg(self, op_vid: int) -> str | None:
+        """Extract a string argument from an operator's ast[arg] children.
+
+        Used for getattr(obj, 'method_name') and globals().get('func_name').
+        """
+        for e in self.graph.es.select(_source=op_vid, label="ast"):
+            if _vattr(e, "role") == "arg":
+                arg_v = self.graph.vs[e.target]
+                if arg_v["label"] == NodeLabel.CONST.value:
+                    name = _vattr(arg_v, "name", "")
+                    if name:
+                        return name.strip("'\"")
+        return None
+
+    def _find_or_create_function(self, name: str) -> int | None:
+        """Find an existing function node with the given name, or create one."""
+        # Search existing function nodes
+        for v in self.graph.vs:
+            if v["label"] == NodeLabel.FUNCTION.value:
+                fname = _vattr(v, "name", "")
+                fullname = _vattr(v, "fullname", "")
+                if fname == name or name in fullname or fullname.endswith("." + name):
+                    return v.index
+
+        # Create a placeholder function node
+        vid = self.graph.vcount()
+        self.graph.add_vertex(vid)
+        self.graph.vs[vid]["label"] = NodeLabel.FUNCTION.value
+        self.graph.vs[vid]["name"] = name
+        self.graph.vs[vid]["type"] = "function"
+        self.graph.vs[vid]["is_external"] = True
+        self.graph.vs[vid]["lineno"] = 0
+        return vid
+
+    def _create_alias_edge(
+        self,
+        source_vid: int,
+        resolved_name: str,
+        alias_type: str,
+        target_func_vid: int | None,
+    ) -> None:
+        """Create an alias edge from callee identifier to resolved function."""
+        attrs = {
+            "alias_type": alias_type,
+            "resolved_name": resolved_name,
+        }
+        if target_func_vid is not None:
+            self.graph.add_edge(
+                source_vid, target_func_vid, label="alias", **attrs
+            )
+        else:
+            # Self-loop as marker - consumers check resolved_name attribute
+            self.graph.add_edge(
+                source_vid, source_vid, label="alias", **attrs
+            )
+        self._alias_count += 1
+        logger.debug(
+            "[ALIAS] v%d -> '%s' (type=%s, target=%s)",
+            source_vid,
+            resolved_name,
+            alias_type,
+            target_func_vid,
+        )
