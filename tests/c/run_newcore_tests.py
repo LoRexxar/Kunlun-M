@@ -74,12 +74,11 @@ test_cases = [
      'CVI-9002 sprintf: sprintf拼接用户输入到popen命令（引擎先命中格式化字符串规则）',
      ['CVI-9002'],
      ['popen']),
-    # 43: execve 完全漏检 — execve 匹配模式可能存在引擎兼容问题
+    # 43: execve 通过 initializer_list DFG 追踪到 argv source
     ('43_cmd_inject_execve.c', True,
      'CVI-9010 execve: 用户输入作为命令参数',
      ['CVI-9010'],
-     ['execve'],
-     {'skip': True, 'skip_reason': 'known gap: engine fails to match execve call pattern'}),
+     ['execve', 'argv']),
     ('44_cmd_inject_safe.c', False,
      'CVI-9010 system: 硬编码命令（不应检出）',
      [], []),

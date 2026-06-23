@@ -472,6 +472,30 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(v, "label") == NodeLabel.PARAMETER.value:
                 assign_lhs_vids.add(v.index)
 
+        # C/Go normalizer may label function parameters as "identifier" (not
+        # "parameter").  An identifier that is an own-child of a function node
+        # with an "ast[value]" edge (initialiser) is a definition site
+        # (e.g. C: char *args[] = {...}).  Treat as LHS.
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
+                continue
+            has_own = False
+            for oe in self.graph.es.select(_target=v.index, label="own"):
+                parent_label = _vattr(
+                    self.graph.vs[oe.source], "label", ""
+                )
+                if parent_label == NodeLabel.FUNCTION.value:
+                    has_own = True
+                    break
+            if has_own:
+                # Only treat as LHS if it has an initialiser (ast[value] edge)
+                has_init = any(
+                    _vattr(e, "role") == "value"
+                    for e in self.graph.es.select(_source=v.index, label="ast")
+                )
+                if has_init:
+                    assign_lhs_vids.add(v.index)
+
         # 收集作用域 → identifier 映射
         scope_vars: dict[tuple[int, str], dict[str, list[int]]] = defaultdict(
             lambda: defaultdict(list)

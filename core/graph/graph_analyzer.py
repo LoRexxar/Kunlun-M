@@ -406,6 +406,37 @@ class GraphAnalyzer:
                     chain=[{"step": "repair", "vid": start_vid, "name": callee, "code": 2}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
+        # Start-node passthrough: when the starting arg itself is a call
+        # operator annotated as passthrough (by enrich_taint), its arguments
+        # flow into it via ast[arg] edges (not dfg).  Recursively trace each
+        # passthrough-marked argument to find controllable sources.
+        if _vattr(sv, "label") == NodeLabel.OPERATOR.value \
+                and _vattr(sv, "type") in _CALL_TYPES:
+            node_taint = _vattr(sv, "taint_type", "")
+            if node_taint == "passthrough":
+                tp = _vattr(sv, "taint_passthrough", [])
+                pt_indices: set[int] = set(
+                    int(i) for i in tp if isinstance(i, int)
+                )
+                if pt_indices:
+                    arg_counter = 0
+                    for ae in self.graph.es.select(
+                        _source=start_vid, label="ast"
+                    ):
+                        if _vattr(ae, "role") != "arg":
+                            continue
+                        idx = _vattr(ae, "index")
+                        actual_idx = int(idx) if idx else arg_counter
+                        if actual_idx in pt_indices:
+                            r = self.parameters_back(
+                                ae.target,
+                                max_depth=max_depth - 1,
+                                context_vid=context_vid,
+                            )
+                            if r is not None and r.is_controllable:
+                                return self._cached(cache_key, r)
+                        arg_counter += 1
+
         # BFS backward along dfg edges
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int, list[int]]] = deque()

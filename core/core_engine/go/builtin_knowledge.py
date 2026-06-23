@@ -84,7 +84,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # ===== os 环境变量/命令行 Sources =====
         "os.Getenv":     {"passthrough": [0], "safe": False},
         "os.LookupEnv":  {"passthrough": [0], "safe": False},
-        "os.Args":       {"passthrough": [], "safe": False},
+        "os.Args":       {"passthrough": [], "safe": False},  # source (CLI args)
 
         # ===== io/ioutil / os 文件读取 Sources =====
         "ioutil.ReadFile":  {"passthrough": [0], "safe": False},
@@ -305,8 +305,8 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
 
         # ===== fmt — 输出（可能 XSS） =====
         "fmt.Fprintf":          {"passthrough": [1, 2], "safe": False},  # w, format, args (variadic)
-        "fmt.Sprintf":          {"passthrough": [0], "safe": False},
-        "fmt.Errorf":           {"passthrough": [0], "safe": False},
+        "fmt.Sprintf":          {"passthrough": [0, 1], "safe": False},  # format, variadic args
+        "fmt.Errorf":           {"passthrough": [0, 1], "safe": False},  # format, variadic args
 
         # ===== unsafe =====
         "unsafe.Pointer":       {"passthrough": [0], "safe": False},

@@ -53,12 +53,11 @@ test_cases = [
      ['helpers.ExecuteCommand', 'userInput'],
      {'skip': True, 'skip_reason': 'known gap: cross-package tracking'}),
 
-    # CVI-8009: SQL注入 raw query — 引擎无法匹配 database/sql 接口调用模式
+    # CVI-8002: SQL注入 — db.Query(fmt.Sprintf(...)) passthrough 追踪到 os.Args
     ('27_sqli_raw.go', True,
-     'CVI-8009 db.Query: fmt.Sprintf拼接用户输入到SQL',
-     ['CVI-8009'],
-     ['db.Query', 'fmt.Sprintf'],
-     {'skip': True, 'skip_reason': 'known gap: engine cannot match database/sql interface call pattern'}),
+     'CVI-8002 db.Query: fmt.Sprintf拼接用户输入到SQL',
+     ['CVI-8002'],
+     ['db.Query', 'fmt.Sprintf', 'os.Args']),
     # 28: 参数化查询，实际引擎也不检出 db.Query（同上原因），安全用例也不检出，改 should_detect=False
     ('28_sqli_safe.go', False,
      'CVI-8002/8009 db.Query: 参数化查询（引擎不匹配 database/sql 接口，无检出即正确）',

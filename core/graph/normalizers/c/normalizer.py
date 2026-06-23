@@ -737,7 +737,7 @@ class Normalizer:
                     self._own_edge(add_edge, ctx_stack, id_pos, depth)
                     last_pos = id_pos
 
-            # Check for initializer (= expr)
+            # Check for initializer (= expr or = initializer_list)
             # In tree-sitter C, = and expr are siblings of identifier
             found_eq = False
             for child in decl.children:
@@ -745,11 +745,38 @@ class Normalizer:
                     found_eq = True
                     continue
                 if found_eq and child.type not in _SKIP_TYPES:
-                    val_pos = self._walk_node(child, add_node, add_edge,
-                                               ctx_stack, file_path, 0)
-                    if val_pos is not None and id_pos is not None:
-                        self._ast_edge(add_edge, id_pos, val_pos,
-                                       AstRole.VALUE.value)
+                    # initializer_list: walk all elements and create DFG
+                    # edges from each to the declared variable, so taint can
+                    # flow from initializer elements (e.g. argv[1]) into
+                    # the declared array variable.  Also keep an ast[value]
+                    # edge to the last element for backward compatibility.
+                    if child.type == "initializer_list":
+                        last_pos = None
+                        for init_child in child.children:
+                            if init_child.type in _SKIP_TYPES:
+                                continue
+                            val_pos = self._walk_node(
+                                init_child, add_node, add_edge,
+                                ctx_stack, file_path, 0)
+                            if val_pos is not None:
+                                last_pos = val_pos
+                                if id_pos is not None:
+                                    add_edge({
+                                        "label": "dfg",
+                                        "source": val_pos,
+                                        "target": id_pos,
+                                        "attrs": {"type": "initializer"},
+                                    })
+                        # Keep ast[value] to last element for backward compat
+                        if last_pos is not None and id_pos is not None:
+                            self._ast_edge(add_edge, id_pos, last_pos,
+                                           AstRole.VALUE.value)
+                    else:
+                        val_pos = self._walk_node(child, add_node, add_edge,
+                                                   ctx_stack, file_path, 0)
+                        if val_pos is not None and id_pos is not None:
+                            self._ast_edge(add_edge, id_pos, val_pos,
+                                           AstRole.VALUE.value)
                     break
 
         return last_pos
