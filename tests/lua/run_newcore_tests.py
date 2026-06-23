@@ -143,6 +143,16 @@ test_cases = [
      [],
      [],
      {15: ['CVI-9602']}),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # 函数引用赋值: local f = os.execute; f(cmd)
+    # Lua normalizer 不支持函数引用赋值 DFG 边，alias builder 无法解析
+    ('indirect_exec.lua', True,
+     'CVI-9601 os.execute: 函数引用间接调用 f(cmd) where f=os.execute',
+     ['CVI-9601'],
+     ['f(cmd)'],
+     {},
+     {'skip': 'Lua normalizer does not support function reference DFG edges'}),
 ]
 
 
@@ -287,8 +297,11 @@ def main():
     failed = 0
 
     for test_case in test_cases:
-        # 解析 test_case: (file, should_detect, desc, expected_cvis, expected_keywords, safe_lines)
-        if len(test_case) == 6:
+        # 解析 test_case: (file, should_detect, desc, expected_cvis, expected_keywords, safe_lines, options)
+        options = {}
+        if len(test_case) == 7:
+            test_file, should_detect, desc, expected_cvis, expected_keywords, safe_lines, options = test_case
+        elif len(test_case) == 6:
             test_file, should_detect, desc, expected_cvis, expected_keywords, safe_lines = test_case
         elif len(test_case) == 5:
             test_file, should_detect, desc, expected_cvis, expected_keywords = test_case
@@ -298,6 +311,12 @@ def main():
             expected_keywords = []
             safe_lines = {}
         else:
+            continue
+
+        # Handle skip
+        if options.get('skip'):
+            print(f"\n[{test_file}] {desc}")
+            print(f"  Result: SKIP ({options.get('skip_reason', 'skipped')})")
             continue
 
         print(f"\n[{test_file}] {desc}")

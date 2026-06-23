@@ -111,6 +111,14 @@ test_cases = [
      'CVI-9414 不安全反序列化: YAML.load/Marshal.load/Oj.load',
      ['CVI-9414'],
      ['YAML.load', 'Marshal.load', 'Oj.load']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # exec 直接调用: exec(cmd) where cmd = ARGV[0]
+    # 注: 此样本实际为直接调用（非间接），作为 exec + ARGV 模式的补充测试
+    ('indirect_exec_method.rb', True,
+     'CVI-9401 命令注入: exec(cmd) where cmd=ARGV[0]',
+     ['CVI-9401'],
+     ['exec(cmd)']),
 ]
 
 

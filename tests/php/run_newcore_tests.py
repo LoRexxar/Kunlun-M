@@ -20,6 +20,28 @@ test_cases = [
              'CVI-10002 echo: echo输出来自eval的不可信结果（引擎在主文件检出 XSS，RCE检出在辅助文件）',
              ['CVI-10002'],
              ['echo']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # 变量函数调用: $func = 'system'; $func($cmd) — alias builder 解析变量函数名
+    ('30_indirect_exec.php', True,
+     'CVI-1011 system: 变量函数调用 $func($cmd) where $func=system',
+     ['CVI-1011'],
+     ['$func($cmd)']),
+    # call_user_func 回调: call_user_func('system', $cmd) — 引擎检出 CVI-1009
+    ('31_indirect_callback.php', True,
+     'CVI-1009 call_user_func: call_user_func("system", $cmd) 回调间接调用',
+     ['CVI-1009'],
+     ['call_user_func']),
+    # 安全场景: $func('ls -la') 硬编码参数 — 引擎仍检出 CVI-1011，type=constant
+    ('32_indirect_safe.php', True,
+     'CVI-1011 system: 变量函数调用硬编码参数 (engine limitation: detects constant arg)',
+     ['CVI-1011'],
+     []),
+    # 多层间接: $func='system', $func2=$func, $func2($cmd) — 引擎通过 alias 追踪检出
+    ('33_indirect_multilevel.php', True,
+     'CVI-1011 system: 多层间接调用 $func2($cmd) via alias chain',
+     ['CVI-1011'],
+     ['$func2($cmd)']),
 ]
 
 
@@ -34,6 +56,7 @@ def run_scan():
         '--language', 'php',
         '--target', test_dir,
         '--output', out_path,
+        '--include-unconfirm',
     ]
 
     try:

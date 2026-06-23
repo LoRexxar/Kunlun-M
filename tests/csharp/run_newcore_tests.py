@@ -88,6 +88,14 @@ test_cases = [
      'CVI-9212: DirectorySearcher 构造函数拼接用户输入 + Filter 赋值',
      ['CVI-9212'],
      ['DirectorySearcher', 'Filter']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # Lambda/Action 间接调用: Action<string> func = (c) => Process.Start(c); func(cmd)
+    # 引擎检出 CVI-9201，type=Inconclusive (DFG 追踪超过 50 hops)
+    ('IndirectExec.cs', True,
+     'CVI-9201 命令注入: lambda 间接调用 Process.Start(cmd) via Action',
+     ['CVI-9201'],
+     ['Process.Start']),
 ]
 
 
@@ -101,6 +109,7 @@ def run_scan():
         '--language', 'csharp',
         '--target', test_dir,
         '--output', out_path,
+        '--include-unconfirm',
     ]
 
     try:
@@ -207,12 +216,22 @@ def main():
     failed = 0
 
     for test_case in test_cases:
-        # Support both 4-tuple and 5-tuple format
-        if len(test_case) == 5:
+        # Support 5-tuple (file, detect, desc, cvis, keywords) or 6-tuple with options
+        if len(test_case) == 6:
+            test_file, should_detect, desc, expected_cvis, expected_keywords, options = test_case
+        elif len(test_case) == 5:
             test_file, should_detect, desc, expected_cvis, expected_keywords = test_case
+            options = {}
         else:
             test_file, should_detect, desc, expected_cvis = test_case
             expected_keywords = []
+            options = {}
+
+        # Handle skip
+        if options.get('skip'):
+            print(f"\n[{test_file}] {desc}")
+            print(f"  Result: SKIP ({options.get('skip_reason', 'skipped')})")
+            continue
 
         print(f"\n[{test_file}] {desc}")
         print(f"  Expected: detect={should_detect}, CVIs={expected_cvis}")

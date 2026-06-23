@@ -88,6 +88,14 @@ test_cases = [
      'CVI-9311 LDAP注入: ctx.search 过滤器拼接用户输入 [KNOWN GAP]',
      ['CVI-9311'],
      ['search']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # ProcessBuilder 变量绑定: val func = ProcessBuilder(cmd); func.start()
+    # 引擎检出 CVI-9302，alias builder 解析 ProcessBuilder 变量
+    ('indirect_exec.kt', True,
+     'CVI-9302 命令注入: ProcessBuilder 变量绑定间接调用 func.start()',
+     ['CVI-9302'],
+     ['ProcessBuilder']),
 ]
 
 

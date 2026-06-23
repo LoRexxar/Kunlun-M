@@ -35,6 +35,14 @@ test_cases = [
      'CVI-6001 SQL注入: executeQuery(parameter table)',
      ['CVI-6001'],
      ['executeQuery']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # Lambda 间接调用: Runnable wraps Runtime.getRuntime().exec(cmd)
+    # 引擎检出 CVI-6003，type=Inconclusive (DFG 追踪超过 50 hops)
+    ('IndirectExec.java', True,
+     'CVI-6003 命令注入: lambda 间接调用 Runtime.exec(cmd) via Runnable',
+     ['CVI-6003'],
+     ['Runtime.getRuntime().exec']),
 ]
 
 

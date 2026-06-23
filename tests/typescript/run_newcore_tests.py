@@ -73,6 +73,14 @@ test_cases = [
      'CVI-9706 原型污染: Object.assign/_.merge/_.extend/deepmerge/_.defaultsDeep + JSON.parse [已知: 未检测到]',
      [],
      []),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # exec import 调用: import { exec } from 'child_process'; exec(userInput)
+    # 注: 此样本实际为直接调用（非间接），作为 exec import 模式的补充测试
+    ('indirect_exec.ts', True,
+     'CVI-9702 命令注入: exec import from child_process + exec(userInput)',
+     ['CVI-9702'],
+     ['exec(userInput)']),
 ]
 
 

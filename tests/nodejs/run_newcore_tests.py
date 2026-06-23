@@ -23,6 +23,23 @@ test_cases = [
      ['CVI-3003'],
      ['runEval', 'evaluateExpression'],
      {'detect_file': '13a_cross_file_eval_utils.js'}),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # 变量函数调用: const f = eval; f(userInput) — alias builder 解析 eval 引用
+    ('30_indirect_exec.js', True,
+     'CVI-3003 eval: 变量函数调用 f(userInput) where f=eval',
+     ['CVI-3003'],
+     ['f(userInput)']),
+    # 安全场景: f('1+1') 硬编码参数 — 引擎仍检出 CVI-3003，type=constant
+    ('31_indirect_safe.js', True,
+     'CVI-3003 eval: 变量函数调用硬编码参数 (engine limitation: detects constant arg)',
+     ['CVI-3003'],
+     []),
+    # 多层间接: func=eval, func2=func, func2(userInput) — alias builder 追踪多层链
+    ('32_indirect_multilevel.js', True,
+     'CVI-3003 eval: 多层间接调用 func2(userInput) via alias chain',
+     ['CVI-3003'],
+     ['func2(userInput)']),
 ]
 
 

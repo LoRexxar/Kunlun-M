@@ -134,6 +134,15 @@ test_cases = [
      'CVI-9510 rand::random 不安全随机数',
      ['CVI-9510'],
      ['rand::random']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # Command::new("sh").arg("-c").arg(&cmd).output() — 直接调用模式
+    # 注: 此样本实际为直接调用（非间接），作为 Command arg 链式调用的补充测试
+    # 引擎检出 CVI-9508 (.arg) 和 CVI-9501 (Command::new)，type=constant
+    ('indirect_exec.rs', True,
+     'CVI-9508 Command.arg: 命令注入 arg(&cmd) via Command 链式调用',
+     ['CVI-9508'],
+     ['.arg(']),
 ]
 
 
