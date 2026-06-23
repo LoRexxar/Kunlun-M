@@ -62,7 +62,7 @@ test_cases = [
              'CVI-7000 os.system: import utils with conditional call',
              ['CVI-7000'],
              ['process_command(user_input)'],
-             {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+             {'detect_file': 'utils.py'}),
 
             # getattr 类方法间接调用 — 引擎不支持 getattr 动态解析
             ('36_getattr_method.py', True,
