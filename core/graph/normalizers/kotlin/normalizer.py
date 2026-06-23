@@ -389,10 +389,12 @@ class Normalizer:
                     if text == "$" and i + 1 < len(children):
                         next_child = children[i + 1]
                         if next_child.type == "string_content":
-                            var_name = self._text(next_child).strip()
-                            # Kotlin identifiers: start with letter or _, followed by
-                            # alphanumeric or _
-                            if var_name and re.match(r'^[a-zA-Z_]\w*$', var_name):
+                            raw = self._text(next_child).strip()
+                            # Extract leading identifier portion (may be followed
+                            # by non-identifier chars like ')', '"', etc.)
+                            var_name = re.match(r'^[a-zA-Z_]\w*', raw)
+                            if var_name:
+                                var_name = var_name.group(0)
                                 var_pos = add_node({
                                     "label": NodeLabel.IDENTIFIER.value,
                                     "name": var_name,
