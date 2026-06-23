@@ -538,3 +538,79 @@ def scan_function(file_path, function_name, param_name, vul_function, vul_type="
     except Exception as e:
         logger.debug(f"[AST][Kotlin] scan_function 异常: {e}")
         return []
+
+
+# ---------------------------------------------------------------------------
+# scan_parser — 统一入口（供 matcher.py 调用）
+# ---------------------------------------------------------------------------
+def scan_parser(rule_match, vul_lineno, file_path,
+                repair_functions=[], controlled_params=[], indirect_map=None):
+    """
+    Kotlin scan_parser - 反向追踪模式
+    从 grep 匹配到的 sink 行反向追踪数据流，判断参数是否可控。
+    
+    :param rule_match: 要检测的敏感函数列表，如 ["executeQuery", "execute"]
+    :param vul_lineno: 漏洞函数所在行号（字符串或整数）
+    :param file_path: 文件路径
+    :param repair_functions: 修复函数列表
+    :param controlled_params: 可控参数列表
+    :param indirect_map: 间接调用映射
+    :return: scan_results 列表，每个元素是 {"code": N, "chain": [...], ...}
+    """
+    global scan_results
+    scan_results = []
+
+    try:
+        target_line = int(vul_lineno)
+
+        # 读取源文件
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            source_lines = f.readlines()
+
+        if target_line < 1 or target_line > len(source_lines):
+            return scan_results
+
+        vul_line = source_lines[target_line - 1]
+        code_content = vul_line.strip()
+
+        # 检查修复函数（安全写法）
+        is_safe = False
+        for safe_func in repair_functions:
+            if safe_func in code_content:
+                is_safe = True
+                break
+
+        if is_safe:
+            return scan_results
+
+        # 检查是否有可控参数或字符串模板变量
+        has_controlled = False
+        for param in controlled_params:
+            if param in code_content:
+                has_controlled = True
+                break
+
+        # 检查字符串模板变量 ($var)
+        if re.search(r'\$\w+', code_content):
+            has_controlled = True
+
+        # 检查字符串拼接
+        if re.search(r'"\s*\+\s*\w+', code_content):
+            has_controlled = True
+
+        if has_controlled:
+            scan_results.append({
+                'code': 1,
+                'source': code_content,
+                'source_lineno': target_line,
+                'vul_lineno': target_line,
+                'repair_functions': repair_functions,
+                'param_name': '',
+                'chain': ['start', ('source', file_path, target_line, code_content)],
+            })
+
+        return scan_results
+
+    except Exception as e:
+        logger.debug("[AST][Kotlin] scan_parser exception: {}".format(e))
+        return scan_results

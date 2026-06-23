@@ -20,6 +20,7 @@ from core.core_engine.java.parser import scan_parser as java_scan_parser
 from core.core_engine.python.parser import scan_parser as python_scan_parser
 from core.core_engine.go.parser import scan_parser as go_scan_parser
 from core.core_engine.c.parser import scan_parser as c_scan_parser
+from core.core_engine.kotlin.parser import scan_parser as kotlin_scan_parser
 
 from core.filter_functions import load_builtin, get_repair_functions, clear_runtime
 from .cast import CAST
@@ -227,6 +228,7 @@ class VulnerabilityMatcher(object):
             'python': self._scan_python,
             'go': self._scan_go,
             'c': self._scan_c,
+            'kotlin': self._scan_kotlin,
         }
         handler = dispatch.get(self.lan, self._scan_generic)
         return handler()
@@ -718,6 +720,81 @@ class VulnerabilityMatcher(object):
         except Exception as e:
             print('[CI] DEBUG: [CVI-{cvi}] _scan_c EXCEPTION: {tb}'.format(
                 cvi=self.cvi, tb=traceback.format_exc()))
+            logger.debug(traceback.format_exc())
+            return False, 'Exception'
+
+    def _scan_kotlin(self):
+        """Kotlin 扫描（支持 only-regex、regex-return-regex、function-param-controllable）"""
+        try:
+            self.init_php_repair()
+            ast = CAST(self.rule_match, self.target_directory, self.file_path, self.line_number,
+                       self.code_content, files=self.files, rule_class=self.single_rule,
+                       repair_functions=self.repair_functions, controlled_params=self.controlled_list)
+
+            if self.rule_match_mode == const.mm_regex_only_match:
+                logger.debug("[CVI-{cvi}] [ONLY-MATCH]".format(cvi=self.cvi))
+                return True, 'Regex-only-match'
+
+            elif self.rule_match_mode == const.mm_regex_return_regex:
+                logger.debug("[CVI-{cvi}] [REGEX-RETURN-REGEX]".format(cvi=self.cvi))
+                return True, 'Regex-return-regex'
+
+            elif self.rule_match_mode in (const.mm_function_param_controllable,
+                                           const.mm_java_function_param_controllable):
+                # 调用规则的 main() 做二次筛选
+                main_input = self.code_content
+                try:
+                    with open(self.file_path, 'r', encoding='utf-8', errors='replace') as f:
+                        source_lines = f.readlines()
+                    idx = int(self.line_number) - 1
+                    if 0 <= idx < len(source_lines):
+                        main_input = source_lines[idx].strip()
+                except Exception:
+                    pass
+                main_result = self.single_rule.main(main_input)
+                if main_result is not None and main_result is not False:
+                    pass
+                elif main_result is False:
+                    logger.debug('[CVI-{cvi}] main() returned False, skip'.format(cvi=self.cvi))
+                    return False, 'Filtered by rule.main()'
+
+                # 确定用于 AST 分析的函数名列表
+                if (hasattr(self.single_rule, 'vul_function') and
+                    isinstance(self.single_rule.vul_function, list) and
+                    len(self.single_rule.vul_function) > 0):
+                    rule_match = self.single_rule.vul_function
+                else:
+                    rule_match = self.rule_match.strip('()').split('|')
+                logger.debug('[RULE_MATCH] {r}'.format(r=rule_match))
+                try:
+                    result = kotlin_scan_parser(rule_match, self.line_number, self.file_path,
+                                               repair_functions=self.repair_functions,
+                                               controlled_params=self.controlled_list)
+                    logger.debug('[AST][Kotlin] [RET] {c}'.format(c=result))
+                    if len(result) > 0:
+                        parsed = self._parse_ast_result(result)
+                        if parsed is not None:
+                            return parsed
+                    else:
+                        logger.debug(
+                            '[AST][Kotlin] Parser failed / vulnerability parameter is not controllable {r}'.format(
+                                r=result))
+                        return False, "Can't parser"
+                except Exception:
+                    exc_msg = traceback.format_exc()
+                    logger.warning(exc_msg)
+                    raise
+
+            elif self.rule_match_mode == const.mm_regex_param_controllable:
+                return self._handle_vustomize_match(ast)
+
+            else:
+                logger.warn(
+                    "[CVI-{cvi}] Kotlin unsupported match mode: {m}".format(
+                        cvi=self.cvi, m=self.rule_match_mode))
+                return False, 'Unsupport Match'
+
+        except Exception as e:
             logger.debug(traceback.format_exc())
             return False, 'Exception'
 

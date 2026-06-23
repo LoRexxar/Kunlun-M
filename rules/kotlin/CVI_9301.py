@@ -61,13 +61,13 @@ class CVI_9301(SingleRuleMixin):
 
         args = match.group(1).strip()
 
+        # 字符串拼接（+ 或字符串模板 $）— 必须在纯字面量检查之前
+        if re.search(r'"\s*\+\s*\w+', regex_string) or re.search(r'\$\w+', regex_string):
+            return True
+
         # 纯字符串字面量（硬编码SQL）
         if re.match(r'^"[^"]*"$', args):
             return False
-
-        # 字符串拼接（+ 或字符串模板 $）
-        if re.search(r'"\s*\+\s*\w+', regex_string) or re.search(r'\$\w+', regex_string):
-            return True
 
         # 包含变量作为参数
         if re.search(r'(?:executeQuery|executeUpdate|\.execute|rawQuery|\.query|execSQL)\s*\(\s*\w+', regex_string):
