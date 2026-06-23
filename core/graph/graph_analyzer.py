@@ -695,7 +695,8 @@ class GraphAnalyzer:
                 # Continue BFS
                 if ulabel in (NodeLabel.IDENTIFIER.value,
                               NodeLabel.OPERATOR.value,
-                              NodeLabel.RETURN.value):
+                              NodeLabel.RETURN.value,
+                              NodeLabel.PARAMETER.value):
                     if depth + 1 < max_depth:
                         queue.append((up_vid, depth + 1, new_path))
 
