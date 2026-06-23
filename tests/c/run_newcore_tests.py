@@ -18,27 +18,27 @@ test_cases = [
      '跨文件 executeCommand(argv[1]) -> system',
      ['CVI-9001'],
      ['executeCommand'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+     {'detect_file': '25a_newfunc_exec_utils.c'}),
     ('26b_newfunc_sqli_main.c', True,
      '跨文件 logMessage(getenv) -> sprintf',
      ['CVI-9002'],
      ['logMessage'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+     {'detect_file': '26a_newfunc_sqli_utils.c'}),
     ('27b_newfunc_path_main.c', True,
      '跨文件 readConfig(argv[1]) -> fopen',
      ['CVI-9004'],
      ['readConfig'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+     {'detect_file': '27a_newfunc_path_utils.c'}),
     ('28b_newfunc_return_main.c', True,
      '跨文件 readInput() -> strcpy+system',
      ['CVI-9001', 'CVI-9003'],
      ['readInput', 'strcpy', 'system'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+     {'detect_file': ['28b_newfunc_return_main.c', '28a_newfunc_return_utils.c']}),
     ('29b_newfunc_multi_main.c', True,
      '跨文件多 sink 封装',
      ['CVI-9001', 'CVI-9002', 'CVI-9004'],
      ['runCommand', 'formatOutput', 'loadFile'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+     {'detect_file': '29a_newfunc_multi_utils.c'}),
 
     # CVI-9008: SQL注入 (C) — 实际引擎先命中 CVI-9002（格式化字符串漏洞）
     # 因为 sprintf 拼接用户输入的 match 在 CVI-9002 规则中优先匹配
@@ -106,6 +106,7 @@ def run_scan():
         '--language', 'c',
         '--target', test_dir,
         '--output', out_path,
+        '--include-unconfirm',
     ]
 
     try:
@@ -124,7 +125,7 @@ def run_scan():
 
 
 def extract_vulns_for_file(results, target_file):
-    """Extract list of (cvi_id, lineno, file_path) from scan results for a specific file."""
+    """Extract list of (cvi_id, lineno, is_inconclusive) from scan results for a specific file."""
     if not results:
         return []
     vulns = []
@@ -153,8 +154,10 @@ def extract_vulns_for_file(results, target_file):
                 parts = str(file_val).rsplit(':', 1)
                 if parts[-1].isdigit():
                     lineno = int(parts[-1])
+            result_type = item.get('result_type') or item.get('type') or ''
+            is_inconclusive = 'Inconclusive' in str(result_type)
             if 'CVI' in cvi_str:
-                vulns.append((cvi_str, lineno))
+                vulns.append((cvi_str, lineno, is_inconclusive))
 
     return vulns
 
@@ -232,7 +235,14 @@ def main():
         print(f"\n[{test_file}] {desc}")
         print(f"  Expected: detect={should_detect}, CVIs={expected_cvis}")
 
-        vulns = extract_vulns_for_file(results, test_file)
+        # Determine which file(s) to check for vulnerabilities
+        detect_files = options.get('detect_file', test_file)
+        if isinstance(detect_files, str):
+            detect_files = [detect_files]
+
+        vulns = []
+        for df in detect_files:
+            vulns.extend(extract_vulns_for_file(results, df))
         detected = len(vulns) > 0
 
         if should_detect:
@@ -241,7 +251,7 @@ def main():
             if not missing:
                 # Verify line numbers if keywords specified
                 line_ok = True
-                for cvi, lineno in vulns:
+                for cvi, lineno, _ in vulns:
                     if expected_keywords:
                         abs_path = os.path.join(test_dir, test_file)
                         ok, msg = verify_line_content(lineno, abs_path, expected_keywords)
@@ -256,11 +266,18 @@ def main():
                 print(f"  Result: FAIL (detected {[v[0] for v in vulns]}, missing {missing})")
                 failed += 1
         else:
-            if detected:
-                print(f"  Result: FAIL (false positive: {[v[0] for v in vulns]})")
+            # For should_detect=False: only count confirmed (non-Inconclusive) as false positive
+            confirmed_vulns = [v for v in vulns if not v[2]]  # v[2] = is_inconclusive
+            if confirmed_vulns:
+                inconclusive = [v for v in vulns if v[2]]
+                extra = f" (also {len(inconclusive)} Inconclusive)" if inconclusive else ""
+                print(f"  Result: FAIL (false positive: {[v[0] for v in confirmed_vulns]}{extra})")
                 failed += 1
             else:
-                print(f"  Result: PASS (correctly not detected)")
+                if vulns:
+                    print(f"  Result: PASS (only Inconclusive, not confirmed: {[v[0] for v in vulns]})")
+                else:
+                    print(f"  Result: PASS (correctly not detected)")
                 passed += 1
 
     print(f"\n{'=' * 70}")

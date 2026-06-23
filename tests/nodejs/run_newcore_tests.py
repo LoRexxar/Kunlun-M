@@ -22,7 +22,7 @@ test_cases = [
      'CVI-3003 eval: runEval via cross-file',
      ['CVI-3003'],
      ['runEval', 'evaluateExpression'],
-     {'skip': True, 'skip_reason': 'known gap: cross-file tracking'}),
+     {'detect_file': '13a_cross_file_eval_utils.js'}),
 ]
 
 
@@ -37,6 +37,7 @@ def run_scan():
         '--language', 'javascript',
         '--target', test_dir,
         '--output', out_path,
+        '--include-unconfirm',
     ]
 
     try:
@@ -55,7 +56,7 @@ def run_scan():
 
 
 def extract_vulns_for_file(results, target_file):
-    """Extract list of (cvi_id, lineno, file_path) from scan results for a specific file."""
+    """Extract list of (cvi_id, lineno, is_inconclusive) from scan results for a specific file."""
     if not results:
         return []
     vulns = []
@@ -84,8 +85,10 @@ def extract_vulns_for_file(results, target_file):
                 parts = str(file_val).rsplit(':', 1)
                 if parts[-1].isdigit():
                     lineno = int(parts[-1])
+            result_type = item.get('result_type') or item.get('type') or ''
+            is_inconclusive = 'Inconclusive' in str(result_type)
             if 'CVI' in cvi_str:
-                vulns.append((cvi_str, lineno))
+                vulns.append((cvi_str, lineno, is_inconclusive))
 
     return vulns
 
@@ -163,7 +166,14 @@ def main():
         print(f"\n[{test_file}] {desc}")
         print(f"  Expected: detect={should_detect}, CVIs={expected_cvis}")
 
-        vulns = extract_vulns_for_file(results, test_file)
+        # Determine which file(s) to check for vulnerabilities
+        detect_files = options.get('detect_file', test_file)
+        if isinstance(detect_files, str):
+            detect_files = [detect_files]
+
+        vulns = []
+        for df in detect_files:
+            vulns.extend(extract_vulns_for_file(results, df))
         detected = len(vulns) > 0
 
         if should_detect:
@@ -172,7 +182,7 @@ def main():
             if not missing:
                 # Verify line numbers if keywords specified
                 line_ok = True
-                for cvi, lineno in vulns:
+                for cvi, lineno, _ in vulns:
                     if expected_keywords:
                         abs_path = os.path.join(test_dir, test_file)
                         ok, msg = verify_line_content(lineno, abs_path, expected_keywords)
