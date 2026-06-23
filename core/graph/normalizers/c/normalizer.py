@@ -718,12 +718,19 @@ class Normalizer:
             # init_declarator > identifier [= expr]
             name_node = self._find_child_by_type(decl, "identifier")
             # Might be pointer_declarator > identifier
+            # or pointer_declarator > array_declarator > identifier
             if not name_node:
                 ptr = self._find_child_by_type(decl, "pointer_declarator",
                                                  "array_declarator")
                 if ptr:
                     name_node = self._find_child_by_type(ptr, "identifier")
+                    # Handle nested: pointer_declarator > array_declarator > identifier
+                    if not name_node:
+                        arr = self._find_child_by_type(ptr, "array_declarator")
+                        if arr:
+                            name_node = self._find_child_by_type(arr, "identifier")
 
+            id_pos = None
             if name_node:
                 id_pos = self._walk_identifier(name_node, add_node, file_path)
                 if id_pos is not None:
