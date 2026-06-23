@@ -16,7 +16,7 @@
 
 **边的分类：**
 - **结构边**（Normalizer 遍历 AST 时生成）：`own`、`ast`、`use`、`member`、`frg`
-- **推导边**（edge_builders/ 独立模块生成）：`dfg`、`cg`、`crg`
+- **推导边**（edge_builders/ 独立模块生成）：`dfg`、`cg`、`alias`、`crg`
 
 ---
 
@@ -265,6 +265,41 @@ branch own→ operator / branch / return  (嵌套)
 | 说明 | function→function 的调用关系 |
 
 生成逻辑：遍历 function 节点 → 找 own 下的 call operator → 沿 use 边找到 callee function → 建立 cg 边。
+
+#### alias — 间接调用别名
+
+| 属性 | 值 |
+|------|------|
+| 方向 | function placeholder（use→function target） → resolved function |
+| 生成 | `AliasBuilder`（`edge_builders/alias.py`） |
+| 说明 | 间接函数调用的 callee 名解析结果 |
+
+边属性：
+
+| 属性 | 说明 |
+|------|------|
+| `alias_type` | 解析方式（见下表） |
+| `resolved_name` | 解析出的完整函数名（如 `os.system`） |
+
+`alias_type` 枚举值：
+
+| type | 说明 | 示例 |
+|------|------|------|
+| `direct` | 直接赋值 `func = eval` | leaf identifier 无 DFG 上游 |
+| `via_dfg_chain` | 多层传递 `func2 = func; func = eval` | DFG 链跨多个 identifier |
+| `via_member` | 成员访问组合 `func = obj.method` | identifier + member 边组合为 `obj.method` |
+| `via_getattr` | `getattr(obj, 'method')` | 从 call 参数提取字符串 |
+| `via_globals` | `globals().get('func_name')` | 从 call 参数提取字符串 |
+
+生成逻辑：
+
+1. 遍历所有 call operator → 找 `use→function` target
+2. 跳过有 `own` children 的（真实函数定义）
+3. 从 callee identifier 沿 DFG 反向追踪（最多 8 层）
+4. 终止条件：identifier leaf（可能组合 member 边）、const(string)、function 节点、已知 resolver operator（getattr/globals().get）
+5. 创建 alias 边：`use→function target → resolved function placeholder`
+
+消费方：`graph_analyzer._resolve_callee_name` 在 `ast[callee]` 和 `use` 两条路径中均检查 alias 边，优先返回 `resolved_name`。
 
 #### crg — 类关系图
 | 属性 | 值 |
