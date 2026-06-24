@@ -290,6 +290,8 @@ branch own→ operator / branch / return  (嵌套)
 | `via_member` | 成员访问组合 `func = obj.method` | identifier + member 边组合为 `obj.method` |
 | `via_getattr` | `getattr(obj, 'method')` | 从 call 参数提取字符串 |
 | `via_globals` | `globals().get('func_name')` | 从 call 参数提取字符串 |
+| `via_function_pointer` | C 函数指针 `int (*func)(...) = system; func(cmd)` | 从 `function_declarator > parenthesized > pointer > identifier` 提取 LHS，assign operator 的 RHS 为目标函数 |
+| `via_function_reference` | Lua 函数引用 `local f = os.execute; f(cmd)` | `dot_index_expression` 的最后一个 identifier + member 边组合为目标函数名 |
 
 生成逻辑：
 
