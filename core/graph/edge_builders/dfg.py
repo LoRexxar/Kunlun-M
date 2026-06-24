@@ -696,6 +696,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 result.append(e.target)
         return result
 
+    def _has_function_body(self, vid: int) -> bool:
+        """检查函数节点是否拥有 own/ast 子节点（真正定义，而非占位节点）。
+
+        与 _get_own_children_by_index 不同，后者只返回带 index 属性的参数子节点；
+        本方法检查任意 own/ast 子节点——参数、body 语句、return 节点等。
+        这样可正确识别无参函数，以及 own 边缺少 index 属性的函数。
+        """
+        for eid in self.graph.incident(vid, mode="out"):
+            e = self.graph.es[eid]
+            if _vattr(e, "label") in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                return True
+        return False
+
     def _get_cg_target(self, vid: int) -> Optional[int]:
         """获取从调用 operator 出发的 use/callee 边的目标函数顶点。
 
@@ -797,8 +810,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             解析后的函数定义节点索引。若无法解析，返回原始 func_vid。
         """
         # 检查是否已有 own 子节点（有则已经是真正的定义）
-        own_children = self._get_own_children_by_index(func_vid)
-        if own_children:
+        if self._has_function_body(func_vid):
             return func_vid
 
         func_name = _vattr(self.graph.vs[func_vid], "name", "")
@@ -825,7 +837,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(v, "name") != func_name:
                 continue
 
-            if self._get_own_children_by_index(v.index):
+            if self._has_function_body(v.index):
                 if first_global is None:
                     first_global = v.index
                 # 优先选择同文件/同作用域的
