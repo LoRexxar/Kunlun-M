@@ -1696,10 +1696,17 @@ class Normalizer:
                 },
             })
 
+            # assign → identifier (LHS) — DFG builder 需要 LHS/RHS 才能串联
+            self._ast_edge(add_edge, pos, id_pos, AstRole.LHS.value)
+
             if initializer is not None:
                 init_pos = self._walk_node(initializer, add_node, add_edge,
                                             ctx_stack, file_path, 0)
                 if init_pos is not None:
+                    # assign → initializer (RHS)
+                    self._ast_edge(add_edge, pos, init_pos,
+                                   AstRole.RHS.value)
+                    # identifier → initializer (VALUE) — keep for backward compat
                     self._ast_edge(add_edge, id_pos, init_pos,
                                    AstRole.VALUE.value)
 

@@ -79,8 +79,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
         self._analyze_assignments()
         self._analyze_parameter_passing()
         self._analyze_return_values()
-        self._analyze_same_variables()
+        # NOTE: builtin_and_summary (step 5) must run BEFORE same_variables
+        # (step 4) so that param_flow DFG edges (e.g. snprintf output params)
+        # are already accumulated in _dfg_edges when same_variables checks
+        # for DFG incoming edges on output param identifiers.
         self._analyze_builtin_and_summary(language)
+        self._analyze_same_variables()
 
         # 批量写入
         self._apply_dfg_edges()
@@ -118,6 +122,33 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 child_vid = e.target
                 child_label = _vattr(self.graph.vs[child_vid], "label", "")
                 # 操作数可以是 identifier、const、operator、literal 等
+                if child_label in (
+                    NodeLabel.IDENTIFIER.value,
+                    NodeLabel.CONST.value,
+                    NodeLabel.OPERATOR.value,
+                ):
+                    self._add_dfg_edge(child_vid, vid, DfgType.FORWARD_SLICE.value)
+
+        # call operator: args → call DFG (so parameters_back can trace through sinks)
+        # 不像 binary_op 把所有子节点连入，call 只连接 ast[arg] 子节点中
+        # 的 identifier/const/operator，让 parameters_back 能从 sink 调用
+        # 的 arg 反向追踪到数据来源。
+        call_types = {
+            OperatorType.CALL.value,
+            OperatorType.STATIC_CALL.value,
+            OperatorType.METHOD_CALL.value,
+        }
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") not in call_types:
+                continue
+            vid = v.index
+            for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
+                if _vattr(e, "role") != AstRole.ARG.value:
+                    continue
+                child_vid = e.target
+                child_label = _vattr(self.graph.vs[child_vid], "label", "")
                 if child_label in (
                     NodeLabel.IDENTIFIER.value,
                     NodeLabel.CONST.value,
@@ -529,10 +560,39 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     if vid in assign_lhs_vids:
                         continue  # LHS 不向前链接（已有 dfg(RHS→LHS)）
                     # 找前方最近的 LHS
+                    found = False
                     for j in range(i - 1, -1, -1):
                         if vids_sorted[j] in assign_lhs_vids:
                             self._add_dfg_edge(
                                 vids_sorted[j], vid, DfgType.SAME.value
+                            )
+                            found = True
+                            break
+                    if found:
+                        continue
+                    # 回退：如果没有同名 LHS，找前方最近的有 DFG 入边的
+                    # identifier（如通过 param_flow 写入的 output param）。
+                    # 这样 snprintf(cmd,...) 的 cmd(有DFG入边) → system(cmd) 的 cmd
+                    # 注意：DFG 边可能还未写入 graph（批量写入在最后），
+                    # 所以需要同时检查 self._dfg_edges 累积列表。
+                    for j in range(i - 1, -1, -1):
+                        if vids_sorted[j] in assign_lhs_vids:
+                            break  # 已有 LHS 但被跳过（lineno 不匹配）
+                        target_vid = vids_sorted[j]
+                        has_dfg_in = any(
+                            self.graph.es.select(
+                                _target=target_vid, label="dfg"
+                            )
+                        )
+                        if not has_dfg_in:
+                            # Check accumulated but not-yet-flushed DFG edges
+                            has_dfg_in = any(
+                                tgt == target_vid
+                                for _, tgt, _ in self._dfg_edges
+                            )
+                        if has_dfg_in:
+                            self._add_dfg_edge(
+                                target_vid, vid, DfgType.SAME.value
                             )
                             break
 
@@ -541,16 +601,13 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def _analyze_builtin_and_summary(self, language: str) -> None:
         """#5: 内置知识 + 函数摘要传递。
 
-        对 PHP 语言：
+        对支持的语言：
         - 检查 builtin_knowledge 中的 passthrough / param_flow 信息
         - 检查 function summary 中的 return_flow.dep_params 信息
         - 创建对应的 dfg 边
 
-        其他语言：跳过此步骤。
+        内置知识按语言加载；函数摘要目前仅 PHP 使用。
         """
-        if language != "php":
-            return
-
         # 延迟导入，避免非 Django 环境下的导入错误
         call_types = {
             OperatorType.CALL.value,
@@ -558,8 +615,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
             OperatorType.METHOD_CALL.value,
         }
 
-        # 加载 PHP 内置知识
-        builtin_knowledge = self._load_builtin_knowledge()
+        # 加载该语言的内置知识
+        builtin_knowledge = self._load_builtin_knowledge(language)
 
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.OPERATOR.value:
@@ -580,8 +637,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # 先检查内置知识
             if builtin_knowledge and callee_name in builtin_knowledge:
                 self._apply_builtin_knowledge(vid, callee_name, arg_children, builtin_knowledge)
-            else:
-                # 再检查函数摘要
+            elif language == "php":
+                # 再检查函数摘要（仅 PHP）
                 self._apply_function_summary(vid, callee_name, arg_children)
 
     # -- 辅助方法：边写入 -----------------------------------------------------
@@ -894,13 +951,25 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     # -- 辅助方法：内置知识与函数摘要 -----------------------------------------
 
-    def _load_builtin_knowledge(self) -> Optional[dict]:
-        """延迟加载 PHP 内置知识库。"""
+    def _load_builtin_knowledge(self, language: str) -> Optional[dict]:
+        """加载指定语言的内置知识库。
+
+        Args:
+            language: 语言标识（如 "php"、"c"）。
+
+        Returns:
+            内置知识字典，若无对应语言或导入失败返回 None。
+        """
         try:
-            from core.core_engine.php.builtin_knowledge import KNOWLEDGE as PHP_BUILTIN_KNOWLEDGE
-            return PHP_BUILTIN_KNOWLEDGE
+            if language == "php":
+                from core.core_engine.php.builtin_knowledge import KNOWLEDGE as PHP_BUILTIN_KNOWLEDGE
+                return PHP_BUILTIN_KNOWLEDGE
+            elif language == "c":
+                from core.graph.normalizers.c.builtin_knowledge import C_BUILTIN_KNOWLEDGE
+                return C_BUILTIN_KNOWLEDGE
         except ImportError:
             return None
+        return None
 
     def _apply_builtin_knowledge(
         self,
@@ -931,18 +1000,25 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         arg_vid, vid, DfgType.FORWARD_SLICE.value
                     )
 
-        # param_flow: 参数间数据流映射 {输出参数索引: 输入参数索引}
+        # param_flow: 参数间数据流映射 {输出参数索引: 输入参数索引或列表}
         param_flow = entry.get("param_flow", {})
         if isinstance(param_flow, dict):
             for output_idx_str, input_idx in param_flow.items():
                 try:
                     output_idx = int(output_idx_str)
-                    input_vid = arg_children.get(int(input_idx))
+                    # input_idx 可以是 int（单参数）或 list/tuple（多参数合并）
+                    if isinstance(input_idx, (list, tuple)):
+                        input_vids = [arg_children.get(int(i)) for i in input_idx]
+                    else:
+                        input_vids = [arg_children.get(int(input_idx))]
                     output_vid = arg_children.get(output_idx)
-                    if input_vid is not None and output_vid is not None and input_vid != output_vid:
-                        self._add_dfg_edge(
-                            input_vid, output_vid, DfgType.FORWARD_SLICE.value
-                        )
+                    if output_vid is None:
+                        continue
+                    for input_vid in input_vids:
+                        if input_vid is not None and input_vid != output_vid:
+                            self._add_dfg_edge(
+                                input_vid, output_vid, DfgType.FORWARD_SLICE.value
+                            )
                 except (ValueError, TypeError):
                     continue
 

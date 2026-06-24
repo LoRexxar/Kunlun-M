@@ -321,7 +321,7 @@ class AliasBuilder:
         for v in self.graph.vs:
             if v["label"] == NodeLabel.FUNCTION.value:
                 fname = _vattr(v, "name", "")
-                fullname = _vattr(v, "fullname", "")
+                fullname = _vattr(v, "fullname", "") or ""
                 if fname == name or name in fullname or fullname.endswith("." + name):
                     return v.index
 
@@ -343,7 +343,12 @@ class AliasBuilder:
         Used as a cross-scope fallback in _resolve_alias when the callee
         identifier has no DFG upstream within its own scope, but a same-name
         variable definition exists in an outer scope.
+
+        Only searches within the same file to avoid cross-language pollution
+        (e.g. C's 'system' resolving to Python's os.system).
         """
+        # Get the file of the current identifier to scope the search
+        current_file = _vattr(self.graph.vs[current], "file_path", "") or _vattr(self.graph.vs[current], "path", "")
         # Prefer identifier with DFG incoming edge (definition with data source)
         best = None
         best_has_dfg = False
@@ -356,6 +361,10 @@ class AliasBuilder:
                 NodeLabel.IDENTIFIER.value,
                 NodeLabel.PARAMETER.value,
             ):
+                continue
+            # Same-file filter: avoid cross-language alias pollution
+            v_file = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if current_file and v_file and current_file != v_file:
                 continue
             has_dfg = any(
                 self.graph.es.select(_target=v.index, label="dfg")

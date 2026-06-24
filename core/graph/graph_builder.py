@@ -62,6 +62,8 @@ class AstGraphBuilder:
                     node["attrs"] = {}
                 if "path" not in node["attrs"]:
                     node["attrs"]["path"] = file_loc
+                if "file_path" not in node["attrs"]:
+                    node["attrs"]["file_path"] = file_loc
         self._nodes.extend(nodes)
 
         # Remap edge source/target to global indices

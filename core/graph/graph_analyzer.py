@@ -256,7 +256,7 @@ class GraphAnalyzer:
             results.append({
                 "vid": v.index, "name": callee_name,
                 "lineno": _vattr(v, "lineno", 0),
-                "file_path": _vattr(v, "file_path", ""),
+                "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
                 "type": _vattr(v, "type", ""),
                 "arg_vids": arg_vids,
             })

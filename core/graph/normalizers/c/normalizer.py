@@ -724,7 +724,18 @@ class Normalizer:
                                                     "type_identifier")
             last_pos = None
             for id_node in idents:
-                id_pos = self._walk_identifier(id_node, add_node, file_path)
+                # array_declarator 的文本是整个 "cmd[256]"，需要深入到
+                # 其内部 identifier 子节点，否则后续引用 "cmd" 时同变量
+                # 匹配失败导致 DFG 断裂。
+                if id_node.type == "array_declarator":
+                    inner_ident = self._find_child_by_type(
+                        id_node, "identifier")
+                    if inner_ident is None:
+                        continue
+                    id_pos = self._walk_identifier(
+                        inner_ident, add_node, file_path)
+                else:
+                    id_pos = self._walk_identifier(id_node, add_node, file_path)
                 if id_pos is not None:
                     self._own_edge(add_edge, ctx_stack, id_pos, depth)
                     last_pos = id_pos

@@ -386,7 +386,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             result = r
                             break
                         elif not r.is_uncontrollable and not found_unconfirmed:
-                            # 疑似可控但未确认，记录为 unconfirmed
                             found_unconfirmed = True
                             unconfirmed_result = r
                 if not found_controllable:

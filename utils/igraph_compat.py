@@ -27,7 +27,8 @@ def vattr(vertex_or_edge, key: str, default: Any = None) -> Any:
     禁止直接使用 ``vertex_or_edge["key"]`` 访问可能不存在的属性。
     """
     try:
-        return vertex_or_edge[key]
+        val = vertex_or_edge[key]
+        return val if val is not None else default
     except (KeyError, TypeError):
         return default
 
