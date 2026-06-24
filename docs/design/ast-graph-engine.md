@@ -88,10 +88,15 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
                        (独立数据流分析,                  (.graphmlz 持久化)
                         生成 dfg 边)                        ↓
                               ↓                         SQLite 索引更新
-                       GraphAnalyzer
-                       (图上回溯/判定)
-                              ↓
-                       分析决策标记
+                  ┌───────────┴───────────┐
+                  ↓                       ↓
+           AliasBuilder              GraphAnalyzer
+           (间接调用别名解析,          (图上回溯/判定)
+            生成 alias 边)
+                  ↓                       ↓
+           alias 边附加到图           分析决策标记
+                  ↓                       ↓
+                  └───────────┬───────────┘
                               ↓
                        漏洞结果 → ScanResultTask
 
@@ -234,7 +239,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 
 ### 3.3 统一边类型 (EdgeLabel)
 
-采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 8 种核心关系。
+采用"同类关系合并为一个标签，通过属性区分"的设计思路，将原本 23 种边类型简化为 9 种核心关系。
 
 | 边标签 | 语义 | 方向 | 属性 |
 |---------|------|------|------|
@@ -246,6 +251,7 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
 | **dfg** | 数据流图，Data Flow Graph（独立模块生成，非 AST 映射） | source → target | type: forward_slice/same |
 | **crg** | 类关系图，Class Relationship Graph | source → target | type: extends/implements/trait/mixin |
 | **member** | 成员访问关系 | object → member | access_type: property/array_offset/static_property |
+| **alias** | 间接调用别名关系（由 AliasBuilder 生成） | callee_identifier/parameter → function(resolved_target) | alias_type: direct/via_dfg_chain/via_member/via_getattr/via_globals, resolved_name: 解析后的目标函数名 |
 
 #### 3.3.1 边属性详解
 
@@ -354,6 +360,34 @@ parse → 内存 AST → grep/match/回溯 → chain → 结果 → AST 丢弃
   ```
 - **属性**：
   - `access_type: str` — 访问方式：`property`（对象属性 `$this->name`）、`array_offset`（数组下标 `$arr['key']`）、`static_property`（静态属性 `self::$count`）
+
+**alias（间接调用别名关系）：**
+
+> alias 边由 `AliasBuilder` 在 edge_builders 阶段生成，用于将间接调用中的 callee 变量解析到其指向的真实函数。属于独立分析边，不属于 AST 映射阶段。
+
+- **含义**：当函数调用的 callee 不是字面量函数名，而是通过变量传递、赋值、参数传递等方式引用的函数时，alias 边记录"该变量实际指向哪个函数"的解析结果
+- **方向**：callee_identifier/parameter（间接调用的 callee 变量） → function（解析出的目标函数节点）
+- **生成时机**：edge_builders 阶段，在 DFG 边生成之后
+- **生成方式**：AliasBuilder 遍历所有 call/method_call/static_call 类型的 operator 节点，对非直接引用的 callee 执行以下解析链：
+  1. 通过 `_find_callee_identifier` / `_find_operand_identifier` 定位 callee 变量节点
+  2. 通过 `_resolve_alias` 沿 DFG 边反向回溯，经过 identifier → parameter → operator（transit）等节点类型，最终到达可识别的函数引用
+  3. 在 operator transit 节点中，通过 `_extract_string_arg` 提取字符串参数（支持 `getattr(obj, 'method')`、`globals().get('func')`、Ruby `method(:symbol)` 等模式，自动 strip 引号和 Ruby symbol 前缀 `:`）
+  4. 通过 `_find_or_create_function` 查找或创建目标 function 节点，建立 alias 边
+- **作用**：使 GraphAnalyzer 在检测 sink 时能正确识别间接调用的目标函数。例如 `$func = 'system'; $func($cmd)` 中，alias 边将 `$func` 解析到 `system`，从而匹配命令注入 sink
+- **属性**：
+  - `alias_type: str` — 解析方式，见 AliasType 枚举：
+    - `direct` — 直接函数引用（如 `$func = 'system'`，通过 const/string 字面量解析）
+    - `via_dfg_chain` — 通过 DFG 链回溯（如 `$func = $other_func; $other_func = 'system'`，多级变量赋值）
+    - `via_member` — 通过成员访问关系（如 `$func = $obj->method`，通过 member 边组合 `obj.method`）
+    - `via_getattr` — 通过 getattr 调用（如 Python `getattr(obj, 'method')`，提取字符串参数）
+    - `via_globals` — 通过全局查找或字符串参数（如 `globals().get('func')` 或 Ruby `method(:system)`，提取 operator 的 AST arg child 中的字符串/常量）
+  - `resolved_name: str` — 解析后的目标函数名（如 `system`、`eval`、`exec`）
+- **覆盖语言**：全 14 语言（凡有间接调用模式即产生 alias 边）
+- **示例连接**：
+  - PHP: `(identifier:$func)-[:alias {alias_type:'direct', resolved_name:'system'}]->(function:system)` — `$func = 'system'; $func($cmd)`
+  - Python: `(parameter:func)-[:alias {alias_type:'via_dfg_chain', resolved_name:'eval'}]->(function:eval)` — `def wrapper(func): func(input)` 其中 `func` 参数传入 `eval`
+  - Ruby: `(identifier:op)-[:alias {alias_type:'via_globals', resolved_name:'system'}]->(function:system)` — `op = method(:system); op.call(arg)` 通过 `method(:symbol)` 模式解析
+  - C: `(parameter:op)-[:alias {alias_type:'via_dfg_chain', resolved_name:'system'}]->(function:system)` — `void executor(int (*op)(const char*), char *arg)` 中 `op` 参数传入 `system` 函数指针
 
 ### 3.4 图存储结构示意
 
