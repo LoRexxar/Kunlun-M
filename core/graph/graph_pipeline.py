@@ -279,26 +279,29 @@ def build_ast_graph(
 # load_cached_graph
 # ---------------------------------------------------------------------------
 
-def load_cached_graph(target: str) -> "igraph.Graph | None":
+def load_cached_graph(target: str) -> tuple["igraph.Graph | None", dict]:
     """尝试从 workspace 中加载同一 target 的缓存图。
 
     查找逻辑：
       1. 查 workspace kunlun.db 的 scans 表，找 target 匹配的最新记录
       2. 验证 graphmlz 文件存在且 content_hash 一致（AstGraphIO.load 内置校验）
       3. 检查源文件是否有变动（对比 FileHash 表中记录的 MD5 与当前文件 MD5）
-      4. 全部通过 → 返回加载的图
-      5. 任一不通过 → 返回 None（打印 warning）
+      4. 全部通过 → 返回加载的图 + 缓存元信息
+      5. 任一不通过 → 返回 (None, info_dict)
 
     Args:
         target: 扫描目标路径。
 
     Returns:
-        igraph.Graph 对象；无缓存 / 缓存失效 / 文件变动时返回 ``None``。
+        (graph, info) 元组：
+          - graph: igraph.Graph 对象；缓存失效时为 ``None``。
+          - info: 缓存元信息 dict，包含 scan_id / target / node_count / edge_count /
+            created_at / reason（失效原因，命中缓存时为 None）。
     """
     try:
         import igraph as ig
     except ImportError:
-        return None
+        return None, {}
 
     from core.graph.workspace import get_workspace_db
     from core.graph.graph_io import AstGraphIO
@@ -307,19 +310,30 @@ def load_cached_graph(target: str) -> "igraph.Graph | None":
     db_path = get_workspace_db()
     if not os.path.isfile(db_path):
         logger.debug("[GraphPipeline] No workspace DB, skip cache loading")
-        return None
+        return None, {"reason": "no_workspace_db"}
 
     # 1. 查 scans 表找同 target 的最新记录
     sr = ScanRecord(db_path)
     record = sr.get_by_target(target)
     if not record:
         logger.debug("[GraphPipeline] No cached scan for target: %s", target)
-        return None
+        return None, {"reason": "no_record"}
+
+    info = {
+        "scan_id": record.get("id"),
+        "target": record.get("target"),
+        "node_count": record.get("node_count"),
+        "edge_count": record.get("edge_count"),
+        "created_at": record.get("created_at"),
+        "language": record.get("language"),
+        "reason": None,
+    }
 
     graph_path = record.get("graph_path")
     if not graph_path or not os.path.isfile(graph_path):
         logger.warning("[GraphPipeline] Cached graph file missing: %s", graph_path)
-        return None
+        info["reason"] = "file_missing"
+        return None, info
 
     # 2. 加载图（AstGraphIO.load 会验证 content_hash）
     graph_dir = os.path.dirname(graph_path)
@@ -327,7 +341,8 @@ def load_cached_graph(target: str) -> "igraph.Graph | None":
     graph = gio.load()
     if graph is None:
         logger.warning("[GraphPipeline] Cached graph failed hash validation: %s", graph_path)
-        return None
+        info["reason"] = "hash_mismatch"
+        return None, info
 
     # 3. 检查源文件是否有变动（仅检查该 scan 关联的文件）
     fh = FileHash(db_path)
@@ -343,6 +358,8 @@ def load_cached_graph(target: str) -> "igraph.Graph | None":
             changed_files.append(filepath)
 
     if changed_files:
+        info["reason"] = "files_changed"
+        info["changed_count"] = len(changed_files)
         logger.info(
             "[GraphPipeline] Cache invalidated: %d file(s) changed since cached scan %s",
             len(changed_files), record.get("id"),
@@ -351,10 +368,10 @@ def load_cached_graph(target: str) -> "igraph.Graph | None":
             logger.debug("  changed: %s", fp)
         if len(changed_files) > 5:
             logger.debug("  ... and %d more", len(changed_files) - 5)
-        return None
+        return None, info
 
     logger.info(
         "[GraphPipeline] Loaded cached graph from scan %s: %d nodes, %d edges",
         record.get("id"), graph.vcount(), graph.ecount(),
     )
-    return graph
+    return graph, info

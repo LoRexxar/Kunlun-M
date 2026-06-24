@@ -523,7 +523,7 @@ def main():
         s.save()
 
         try:
-            cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom, template_path=args.html_template, no_cache=args.no_cache)
+            cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom, template_path=args.html_template, no_cache=args.no_cache, auto_yes=args.yes)
         except Exception as e:
             s.is_finished = 0
             s.finished_at = timezone.now()

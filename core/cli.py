@@ -228,7 +228,7 @@ def display_result(scan_id, is_ask=False):
         logger.info("[MainThread] Scan id {} has no Result.".format(scan_id))
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False, template_path=None, no_cache=False):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False, template_path=None, no_cache=False, auto_yes=False):
     """
     Start CLI
     :param black_path: 
@@ -325,7 +325,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
              language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
-             files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm, no_cache=no_cache)
+             files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm, no_cache=no_cache, auto_yes=auto_yes)
 
         # show result
         display_result(task_id)

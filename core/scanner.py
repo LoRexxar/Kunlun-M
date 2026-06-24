@@ -161,7 +161,7 @@ def scan_single(target_directory, single_rule, files=None, language=None, tamper
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None, tamper_name=None, is_unconfirm=False, no_cache=False):
+         extension_count=0, files=None, tamper_name=None, is_unconfirm=False, no_cache=False, auto_yes=False):
     """Graph-based scan — AST 图扫描引擎入口"""
     r = Rule(language)
     rules = r.rules(special_rules)
@@ -190,7 +190,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     if not no_cache:
         try:
             from core.graph.graph_pipeline import load_cached_graph
-            graph = load_cached_graph(target_directory)
+            cached_graph, cache_info = load_cached_graph(target_directory)
+            if cached_graph is not None and cache_info.get("reason") is None:
+                # 有有效缓存
+                if not auto_yes:
+                    print(
+                        f"\n[Cache] 发现已扫描过的图缓存 (scan #{cache_info['scan_id']}, "
+                        f"{cache_info['node_count']} nodes, {cache_info['edge_count']} edges, "
+                        f"{cache_info['created_at']})"
+                    )
+                    try:
+                        choice = input("       加载缓存? [Y/n] ").strip().lower()
+                    except EOFError:
+                        # 非交互模式（管道/重定向 stdin），默认加载缓存
+                        choice = ''
+                    if choice in ('n', 'no'):
+                        graph = None
+                        logger.info('[SCAN] [GRAPH] User chose to rebuild graph')
+                    else:
+                        graph = cached_graph
+                else:
+                    # --yes 模式：静默加载缓存
+                    graph = cached_graph
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Cache check failed, will rebuild: %s', e)
 
