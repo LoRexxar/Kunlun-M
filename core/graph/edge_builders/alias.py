@@ -299,7 +299,8 @@ class AliasBuilder:
     def _extract_string_arg(self, op_vid: int) -> str | None:
         """Extract a string argument from an operator's ast[arg] children.
 
-        Used for getattr(obj, 'method_name') and globals().get('func_name').
+        Used for getattr(obj, 'method_name'), globals().get('func_name'),
+        and Ruby method(:symbol) patterns.
         """
         for e in self.graph.es.select(_source=op_vid, label="ast"):
             if _vattr(e, "role") == "arg":
@@ -307,7 +308,11 @@ class AliasBuilder:
                 if arg_v["label"] == NodeLabel.CONST.value:
                     name = _vattr(arg_v, "name", "")
                     if name:
-                        return name.strip("'\"")
+                        name = name.strip("'\"")
+                        # Strip Ruby symbol prefix (:system → system)
+                        if name.startswith(":") and not name.startswith("::"):
+                            name = name[1:]
+                        return name
         return None
 
     def _find_or_create_function(self, name: str) -> int | None:
