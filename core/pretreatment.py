@@ -35,6 +35,27 @@ from collections.abc import Hashable
 could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c", "typescript",
                        "rust", "ruby", "csharp", "kotlin", "lua", "cpp"]
 
+# 语言别名映射：用户输入的缩写 → 内部标准名称
+_LANGUAGE_ALIASES = {
+    "js": "javascript",
+    "ts": "typescript",
+    "py": "python",
+    "rb": "ruby",
+    "cs": "csharp",
+    "kt": "kotlin",
+    "c++": "cpp",
+}
+
+
+def normalize_language(lan_list):
+    """将语言别名归一化为内部标准名称。"""
+    result = []
+    for lang in lan_list:
+        normalized = _LANGUAGE_ALIASES.get(lang.lower(), lang.lower())
+        if normalized not in result:
+            result.append(normalized)
+    return result
+
 
 class Pretreatment:
 
@@ -120,6 +141,10 @@ class Pretreatment:
             return None
 
     def pre_ast_all(self, lan=None, is_unprecom=False):
+
+        # 归一化语言别名（js→javascript, ts→typescript 等）
+        if lan is not None:
+            lan = normalize_language(lan)
 
         if lan is not None:
             # 检查是否在可ast pasre列表中
