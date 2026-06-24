@@ -94,22 +94,18 @@ test_cases = [
      [], []),
 
     # ===== 间接调用（indirect call）测试 =====
-    # C 函数指针间接调用 — C normalizer 不支持函数指针赋值 DFG 边
+    # C 函数指针间接调用 — 单层已支持（assign operator + LHS/RHS DFG）
+    # 多层(35)因全局声明+函数内调用跨作用域DFG问题仍skip
     ('32_indirect_exec.c', True,
      'CVI-9001 system: 函数指针间接调用 func=system; func(cmd)',
      ['CVI-9001'],
-     [],
-     {'skip': 'C normalizer does not support function pointer DFG edges'}),
+     []),
     ('33_indirect_safe.c', False,
      'CVI-9001: 函数指针间接调用硬编码参数（不应检出）',
-     [],
-     [],
-     {'skip': 'C normalizer does not support function pointer DFG edges'}),
+     [], []),
     ('34_indirect_reassign.c', False,
      'CVI-9001: 函数指针重新赋值后安全（不应检出）',
-     [],
-     [],
-     {'skip': 'C normalizer does not support function pointer DFG edges'}),
+     [], []),
     ('35_indirect_multilevel.c', True,
      'CVI-9001: 多层函数指针间接调用 func2(argv[1])',
      ['CVI-9001'],

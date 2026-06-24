@@ -1394,7 +1394,11 @@ class Normalizer:
         lineno = self._lineno(node)
         text = self._text(node)
 
-        field_node = self._find_child_by_type(node, "name", "identifier")
+        # In dot_index_expression: object . field
+        # e.g. os.execute -> identifier(os), ., identifier(execute)
+        # The LAST identifier/name child is the field name, not the object
+        all_idents = self._find_children_by_type(node, "name", "identifier")
+        field_node = all_idents[-1] if all_idents else None
         field_name = self._text(field_node) if field_node else ""
 
         pos = add_node({
@@ -1410,15 +1414,24 @@ class Normalizer:
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        # Walk object
-        for child in node.children:
-            if child.type in ("name", "identifier", "."):
-                continue
-            obj_pos = self._walk_node(child, add_node, add_edge,
+        # Walk object (first identifier) and create member edge for
+        # alias builder to compose qualified name (e.g. os.execute)
+        if len(all_idents) > 1:
+            obj_pos = self._walk_node(all_idents[0], add_node, add_edge,
                                        ctx_stack, file_path, 0)
             if obj_pos is not None:
-                self._ast_edge(add_edge, pos, obj_pos, AstRole.OPERAND.value)
-            break
+                add_edge({"label": "member", "source": obj_pos, "target": pos})
+        else:
+            # Non-identifier object (e.g. chained call result)
+            for child in node.children:
+                if child.type in ("name", "identifier", "."):
+                    continue
+                obj_pos = self._walk_node(child, add_node, add_edge,
+                                           ctx_stack, file_path, 0)
+                if obj_pos is not None:
+                    add_edge({
+                        "label": "member", "source": obj_pos, "target": pos})
+                break
 
         return pos
 
@@ -1442,11 +1455,17 @@ class Normalizer:
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        # Walk children (object + index)
+        # Walk children (object + index), create ast edges
+        child_idx = 0
         for child in node.children:
             if child.type in _SKIP_TYPES:
                 continue
-            self._walk_node(child, add_node, add_edge, ctx_stack, file_path, 0)
+            child_pos = self._walk_node(child, add_node, add_edge,
+                                        ctx_stack, file_path, 0)
+            if child_pos is not None:
+                role = AstRole.LHS.value if child_idx == 0 else AstRole.RHS.value
+                self._ast_edge(add_edge, pos, child_pos, role)
+            child_idx += 1
 
         return pos
 

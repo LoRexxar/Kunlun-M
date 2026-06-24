@@ -716,19 +716,39 @@ class Normalizer:
         last_pos = None
         for decl in init_decls:
             # init_declarator > identifier [= expr]
-            name_node = self._find_child_by_type(decl, "identifier")
-            # Might be pointer_declarator > identifier
-            # or pointer_declarator > array_declarator > identifier
-            if not name_node:
-                ptr = self._find_child_by_type(decl, "pointer_declarator",
-                                                 "array_declarator")
-                if ptr:
-                    name_node = self._find_child_by_type(ptr, "identifier")
-                    # Handle nested: pointer_declarator > array_declarator > identifier
+            # Check function pointer first (nested identifier inside
+            # function_declarator > parenthesized_declarator > pointer_declarator)
+            # to avoid matching the RHS identifier instead
+            func_decl = self._find_child_by_type(decl, "function_declarator")
+            if func_decl:
+                paren_decl = self._find_child_by_type(
+                    func_decl, "parenthesized_declarator")
+                if not paren_decl:
+                    paren_decl = func_decl
+                name_node = None
+                if paren_decl:
+                    ptr = self._find_child_by_type(
+                        paren_decl, "pointer_declarator")
+                    if ptr:
+                        name_node = self._find_child_by_type(
+                            ptr, "identifier")
                     if not name_node:
-                        arr = self._find_child_by_type(ptr, "array_declarator")
-                        if arr:
-                            name_node = self._find_child_by_type(arr, "identifier")
+                        name_node = self._find_child_by_type(
+                            paren_decl, "identifier")
+            else:
+                name_node = self._find_child_by_type(decl, "identifier")
+                # Might be pointer_declarator > identifier
+                # or pointer_declarator > array_declarator > identifier
+                if not name_node:
+                    ptr = self._find_child_by_type(
+                        decl, "pointer_declarator", "array_declarator")
+                    if ptr:
+                        name_node = self._find_child_by_type(ptr, "identifier")
+                        # Handle nested: pointer_declarator > array_declarator > identifier
+                        if not name_node:
+                            arr = self._find_child_by_type(ptr, "array_declarator")
+                            if arr:
+                                name_node = self._find_child_by_type(arr, "identifier")
 
             id_pos = None
             if name_node:
@@ -775,8 +795,29 @@ class Normalizer:
                         val_pos = self._walk_node(child, add_node, add_edge,
                                                    ctx_stack, file_path, 0)
                         if val_pos is not None and id_pos is not None:
-                            self._ast_edge(add_edge, id_pos, val_pos,
-                                           AstRole.VALUE.value)
+                            # Function pointer assignment: use assign operator
+                            # + LHS/RHS so DFG builder creates forward_slice
+                            # edges needed by alias builder for indirect calls
+                            if func_decl:
+                                eq_pos = add_node({
+                                    "label": NodeLabel.OPERATOR.value,
+                                    "name": "=",
+                                    "lineno": lineno,
+                                    "language": self.language,
+                                    "attrs": {
+                                        "type": OperatorType.ASSIGN.value,
+                                        "raw_type": "func_ptr_init",
+                                    },
+                                })
+                                self._own_edge(add_edge, ctx_stack, eq_pos,
+                                                depth + 1)
+                                self._ast_edge(add_edge, eq_pos, id_pos,
+                                               AstRole.LHS.value)
+                                self._ast_edge(add_edge, eq_pos, val_pos,
+                                               AstRole.RHS.value)
+                            else:
+                                self._ast_edge(add_edge, id_pos, val_pos,
+                                               AstRole.VALUE.value)
                     break
 
         return last_pos

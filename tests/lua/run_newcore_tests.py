@@ -146,13 +146,11 @@ test_cases = [
 
     # ===== 间接调用（indirect call）测试 =====
     # 函数引用赋值: local f = os.execute; f(cmd)
-    # Lua normalizer 不支持函数引用赋值 DFG 边，alias builder 无法解析
+    # 已支持: _walk_dot_index 正确提取 field name + member 边
     ('indirect_exec.lua', True,
      'CVI-9601 os.execute: 函数引用间接调用 f(cmd) where f=os.execute',
      ['CVI-9601'],
-     ['f(cmd)'],
-     {},
-     {'skip': 'Lua normalizer does not support function reference DFG edges'}),
+     ['f(cmd)']),
 ]
 
 

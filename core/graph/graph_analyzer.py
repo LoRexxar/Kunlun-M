@@ -87,6 +87,10 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "system", "popen", "pclose",
     # JavaScript
     "write", "eval",
+    # Lua
+    "os.execute", "io.popen",
+    "os.remove", "io.open",
+    "loadstring", "dofile", "require",
 })
 
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
@@ -495,6 +499,23 @@ class GraphAnalyzer:
                 # Rule 2: constant — skip, keep searching
                 if ulabel == NodeLabel.CONST.value:
                     continue
+
+                # Rule 2b: binary_op / subscript (e.g., arg[1], arr[key]) —
+                # check ast children for source variable (the object being
+                # indexed).  DFG only flows from the operator to its result;
+                # the indexed object is connected via ast edges, not dfg.
+                if ulabel == NodeLabel.OPERATOR.value and utype in ("binary_op", "subscript"):
+                    for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                        child_vid = ae.target
+                        child_name = _vattr(self.graph.vs[child_vid], "name", "")
+                        if self._is_source_variable(child_name):
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{child_name}' via subscript",
+                                chain=[{"step": "subscript_source", "vid": child_vid,
+                                        "name": child_name, "code": 1}],
+                                path=new_path + [child_vid],
+                                expr_lineno=_vattr(self.graph.vs[child_vid], "lineno", 0)))
 
                 # Rule 3: repair function
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
@@ -1523,6 +1544,14 @@ class GraphAnalyzer:
                 name = _vattr(t, "name") or _vattr(t, "value")
                 if name:
                     callee_names.append((name, t.index))
+        # Check alias on function node via use edge — if alias builder
+        # already resolved the callee (e.g. func_ptr → system), use it
+        # directly instead of tracing DFG through member edges.
+        for e in self.graph.es.select(_source=op_vid, label="use"):
+            for ae in self.graph.es.select(_source=e.target, label="alias"):
+                resolved_name = _vattr(ae, "resolved_name", "")
+                if resolved_name:
+                    return resolved_name
         # Prefer the last identifier callee (actual method name in chains)
         for name, tvid in reversed(callee_names):
             if _vattr(self.graph.vs[tvid], "label") == "identifier":
