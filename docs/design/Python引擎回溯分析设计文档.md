@@ -874,7 +874,7 @@ _trace_visited = set()  # 模块级
 
 2. **装饰器未解析**: `@decorator` 装饰器会改变函数的行为，但当前引擎不解析装饰器的影响。`@property` 是唯一的例外。
 
-3. **动态特性**: `getattr`, `setattr`, `__getattr__` 等动态属性访问无法追踪。
+3. **动态特性**: `setattr`, `__getattr__` 等动态属性访问无法追踪。`getattr(obj, 'method')` 作为间接调用模式已通过 AliasBuilder 支持（alias_type=`via_getattr`）。
 
 4. **async/await**: 虽然 `AsyncFunctionDef` 在 AST 遍历时被包含，但 `async` 执行流（如 `await` 的数据流）未被特殊处理。
 

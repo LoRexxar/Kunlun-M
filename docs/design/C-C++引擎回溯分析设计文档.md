@@ -168,12 +168,19 @@ function_definition
 对于函数指针声明 `int (*func)(const char *) = system;`，normalizer 的处理：
 - 从 `function_declarator > parenthesized_declarator > pointer_declarator > identifier` 路径提取 LHS 变量名 `func`
 - 创建 `assign` operator 节点，LHS 为 `func` identifier，RHS 为 `system` identifier
-- DFG builder 自动生成 `forward_slice` 边，alias builder 沿 DFG 回溯创建 `alias` 边（alias_type=`via_function_pointer`）
+- DFG builder 自动生成 `forward_slice` 边，alias builder 沿 DFG 回溯创建 `alias` 边（alias_type=`via_dfg_chain`）
 - `_resolve_callee_name` 通过 alias 边将 `func(cmd)` 解析为 `system`
+
+**函数指针作为参数传递（已支持）：**
+
+对于 `void executor(int (*op)(const char *), char *arg)` 模式：
+- Normalizer 从 `function_declarator > parenthesized_declarator > pointer_declarator > identifier` 递归路径提取参数名 `op`
+- DFG builder 的 `_analyze_parameter_passing` 通过 `arg_index` 匹配实参，创建 `DFG argument → parameter` 边
+- AliasBuilder 沿 DFG 链回溯参数到传入的函数引用，创建 alias 边
 
 **限制：**
 - 多层间接调用（全局声明 + 函数内调用，跨作用域 DFG 不支持）仍 skip
-- 函数指针作为函数参数传递不支持
+- 多层函数指针解引用（如 `(**func)()` 双指针）不支持
 
 ### 3.2 C 赋值系统
 
@@ -1023,5 +1030,5 @@ scan_parser(["gets"], 5, "file.c")
 2. **宏展开**：C 预处理宏会改变代码结构，tree-sitter 不处理宏展开
 3. **指针分析**：当前追踪 `*ptr` 只追踪 `ptr` 本身，不做指针别名分析
 4. **结构体字段追踪**：`obj.field` 只追踪 `obj`，不区分不同字段的污点
-5. **函数指针（多层/跨作用域）**：单层函数指针间接调用已通过 alias 边支持，但多层间接（全局声明+函数内调用）和函数指针作为参数传递仍不支持
+5. **函数指针（多层/跨作用域）**：单层函数指针间接调用和函数指针作为参数传递已通过 alias 边支持（via_dfg_chain），但多层间接（全局声明+函数内调用）仍不支持
 6. **snprintf param_flow**：格式串函数的 param_flow 设计需要更精细（区分格式串和数据参数）
