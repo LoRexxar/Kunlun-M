@@ -507,6 +507,9 @@ class Normalizer:
                             break
                     if pname:
                         param_strs.append(pname)
+                elif c.type == "identifier":
+                    # Simple params: tree-sitter-ruby uses bare identifier
+                    param_strs.append(self._text(c))
 
         # Build fullname (receiver.method)
         receiver = self._find_child_by_type(node, "receiver")
@@ -544,6 +547,27 @@ class Normalizer:
                 if c.type == "parameter":
                     p_pos = self._walk_param(c, add_node, file_path)
                     if p_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.OWN.value,
+                            "source": pos,
+                            "target": p_pos,
+                            "attrs": {"index": param_idx},
+                        })
+                        param_idx += 1
+                elif c.type == "identifier":
+                    # Simple params: tree-sitter-ruby uses bare identifier
+                    pname = self._text(c)
+                    if pname:
+                        p_pos = add_node({
+                            "label": NodeLabel.PARAMETER.value,
+                            "name": pname,
+                            "lineno": self._lineno(c),
+                            "language": self.language,
+                            "attrs": {
+                                "type": IdentifierType.VARIABLE.value,
+                                "file_path": file_path,
+                            },
+                        })
                         add_edge({
                             "label": EdgeLabel.OWN.value,
                             "source": pos,
@@ -621,6 +645,27 @@ class Normalizer:
                 if c.type == "parameter":
                     p_pos = self._walk_param(c, add_node, file_path)
                     if p_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.OWN.value,
+                            "source": pos,
+                            "target": p_pos,
+                            "attrs": {"index": param_idx},
+                        })
+                        param_idx += 1
+                elif c.type == "identifier":
+                    # Simple block params: tree-sitter-ruby uses bare identifier
+                    pname = self._text(c)
+                    if pname:
+                        p_pos = add_node({
+                            "label": NodeLabel.PARAMETER.value,
+                            "name": pname,
+                            "lineno": self._lineno(c),
+                            "language": self.language,
+                            "attrs": {
+                                "type": IdentifierType.VARIABLE.value,
+                                "file_path": file_path,
+                            },
+                        })
                         add_edge({
                             "label": EdgeLabel.OWN.value,
                             "source": pos,
@@ -1191,13 +1236,16 @@ class Normalizer:
         # Walk arguments
         args = self._find_child_by_type(node, "argument_list", "arguments")
         if args:
-            for a_idx, a in enumerate(args.children):
+            arg_idx = 0
+            for a in args.children:
                 if a.type in _SKIP_TYPES or a.type in ("(", ")", ",", "|"):
                     continue
                 a_pos = self._walk_node(a, add_node, add_edge,
-                                         ctx_stack, file_path, a_idx)
+                                         ctx_stack, file_path, arg_idx)
                 if a_pos is not None:
-                    self._ast_edge(add_edge, pos, a_pos, AstRole.ARG.value)
+                    self._ast_edge(add_edge, pos, a_pos, AstRole.ARG.value,
+                                   extra={"arg_index": str(arg_idx)})
+                arg_idx += 1
 
         # Walk block (do...end / {})
         block = self._find_child_by_type(node, "block", "do_block")

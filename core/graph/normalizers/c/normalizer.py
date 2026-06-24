@@ -592,6 +592,23 @@ class Normalizer:
                                                  "array_declarator")
                 if ptr:
                     pname_node = self._find_child_by_type(ptr, "identifier")
+            # Function pointer params: int (*op)(const char *)
+            if not pname_node:
+                func_decl = self._find_child_by_type(p, "function_declarator")
+                if func_decl:
+                    pname_node = self._find_child_by_type(func_decl, "identifier")
+                    if not pname_node:
+                        paren = self._find_child_by_type(
+                            func_decl, "parenthesized_declarator")
+                        if paren:
+                            pname_node = self._find_child_by_type(
+                                paren, "identifier")
+                            if not pname_node:
+                                ptr2 = self._find_child_by_type(
+                                    paren, "pointer_declarator")
+                                if ptr2:
+                                    pname_node = self._find_child_by_type(
+                                        ptr2, "identifier")
             pname = self._text(pname_node) if pname_node else "?"
 
             ptype_node = self._find_child_by_type(p, "primitive_type",
@@ -1681,6 +1698,23 @@ class Normalizer:
                                              "array_declarator")
             if ptr:
                 name_node = self._find_child_by_type(ptr, "identifier")
+        # Function pointer params: int (*op)(const char *)
+        # identifier nested under function_declarator → parenthesized_declarator → pointer_declarator
+        if not name_node:
+            func_decl = self._find_child_by_type(param_node, "function_declarator")
+            if func_decl:
+                name_node = self._find_child_by_type(func_decl, "identifier")
+                if not name_node:
+                    paren = self._find_child_by_type(func_decl,
+                                                     "parenthesized_declarator")
+                    if paren:
+                        name_node = self._find_child_by_type(paren, "identifier")
+                        if not name_node:
+                            ptr2 = self._find_child_by_type(
+                                paren, "pointer_declarator")
+                            if ptr2:
+                                name_node = self._find_child_by_type(
+                                    ptr2, "identifier")
         name = self._text(name_node) if name_node else ""
         if not name:
             return None
