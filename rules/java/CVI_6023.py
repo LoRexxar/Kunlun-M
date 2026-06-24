@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from utils.api import *
+import re
 
 class CVI_6023(SingleRuleMixin):
     def __init__(self):
@@ -8,11 +9,26 @@ class CVI_6023(SingleRuleMixin):
         self.vulnerability = "ProcessBuilder Command Injection"
         self.description = "请求参数直接传入ProcessBuilder构建命令，存在命令注入风险"
         self.level = 9
-        self.match_mode = "regex-return-regex"
-        self.match = [r"new\s+ProcessBuilder\(.*?=padding="]
+        # Graph engine: function-param-controllable + vul_function
+        self.match_mode = "function-param-controllable"
+        self.match = r"new\s+ProcessBuilder"
         self.unmatch = []
-        self.match_name = r"(?:String\s+(\w+)\s*=\s*request\.(?:getParameter|getHeader|getInputStream|getReader|getQueryString|getParameterValues|getParameterMap|getCookies)\([^)]*\)|@(?:RequestParam|PathVariable|RequestHeader|CookieValue|QueryParam|FormParam)\s*(?:\([^)]*\)\s*)?String\s+(\w+))"
         self.black_list = []
 
+        # Graph engine: identify ProcessBuilder as sink
+        self.vul_function = ["ProcessBuilder"]
+
     def main(self, regex_string):
-        pass
+        if not isinstance(regex_string, str):
+            regex_string = str(regex_string)
+        # Validate: source line should contain ProcessBuilder constructor
+        # with padding= parameter pattern (specific injection vector)
+        if not re.search(r'ProcessBuilder', regex_string):
+            return False
+        # The original regex-return-regex rule required padding= pattern.
+        # Keep that check as main() validation.
+        # If no padding=, let CVI-6038 (generic ProcessBuilder) handle it.
+        if re.search(r'=padding=', regex_string):
+            return None  # specific padding= case → this rule reports
+        # No padding= → defer to CVI-6038
+        return False

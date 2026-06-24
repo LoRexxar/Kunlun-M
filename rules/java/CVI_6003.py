@@ -22,20 +22,20 @@ class CVI_6003(SingleRuleMixin):
         self.svid = 6003
         self.language = "java"
         self.vulnerability = "Command Injection"
-        self.description = "通过AST分析检测Runtime.getRuntime().exec()或ProcessBuilder构造参数是否来自用户可控输入，追踪数据流以发现命令注入漏洞。"
+        self.description = "通过AST分析检测Runtime.getRuntime().exec()构造参数是否来自用户可控输入，追踪数据流以发现命令注入漏洞。"
         self.level = 9
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = "(?<!execute)exec\\s*\\(|ProcessBuilder"
+        self.match = "(?<!execute)exec\\s*\\("
 
         # for regex
         self.unmatch = []
 
-        self.vul_function = ["exec", "ProcessBuilder"]
+        self.vul_function = ["exec"]
 
     def main(self, regex_string):
-        """二次筛选：确认 Runtime.exec/ProcessBuilder 调用"""
+        """二次筛选：确认 Runtime.exec 调用"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除 Playground scenario 字符串
@@ -46,6 +46,4 @@ class CVI_6003(SingleRuleMixin):
             if not re.search(r'Thread|Executor|pool|execute', regex_string, re.I):
                 return True
             return False
-        if re.search(r'ProcessBuilder', regex_string):
-            return True
         return None

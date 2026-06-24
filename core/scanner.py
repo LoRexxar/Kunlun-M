@@ -407,10 +407,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         continue
 
                 sink_name = sink.get('name', '')
-                matched_rule = None
-                # Two-pass matching:
-                # Pass 1: exact match + qualified-name match (e.g. "YAML.load" → CVI-9414)
-                # Pass 2: suffix/fallback match (e.g. "load" → CVI-9405)
+                # Multi-rule matching per sink:
+                # Collect all matching rules, then try each rule's main() —
+                # first rule whose main() passes gets to report.
+                matched_rules = []
+                sn_lower = sink_name.lower().replace("::", ".")
                 for pass_name in ("exact", "suffix"):
                     for rule in lang_rule_list:
                         rule_sink_names = []
@@ -420,50 +421,61 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         elif hasattr(rule, 'match') and rule.match:
                             for sn in parse_sink_names(rule.match):
                                 rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                        sn_lower = sink_name.lower().replace("::", ".")
+                        if not rule_sink_names:
+                            continue
                         rsn = [n.lower() for n in rule_sink_names]
                         if pass_name == "exact":
-                            # Exact match or qualified-name matches qualified-rule (both sides have dots)
+                            # Exact match or qualified-name match
                             if sn_lower in rsn:
-                                matched_rule = rule
-                                break
+                                matched_rules.append(rule)
+                                continue
                             if "." in sn_lower and any("." in n and sn_lower == n for n in rsn):
-                                matched_rule = rule
-                                break
+                                matched_rules.append(rule)
+                                continue
                         else:
-                            # Suffix/fallback: sn_lower.endswith(".rule") or rule.endswith(".sn_lower")
+                            # Suffix/fallback match
                             if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
-                                matched_rule = rule
-                                break
-                    if matched_rule:
-                        break
+                                matched_rules.append(rule)
+                                continue
+                    if matched_rules:
+                        break  # exact pass found matches, skip suffix pass
 
-                if matched_rule is None:
+                if not matched_rules:
                     continue
 
+                # Try each matched rule; first whose main() passes reports
                 # rule.main() 二次筛选
-                if hasattr(matched_rule, 'main') and callable(matched_rule.main):
+                main_input = sink_name  # default: sink function name
+                sink_file = _vattr(graph.vs[sink['vid']], 'path', '')
+                sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
+                # Pre-read source line for main() input
+                if sink_file:
                     try:
-                        sink_file = _vattr(graph.vs[sink['vid']], 'path', '')
-                        sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
-                        main_input = sink_name  # 默认用 sink 函数名
-                        # 尝试读取源码行
-                        if sink_file:
-                            try:
-                                with open(sink_file, 'r', encoding='utf-8', errors='replace') as mf:
-                                    source_lines = mf.readlines()
-                                idx = int(sink_lineno) - 1
-                                if 0 <= idx < len(source_lines):
-                                    main_input = source_lines[idx].strip()
-                            except Exception:
-                                pass
-                        main_result = matched_rule.main(main_input)
-                        if main_result is False:
-                            logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip sink {sink}'.format(
-                                cvi=matched_rule.svid, sink=sink_name))
-                            continue
+                        with open(sink_file, 'r', encoding='utf-8', errors='replace') as mf:
+                            source_lines = mf.readlines()
+                        idx = int(sink_lineno) - 1
+                        if 0 <= idx < len(source_lines):
+                            main_input = source_lines[idx].strip()
                     except Exception:
-                        pass  # main() 异常不阻断
+                        pass
+
+                matched_rule = None
+                for candidate_rule in matched_rules:
+                    if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
+                        try:
+                            main_result = candidate_rule.main(main_input)
+                            if main_result is False:
+                                logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip rule for sink {sink}'.format(
+                                    cvi=candidate_rule.svid, sink=sink_name))
+                                continue
+                        except Exception:
+                            pass  # main() exception doesn't block
+                    matched_rule = candidate_rule
+                    break
+
+                if matched_rule is None:
+                    # All candidate rules' main() returned False
+                    continue
 
                 # 文件路径过滤：vendor/test 目录
                 vuln_file_path = _vattr(graph.vs[sink['vid']], 'path', '')
