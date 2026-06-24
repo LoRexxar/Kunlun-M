@@ -677,7 +677,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                 continue
             idx = _vattr(e, "index")
-            if idx is not None:
+            if idx is not None and idx != "":
                 # 只取 parameter 子节点
                 target_label = _vattr(self.graph.vs[e.target], "label", "")
                 if target_label == NodeLabel.PARAMETER.value:
