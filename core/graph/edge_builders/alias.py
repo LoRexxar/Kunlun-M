@@ -136,11 +136,11 @@ class AliasBuilder:
                 t = self.graph.vs[e.target]
                 if t["label"] == NodeLabel.IDENTIFIER.value:
                     return e.target
-        # Fallback: find identifier by name
+        # Fallback: find identifier or parameter by name
         for vid in range(self.graph.vcount()):
             v = self.graph.vs[vid]
             if (
-                v["label"] == NodeLabel.IDENTIFIER.value
+                v["label"] in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value)
                 and _vattr(v, "name") == func_name
             ):
                 return vid
