@@ -84,8 +84,15 @@ class AliasBuilder:
             if list(self.graph.es.select(_source=func_vid, label="own")):
                 continue
 
-            # Find callee identifier
+            # Check for method_call indirect invocation patterns:
+            # Ruby: op.call(arg), PHP: $func(), etc.
+            # When the method name is a generic call mechanism ('call', '__call__'),
+            # the real function reference is in the operand (receiver).
+            op_type = _vattr(v, "type", "")
             callee_id = self._find_callee_identifier(op_vid, func_name)
+            if callee_id is None and op_type == OperatorType.METHOD_CALL.value:
+                callee_id = self._find_operand_identifier(op_vid)
+
             if callee_id is None:
                 continue
 
@@ -137,6 +144,23 @@ class AliasBuilder:
                 and _vattr(v, "name") == func_name
             ):
                 return vid
+        return None
+
+    def _find_operand_identifier(self, op_vid: int) -> int | None:
+        """Find the operand (receiver) identifier for a method_call operator.
+
+        Used for indirect call patterns like Ruby's ``obj.call(arg)`` where
+        the method name ``call`` is a generic dispatch mechanism and the real
+        function reference is the receiver object.
+        """
+        for e in self.graph.es.select(_source=op_vid, label="ast"):
+            if _vattr(e, "role") == "operand":
+                t = self.graph.vs[e.target]
+                if t["label"] in (
+                    NodeLabel.IDENTIFIER.value,
+                    NodeLabel.PARAMETER.value,
+                ):
+                    return e.target
         return None
 
     def _resolve_alias(
