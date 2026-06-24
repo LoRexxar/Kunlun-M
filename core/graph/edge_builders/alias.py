@@ -168,15 +168,17 @@ class AliasBuilder:
     ) -> tuple[str | None, str | None, int | None]:
         """Trace DFG backward from callee identifier to resolve real function.
 
+        Uses iterative DFS with backtracking to explore all DFG source paths
+        when a node has multiple incoming DFG edges.
+
         Returns:
             (resolved_name, alias_type, target_func_vid or None)
         """
         visited: set[int] = set()
-        current = callee_id
 
-        for depth in range(max_depth):
-            if current in visited:
-                break
+        def _try(current: int, depth: int) -> tuple[str | None, str | None, int | None]:
+            if depth > max_depth or current in visited:
+                return None, None, None
             visited.add(current)
 
             cur_v = self.graph.vs[current]
@@ -186,7 +188,6 @@ class AliasBuilder:
             # Terminal: identifier
             if cur_label == NodeLabel.IDENTIFIER.value and cur_name:
                 # Check if any member edge points TO this identifier
-                # (means this is a property accessed via member edge)
                 member_from = list(
                     self.graph.es.select(_target=current, label="member")
                 )
@@ -195,25 +196,21 @@ class AliasBuilder:
                     parent_name = _vattr(self.graph.vs[parent_vid], "name", "")
                     composed = f"{parent_name}.{cur_name}"
                     func_vid = self._find_or_create_function(composed)
-                    if func_vid is not None:
-                        return composed, AliasType.VIA_MEMBER.value, func_vid
-                    return composed, AliasType.VIA_MEMBER.value, None
+                    return composed, AliasType.VIA_MEMBER.value, func_vid
 
                 # Leaf identifier: no DFG upstream
                 dfg_sources = list(
                     self.graph.es.select(_target=current, label="dfg")
                 )
                 if not dfg_sources:
-                    # Cross-scope fallback: when the current identifier has no
-                    # DFG upstream (e.g., callee identifier in function scope
-                    # while the definition is in file scope), look for another
-                    # same-name identifier that has DFG edges.
+                    # Cross-scope fallback
                     cross_scope_id = self._find_same_name_with_dfg(
                         current, cur_name
                     )
                     if cross_scope_id is not None:
-                        current = cross_scope_id
-                        continue
+                        result = _try(cross_scope_id, depth + 1)
+                        if result[0] is not None:
+                            return result
 
                     # No cross-scope match; treat as direct reference
                     func_vid = self._find_or_create_function(cur_name)
@@ -222,11 +219,14 @@ class AliasBuilder:
                         if current != callee_id
                         else AliasType.DIRECT.value
                     )
-                    if func_vid is not None:
-                        return cur_name, atype, func_vid
-                    return cur_name, atype, None
+                    return cur_name, atype, func_vid
 
-                # Has DFG upstream - continue tracing
+                # Has DFG upstream — try each path
+                for dfg_e in dfg_sources:
+                    result = _try(dfg_e.source, depth + 1)
+                    if result[0] is not None:
+                        return result
+                return None, None, None
 
             # Terminal: const(string)
             if cur_label == NodeLabel.CONST.value and cur_name:
@@ -238,7 +238,7 @@ class AliasBuilder:
             if cur_label == NodeLabel.FUNCTION.value and cur_name:
                 return cur_name, AliasType.DIRECT.value, current
 
-            # Transit: operator node - check for resolver patterns
+            # Transit: operator node — check for resolver patterns
             if cur_label == NodeLabel.OPERATOR.value and cur_name:
                 string_arg = self._extract_string_arg(current)
                 if string_arg:
@@ -250,17 +250,18 @@ class AliasBuilder:
                     func_vid = self._find_or_create_function(string_arg)
                     return string_arg, alias_type, func_vid
 
-            # Continue tracing via DFG
+            # Transit: any other node — follow DFG sources
             dfg_sources = list(
                 self.graph.es.select(_target=current, label="dfg")
             )
-            if dfg_sources:
-                current = dfg_sources[0].source
-                continue
+            for dfg_e in dfg_sources:
+                result = _try(dfg_e.source, depth + 1)
+                if result[0] is not None:
+                    return result
 
-            break
+            return None, None, None
 
-        return None, None, None
+        return _try(callee_id, 0)
 
     def _extract_string_arg(self, op_vid: int) -> str | None:
         """Extract a string argument from an operator's ast[arg] children.
