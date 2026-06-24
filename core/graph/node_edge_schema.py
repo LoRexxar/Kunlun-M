@@ -96,6 +96,7 @@ class ClassType(str, Enum):
     INTERFACE = "interface"
     STRUCT = "struct"
     ENUM = "enum"
+    MODULE = "module"
 
 
 class FunctionType(str, Enum):

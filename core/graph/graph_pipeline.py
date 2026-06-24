@@ -152,9 +152,10 @@ def build_ast_graph(
             processed_count += 1
 
         except Exception as e:
+            import traceback
             logger.warning(
-                "[GraphPipeline] Failed to normalize %s (%s): %s",
-                filepath, language, e,
+                "[GraphPipeline] Failed to normalize %s (%s): %s\n%s",
+                filepath, language, e, traceback.format_exc(),
             )
             errors += 1
 

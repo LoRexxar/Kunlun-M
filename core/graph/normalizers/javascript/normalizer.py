@@ -561,9 +561,12 @@ class Normalizer:
         # Build signature
         param_strs = []
         for p in params:
+            if p is None:
+                param_strs.append("?")
+                continue
             if hasattr(p, "type") and p.type == "Identifier":
-                param_strs.append(p.name)
-            elif hasattr(p, "name"):
+                param_strs.append(getattr(p, "name", None) or "?")
+            elif hasattr(p, "name") and p.name:
                 param_strs.append(p.name)
             else:
                 param_strs.append(self._expr_text(p) or "?")
