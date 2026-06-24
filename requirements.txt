@@ -38,7 +38,7 @@ tree-sitter-cpp>=0.23,<1
 tree-sitter-rust>=0.23,<1
 tree-sitter-ruby>=0.23,<1
 tree-sitter-c-sharp>=0.23,<1
-tree-sitter-kotlin>=0.23,<1
+tree-sitter-kotlin>=1.0,<2
 tree-sitter-lua>=0.23,<1
 
 # Database drivers
