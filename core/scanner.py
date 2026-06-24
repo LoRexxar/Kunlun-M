@@ -161,7 +161,7 @@ def scan_single(target_directory, single_rule, files=None, language=None, tamper
 
 
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
-         extension_count=0, files=None, tamper_name=None, is_unconfirm=False):
+         extension_count=0, files=None, tamper_name=None, is_unconfirm=False, no_cache=False):
     """Graph-based scan — AST 图扫描引擎入口"""
     r = Rule(language)
     rules = r.rules(special_rules)
@@ -185,19 +185,27 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             lang_rules[lang] = []
         lang_rules[lang].append(rule)
 
-    # 尝试构建 AST 图
+    # 尝试加载缓存或构建 AST 图
     graph = None
-    try:
-        from core.pretreatment import ast_object
-        from core.graph.graph_pipeline import build_ast_graph
-        from Kunlun_M.settings import BASE_DIR
-        # db_path 传 None，让 pipeline 根据 scan_id 自动使用 workspace DB
-        # 仅在无 scan_id 时 fallback 到主库（保持 analyze 子命令可用）
-        db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db') if not a_sid else None
-        graph = build_ast_graph(ast_object, db_path=db_path, scan_id=a_sid)
-        logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
-    except Exception as e:
-        logger.warning('[SCAN] [GRAPH] Build failed, falling back to old scan: %s', e)
+    if not no_cache:
+        try:
+            from core.graph.graph_pipeline import load_cached_graph
+            graph = load_cached_graph(target_directory)
+        except Exception as e:
+            logger.warning('[SCAN] [GRAPH] Cache check failed, will rebuild: %s', e)
+
+    if graph is None:
+        try:
+            from core.pretreatment import ast_object
+            from core.graph.graph_pipeline import build_ast_graph
+            from Kunlun_M.settings import BASE_DIR
+            # db_path 传 None，让 pipeline 根据 scan_id 自动使用 workspace DB
+            # 仅在无 scan_id 时 fallback 到主库（保持 analyze 子命令可用）
+            db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db') if not a_sid else None
+            graph = build_ast_graph(ast_object, db_path=db_path, scan_id=a_sid)
+            logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
+        except Exception as e:
+            logger.warning('[SCAN] [GRAPH] Build failed, falling back to old scan: %s', e)
 
     if graph is None or graph.vcount() == 0:
         logger.warning('[SCAN] [GRAPH] Empty or no graph, falling back to old scan')

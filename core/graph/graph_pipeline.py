@@ -25,7 +25,7 @@ from utils.log import logger
 if TYPE_CHECKING:
     from core.pretreatment import Pretreatment
 
-__all__ = ["build_ast_graph"]
+__all__ = ["build_ast_graph", "load_cached_graph"]
 
 
 # ---------------------------------------------------------------------------
@@ -272,4 +272,89 @@ def build_ast_graph(
         except Exception as e:
             logger.warning("[GraphPipeline] Failed to save graph: %s", e)
 
+    return graph
+
+
+# ---------------------------------------------------------------------------
+# load_cached_graph
+# ---------------------------------------------------------------------------
+
+def load_cached_graph(target: str) -> "igraph.Graph | None":
+    """尝试从 workspace 中加载同一 target 的缓存图。
+
+    查找逻辑：
+      1. 查 workspace kunlun.db 的 scans 表，找 target 匹配的最新记录
+      2. 验证 graphmlz 文件存在且 content_hash 一致（AstGraphIO.load 内置校验）
+      3. 检查源文件是否有变动（对比 FileHash 表中记录的 MD5 与当前文件 MD5）
+      4. 全部通过 → 返回加载的图
+      5. 任一不通过 → 返回 None（打印 warning）
+
+    Args:
+        target: 扫描目标路径。
+
+    Returns:
+        igraph.Graph 对象；无缓存 / 缓存失效 / 文件变动时返回 ``None``。
+    """
+    try:
+        import igraph as ig
+    except ImportError:
+        return None
+
+    from core.graph.workspace import get_workspace_db
+    from core.graph.graph_io import AstGraphIO
+    from core.graph.sqlite_index import ScanRecord, FileHash
+
+    db_path = get_workspace_db()
+    if not os.path.isfile(db_path):
+        logger.debug("[GraphPipeline] No workspace DB, skip cache loading")
+        return None
+
+    # 1. 查 scans 表找同 target 的最新记录
+    sr = ScanRecord(db_path)
+    record = sr.get_by_target(target)
+    if not record:
+        logger.debug("[GraphPipeline] No cached scan for target: %s", target)
+        return None
+
+    graph_path = record.get("graph_path")
+    if not graph_path or not os.path.isfile(graph_path):
+        logger.warning("[GraphPipeline] Cached graph file missing: %s", graph_path)
+        return None
+
+    # 2. 加载图（AstGraphIO.load 会验证 content_hash）
+    graph_dir = os.path.dirname(graph_path)
+    gio = AstGraphIO(graph_dir)
+    graph = gio.load()
+    if graph is None:
+        logger.warning("[GraphPipeline] Cached graph failed hash validation: %s", graph_path)
+        return None
+
+    # 3. 检查源文件是否有变动（仅检查该 scan 关联的文件）
+    fh = FileHash(db_path)
+    cached_scan_id = record.get("id", 0)
+    all_hashes = fh.get_hashes_by_scan_id(cached_scan_id)
+    changed_files = []
+    for filepath, stored_hash in all_hashes.items():
+        if not os.path.isfile(filepath):
+            changed_files.append(filepath)
+            continue
+        current_hash = _compute_file_hash(filepath)
+        if current_hash != stored_hash:
+            changed_files.append(filepath)
+
+    if changed_files:
+        logger.info(
+            "[GraphPipeline] Cache invalidated: %d file(s) changed since cached scan %s",
+            len(changed_files), record.get("id"),
+        )
+        for fp in changed_files[:5]:
+            logger.debug("  changed: %s", fp)
+        if len(changed_files) > 5:
+            logger.debug("  ... and %d more", len(changed_files) - 5)
+        return None
+
+    logger.info(
+        "[GraphPipeline] Loaded cached graph from scan %s: %d nodes, %d edges",
+        record.get("id"), graph.vcount(), graph.ecount(),
+    )
     return graph

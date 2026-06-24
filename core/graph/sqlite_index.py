@@ -324,6 +324,23 @@ class FileHash:
             cur = conn.execute("SELECT file_path, content_hash FROM file_hash")
             return {row["file_path"]: row["content_hash"] for row in cur.fetchall()}
 
+    def get_hashes_by_scan_id(self, scan_id: int | str) -> dict[str, str]:
+        """获取指定 scan_id 关联的文件哈希。
+
+        Args:
+            scan_id: 扫描任务 ID。
+
+        Returns:
+            ``{file_path: content_hash}`` 字典。
+        """
+        sid = int(scan_id) if scan_id != "" else 0
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "SELECT file_path, content_hash FROM file_hash WHERE scan_id = ?",
+                (sid,),
+            )
+            return {row["file_path"]: row["content_hash"] for row in cur.fetchall()}
+
     def get_changed_files(self, current_hashes: dict[str, str]) -> list[str]:
         """对比当前文件哈希与数据库中的哈希，返回有变化的文件列表。
 
@@ -463,6 +480,24 @@ class ScanRecord:
         sid = int(scan_id) if scan_id != "" else 0
         with self._get_conn() as conn:
             cur = conn.execute("SELECT * FROM scans WHERE id = ?", (sid,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_by_target(self, target: str) -> dict | None:
+        """按 target 路径查询最近一次扫描记录。
+
+        Args:
+            target: 扫描目标路径（精确匹配）。
+
+        Returns:
+            target 匹配的 scans 表中 id 最大的一行（dict）；无匹配返回 ``None``。
+        """
+        self.ensure_tables()
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "SELECT * FROM scans WHERE target = ? ORDER BY id DESC LIMIT 1",
+                (target,),
+            )
             row = cur.fetchone()
             return dict(row) if row else None
 

@@ -162,6 +162,7 @@ def main():
         # for scan profile
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
+        parser_group_scan.add_argument('--no-cache', dest='no_cache', action='store_true', default=False, help='force rebuild graph without loading cache')
 
         # for vendor vuln scan
         parser_group_scan.add_argument('--without-vendor', dest='without_vendor', action='store_true', default=False, help='without scan vendor vuln (default open)')
@@ -522,7 +523,7 @@ def main():
         s.save()
 
         try:
-            cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom, template_path=args.html_template)
+            cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom, template_path=args.html_template, no_cache=args.no_cache)
         except Exception as e:
             s.is_finished = 0
             s.finished_at = timezone.now()
