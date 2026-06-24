@@ -136,14 +136,47 @@ class AliasBuilder:
                 t = self.graph.vs[e.target]
                 if t["label"] == NodeLabel.IDENTIFIER.value:
                     return e.target
-        # Fallback: find identifier or parameter by name
+        # Fallback: find identifier or parameter by name.
+        # Prefer same-scope (same own-parent function) to avoid shadowing bugs.
+        enclosing_func = self._find_own_parent_function(op_vid)
+        same_scope = []
+        cross_scope = []
         for vid in range(self.graph.vcount()):
             v = self.graph.vs[vid]
             if (
                 v["label"] in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value)
                 and _vattr(v, "name") == func_name
             ):
-                return vid
+                if enclosing_func and self._find_own_parent_function(vid) == enclosing_func:
+                    same_scope.append(vid)
+                else:
+                    cross_scope.append(vid)
+        if same_scope:
+            return same_scope[0]
+        if cross_scope:
+            return cross_scope[0]
+        return None
+
+    def _find_own_parent_function(self, vid: int) -> int | None:
+        """Find the nearest function/file ancestor via incoming own/ast edges."""
+        visited: set[int] = set()
+        queue = [vid]
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            # Walk up own chain, then AST chain from intermediate nodes
+            for e in self.graph.es.select(_target=current, label="own"):
+                parent_label = self.graph.vs[e.source]["label"]
+                if parent_label in ("function", "file"):
+                    return e.source
+                queue.append(e.source)
+            for e in self.graph.es.select(_target=current, label="ast"):
+                parent_label = self.graph.vs[e.source]["label"]
+                if parent_label in ("function", "file"):
+                    return e.source
+                queue.append(e.source)
         return None
 
     def _find_operand_identifier(self, op_vid: int) -> int | None:
