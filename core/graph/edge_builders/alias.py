@@ -180,6 +180,18 @@ class AliasBuilder:
                     self.graph.es.select(_target=current, label="dfg")
                 )
                 if not dfg_sources:
+                    # Cross-scope fallback: when the current identifier has no
+                    # DFG upstream (e.g., callee identifier in function scope
+                    # while the definition is in file scope), look for another
+                    # same-name identifier that has DFG edges.
+                    cross_scope_id = self._find_same_name_with_dfg(
+                        current, cur_name
+                    )
+                    if cross_scope_id is not None:
+                        current = cross_scope_id
+                        continue
+
+                    # No cross-scope match; treat as direct reference
                     func_vid = self._find_or_create_function(cur_name)
                     atype = (
                         AliasType.VIA_DFG_CHAIN.value
@@ -259,6 +271,38 @@ class AliasBuilder:
         self.graph.vs[vid]["is_external"] = True
         self.graph.vs[vid]["lineno"] = 0
         return vid
+
+    def _find_same_name_with_dfg(
+        self, current: int, name: str
+    ) -> int | None:
+        """Find a same-name identifier/parameter in another scope that has DFG edges.
+
+        Used as a cross-scope fallback in _resolve_alias when the callee
+        identifier has no DFG upstream within its own scope, but a same-name
+        variable definition exists in an outer scope.
+        """
+        # Prefer identifier with DFG incoming edge (definition with data source)
+        best = None
+        best_has_dfg = False
+        for v in self.graph.vs:
+            if v.index == current:
+                continue
+            if _vattr(v, "name") != name:
+                continue
+            if v["label"] not in (
+                NodeLabel.IDENTIFIER.value,
+                NodeLabel.PARAMETER.value,
+            ):
+                continue
+            has_dfg = any(
+                self.graph.es.select(_target=v.index, label="dfg")
+            )
+            if has_dfg:
+                # First match with DFG wins (usually the definition site)
+                return v.index
+            if best is None:
+                best = v.index
+        return best
 
     def _create_alias_edge(
         self,
