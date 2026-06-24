@@ -26,10 +26,10 @@ test_cases = [
              ['CVI-7000'],
              ['func(user_input)']),
 
-            # 间接调用但参数硬编码: func('ls -la') — 引擎仍检出CVI-7004，type=constant
-            ('31_indirect_safe.py', True,
-             'CVI-7004: indirect call with hardcoded arg (engine limitation: detects constant arg)',
-             ['CVI-7004'], []),
+            # 间接调用但参数硬编码: func('ls -la') — scanner 正确排除 constant 参数
+            ('31_indirect_safe.py', False,
+             'indirect call with hardcoded arg — correctly not detected (constant excluded)',
+             [], []),
 
             # 多层间接调用: func=os.system, func2=func, func2(user_input) — 引擎不支持多层间接链
             ('32_indirect_multilevel.py', True,

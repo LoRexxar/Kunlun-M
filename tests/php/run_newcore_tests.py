@@ -32,10 +32,10 @@ test_cases = [
      'CVI-1009 call_user_func: call_user_func("system", $cmd) 回调间接调用',
      ['CVI-1009'],
      ['call_user_func']),
-    # 安全场景: $func('ls -la') 硬编码参数 — 引擎仍检出 CVI-1011，type=constant
-    ('32_indirect_safe.php', True,
-     'CVI-1011 system: 变量函数调用硬编码参数 (engine limitation: detects constant arg)',
-     ['CVI-1011'],
+    # 安全场景: $func('ls -la') 硬编码参数 — scanner 正确排除 constant 参数
+    ('32_indirect_safe.php', False,
+     'indirect call with hardcoded arg — correctly not detected (constant excluded)',
+     [],
      []),
     # 多层间接: $func='system', $func2=$func, $func2($cmd) — 引擎通过 alias 追踪检出
     ('33_indirect_multilevel.php', True,

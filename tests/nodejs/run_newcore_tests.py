@@ -30,10 +30,10 @@ test_cases = [
      'CVI-3003 eval: 变量函数调用 f(userInput) where f=eval',
      ['CVI-3003'],
      ['f(userInput)']),
-    # 安全场景: f('1+1') 硬编码参数 — 引擎仍检出 CVI-3003，type=constant
-    ('31_indirect_safe.js', True,
-     'CVI-3003 eval: 变量函数调用硬编码参数 (engine limitation: detects constant arg)',
-     ['CVI-3003'],
+    # 安全场景: f('1+1') 硬编码参数 — scanner 正确排除 constant 参数
+    ('31_indirect_safe.js', False,
+     'indirect call with hardcoded arg — correctly not detected (constant excluded)',
+     [],
      []),
     # 多层间接: func=eval, func2=func, func2(userInput) — alias builder 追踪多层链
     ('32_indirect_multilevel.js', True,
