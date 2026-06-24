@@ -1301,6 +1301,36 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
+        # Create callee identifier for the class name (e.g. "ProcessBuilder")
+        # so find_sinks can resolve the callee name from operator's name
+        # "new ProcessBuilder" → callee identifier "ProcessBuilder"
+        if type_text:
+            callee_pos = add_node({
+                "label": NodeLabel.IDENTIFIER.value,
+                "name": type_text,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {"type": "class_name"},
+            })
+            self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
+            # use edge to function (may be external)
+            func_pos = add_node({
+                "label": NodeLabel.FUNCTION.value,
+                "name": type_text,
+                "lineno": 0,
+                "language": self.language,
+                "attrs": {
+                    "fullname": type_text,
+                    "type": FunctionType.FUNCTION.value,
+                    "is_external": True,
+                },
+            })
+            add_edge({
+                "label": EdgeLabel.USE.value,
+                "source": pos, "target": func_pos,
+                "attrs": {"call_type": CgCallType.DIRECT.value, "lineno": lineno},
+            })
+
         # arguments
         for idx, arg in enumerate(arguments):
             arg_pos = self._walk_node(arg, add_node, add_edge, ctx_stack,

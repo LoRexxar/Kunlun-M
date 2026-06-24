@@ -844,8 +844,26 @@ class Normalizer:
                                 self._ast_edge(add_edge, eq_pos, val_pos,
                                                AstRole.RHS.value)
                             else:
-                                self._ast_edge(add_edge, id_pos, val_pos,
-                                               AstRole.VALUE.value)
+                                # Variable initialization: create assign operator
+                                # + LHS/RHS so DFG builder creates forward_slice
+                                # edges. E.g. int size = atoi(argv[1]) needs
+                                # atoi→size DFG to reach malloc(size) sink.
+                                eq_pos = add_node({
+                                    "label": NodeLabel.OPERATOR.value,
+                                    "name": "=",
+                                    "lineno": lineno,
+                                    "language": self.language,
+                                    "attrs": {
+                                        "type": OperatorType.ASSIGN.value,
+                                        "raw_type": "var_init",
+                                    },
+                                })
+                                self._own_edge(add_edge, ctx_stack, eq_pos,
+                                                depth + 1)
+                                self._ast_edge(add_edge, eq_pos, id_pos,
+                                               AstRole.LHS.value)
+                                self._ast_edge(add_edge, eq_pos, val_pos,
+                                               AstRole.RHS.value)
                     break
 
         return last_pos

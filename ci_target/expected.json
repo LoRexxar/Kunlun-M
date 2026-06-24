@@ -26,16 +26,6 @@
       "severity": "high"
     },
     {
-      "file": "cmd_inject.java",
-      "cvi_id": "6023",
-      "severity": "high"
-    },
-    {
-      "file": "cmd_inject.java",
-      "cvi_id": "6038",
-      "severity": "high"
-    },
-    {
       "file": "cmd_inject.py",
       "cvi_id": "7000",
       "severity": "high"
