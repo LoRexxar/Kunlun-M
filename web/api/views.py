@@ -545,3 +545,69 @@ class GraphQueryApiView(View):
             return JsonResponse({"code": 404, "error": str(e)})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
+
+
+class GraphSubgraphApiView(View):
+    """AST 子图提取 API — 返回指定节点周围的子图用于可视化。
+
+    GET 参数:
+        scan_id: 扫描 ID (必填)
+        vid: 中心节点 vid (必填，与 file_path 二选一)
+        file_path: 文件路径 (必填，与 vid 二选一，提取整个文件的子图)
+        depth: BFS 深度 (默认 2，仅 vid 模式)
+        edge_labels: 边类型过滤，逗号分隔 (如 own,cg,dfg)
+        max_nodes: 最大节点数 (默认 500)
+    """
+
+    @staticmethod
+    @login_or_token_required
+    def get(request):
+        import os
+        from core.graph.session import AstGraphSession
+        from core.graph.workspace import get_workspace_db, get_scan_dir
+
+        scan_id = request.GET.get("scan_id")
+        vid = request.GET.get("vid")
+        file_path = request.GET.get("file_path")
+        depth = int(request.GET.get("depth", 2))
+        edge_labels_str = request.GET.get("edge_labels", "")
+        max_nodes = int(request.GET.get("max_nodes", 500))
+
+        if not scan_id:
+            return JsonResponse({"code": 400, "error": "scan_id required"})
+
+        if not vid and not file_path:
+            return JsonResponse({"code": 400, "error": "vid or file_path required"})
+
+        graph_dir = get_scan_dir(scan_id)
+        graph_path = os.path.join(graph_dir, "graph.graphmlz")
+        if not os.path.exists(graph_path):
+            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
+
+        workspace_db = get_workspace_db()
+        from core.graph.sqlite_index import ScanRecord
+        sr = ScanRecord(workspace_db)
+        info = sr.get_by_id(scan_id)
+        language = info.get("language", "php") if info else "php"
+
+        edge_labels = [x.strip() for x in edge_labels_str.split(",") if x.strip()] or None
+
+        try:
+            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
+            session.load()
+
+            if file_path:
+                result = session.query.get_file_subgraph(
+                    file_path, include_cross_edges=True, max_nodes=max_nodes
+                )
+            else:
+                result = session.query.get_subgraph(
+                    int(vid), depth=depth, edge_labels=edge_labels, max_nodes=max_nodes
+                )
+
+            session.close()
+            return JsonResponse({"code": 200, "data": result})
+        except FileNotFoundError as e:
+            return JsonResponse({"code": 404, "error": str(e)})
+        except Exception as e:
+            return JsonResponse({"code": 500, "error": str(e)})

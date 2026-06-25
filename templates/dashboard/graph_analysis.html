@@ -48,6 +48,7 @@
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-file">文件查询</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-function">函数查询</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-trace">污点追踪</button>
+      <button class="btn btn-default btn-sm tab-btn" data-tab="tab-graph">图可视化</button>
     </div>
   </div>
 </div>
@@ -324,9 +325,118 @@
   </div>
 </div>
 
+<!-- ==================== Tab 5: 图可视化 ==================== -->
+<div class="tab-pane" id="tab-graph" style="display:none;">
+  <!-- 控制栏 -->
+  <div class="row">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body" style="padding:10px 15px;">
+          <div class="row" style="align-items:center; gap:10px;">
+            <div class="col-xs-12 col-sm-4">
+              <div class="input-group">
+                <span class="input-group-addon">节点 VID</span>
+                <input type="number" id="graphVidInput" class="form-control" placeholder="输入中心节点 VID">
+              </div>
+            </div>
+            <div class="col-xs-6 col-sm-2">
+              <div class="input-group">
+                <span class="input-group-addon">深度</span>
+                <input type="number" id="graphDepthInput" class="form-control" value="2" min="1" max="5" style="width:60px;">
+              </div>
+            </div>
+            <div class="col-xs-6 col-sm-2">
+              <select id="graphLayoutSelect" class="form-control">
+                <option value="breadthfirst">层级布局</option>
+                <option value="cose">力导向</option>
+                <option value="concentric">同心圆</option>
+                <option value="circle">环形</option>
+              </select>
+            </div>
+            <div class="col-xs-12 col-sm-4 text-right">
+              <button id="btnLoadSubgraph" class="btn btn-primary btn-sm">
+                <i class="fa fa-project-diagram"></i> 加载子图
+              </button>
+              <button id="btnLoadFileGraph" class="btn btn-default btn-sm" style="margin-left:5px;" title="加载当前选中文件的完整子图">
+                <i class="fa fa-file-code-o"></i> 加载文件图
+              </button>
+            </div>
+          </div>
+          <!-- 过滤栏 -->
+          <div class="row" style="margin-top:8px;">
+            <div class="col-xs-12">
+              <label class="km-muted" style="font-size:12px; margin-right:10px;">节点类型:</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="file" checked> file</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="class" checked> class</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="function" checked> function</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="operator" checked> operator</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="parameter" checked> parameter</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="identifier" checked> identifier</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="branch" checked> branch</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="import" checked> import</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="const" checked> const</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="return" checked> return</label>
+              <span style="margin-left:15px;"></span>
+              <label class="km-muted" style="font-size:12px; margin-right:10px;">边类型:</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="own" checked> own</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="cg" checked> cg</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="dfg" checked> dfg</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="use" checked> use</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="ast" checked> ast</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="frg" checked> frg</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="crg" checked> crg</label>
+              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="member" checked> member</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图容器 + 节点详情 -->
+  <div class="row">
+    <div class="col-xs-12 col-md-9">
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">
+            <i class="fa fa-project-diagram"></i> AST 图
+            <span id="graphStats" class="km-muted" style="font-size:12px; margin-left:10px;"></span>
+          </h3>
+          <div class="box-tools pull-right">
+            <button id="btnFitGraph" class="btn btn-default btn-xs" title="适应视图">
+              <i class="fa fa-expand"></i>
+            </button>
+            <button id="btnClearGraph" class="btn btn-default btn-xs" title="清空">
+              <i class="fa fa-trash"></i>
+            </button>
+          </div>
+        </div>
+        <div class="box-body" style="padding:0;">
+          <div id="cyGraphContainer" style="width:100%; height:550px; background:#1a1a2e;"></div>
+        </div>
+      </div>
+    </div>
+    <!-- 节点详情面板 -->
+    <div class="col-xs-12 col-md-3">
+      <div class="box" id="nodeDetailBox">
+        <div class="box-header">
+          <h3 class="box-title">节点详情</h3>
+        </div>
+        <div class="box-body">
+          <div id="nodeDetailContent" class="km-muted text-center" style="padding:20px;">
+            点击图中的节点查看详情
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block script %}
+<!-- Cytoscape.js for graph visualization -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.4/cytoscape.min.js"></script>
 <script>
 $(document).ready(function () {
     // 侧边栏高亮
@@ -356,6 +466,34 @@ $(document).ready(function () {
                     // 自动选择最新的（第一个）
                     $sel.val(resp.scans[0].id);
                     selectScan(resp.scans[0].id);
+
+                    // URL 参数自动填充（从 task_detail 跳转过来时）
+                    var urlParams = new URLSearchParams(window.location.search);
+                    var preScanId = urlParams.get('scan_id');
+                    var preFilePath = urlParams.get('file_path');
+                    var preTab = urlParams.get('tab');
+                    if (preScanId) {
+                        // 尝试选择指定的 scan_id
+                        var found = resp.scans.find(function(s) { return String(s.id) === String(preScanId); });
+                        if (found) {
+                            $sel.val(found.id);
+                            selectScan(found.id);
+                        }
+                    }
+                    if (preFilePath) {
+                        // 延迟加载文件图（等待 scan_id 设置好）
+                        setTimeout(function() {
+                            loadFileGraph(currentScanId, preFilePath);
+                        }, 300);
+                    }
+                    if (preTab === 'graph') {
+                        // 直接切换到图可视化 tab
+                        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+                        $('.tab-btn[data-tab="tab-graph"]').removeClass('btn-default').addClass('btn-primary');
+                        $('.tab-pane').hide();
+                        $('#tab-graph').show();
+                        if (!cy) initCytoscape();
+                    }
                 } else {
                     $('#scanSelect').empty().append('<option value="">暂无扫描记录</option>');
                 }
@@ -749,6 +887,320 @@ $(document).ready(function () {
         if (str == null) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+
+    // ===== Tab 5: 图可视化 =====
+    var cy = null;  // Cytoscape instance
+    var graphElements = null;  // raw elements from API (for filtering)
+    var nodeColorMap = {
+        'file': '#3498db', 'class': '#9b59b6', 'function': '#2ecc71',
+        'operator': '#e67e22', 'parameter': '#1abc9c', 'identifier': '#95a5a6',
+        'branch': '#e74c3c', 'import': '#f1c40f', 'const': '#ecf0f1',
+        'return': '#3498db', 'annotation': '#e91e63', 'dependency': '#ff9800'
+    };
+    var edgeColorMap = {
+        'own': '#555', 'cg': '#2196F3', 'dfg': '#f44336', 'use': '#4CAF50',
+        'ast': '#FF9800', 'frg': '#9C27B0', 'crg': '#00BCD4',
+        'member': '#795548', 'alias': '#607D8B'
+    };
+
+    function initCytoscape() {
+        if (cy) { cy.destroy(); cy = null; }
+        cy = cytoscape({
+            container: document.getElementById('cyGraphContainer'),
+            elements: [],
+            style: [
+                { selector: 'node', style: {
+                    'label': 'data(name)',
+                    'text-valign': 'center', 'text-halign': 'center',
+                    'font-size': '10px', 'color': '#fff',
+                    'text-outline-width': 2, 'text-outline-color': '#000',
+                    'background-color': '#999', 'width': 30, 'height': 30,
+                    'text-max-width': '80px', 'text-wrap': 'wrap'
+                }},
+                { selector: 'node[file]', style: { 'shape': 'rectangle', 'width': 50, 'height': 30, 'font-size': '11px', 'font-weight': 'bold' }},
+                { selector: 'node[class]', style: { 'shape': 'diamond', 'width': 35, 'height': 35 }},
+                { selector: 'node[function]', style: { 'shape': 'round-rectangle', 'width': 45, 'height': 25, 'font-size': '11px' }},
+                { selector: 'node[operator]', style: { 'shape': 'round-rectangle', 'width': 35, 'height': 22, 'font-size': '9px' }},
+                { selector: 'node[sink]', style: { 'border-width': 3, 'border-color': '#ff0000' }},
+                { selector: 'node[taint="source"]', style: { 'border-width': 3, 'border-color': '#ffeb3b' }},
+                { selector: '.highlighted', style: { 'border-width': 4, 'border-color': '#ffeb3b' }},
+                { selector: 'edge', style: {
+                    'width': 2, 'line-color': '#666',
+                    'target-arrow-shape': 'triangle', 'target-arrow-color': '#666',
+                    'curve-style': 'bezier', 'arrow-scale': 0.8,
+                    'label': 'data(label)', 'font-size': '8px', 'color': '#aaa',
+                    'text-rotation': 'autorotate', 'text-background-color': '#1a1a2e',
+                    'text-background-opacity': 0.8, 'text-background-padding': '2px'
+                }},
+                { selector: 'edge[cg]', style: { 'line-color': '#2196F3', 'target-arrow-color': '#2196F3' }},
+                { selector: 'edge[dfg]', style: { 'line-color': '#f44336', 'target-arrow-color': '#f44336', 'width': 3, 'line-style': 'dashed' }},
+                { selector: 'edge[use]', style: { 'line-color': '#4CAF50', 'target-arrow-color': '#4CAF50' }},
+            ],
+            layout: { name: 'breadthfirst', directed: true, spacingFactor: 1.5 },
+            // user zooming/panning
+            userZoomingEnabled: true, userPanningEnabled: true,
+            boxSelectionEnabled: false,
+            autoungrabify: false
+        });
+
+        // Click node -> show detail + highlight
+        cy.on('tap', 'node', function(e) {
+            var node = e.target;
+            showNodeDetail(node.data());
+        });
+
+        // Double-click node -> expand
+        cy.on('dbltap', 'node', function(e) {
+            var node = e.target;
+            var vid = node.data().id;
+            $('#graphVidInput').val(vid);
+            loadSubgraph(currentScanId, vid);
+        });
+    }
+
+    function applyNodeStyles(elements) {
+        // Set color based on label, set boolean type attr for selectors, mark sinks/taint
+        var nodeElements = [];
+        var edgeElements = [];
+        for (var i = 0; i < elements.length; i++) {
+            var el = elements[i];
+            if (el.data.source !== undefined) {
+                // edge — store display text in data.label, set boolean attr for selector
+                var edgeData = Object.assign({}, el.data);
+                var elbl = edgeData.edgeLabel || edgeData.label || '';
+                edgeData.label = elbl;            // display text on edge
+                edgeData.edgeType = elbl;         // preserve original
+                if (elbl) edgeData[elbl] = true;  // e.g. edgeData.cg = true for selector
+                edgeElements.push({ data: edgeData });
+            } else {
+                // node
+                var nodeData = Object.assign({}, el.data);
+                var nlbl = nodeData.label || '';
+                nodeData.color = nodeColorMap[nlbl] || '#999';
+                if (nlbl) nodeData[nlbl] = true;   // e.g. nodeData.file = true for selector
+                // Mark sinks (operators with known sink names)
+                var sinkNames = ['system','exec','passthru','shell_exec','eval','assert',
+                    'echo','print','printf','file_put_contents','fopen','unlink',
+                    'mysqli_query','curl_exec','include','require','subprocess.run','HttpResponse'];
+                if (nlbl === 'operator' && sinkNames.indexOf(nodeData.name) >= 0) {
+                    nodeData.sink = true;
+                }
+                // Mark taint sources
+                if (nodeData.taint_type === 'source') {
+                    nodeData.taint = 'source';
+                }
+                nodeElements.push({ data: nodeData });
+            }
+        }
+        return nodeElements.concat(edgeElements);
+    }
+
+    function renderGraph(apiData) {
+        if (!apiData || !apiData.nodes) return;
+        $('#graphStats').text(
+            apiData.total_nodes + ' nodes, ' + apiData.total_edges + ' edges'
+        );
+        // Convert API format to Cytoscape elements
+        var elements = [];
+        for (var i = 0; i < apiData.nodes.length; i++) {
+            var n = apiData.nodes[i];
+            elements.push({
+                data: {
+                    id: String(n.id), label: n.label, name: n.name || n.id,
+                    type: n.type, file_path: n.file_path, lineno: n.lineno,
+                    taint_type: n.taint_type
+                }
+            });
+        }
+        for (var i = 0; i < apiData.edges.length; i++) {
+            var e = apiData.edges[i];
+            elements.push({
+                data: {
+                    id: 'e' + e.source + '_' + e.target,
+                    source: String(e.source), target: String(e.target),
+                    edgeLabel: e.label, label: e.label, type: e.type
+                }
+            });
+        }
+
+        graphElements = elements;
+        var styled = applyNodeStyles(elements);
+        cy.elements().remove();
+        cy.add(styled);
+        cy.layout({ name: $('#graphLayoutSelect').val(), directed: true, spacingFactor: 1.2, animate: true, animationDuration: 500 }).run();
+        cy.fit(undefined, 50);
+    }
+
+    function showNodeDetail(data) {
+        var html = '<table class="table km-table" style="margin-bottom:0; font-size:12px;">';
+        html += '<tr><td class="km-muted" style="width:60px;">VID</td><td><code>' + escHtml(data.id) + '</code></td></tr>';
+        html += '<tr><td class="km-muted">Label</td><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:' + (nodeColorMap[data.label] || '#999') + ';vertical-align:middle;margin-right:5px;"></span>' + escHtml(data.label) + '</td></tr>';
+        if (data.name) html += '<tr><td class="km-muted">Name</td><td><code>' + escHtml(data.name) + '</code></td></tr>';
+        if (data.type) html += '<tr><td class="km-muted">Type</td><td><code>' + escHtml(data.type) + '</code></td></tr>';
+        if (data.file_path) html += '<tr><td class="km-muted">File</td><td style="word-break:break-all;">' + escHtml(data.file_path) + '</td></tr>';
+        if (data.lineno) html += '<tr><td class="km-muted">Line</td><td>' + data.lineno + '</td></tr>';
+        if (data.taint_type) html += '<tr><td class="km-muted">Taint</td><td><span class="label label-' + (data.taint_type === 'source' ? 'warning' : 'info') + '">' + escHtml(data.taint_type) + '</span></td></tr>';
+        html += '</table>';
+
+        // Action buttons
+        html += '<div style="margin-top:10px;">';
+        html += '<button class="btn btn-primary btn-xs" onclick="loadSubgraph(currentScanId, ' + data.id + ')"><i class="fa fa-expand"></i> 展开此节点</button> ';
+        if (data.file_path) {
+            html += '<button class="btn btn-default btn-xs" onclick="loadFileGraph(currentScanId, \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
+        }
+        html += '</div>';
+
+        $('#nodeDetailContent').html(html);
+    }
+
+    function loadSubgraph(scanId, vid, depth) {
+        if (!scanId || !vid) { alert('请先选择 Scan 并输入节点 VID'); return; }
+        depth = depth || parseInt($('#graphDepthInput').val()) || 2;
+
+        var edgeLabels = [];
+        $('.graph-edge-filter:checked').each(function() { edgeLabels.push($(this).val()); });
+        var params = {
+            scan_id: scanId, vid: vid, depth: depth,
+            edge_labels: edgeLabels.join(','),
+            max_nodes: 500
+        };
+
+        $('#btnLoadSubgraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
+        $.ajax({
+            url: '/api/graph/subgraph',
+            type: 'GET', data: params, dataType: 'json',
+            success: function(resp) {
+                $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
+                if (resp.code === 200 && resp.data) {
+                    if (resp.data.error) {
+                        alert(resp.data.error); return;
+                    }
+                    renderGraph(resp.data);
+                    // Highlight center node
+                    cy.$('#' + String(vid)).addClass('highlighted');
+                } else {
+                    alert(resp.error || '加载失败');
+                }
+            },
+            error: function() {
+                $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
+                alert('请求失败');
+            }
+        });
+    }
+
+    function loadFileGraph(scanId, filePath) {
+        if (!scanId || !filePath) { alert('请先选择 Scan 并输入文件路径'); return; }
+        var params = { scan_id: scanId, file_path: filePath, max_nodes: 1000 };
+
+        $('#btnLoadFileGraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> ...');
+        $.ajax({
+            url: '/api/graph/subgraph',
+            type: 'GET', data: params, dataType: 'json',
+            success: function(resp) {
+                $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
+                if (resp.code === 200 && resp.data) {
+                    if (resp.data.error) { alert(resp.data.error); return; }
+                    renderGraph(resp.data);
+                } else {
+                    alert(resp.error || '加载失败');
+                }
+            },
+            error: function() {
+                $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
+                alert('请求失败');
+            }
+        });
+    }
+
+    // Init Cytoscape on page load
+    initCytoscape();
+
+    $('#btnLoadSubgraph').on('click', function() {
+        var vid = $('#graphVidInput').val();
+        if (!vid) { alert('请输入节点 VID'); return; }
+        loadSubgraph(currentScanId, parseInt(vid));
+    });
+
+    $('#graphVidInput').on('keypress', function(e) {
+        if (e.which === 13) { $('#btnLoadSubgraph').click(); }
+    });
+
+    $('#btnLoadFileGraph').on('click', function() {
+        // Pop up to ask file path
+        var filePath = prompt('输入文件路径:', '');
+        if (!filePath) return;
+        loadFileGraph(currentScanId, filePath);
+    });
+
+    $('#btnFitGraph').on('click', function() {
+        if (cy) cy.fit(undefined, 50);
+    });
+
+    $('#btnClearGraph').on('click', function() {
+        if (cy) { cy.elements().remove(); }
+        graphElements = null;
+        $('#graphStats').text('');
+        $('#nodeDetailContent').html('<div class="km-muted text-center" style="padding:20px;">点击图中的节点查看详情</div>');
+    });
+
+    // Layout change
+    $('#graphLayoutSelect').on('change', function() {
+        if (cy && cy.elements().length > 0) {
+            cy.layout({ name: $(this).val(), directed: true, spacingFactor: 1.2, animate: true, animationDuration: 500 }).run();
+            setTimeout(function() { cy.fit(undefined, 50); }, 600);
+        }
+    });
+
+    // Node/Edge type filter — rebuild graph from stored elements
+    function applyFilters() {
+        if (!graphElements) return;
+        var nodeTypes = new Set();
+        var edgeTypes = new Set();
+        $('.graph-node-filter:checked').each(function() { nodeTypes.add($(this).val()); });
+        $('.graph-edge-filter:checked').each(function() { edgeTypes.add($(this).val()); });
+
+        var filtered = graphElements.filter(function(el) {
+            if (el.data.source !== undefined) {
+                // edge — check edgeLabel
+                return edgeTypes.has(el.data.edgeLabel || el.data.label);
+            } else {
+                // node — check label
+                return nodeTypes.has(el.data.label);
+            }
+        });
+
+        var styled = applyNodeStyles(filtered);
+        cy.elements().remove();
+        cy.add(styled);
+    }
+    $('.graph-node-filter, .graph-edge-filter').on('change', applyFilters);
+
+    // Jump to graph tab from other tabs
+    function jumpToGraph(vid) {
+        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+        $('.tab-btn[data-tab="tab-graph"]').removeClass('btn-default').addClass('btn-primary');
+        $('.tab-pane').hide();
+        $('#tab-graph').show();
+        if (!cy) initCytoscape();
+        $('#graphVidInput').val(vid);
+        loadSubgraph(currentScanId, vid);
+    }
+
+    // Add "查看图" button to file list items and function detail (dynamic)
+    // When clicking file-link or func-link, also show a "graph" button
+    $(document).on('click', '.file-link', function(e) {
+        // After file query renders, add a "view in graph" button
+        setTimeout(function() {
+            if ($('#fileFunctionsBody tr').length > 0) {
+                $('#fileFunctionsBody tr').each(function() {
+                    if ($(this).find('.graph-func-btn').length === 0) {
+                        $(this).append('<td><button class="btn btn-default btn-xs graph-func-btn" title="在图中查看" onclick="loadFileGraph(currentScanId, $(\'#fileQueryInput\').val().trim());"><i class="fa fa-project-diagram"></i></button></td>');
+                    }
+                });
+            }
+        }, 500);
+    });
 });
 </script>
 {% endblock %}

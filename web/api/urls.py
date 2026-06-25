@@ -60,4 +60,6 @@ urlpatterns = [
     # graph analysis
     path("graph/scans", views.GraphScansApiView.as_view(), name="graph_scans"),
     path("graph/query", views.GraphQueryApiView.as_view(), name="graph_query"),
+    # graph subgraph extraction (for visualization)
+    path("graph/subgraph", views.GraphSubgraphApiView.as_view(), name="graph_subgraph"),
 ]

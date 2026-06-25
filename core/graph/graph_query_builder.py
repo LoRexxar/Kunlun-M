@@ -403,3 +403,152 @@ class GraphQueryBuilder:
                 break
 
         return results
+
+    # --- get_subgraph() ---
+    def get_subgraph(
+        self,
+        center_vid: int,
+        depth: int = 2,
+        edge_labels: list[str] | None = None,
+        max_nodes: int = 500,
+    ) -> dict[str, Any]:
+        """Extract a subgraph centered on a given node via BFS.
+
+        Args:
+            center_vid: Center node vertex ID.
+            depth: BFS depth (default 2).
+            edge_labels: Optional edge label filter (only follow these edges).
+                When None, all edges are traversed for BFS and included.
+            max_nodes: Safety cap on node count (default 500).
+
+        Returns dict with:
+            - center_vid: center node ID
+            - nodes: [{id, label, name, type, file_path, lineno, taint_type}]
+            - edges: [{source, target, label, type}]
+            - total_nodes / total_edges
+        """
+        edge_label_set = set(edge_labels) if edge_labels else None
+
+        # BFS
+        visited: set[int] = {center_vid}
+        queue = [center_vid]
+        for _ in range(depth):
+            if len(visited) > max_nodes:
+                break
+            next_queue: list[int] = []
+            for vid in queue:
+                for nb in self.graph.neighbors(vid, mode="all"):
+                    if nb in visited:
+                        continue
+                    # If edge_labels filter set, check at least one edge vid↔nb has matching label
+                    if edge_label_set:
+                        has_match = False
+                        for e in self.graph.es.select(_source=vid, _target=nb):
+                            if _vattr(e, "label") in edge_label_set:
+                                has_match = True
+                                break
+                        if not has_match:
+                            for e in self.graph.es.select(_source=nb, _target=vid):
+                                if _vattr(e, "label") in edge_label_set:
+                                    has_match = True
+                                    break
+                        if not has_match:
+                            continue
+                    visited.add(nb)
+                    next_queue.append(nb)
+            queue = next_queue
+
+        return self._serialize_subgraph(visited, edge_label_set, center_vid)
+
+    # --- get_file_subgraph() ---
+    def get_file_subgraph(
+        self,
+        file_path: str,
+        include_cross_edges: bool = True,
+        max_nodes: int = 1000,
+    ) -> dict[str, Any]:
+        """Extract the subgraph for a specific file.
+
+        Collects all nodes under the file node via ``own`` edges,
+        plus optionally all edges between those nodes (including cg/dfg/use).
+
+        Args:
+            file_path: File path to look up.
+            include_cross_edges: If True, include non-own edges between
+                file-owned nodes (cg, dfg, use, etc.).
+            max_nodes: Safety cap.
+
+        Returns same format as get_subgraph().
+        """
+        file_vid = self._find_file_vid(file_path)
+        if file_vid is None:
+            return {"error": f"File not found: {file_path}"}
+
+        # Collect all descendants via own edges
+        visited: set[int] = {file_vid}
+        queue = [file_vid]
+        while queue:
+            if len(visited) > max_nodes:
+                break
+            next_queue: list[int] = []
+            for vid in queue:
+                for e in self.graph.es.select(_source=vid, label="own"):
+                    if e.target not in visited:
+                        visited.add(e.target)
+                        next_queue.append(e.target)
+            queue = next_queue
+
+        edge_label_set = None if include_cross_edges else {"own"}
+        return self._serialize_subgraph(visited, edge_label_set)
+
+    # --- internal: _serialize_subgraph() ---
+    def _serialize_subgraph(
+        self,
+        vids: set[int],
+        edge_label_set: set[str] | None = None,
+        center_vid: int | None = None,
+    ) -> dict[str, Any]:
+        """Serialize a set of vertex IDs into the subgraph JSON format."""
+        # Serialize nodes
+        nodes = []
+        for vid in sorted(vids):
+            v = self.graph.vs[vid]
+            nodes.append({
+                "id": vid,
+                "label": _vattr(v, "label", ""),
+                "name": _vattr(v, "name", ""),
+                "type": _vattr(v, "type", ""),
+                "file_path": _vattr(v, "file_path", ""),
+                "lineno": _vattr(v, "lineno", 0),
+                "taint_type": _vattr(v, "taint_type", None),
+            })
+
+        # Collect edges between visited nodes efficiently
+        edge_set: set[int] = set()
+        for vid in vids:
+            for eid in self.graph.incident(vid, mode="all"):
+                e = self.graph.es[eid]
+                if e.source in vids and e.target in vids:
+                    if edge_label_set and _vattr(e, "label") not in edge_label_set:
+                        continue
+                    edge_set.add(eid)
+
+        edges = []
+        for eid in sorted(edge_set):
+            e = self.graph.es[eid]
+            edges.append({
+                "source": e.source,
+                "target": e.target,
+                "label": _vattr(e, "label", ""),
+                "type": _vattr(e, "type", ""),
+            })
+
+        result = {
+            "nodes": nodes,
+            "edges": edges,
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+        }
+        if center_vid is not None:
+            result["center_vid"] = center_vid
+        return result

@@ -419,6 +419,7 @@
 }
 </style>
 <script>
+var currentTaskId = {{ task.id }};
 // 注入漏洞链数据（Django 后端渲染）—— 必须在 chain-panel.js 之前
 var chainDataMap = {{ chain_json|safe }};
 </script>
@@ -479,7 +480,15 @@ function renderChainNodes(vulId, nodes) {
   var codeArea = document.getElementById('chainCode_' + vulId);
   if (!sidebar || !codeArea) return;
 
-  var html = '<div class="km-chain-title">漏洞传播链</div><div class="km-chain-nodes">';
+  // 构建图分析跳转链接
+  var lastNode = nodes[nodes.length - 1];
+  var chainFilePath = lastNode.path || '';
+  var graphUrl = '/graph/analysis?scan_id=' + currentTaskId + '&tab=graph';
+  if (chainFilePath) graphUrl += '&file_path=' + encodeURIComponent(chainFilePath);
+
+  var html = '<div class="km-chain-title">漏洞传播链';
+  html += ' <a href="' + graphUrl + '" target="_blank" class="btn btn-default btn-xs" style="margin-left:8px;font-size:10px;" title="在图分析中查看"><i class="fa fa-project-diagram"></i> 图</a>';
+  html += '</div><div class="km-chain-nodes">';
   for (var i = 0; i < nodes.length; i++) {
     var node = nodes[i];
     var style = getNodeStyle(node.type);
