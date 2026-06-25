@@ -699,3 +699,51 @@ class GraphNodeVulnsApiView(View):
             })
 
         return JsonResponse({"code": 200, "data": vulns})
+
+
+# --- 查询节点源码上下文 ---
+class GraphNodeSourceApiView(View):
+    """Return source code context for a specific graph node vid.
+
+    GET 参数:
+        scan_id: 扫描 ID (必填)
+        vid: 节点 VID (必填)
+        context_lines: 上下文行数 (默认 5)
+    """
+
+    @staticmethod
+    @login_or_token_required
+    def get(request):
+        import os
+        from core.graph.session import AstGraphSession
+        from core.graph.workspace import get_workspace_db, get_scan_dir
+
+        scan_id = request.GET.get("scan_id")
+        vid = request.GET.get("vid")
+        context_lines = int(request.GET.get("context_lines", 5))
+
+        if not scan_id or not vid:
+            return JsonResponse({"code": 400, "error": "scan_id and vid required"})
+
+        vid = int(vid)
+        graph_dir = get_scan_dir(scan_id)
+        graph_path = os.path.join(graph_dir, "graph.graphmlz")
+        if not os.path.exists(graph_path):
+            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
+
+        workspace_db = get_workspace_db()
+        from core.graph.sqlite_index import ScanRecord
+        sr = ScanRecord(workspace_db)
+        info = sr.get_by_id(scan_id)
+        language = info.get("language", "php") if info else "php"
+
+        try:
+            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
+            session.load()
+            result = session.query.get_node_source_context(vid, context_lines=context_lines)
+            session.close()
+            return JsonResponse({"code": 200, "data": result})
+        except FileNotFoundError as e:
+            return JsonResponse({"code": 404, "error": str(e)})
+        except Exception as e:
+            return JsonResponse({"code": 500, "error": str(e)})

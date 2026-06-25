@@ -13,6 +13,7 @@ All methods are read-only — they never modify the graph.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Optional
 
 import igraph as ig
@@ -572,3 +573,87 @@ class GraphQueryBuilder:
         if not valid_vids:
             return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0}
         return self._serialize_subgraph(valid_vids)
+
+    # --- get_node_source_context() ---
+    def get_node_source_context(
+        self,
+        vid: int,
+        context_lines: int = 5,
+    ) -> dict[str, Any]:
+        """Get source code context for a graph node by its VID.
+
+        Looks up the node's ``file_path`` and ``lineno`` attributes,
+        reads the source file, and returns a structured result with
+        the relevant lines around the target line.
+
+        This is the **canonical** way to map a graph node back to its
+        source code — both the web API and the console UI should call
+        this method rather than duplicating the logic.
+
+        Args:
+            vid: Vertex ID in the graph.
+            context_lines: Number of lines before and after the target
+                line (default 5).
+
+        Returns:
+            dict with:
+            - vid: the requested VID
+            - file_path: absolute path to the source file
+            - lineno: target line number (1-based, int)
+            - target_line: the source code at the target line (stripped)
+            - lines: list of {lineno, code} for context window
+            - total_lines: total line count of the file
+            - error: error message if something went wrong
+        """
+        result: dict[str, Any] = {"vid": vid, "error": None}
+
+        # Bounds check
+        if vid < 0 or vid >= self.graph.vcount():
+            result["error"] = f"VID {vid} out of range (0..{self.graph.vcount() - 1})"
+            return result
+
+        v = self.graph.vs[vid]
+        file_path = _vattr(v, "file_path", "")
+        lineno = int(_vattr(v, "lineno", 0) or 0)
+
+        result["file_path"] = file_path
+        result["lineno"] = lineno
+
+        if not file_path or not os.path.isfile(file_path):
+            result["error"] = f"Source file not found: {file_path}" if file_path else "Node has no file_path"
+            return result
+
+        if lineno <= 0:
+            result["error"] = "Node has no valid lineno"
+            return result
+
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+        except OSError as exc:
+            result["error"] = f"Cannot read file: {exc}"
+            return result
+
+        result["total_lines"] = len(all_lines)
+
+        # Calculate context window
+        start = max(0, lineno - 1 - context_lines)  # lineno is 1-based
+        end = min(len(all_lines), lineno + context_lines)
+
+        lines = []
+        for i in range(start, end):
+            lines.append({
+                "lineno": i + 1,
+                "code": all_lines[i].rstrip("\n\r"),
+            })
+
+        result["lines"] = lines
+
+        # Target line content (clamped to file bounds)
+        target_idx = lineno - 1
+        if 0 <= target_idx < len(all_lines):
+            result["target_line"] = all_lines[target_idx].rstrip("\n\r")
+        else:
+            result["target_line"] = ""
+
+        return result

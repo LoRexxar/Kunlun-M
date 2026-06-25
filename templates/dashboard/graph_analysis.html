@@ -440,6 +440,8 @@
 <link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
 <!-- Cytoscape.js for graph visualization -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.4/cytoscape.min.js"></script>
+<link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<script src="{% static 'js/prism.js' %}"></script>
 <script>
 $(document).ready(function () {
     // 侧边栏高亮
@@ -448,6 +450,7 @@ $(document).ready(function () {
     $("#graph_analysis").addClass("active");
 
     var currentScanId = null;
+    var scanProjectMap = {};  // scan_id → project_id 缓存
 
     // ===== 加载 scan 列表 =====
     function loadScans() {
@@ -1215,6 +1218,10 @@ $(document).ready(function () {
         if (data.file_path) {
             html += '<button class="btn btn-default btn-xs" onclick="loadFileGraph(currentScanId(), \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
         }
+        if (data.file_path && data.lineno) {
+            html += ' <a href="#" class="btn btn-default btn-xs" title="在源码浏览器中查看" onclick="event.preventDefault(); openFileBrowse(' + data.id + ',\'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\',' + data.lineno + ')"><i class="fa fa-external-link"></i> 源码</a>';
+        }
+        html += '<button class="btn btn-default btn-xs" onclick="loadNodeSource(currentScanId, ' + data.id + ')" title="查看此节点的源码上下文"><i class="fa fa-code"></i> 查看源码</button>';
         html += '</div>';
 
         $('#nodeDetailContent').html(html);
@@ -1223,6 +1230,11 @@ $(document).ready(function () {
         var vid = parseInt(data.id);
         var sid = currentScanId;
         if (sid && !isNaN(vid)) {
+            // 异步加载源码上下文
+            if (data.file_path && data.lineno) {
+                $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载源码...</span></div>');
+                loadNodeSource(sid, vid);
+            }
             $('#nodeDetailContent').append('<div id="nodeVulnsArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载关联漏洞...</span></div>');
             $.ajax({
                 url: '/api/graph/node_vulns',
@@ -1252,6 +1264,65 @@ $(document).ready(function () {
                 }
             });
         }
+    }
+
+    function loadNodeSource(scanId, vid) {
+        var $sa = $('#nodeSourceArea');
+        if (!$sa.length) {
+            // 如果源码区域不存在，追加到节点详情面板末尾
+            $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载源码...</span></div>');
+            $sa = $('#nodeSourceArea');
+        }
+        $sa.html('<span class="km-muted" style="font-size:11px;">加载源码...</span>');
+        $.ajax({
+            url: '/api/graph/node_source',
+            data: { scan_id: scanId, vid: vid, context_lines: 8 },
+            dataType: 'json',
+            success: function(resp) {
+                if (resp.code !== 200 || resp.data.error) {
+                    $sa.html('<div style="font-size:11px;color:#999;">' + escHtml(resp.data.error || '加载失败') + '</div>');
+                    return;
+                }
+                var d = resp.data;
+                var targetLine = d.lineno;
+                var lines = d.lines || [];
+                if (lines.length === 0) {
+                    $sa.html('<div style="font-size:11px;color:#999;">无源码数据</div>');
+                    return;
+                }
+                // 推断语言
+                var lang = 'plain';
+                var ext = (d.file_path || '').split('.').pop().toLowerCase();
+                var langMap = {php:'php',py:'python',js:'javascript',java:'java',rb:'ruby',go:'go',c:'c',cpp:'cpp',cs:'csharp',ts:'typescript',sol:'solidity',swift:'swift',kt:'kotlin'};
+                if (langMap[ext]) lang = langMap[ext];
+
+                // 构建代码表格
+                var html = '<div style="font-size:12px;font-weight:bold;margin-bottom:6px;"><i class="fa fa-code"></i> 源码 <span style="font-weight:normal;color:#999;">' + escHtml(d.file_path.split('/').pop()) + ':' + d.lineno + '</span></div>';
+                html += '<div style="background:#1e1e2e;border-radius:4px;padding:0;overflow-x:auto;font-size:12px;"><table style="width:100%;border-collapse:collapse;margin:0;">';
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i];
+                    var isTarget = (line.lineno === targetLine);
+                    var lineHtml = escHtml(line.code);
+                    // Prism 高亮
+                    try {
+                        if (window.Prism && Prism.languages[lang]) {
+                            lineHtml = Prism.highlight(line.code, Prism.languages[lang], lang);
+                        }
+                    } catch(e) {}
+                    var bgStyle = isTarget ? 'background:rgba(231,76,60,0.15);' : '';
+                    var numStyle = isTarget ? 'color:#e74c3c;font-weight:bold;' : 'color:#666;';
+                    html += '<tr style="' + bgStyle + 'border:none;">';
+                    html += '<td style="' + numStyle + 'padding:1px 8px;text-align:right;user-select:none;border:none;vertical-align:top;white-space:nowrap;">' + line.lineno + '</td>';
+                    html += '<td style="padding:1px 10px;border:none;white-space:pre;font-family:Consolas,Monaco,monospace;color:#cdd6f4;">' + lineHtml + '</td>';
+                    html += '</tr>';
+                }
+                html += '</table></div>';
+                $sa.html(html);
+            },
+            error: function() {
+                $sa.html('<div style="font-size:11px;color:#999;">加载失败</div>');
+            }
+        });
     }
 
     function loadSubgraph(scanId, vid, depth) {
@@ -1422,8 +1493,32 @@ $(document).ready(function () {
         }, 500);
     });
 
+    // 通过 scan_id(=task_id) 反查 project_id，跳转到源码浏览器
+    function openFileBrowse(vid, filePath, lineno) {
+        var sid = currentScanId;
+        if (!sid) { alert('请先选择 Scan'); return; }
+        // 先尝试从缓存获取
+        if (scanProjectMap[sid]) {
+            window.open('/dashboard/projects/' + scanProjectMap[sid] + '/files?file=' + encodeURIComponent(filePath) + '&lineno=' + lineno, '_blank');
+            return;
+        }
+        // 异步查询 project_id
+        $.ajax({
+            url: '/api/task/' + sid,
+            dataType: 'json',
+            success: function(resp) {
+                var pid = (resp.data && resp.data.project_id) || '';
+                if (!pid) { alert('无法获取项目 ID'); return; }
+                scanProjectMap[sid] = pid;
+                window.open('/dashboard/projects/' + pid + '/files?file=' + encodeURIComponent(filePath) + '&lineno=' + lineno, '_blank');
+            },
+            error: function() { alert('查询项目失败'); }
+        });
+    }
+
     // ===== 暴露全局函数供外部调用（URL 参数、task_detail 跳转等）=====
     window.loadSubgraph = loadSubgraph;
+    window.loadNodeSource = loadNodeSource;
     window.loadFileGraph = loadFileGraph;
     window.selectScan = selectScan;
     window.ensureCytoscape = ensureCytoscape;
