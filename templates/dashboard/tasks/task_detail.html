@@ -682,12 +682,12 @@ function renderChainGraph(vulId, container, graphData, chainNodes) {
     if (chainType === 'source') { borderColor = '#e74c3c'; borderWidth = 3; }
     if (chainType === 'sink') { borderColor = '#e67e22'; borderWidth = 3; }
     var nodeData = {
-      id: 'n' + nd.id,
       data: {
-        id: nd.id, label: nd.name || nd.label || ('node_' + nd.id),
+        id: 'n' + nd.id, label: nd.name || nd.label || ('node_' + nd.id),
         nodeLabel: nd.label, color: color, borderColor: borderColor,
         borderWidth: borderWidth, chainType: chainType || '',
         chainIdx: chainIdx !== undefined ? chainIdx : -1,
+        vid: nd.id,
       }
     };
     if (nd.label) nodeData.data[nd.label] = true;

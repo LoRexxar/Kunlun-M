@@ -396,7 +396,7 @@ class GraphQueryBuilder:
                 "name": _vattr(v, "name", ""),
                 "type": _vattr(v, "type", ""),
                 "file_path": _vattr(v, "file_path", ""),
-                "lineno": _vattr(v, "lineno", 0),
+                "lineno": int(_vattr(v, "lineno", 0) or 0),
             })
 
             if len(results) >= limit:
@@ -519,7 +519,7 @@ class GraphQueryBuilder:
                 "name": _vattr(v, "name", ""),
                 "type": _vattr(v, "type", ""),
                 "file_path": _vattr(v, "file_path", ""),
-                "lineno": _vattr(v, "lineno", 0),
+                "lineno": int(_vattr(v, "lineno", 0) or 0),
                 "taint_type": _vattr(v, "taint_type", None),
             })
 
