@@ -18,7 +18,6 @@ from django.views.decorators.csrf import csrf_exempt
 from web.index.controller import login_or_token_required, api_token_required
 from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, VendorVulns, get_resultflow_class
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult
-from utils.utils import show_context
 from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
 from Kunlun_M.settings import LOGS_PATH

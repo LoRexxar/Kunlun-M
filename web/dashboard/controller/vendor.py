@@ -18,11 +18,9 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.db.models import Count
 
-from Kunlun_M.settings import SUPER_ADMIN
-from Kunlun_M.const import VENDOR_VUL_LEVEL, VUL_LEVEL
+from Kunlun_M.const import VENDOR_VUL_LEVEL
 
 from web.index.controller import login_or_token_required
-from utils.utils import del_sensitive_for_config
 from core.vendors import get_vendor_vul_by_name, get_project_vendor_by_name
 
 from web.index.models import ScanTask, VendorVulns, Rules, ProjectVendors, Project

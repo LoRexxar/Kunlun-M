@@ -19,7 +19,6 @@ from utils.utils import del_sensitive_for_config
 from web.index.scan_dispatcher import try_dispatch
 
 from Kunlun_M.settings import API_TOKEN
-import os
 from utils.path_safety import safe_join, is_path_under
 
 

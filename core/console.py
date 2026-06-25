@@ -39,7 +39,7 @@ from core import cli
 from core.engine import Running
 
 from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, NewEvilFunc
-from web.index.models import get_resultflow_class, get_dataflow_class
+from web.index.models import get_resultflow_class
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, check_and_new_project_id
 
 
