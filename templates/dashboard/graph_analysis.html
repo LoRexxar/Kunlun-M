@@ -1318,11 +1318,6 @@ $(document).ready(function () {
         });
     }
 
-    // Expose to global scope for onclick handlers in node detail panel
-    window.loadSubgraph = loadSubgraph;
-    window.loadFileGraph = loadFileGraph;
-    window.currentScanId = function() { return currentScanId; };
-    window.jumpToGraph = jumpToGraph;
 
     // Init Cytoscape lazily — only when graph tab is first shown
     var cyInitialized = false;
@@ -1426,6 +1421,14 @@ $(document).ready(function () {
             }
         }, 500);
     });
+
+    // ===== 暴露全局函数供外部调用（URL 参数、task_detail 跳转等）=====
+    window.loadSubgraph = loadSubgraph;
+    window.loadFileGraph = loadFileGraph;
+    window.selectScan = selectScan;
+    window.ensureCytoscape = ensureCytoscape;
+    window.jumpToGraph = jumpToGraph;
+    window.currentScanId = function() { return currentScanId; };
 });
 </script>
 {% endblock %}

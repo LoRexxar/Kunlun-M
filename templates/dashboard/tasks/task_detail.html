@@ -504,9 +504,10 @@ function renderChainNodes(vulId, nodes) {
   if (!sidebar || !codeArea) return;
 
   // 构建图分析跳转链接
-  var lastNode = nodes[nodes.length - 1];
-  var chainFilePath = lastNode.path || '';
-  var sinkVid = lastNode.vid !== undefined && lastNode.vid !== null ? lastNode.vid : '';
+  // chain 顺序: sink → ... → source，取第一个节点作为 sink
+  var firstNode = nodes[0];
+  var chainFilePath = firstNode.path || '';
+  var sinkVid = firstNode.vid !== undefined && firstNode.vid !== null ? firstNode.vid : '';
   var graphUrl = '/dashboard/graph?scan_id=' + currentTaskId + '&tab=graph';
   if (sinkVid !== '') {
     graphUrl += '&vid=' + encodeURIComponent(sinkVid);
