@@ -64,4 +64,6 @@ urlpatterns = [
     path("graph/subgraph", views.GraphSubgraphApiView.as_view(), name="graph_subgraph"),
     # graph chain subgraph (for taint chain visualization)
     path("graph/chain_subgraph", views.GraphChainSubgraphApiView.as_view(), name="graph_chain_subgraph"),
+    # graph node associated vulnerabilities
+    path("graph/node_vulns", views.GraphNodeVulnsApiView.as_view(), name="graph_node_vulns"),
 ]

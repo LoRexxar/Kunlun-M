@@ -668,3 +668,37 @@ class GraphChainSubgraphApiView(View):
             return JsonResponse({"code": 404, "error": str(e)})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
+
+
+# --- 查询节点关联漏洞 ---
+class GraphNodeVulnsApiView(View):
+    """Return vulnerabilities associated with a specific graph node vid."""
+
+    def get(self, request):
+        scan_id = request.GET.get("scan_id")
+        vid = request.GET.get("vid")
+        if not scan_id or not vid:
+            return JsonResponse({"code": 400, "error": "scan_id and vid required"})
+
+        scan_id = int(scan_id)
+        vid = int(vid)
+
+        try:
+            from web.index.models import get_resultflow_class
+            ResultFlow = get_resultflow_class(scan_id)
+        except Exception:
+            return JsonResponse({"code": 200, "data": []})
+
+        vulns = []
+        for rf in ResultFlow.objects.filter(node_vid=vid).values(
+            "vul_func", "node_name", "node_path", "node_lineno", "node_type"
+        )[:20]:
+            vulns.append({
+                "vul_func": rf.get("vul_func", ""),
+                "node_name": rf.get("node_name", ""),
+                "node_path": rf.get("node_path", ""),
+                "node_lineno": rf.get("node_lineno", ""),
+                "node_type": rf.get("node_type", ""),
+            })
+
+        return JsonResponse({"code": 200, "data": vulns})

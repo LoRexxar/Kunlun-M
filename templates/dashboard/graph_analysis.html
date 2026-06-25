@@ -1218,6 +1218,40 @@ $(document).ready(function () {
         html += '</div>';
 
         $('#nodeDetailContent').html(html);
+
+        // 异步加载关联漏洞
+        var vid = parseInt(data.id);
+        var sid = currentScanId();
+        if (sid && !isNaN(vid)) {
+            $('#nodeDetailContent').append('<div id="nodeVulnsArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载关联漏洞...</span></div>');
+            $.ajax({
+                url: '/api/graph/node_vulns',
+                data: { scan_id: sid, vid: vid },
+                dataType: 'json',
+                success: function (resp) {
+                    var $va = $('#nodeVulnsArea');
+                    if (!resp.data || resp.data.length === 0) {
+                        $va.html('<div style="font-size:11px;color:#999;">无关联漏洞</div>');
+                        return;
+                    }
+                    var vulnHtml = '<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#e74c3c;"><i class="fa fa-bug"></i> 关联漏洞 (' + resp.data.length + ')</div>';
+                    vulnHtml += '<table class="table km-table" style="font-size:11px;margin-bottom:0;">';
+                    $.each(resp.data, function (i, v) {
+                        vulnHtml += '<tr><td><code>' + escHtml(v.node_name || '-') + '</code></td>';
+                        vulnHtml += '<td>' + escHtml(v.node_type || '-') + '</td>';
+                        var loc = '';
+                        if (v.node_path) loc += v.node_path.split('/').pop();
+                        if (v.node_lineno) loc += ':' + v.node_lineno;
+                        vulnHtml += '<td>' + escHtml(loc || '-') + '</td></tr>';
+                    });
+                    vulnHtml += '</table>';
+                    $va.html(vulnHtml);
+                },
+                error: function () {
+                    $('#nodeVulnsArea').html('<div style="font-size:11px;color:#999;">加载失败</div>');
+                }
+            });
+        }
     }
 
     function loadSubgraph(scanId, vid, depth) {
