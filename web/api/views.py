@@ -694,7 +694,7 @@ class GraphNodeVulnsApiView(View):
 
     @staticmethod
     @login_or_token_required
-    def get(self, request):
+    def get(request):
         scan_id = request.GET.get("scan_id")
         vid = request.GET.get("vid")
         if not scan_id or not vid:
