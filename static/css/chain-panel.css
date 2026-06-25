@@ -200,3 +200,17 @@
     font-size: 13px;
     user-select: none;
 }
+
+/* 调用链摘要 */
+.km-chain-summary {
+    font-size: 12px;
+    font-weight: normal;
+    color: #666;
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: #f5f7fa;
+    border-radius: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

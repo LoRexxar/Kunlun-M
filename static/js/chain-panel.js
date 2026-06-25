@@ -12,9 +12,22 @@ var chainPanelVulId = null;
 
 // 节点类型图标和颜色
 var NODE_STYLES = {
-    'source':  { icon: 'fa-crosshairs', color: '#e74c3c', label: '数据入口' },
-    'sink':    { icon: 'fa-bomb',       color: '#e67e22', label: '危险函数' },
-    'NewScan': { icon: 'fa-search',     color: '#3498db', label: '匹配代码' },
+    'source':      { icon: 'fa-crosshairs',  color: '#e74c3c', label: '数据入口' },
+    'sink':        { icon: 'fa-bomb',        color: '#e67e22', label: '危险函数' },
+    'NewScan':     { icon: 'fa-search',      color: '#3498db', label: '匹配代码' },
+    'identifier':  { icon: 'fa-tag',         color: '#95a5a6', label: '变量' },
+    'operator':    { icon: 'fa-cog',         color: '#e67e22', label: '操作符' },
+    'function':    { icon: 'fa-code',        color: '#2ecc71', label: '函数' },
+    'parameter':   { icon: 'fa-sliders-h',   color: '#1abc9c', label: '参数' },
+    'branch':      { icon: 'fa-code-branch', color: '#e74c3c', label: '分支' },
+    'return':      { icon: 'fa-reply',       color: '#3498db', label: '返回值' },
+    'file':        { icon: 'fa-file-code',   color: '#3498db', label: '文件' },
+    'class':       { icon: 'fa-cube',        color: '#9b59b6', label: '类' },
+    'import':      { icon: 'fa-download',    color: '#f1c40f', label: '引入' },
+    'expression':  { icon: 'fa-minus',       color: '#74b9ff', label: '表达式' },
+    'statement':   { icon: 'fa-align-left',  color: '#74b9ff', label: '语句' },
+    'string_literal':  { icon: 'fa-font',       color: '#ffeaa7', label: '字符串' },
+    'numeric_literal':  { icon: 'fa-hashtag',    color: '#fab1a0', label: '数值' },
 };
 var DEFAULT_NODE_STYLE = { icon: 'fa-circle', color: '#95a5a6', label: '传播节点' };
 

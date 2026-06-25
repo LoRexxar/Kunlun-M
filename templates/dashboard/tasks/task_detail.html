@@ -515,6 +515,18 @@ function renderChainNodes(vulId, nodes) {
   }
 
   var html = '<div class="km-chain-title">漏洞传播链';
+  // 调用链摘要（简洁的 name 链）
+  if (nodes.length > 0) {
+    var summaryParts = [];
+    for (var si = 0; si < nodes.length && si < 8; si++) {
+      var sn = nodes[si].content || nodes[si].name || nodes[si].type;
+      if (sn) summaryParts.push(sn);
+    }
+    if (nodes.length > 8) summaryParts.push('...');
+    if (summaryParts.length > 0) {
+      html += '<div class="km-chain-summary">' + summaryParts.map(function(s){return escapeHtml(s);}).join(' → ') + '</div>';
+    }
+  }
   html += ' <a href="' + graphUrl + '" target="_blank" class="btn btn-default btn-xs" style="margin-left:8px;font-size:10px;" title="在图分析中查看"><i class="fa fa-project-diagram"></i> 图</a>';
   html += ' <button type="button" class="btn btn-default btn-xs" style="margin-left:4px;font-size:10px;" title="内嵌链路图" onclick="event.stopPropagation(); toggleChainGraph(\'' + vulId + '\')"><i class="fa fa-share-alt"></i> 链路图</button>';
   html += '</div><div class="km-chain-nodes">';
