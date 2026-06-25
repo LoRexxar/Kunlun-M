@@ -458,28 +458,35 @@ class GraphScansApiView(View):
     @staticmethod
     @login_or_token_required
     def get(request):
-        from core.graph.workspace import get_workspace_db
-        from core.graph.sqlite_index import ScanRecord
+        try:
+            from core.graph.workspace import get_workspace_db
+            import sqlite3
 
-        workspace_db = get_workspace_db()
-        sr = ScanRecord(workspace_db)
-        sr.ensure_tables()
+            workspace_db = get_workspace_db()
+            conn = sqlite3.connect(workspace_db)
+            conn.row_factory = sqlite3.Row
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS scans ("
+                "id INTEGER PRIMARY KEY, language TEXT, target TEXT, "
+                "graph_path TEXT, file_count INTEGER, node_count INTEGER, "
+                "edge_count INTEGER, created_at TEXT)"
+            )
+            cur = conn.execute("SELECT * FROM scans ORDER BY id DESC")
+            scans = [dict(row) for row in cur.fetchall()]
+            conn.close()
 
-        # Also add a get_all method if missing - use raw SQL
-        import sqlite3
-        conn = sqlite3.connect(workspace_db)
-        conn.row_factory = sqlite3.Row
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS scans ("
-            "id INTEGER PRIMARY KEY, language TEXT, target TEXT, "
-            "graph_path TEXT, file_count INTEGER, node_count INTEGER, "
-            "edge_count INTEGER, created_at TEXT)"
-        )
-        cur = conn.execute("SELECT * FROM scans ORDER BY id DESC")
-        scans = [dict(row) for row in cur.fetchall()]
-        conn.close()
+            # 反查 project_id（scan_id 即 ScanTask.id）
+            scan_ids = [s["id"] for s in scans if s.get("id")]
+            if scan_ids:
+                task_map = dict(
+                    ScanTask.objects.filter(id__in=scan_ids).values_list("id", "project_id")
+                )
+                for s in scans:
+                    s["project_id"] = task_map.get(s["id"])
 
-        return JsonResponse({"code": 200, "scans": scans})
+            return JsonResponse({"code": 200, "scans": scans})
+        except Exception as e:
+            return JsonResponse({"code": 500, "error": str(e)})
 
 
 class GraphQueryApiView(View):
@@ -685,6 +692,8 @@ class GraphChainSubgraphApiView(View):
 class GraphNodeVulnsApiView(View):
     """Return vulnerabilities associated with a specific graph node vid."""
 
+    @staticmethod
+    @login_or_token_required
     def get(self, request):
         scan_id = request.GET.get("scan_id")
         vid = request.GET.get("vid")

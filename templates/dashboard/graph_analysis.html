@@ -527,6 +527,7 @@ $(document).ready(function () {
                     var $sel = $('#scanSelect');
                     $sel.empty().append('<option value="">-- 选择 Scan --</option>');
                     $.each(resp.scans, function (i, s) {
+                        if (s.project_id) { scanProjectMap[s.id] = s.project_id; }
                         var opt = '<option value="' + s.id + '">'
                             + 'ID:' + s.id + ' | ' + (s.language || '?') + ' | '
                             + (s.target || '-') + ' (节点:' + (s.node_count || 0) + ' 边:' + (s.edge_count || 0) + ')'
@@ -1707,19 +1708,6 @@ $(document).ready(function () {
 
     // Add "查看图" button to file list items and function detail (dynamic)
     // When clicking file-link or func-link, also show a "graph" button
-    $(document).on('click', '.file-link', function(e) {
-        // After file query renders, add a "view in graph" button
-        setTimeout(function() {
-            if ($('#fileFunctionsBody tr').length > 0) {
-                $('#fileFunctionsBody tr').each(function() {
-                    if ($(this).find('.graph-func-btn').length === 0) {
-                        $(this).append('<td><button class="btn btn-default btn-xs graph-func-btn" title="在图中查看" onclick="loadFileGraph(currentScanId, $(\'#fileQueryInput\').val().trim());"><i class="fa fa-project-diagram"></i></button></td>');
-                    }
-                });
-            }
-        }, 500);
-    });
-
     // 通过 scan_id(=task_id) 反查 project_id，跳转到源码浏览器
     function openFileBrowse(vid, filePath, lineno) {
         var sid = currentScanId;
@@ -1729,15 +1717,19 @@ $(document).ready(function () {
             window.open('/dashboard/projects/' + scanProjectMap[sid] + '/files?file=' + encodeURIComponent(filePath) + '&lineno=' + lineno, '_blank');
             return;
         }
-        // 异步查询 project_id
+        // 异步查询 — 用 scans 列表的 session 认证 API 反查
         $.ajax({
-            url: '/api/task/' + sid,
+            url: '/api/graph/scans',
             dataType: 'json',
             success: function(resp) {
-                var pid = (resp.data && resp.data.project_id) || '';
-                if (!pid) { alert('无法获取项目 ID'); return; }
-                scanProjectMap[sid] = pid;
-                window.open('/dashboard/projects/' + pid + '/files?file=' + encodeURIComponent(filePath) + '&lineno=' + lineno, '_blank');
+                if (resp.code !== 200 || !resp.scans) { alert('查询项目失败'); return; }
+                var found = null;
+                for (var i = 0; i < resp.scans.length; i++) {
+                    if (resp.scans[i].id == sid) { found = resp.scans[i]; break; }
+                }
+                if (!found || !found.project_id) { alert('无法获取项目 ID'); return; }
+                scanProjectMap[sid] = found.project_id;
+                window.open('/dashboard/projects/' + found.project_id + '/files?file=' + encodeURIComponent(filePath) + '&lineno=' + lineno, '_blank');
             },
             error: function() { alert('查询项目失败'); }
         });
