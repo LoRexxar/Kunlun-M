@@ -526,13 +526,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         node_label = _vattr(v, 'label', '')
                         node_name = _vattr(v, 'name', '')
                         node_file = _vattr(v, 'path', '')
-                        node_lineno = _vattr(v, 'lineno', 0) or 0
+                        node_lineno = int(_vattr(v, 'lineno', 0) or 0)
                         chain.append((node_label, node_name, node_file, node_lineno, vid))
 
                     # 构建 VulnerabilityResult
                     sink_vid = sink['vid']
                     file_path = _vattr(graph.vs[sink_vid], 'path', '')
-                    lineno = _vattr(graph.vs[sink_vid], 'lineno', 0)
+                    lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
 
                     vuln = VulnerabilityResult.from_match(
                         (file_path, lineno, sink_name),
