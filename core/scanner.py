@@ -20,6 +20,7 @@ import portalocker
 
 from core.rule import Rule
 from core.matcher import VulnerabilityMatcher as Core
+# ── Legacy engine imports (only used by oldscan/scan_single/SingleRule below) ──
 from core.rule_generator import NewCore
 from core.core_engine.php.parser import find_sinks as php_find_sinks
 from core.core_engine.python.parser import find_sinks as python_find_sinks
@@ -150,6 +151,13 @@ def score2level(score):
         a = '{s}{e}'.format(s=score * '■', e=(10 - score) * '□')
         return '{l}-{s}: {ast}'.format(l=level[:1], s=score_full, ast=a)
 
+
+# ══════════════════════════════════════════════════════════════
+#  LEGACY ENGINE — oldscan / scan_single / SingleRule / NewCore
+#  These functions are no longer called by the graph-based scan()
+#  pipeline. Retained for backward compatibility only. DO NOT use
+#  in new code. Will be removed in a future cleanup pass.
+# ══════════════════════════════════════════════════════════════
 
 def scan_single(target_directory, single_rule, files=None, language=None, tamper_name=None, is_unconfirm=False,
                 newcore_function_list=None):
@@ -791,6 +799,8 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
         })
     return True
 
+
+# Legacy alias — no longer imported anywhere
 old_scan = oldscan
 
 
