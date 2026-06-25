@@ -492,7 +492,7 @@ $(document).ready(function () {
                         $('.tab-btn[data-tab="tab-graph"]').removeClass('btn-default').addClass('btn-primary');
                         $('.tab-pane').hide();
                         $('#tab-graph').show();
-                        if (!cy) initCytoscape();
+                        ensureCytoscape();
                     }
                 } else {
                     $('#scanSelect').empty().append('<option value="">暂无扫描记录</option>');
@@ -545,6 +545,10 @@ $(document).ready(function () {
         $(this).removeClass('btn-default').addClass('btn-primary');
         $('.tab-pane').hide();
         $('#' + tabId).show();
+        // Cytoscape needs to be initialized AFTER the container is visible and reflowed
+        if (tabId === 'tab-graph') {
+            ensureCytoscape();
+        }
     });
 
     // ===== Tab 1: 概览 =====
@@ -1054,62 +1058,66 @@ $(document).ready(function () {
     }
 
     function loadSubgraph(scanId, vid, depth) {
-        if (!scanId || vid === undefined || vid === null) { alert('请先选择 Scan 并输入节点 VID'); return; }
-        depth = depth || parseInt($('#graphDepthInput').val()) || 2;
+        ensureCytoscape(function() {
+            if (!scanId || vid === undefined || vid === null) { alert('请先选择 Scan 并输入节点 VID'); return; }
+            depth = depth || parseInt($('#graphDepthInput').val()) || 2;
 
-        var edgeLabels = [];
-        $('.graph-edge-filter:checked').each(function() { edgeLabels.push($(this).val()); });
-        var params = {
-            scan_id: scanId, vid: vid, depth: depth,
-            edge_labels: edgeLabels.join(','),
-            max_nodes: 500
-        };
+            var edgeLabels = [];
+            $('.graph-edge-filter:checked').each(function() { edgeLabels.push($(this).val()); });
+            var params = {
+                scan_id: scanId, vid: vid, depth: depth,
+                edge_labels: edgeLabels.join(','),
+                max_nodes: 500
+            };
 
-        $('#btnLoadSubgraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
-        $.ajax({
-            url: '/api/graph/subgraph',
-            type: 'GET', data: params, dataType: 'json',
-            success: function(resp) {
-                $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
-                if (resp.code === 200 && resp.data) {
-                    if (resp.data.error) {
-                        alert(resp.data.error); return;
+            $('#btnLoadSubgraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
+            $.ajax({
+                url: '/api/graph/subgraph',
+                type: 'GET', data: params, dataType: 'json',
+                success: function(resp) {
+                    $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
+                    if (resp.code === 200 && resp.data) {
+                        if (resp.data.error) {
+                            alert(resp.data.error); return;
+                        }
+                        renderGraph(resp.data);
+                        // Highlight center node
+                        cy.$('#' + String(vid)).addClass('highlighted');
+                    } else {
+                        alert(resp.error || '加载失败');
                     }
-                    renderGraph(resp.data);
-                    // Highlight center node
-                    cy.$('#' + String(vid)).addClass('highlighted');
-                } else {
-                    alert(resp.error || '加载失败');
+                },
+                error: function() {
+                    $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
+                    alert('请求失败');
                 }
-            },
-            error: function() {
-                $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
-                alert('请求失败');
-            }
+            });
         });
     }
 
     function loadFileGraph(scanId, filePath) {
-        if (!scanId || !filePath) { alert('请先选择 Scan 并输入文件路径'); return; }
-        var params = { scan_id: scanId, file_path: filePath, max_nodes: 1000 };
+        ensureCytoscape(function() {
+            if (!scanId || !filePath) { alert('请先选择 Scan 并输入文件路径'); return; }
+            var params = { scan_id: scanId, file_path: filePath, max_nodes: 1000 };
 
-        $('#btnLoadFileGraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> ...');
-        $.ajax({
-            url: '/api/graph/subgraph',
-            type: 'GET', data: params, dataType: 'json',
-            success: function(resp) {
-                $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
-                if (resp.code === 200 && resp.data) {
-                    if (resp.data.error) { alert(resp.data.error); return; }
-                    renderGraph(resp.data);
-                } else {
-                    alert(resp.error || '加载失败');
+            $('#btnLoadFileGraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> ...');
+            $.ajax({
+                url: '/api/graph/subgraph',
+                type: 'GET', data: params, dataType: 'json',
+                success: function(resp) {
+                    $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
+                    if (resp.code === 200 && resp.data) {
+                        if (resp.data.error) { alert(resp.data.error); return; }
+                        renderGraph(resp.data);
+                    } else {
+                        alert(resp.error || '加载失败');
+                    }
+                },
+                error: function() {
+                    $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
+                    alert('请求失败');
                 }
-            },
-            error: function() {
-                $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
-                alert('请求失败');
-            }
+            });
         });
     }
 
@@ -1117,9 +1125,23 @@ $(document).ready(function () {
     window.loadSubgraph = loadSubgraph;
     window.loadFileGraph = loadFileGraph;
     window.currentScanId = function() { return currentScanId; };
+    window.jumpToGraph = jumpToGraph;
 
-    // Init Cytoscape on page load
-    initCytoscape();
+    // Init Cytoscape lazily — only when graph tab is first shown
+    var cyInitialized = false;
+    function ensureCytoscape(callback) {
+        if (cyInitialized) {
+            try { cy.resize(); } catch(e) {}
+            if (callback) callback();
+            return;
+        }
+        // Force reflow so container has correct dimensions
+        var container = document.getElementById('cyGraphContainer');
+        if (container) void container.offsetWidth;
+        initCytoscape();
+        cyInitialized = true;
+        if (callback) callback();
+    }
 
     $('#btnLoadSubgraph').on('click', function() {
         var vid = $('#graphVidInput').val();
@@ -1187,9 +1209,10 @@ $(document).ready(function () {
         $('.tab-btn[data-tab="tab-graph"]').removeClass('btn-default').addClass('btn-primary');
         $('.tab-pane').hide();
         $('#tab-graph').show();
-        if (!cy) initCytoscape();
-        $('#graphVidInput').val(vid);
-        loadSubgraph(currentScanId, vid);
+        ensureCytoscape(function() {
+            $('#graphVidInput').val(vid);
+            loadSubgraph(currentScanId, vid);
+        });
     }
 
     // Add "查看图" button to file list items and function detail (dynamic)
