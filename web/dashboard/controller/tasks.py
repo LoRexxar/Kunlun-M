@@ -299,6 +299,7 @@ class TaskDetailView(View):
                         'path': rf.node_path or '',
                         'lineno': str(rf.node_lineno or ''),
                         'source': rf.node_source or '',
+                        'vid': rf.node_vid if hasattr(rf, 'node_vid') and rf.node_vid is not None else None,
                     })
         except Exception as e:
             import logging

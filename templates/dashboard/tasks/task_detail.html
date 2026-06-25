@@ -483,8 +483,13 @@ function renderChainNodes(vulId, nodes) {
   // 构建图分析跳转链接
   var lastNode = nodes[nodes.length - 1];
   var chainFilePath = lastNode.path || '';
-  var graphUrl = '/graph/analysis?scan_id=' + currentTaskId + '&tab=graph';
-  if (chainFilePath) graphUrl += '&file_path=' + encodeURIComponent(chainFilePath);
+  var sinkVid = lastNode.vid !== undefined && lastNode.vid !== null ? lastNode.vid : '';
+  var graphUrl = '/dashboard/graph?scan_id=' + currentTaskId + '&tab=graph';
+  if (sinkVid !== '') {
+    graphUrl += '&vid=' + encodeURIComponent(sinkVid);
+  } else if (chainFilePath) {
+    graphUrl += '&file_path=' + encodeURIComponent(chainFilePath);
+  }
 
   var html = '<div class="km-chain-title">漏洞传播链';
   html += ' <a href="' + graphUrl + '" target="_blank" class="btn btn-default btn-xs" style="margin-left:8px;font-size:10px;" title="在图分析中查看"><i class="fa fa-project-diagram"></i> 图</a>';

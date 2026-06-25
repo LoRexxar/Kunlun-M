@@ -527,7 +527,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         node_name = _vattr(v, 'name', '')
                         node_file = _vattr(v, 'path', '')
                         node_lineno = _vattr(v, 'lineno', 0) or 0
-                        chain.append((node_label, node_name, node_file, node_lineno))
+                        chain.append((node_label, node_name, node_file, node_lineno, vid))
 
                     # 构建 VulnerabilityResult
                     sink_vid = sink['vid']
@@ -589,7 +589,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 author=rule.author
                             )
                             vuln.analysis = f'Framework dependency: {match_text}'
-                            vuln.chain = [('Dependency', match_text, pom_path, 0)]
+                            vuln.chain = [('Dependency', match_text, pom_path, 0, None)]
                             find_vulnerabilities.append(vuln)
                             logger.info('[CVI-%s] [FRAMEWORK] Found: %s', rule.svid, match_text)
                     except Exception as e:
@@ -615,8 +615,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 if type(chain) == tuple:
                     ResultFlow = get_resultflow_class(int(a_sid))
                     node_source = show_context(chain[2], chain[3], is_back=True)
+                    node_vid = chain[4] if len(chain) >= 5 else None
                     rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
-                                    node_path=chain[2], node_source=node_source, node_lineno=chain[3])
+                                    node_path=chain[2], node_source=node_source, node_lineno=chain[3],
+                                    node_vid=node_vid)
                     rf.save()
 
         data.append(row)

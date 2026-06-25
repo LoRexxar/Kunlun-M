@@ -515,6 +515,7 @@ def get_resultflow_table(table_name):
             "node_path": models.CharField(max_length=300),
             "node_source": models.TextField(null=True),
             "node_lineno": models.CharField(max_length=20, null=True),
+            "node_vid": models.IntegerField(null=True, blank=True),
             "is_exists": staticmethod(
                 lambda: table_name in connection.introspection.table_names()
             ),
@@ -560,6 +561,13 @@ def get_resultflow_class(scanid):
             node_source = models.TextField(null=True, db_column="node_source")
             node_source.set_attributes_from_name("node_source")
             schema_editor.add_field(ResultflowObject, node_source)
+        except OperationalError:
+            pass
+
+        try:
+            node_vid = models.IntegerField(null=True, blank=True, db_column="node_vid")
+            node_vid.set_attributes_from_name("node_vid")
+            schema_editor.add_field(ResultflowObject, node_vid)
         except OperationalError:
             pass
 
