@@ -4,6 +4,7 @@
 
 {% block body %}
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
 <div class="row">
     <div class="col-xs-12">
     <div class="box box-warning">
@@ -12,9 +13,7 @@
     </div>
     <!-- /.box-header -->
     <div class="box-body">
-        <!-- text input -->
         <div class="form-group">
-
           <label>任务名称：</label>
           <div class="checkbox" id="rule">
             {{ task.task_name }}
@@ -24,7 +23,6 @@
           <label>参数配置：</label>
           <textarea class="form-control" rows="3" placeholder="任务参数详情" name="parameter_config" disabled>{{ task.parameter_config }}</textarea>
         </div>
-
     </div>
     </div>
 
@@ -42,6 +40,7 @@
                 <th class="km-td-nowrap">语言</th>
                 <th>文件</th>
                 <th>来源</th>
+                <th class="km-td-nowrap">等级</th>
                 <th class="km-td-nowrap">类型</th>
                 <th class="km-td-nowrap">确认</th>
                 <th class="km-col-actions">操作</th>
@@ -49,17 +48,30 @@
             </thead>
             <tbody>
               {% for taskresult in taskresults %}
-              <tr>
+              <tr data-vul-id="{{ taskresult.id }}" data-has-chain="{% if taskresult.has_chain %}1{% else %}0{% endif %}" class="km-vul-row">
                 <td class="km-td-nowrap">{{ taskresult.id }}</td>
                 <td class="km-td-nowrap">{{ taskresult.cvi_id }}</td>
                 <td class="km-td-nowrap">{{ taskresult.language }}</td>
                 <td><div class="km-cell-config" title="{{ taskresult.vulfile_path|escape }}">{{ taskresult.vulfile_path }}</div></td>
                 <td><div class="km-cell-config" title="{{ taskresult.source_code|escape }}">{{ taskresult.source_code }}</div></td>
+                <td class="km-td-nowrap">
+                  {% if taskresult.level|lower == 'critical' %}
+                  <span class="label label-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
+                  {% elif taskresult.level|lower == 'high' %}
+                  <span class="label label-danger">高危</span>
+                  {% elif taskresult.level|lower == 'medium' %}
+                  <span class="label label-warning">中危</span>
+                  {% elif taskresult.level|lower == 'low' %}
+                  <span class="label label-info">低危</span>
+                  {% else %}
+                  {{ taskresult.level }}
+                  {% endif %}
+                </td>
                 <td class="km-td-nowrap">{{ taskresult.result_type }}</td>
                 <td class="km-td-nowrap">
                   {% if taskresult.is_unconfirm == 0 %}
                   <span class="label label-success">是</span>
-                  {% elif  taskresult.is_unconfirm  == 1 %}
+                  {% elif taskresult.is_unconfirm == 1 %}
                   <span class="label label-danger">否</span>
                   {% else %}
                   <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
@@ -67,6 +79,9 @@
                 </td>
                 <td class="km-td-actions">
                   <div class="km-actions">
+                    {% if taskresult.has_chain %}
+                    <button type="button" class="btn btn-primary btn-xs" data-vul-id="{{ taskresult.id }}" onclick="toggleChainPanel(this)">查看链路</button>
+                    {% endif %}
                     <button type="button" class="btn btn-danger btn-xs" onclick="delVul('{{ taskresult.id }}')">删除</button>
                   </div>
                 </td>
@@ -82,44 +97,19 @@
         </div>
       </div>
 
-      <div class="box">
-        <div class="box-header">
-          <h3 class="box-title">漏洞详情</h3>
-        </div>
-          <div class="box-body">
-              <div class="box-group" id="accordion">
-                <!-- we are adding the .panel class so bootstrap.js collapse plugin detects it -->
-                {% for rfds in resultflowdict.items %}
-                <div class="panel box box-primary">
-                  <div class="box-header with-border">
-                    <h4 class="box-title">
-                      <a data-toggle="collapse" data-parent="#accordion" href="#collapse{{ rfds.1.id }}" aria-expanded="false" class="collapsed">
-                        漏洞 {{ rfds.0 }}  #{{ rfds.1.id }}
-                      </a>
-                    </h4>
-                  </div>
-                  <div id="collapse{{ rfds.1.id }}" class="panel-collapse collapse" aria-expanded="false" style="">
-                    <div class="box-body">
-
-                        {% for rf in rfds.1.flow %}
-                        <div class="box">
-                            <h5 class="box-title">{{ rf.type }} {{ rf.content }} {{ rf.path }}:{{ rf.lineno }}</h5>
-<pre class="language-python">
-<code class="language-python">
-{{ rf.details }}
-</code>
-</pre>
-                            </div>
-                        {% endfor %}
-                    </div>
-                  </div>
-                </div>
-                {% endfor %}
-
+      <!-- 传播链面板（共享，由 JS 移动到对应行之后） -->
+      <tr id="chainPanel" class="km-chain-panel-row" style="display:none;">
+        <td colspan="9" style="padding:0 !important; border:none !important;">
+          <div class="km-vul-detail">
+            <div class="km-vul-chain-area">
+              <div class="km-chain-sidebar" id="chainSidebar"></div>
+              <div class="km-chain-code" id="chainCode">
+                <div class="km-chain-empty">选择节点查看代码</div>
               </div>
             </div>
-        <!-- /.box-body -->
-      </div>
+          </div>
+        </td>
+      </tr>
 
     {% if newevilfuncs %}
     <div class="box box-success">
@@ -171,10 +161,15 @@
 {% block script %}
 
 <script src="{% static 'js/prism.js' %}"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<script src="{% static 'js/chain-panel.js' %}"></script>
+<script>
+var chainDataMap = {{ chain_json|safe }};
+</script>
 
 <script>
 function delVul(vulid){
-  $.get("{% url 'dashboard:vul_del' 654321 %}".replace('654321', vulid), function(data){
+  $.get("{% url 'backend:vul_del' 654321 %}".replace('654321', vulid), function(data){
       if(data.code == 200){
           location.reload();
       }else{
@@ -198,6 +193,5 @@ $(document).ready(function () {
   })
 });
 </script>
-
 
 {% endblock %}

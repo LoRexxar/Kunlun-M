@@ -143,7 +143,19 @@
                     {% else %}
                       <td><div class="km-cell-config" title="{{ taskresult.source_code|escape }}">{{ taskresult.source_code }}</div></td>
                     {% endif %}
-                    <td class="km-td-nowrap">{{ taskresult.level }}</td>
+                    <td class="km-td-nowrap">
+                      {% if taskresult.level|lower == 'critical' %}
+                      <span class="label label-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
+                      {% elif taskresult.level|lower == 'high' %}
+                      <span class="label label-danger">高危</span>
+                      {% elif taskresult.level|lower == 'medium' %}
+                      <span class="label label-warning">中危</span>
+                      {% elif taskresult.level|lower == 'low' %}
+                      <span class="label label-info">低危</span>
+                      {% else %}
+                      {{ taskresult.level }}
+                      {% endif %}
+                    </td>
                     <td class="km-td-nowrap">{{ taskresult.result_type }}</td>
 
                     <td class="km-td-nowrap">
@@ -165,14 +177,20 @@
                     </td>
                   </tr>
                   {% endfor %}
+
+                  <!-- 传播链面板（共享，由 JS 移动到对应行之后） -->
+                  <tr id="chainPanel" class="km-chain-panel-row" style="display:none;">
+                    <td colspan="9" style="padding:0 !important; border:none !important;">
+                      <div class="km-vul-detail">
+                        <div class="km-vul-chain-area">
+                          <div class="km-chain-sidebar" id="chainSidebar"></div>
+                          <div class="km-chain-code" id="chainCode"></div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
-    </div>
-
-    <!-- 漏洞链面板 -->
-    <div id="chainPanel" class="km-chain-panel" style="display:none">
-      <div class="km-chain-sidebar" id="chainSidebar"></div>
-      <div class="km-chain-code" id="chainCode"></div>
     </div>
 
     {% csrf_token %}
@@ -264,6 +282,8 @@
 {% block script %}
 
 <link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
+<link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<script src="{% static 'js/prism.js' %}"></script>
 <script src="{% static 'js/chain-panel.js' %}"></script>
 <script>
 var chainDataMap = {{ chain_json|safe }};

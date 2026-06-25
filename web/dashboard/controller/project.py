@@ -125,6 +125,7 @@ class ProjectDetailView(View):
                             'path': rf.node_path or '',
                             'lineno': str(rf.node_lineno or ''),
                             'source': rf.node_source or '',
+                            'vid': rf.node_vid if hasattr(rf, 'node_vid') and rf.node_vid is not None else None,
                         })
                     source_root = t.source_dir or t.target_path or ''
                     break  # 只加载最新 task 的链

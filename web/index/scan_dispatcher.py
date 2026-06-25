@@ -88,4 +88,7 @@ def _build_scan_cmd(task):
     if int(opts.get("without_vendor", 0) or 0) == 1:
         cmd += ["--without-vendor"]
 
+    if int(opts.get("no_cache", 0) or 0) == 1:
+        cmd += ["--no-cache"]
+
     return cmd

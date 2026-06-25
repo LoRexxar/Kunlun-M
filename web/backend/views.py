@@ -16,9 +16,10 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from web.index.controller import login_or_token_required, api_token_required
-from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, get_resultflow_class
+from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, VendorVulns, get_resultflow_class
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult
 from utils.utils import show_context
+from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
 from Kunlun_M.settings import LOGS_PATH
 from utils.path_safety import is_path_under
@@ -31,7 +32,6 @@ def _is_path_under_allowed_dir(path, allowed_dir):
 
 def index(request):
     return HttpResponse("Nothing here.")
-
 
 @login_or_token_required
 def tasklog(req, task_id):
@@ -47,48 +47,61 @@ def tasklog(req, task_id):
 
     project_id = get_and_check_scantask_project_id(task_id)
 
-    srts = get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id, is_active=1)
+    srts = list(get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id, is_active=1))
     nefs = NewEvilFunc.objects.filter(project_id=project_id)
 
     ResultFlow = get_resultflow_class(task_id)
-    rfs = ResultFlow.objects.all()
+    rfs = ResultFlow.objects.all() if ResultFlow else []
 
     task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
-    resultflowdict = {}
 
+    # 构建 chain 数据（与 dashboard controller 一致）
+    chain_map = {}
     for rf in rfs:
-
-        # 加入漏洞有效检查，可能已被删除或处理
-        # 组件漏洞不显示
         if rf.node_type == "sca_scan":
             continue
-
         r = get_and_check_scanresult(task_id).objects.filter(id=rf.vul_id, is_active=1).first()
         if not r:
             continue
-
-        if rf.vul_id not in resultflowdict:
-            resultflowdict[rf.vul_id] = {
-                'id': rf.vul_id,
-                'flow': [],
-            }
-
-        rfdict = {
+        chain_map.setdefault(rf.vul_id, []).append({
             'type': rf.node_type,
-            'content': rf.node_content,
-            'path': rf.node_path,
-            'lineno': rf.node_lineno,
-            'details': rf.node_source
-        }
+            'content': rf.node_content or '',
+            'path': rf.node_path or '',
+            'lineno': str(rf.node_lineno or ''),
+            'source': rf.node_source or '',
+            'vid': rf.node_vid if hasattr(rf, 'node_vid') and rf.node_vid is not None else None,
+        })
 
-        resultflowdict[rf.vul_id]['flow'].append(rfdict)
+    # 计算 level 和 has_chain
+    for taskresult in srts:
+        taskresult.is_unconfirm = int(taskresult.is_unconfirm)
+        taskresult.level = 'low'
+        taskresult.chain_nodes = chain_map.get(taskresult.id, [])
+        taskresult.has_chain = len(taskresult.chain_nodes) > 0
 
-    # 扫描结果
+        if taskresult.cvi_id == '9999':
+            vender_vul_id = taskresult.vulfile_path.split(":")[-1]
+            if vender_vul_id:
+                vv = VendorVulns.objects.filter(id=vender_vul_id).first()
+                if vv:
+                    taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
+        else:
+            r = Rules.objects.filter(svid=taskresult.cvi_id).first()
+            if r:
+                taskresult.level = VUL_LEVEL[r.level]
+
+    # 构建 chain JSON 供前端使用
+    chain_json_map = {}
+    for tr in srts:
+        if tr.has_chain:
+            chain_json_map[str(tr.id)] = tr.chain_nodes
+    chain_json = json.dumps(chain_json_map, ensure_ascii=False)
+
     data = {
         "task": task,
         "taskresults": srts,
         "newevilfuncs": nefs,
-        "resultflowdict": resultflowdict,
+        "chain_json": chain_json,
         'visit_token': visit_token
     }
     return render(req, 'backend/tasklog.html', data)
