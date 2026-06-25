@@ -471,6 +471,7 @@ $(document).ready(function () {
                     var urlParams = new URLSearchParams(window.location.search);
                     var preScanId = urlParams.get('scan_id');
                     var preFilePath = urlParams.get('file_path');
+                    var preVid = urlParams.get('vid');
                     var preTab = urlParams.get('tab');
                     if (preScanId) {
                         // 尝试选择指定的 scan_id
@@ -480,8 +481,12 @@ $(document).ready(function () {
                             selectScan(found.id);
                         }
                     }
-                    if (preFilePath) {
-                        // 延迟加载文件图（等待 scan_id 设置好）
+                    // 延迟加载子图（等待 scan_id 设置好）
+                    if (preVid !== null && preVid !== '') {
+                        setTimeout(function() {
+                            loadSubgraph(currentScanId, parseInt(preVid));
+                        }, 300);
+                    } else if (preFilePath) {
                         setTimeout(function() {
                             loadFileGraph(currentScanId, preFilePath);
                         }, 300);
