@@ -707,7 +707,7 @@ class GraphNodeVulnsApiView(View):
             from web.index.models import get_resultflow_class
             ResultFlow = get_resultflow_class(scan_id)
         except Exception:
-            return JsonResponse({"code": 200, "data": []})
+            return JsonResponse({"code": 404, "error": "no resultflow table for scan_id " + str(scan_id)})
 
         vulns = []
         for rf in ResultFlow.objects.filter(node_vid=vid).values(
