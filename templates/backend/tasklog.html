@@ -169,7 +169,7 @@ var chainDataMap = {{ chain_json|safe }};
 
 <script>
 function delVul(vulid){
-  $.get("{% url 'backend:vul_del' 654321 %}".replace('654321', vulid), function(data){
+  $.get("{% url 'dashboard:vul_del' 654321 %}".replace('654321', vulid), function(data){
       if(data.code == 200){
           location.reload();
       }else{

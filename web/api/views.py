@@ -6,16 +6,13 @@
 # @Contact : lorexxar@gmail.com
 
 import os
-import codecs
 import json
 
-from django.core import serializers
-from django.shortcuts import render, redirect, HttpResponse
-from django.http import HttpResponseRedirect, JsonResponse
+from django.shortcuts import HttpResponse
+from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 
 from web.index.controller import login_or_token_required, api_token_required
-from django.views.generic import TemplateView
 from django.views import View
 from django.db.models import Count
 from django.utils import timezone

@@ -9,21 +9,11 @@
 
 '''
 
-import os
-import codecs
-import json
-
-from django.core import serializers
+from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, HttpResponse
-from django.http import HttpResponseRedirect, JsonResponse
-
-from django.views.generic import TemplateView
 from django.views import View
 
-from web.index.models import ScanTask, ScanResultTask, Rules, Project, ProjectVendors
-from web.index.models import get_and_check_scantask_project_id, get_resultflow_class, get_and_check_scanresult
-from utils.utils import show_context
+from web.index.models import ScanResultTask
 
 
 class ScanResultDelInterfaceView(View):

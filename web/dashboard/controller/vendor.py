@@ -26,7 +26,6 @@ from utils.utils import del_sensitive_for_config
 from core.vendors import get_vendor_vul_by_name, get_project_vendor_by_name
 
 from web.index.models import ScanTask, VendorVulns, Rules, ProjectVendors, Project
-from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, get_and_check_evil_func
 
 
 class VendorListView(TemplateView):
