@@ -106,11 +106,12 @@
         <div class="box-header">
           <h3 class="box-title">Label 分布</h3>
         </div>
-        <div class="box-body table-responsive no-padding">
-          <table class="table table-striped km-table">
-            <thead><tr><th>Label</th><th style="text-align:right;">数量</th></tr></thead>
+        <div class="box-body">
+          <div id="labelChart"></div>
+          <table class="table table-striped km-table" style="margin-top:10px;">
+            <thead><tr><th>Label</th><th style="text-align:right;">数量</th><th style="width:40%;"></th></tr></thead>
             <tbody id="labelSummaryBody">
-              <tr><td colspan="2" class="text-center km-muted">未加载</td></tr>
+              <tr><td colspan="3" class="text-center km-muted">未加载</td></tr>
             </tbody>
           </table>
         </div>
@@ -435,6 +436,8 @@
 {% endblock %}
 
 {% block script %}
+<!-- Chain panel + graph styles -->
+<link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
 <!-- Cytoscape.js for graph visualization -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.4/cytoscape.min.js"></script>
 <script>
@@ -586,14 +589,41 @@ $(document).ready(function () {
                 $('#statFuncCount').text(d.function_count || 0);
                 $('#statSinkCount').text(d.sink_count || 0);
 
-                // Label Summary
+                // Label Summary + 条形图
                 var $lb = $('#labelSummaryBody').empty();
+                var $chart = $('#labelChart');
                 if (d.label_summary) {
+                    // 计算最大值
+                    var maxCount = 0;
+                    $.each(d.label_summary, function (label, count) { if (count > maxCount) maxCount = count; });
+
+                    // 渲染水平条形图
+                    var labelColors = {
+                        'file': '#3498db', 'class': '#9b59b6', 'function': '#2ecc71',
+                        'operator': '#e67e22', 'parameter': '#1abc9c', 'identifier': '#95a5a6',
+                        'branch': '#e74c3c', 'import': '#f1c40f', 'return': '#3498db',
+                        'statement': '#74b9ff', 'expression': '#a29bfe',
+                        'string_literal': '#ffeaa7', 'numeric_literal': '#fab1a0', 'comment': '#636e72',
+                        'dependency': '#ff9800', 'annotation': '#e91e63'
+                    };
+                    var chartHtml = '<div style="display:flex;height:16px;border-radius:3px;overflow:hidden;">';
                     $.each(d.label_summary, function (label, count) {
-                        $lb.append('<tr><td><code>' + escHtml(label) + '</code></td><td style="text-align:right;">' + count + '</td></tr>');
+                        var pct = maxCount > 0 ? (count / maxCount * 100) : 0;
+                        var color = labelColors[label] || '#999';
+                        chartHtml += '<div style="width:' + pct + '%;background:' + color + ';" title="' + escHtml(label) + ': ' + count + '"></div>';
+                    });
+                    chartHtml += '</div>';
+                    $chart.html(chartHtml);
+
+                    // 表格行增加比例条
+                    $.each(d.label_summary, function (label, count) {
+                        var pct = maxCount > 0 ? (count / maxCount * 100) : 0;
+                        var color = labelColors[label] || '#999';
+                        $lb.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(label) + '</code></td><td style="text-align:right;">' + count + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
                     });
                 } else {
-                    $lb.append('<tr><td colspan="2" class="text-center km-muted">无数据</td></tr>');
+                    $chart.html('');
+                    $lb.append('<tr><td colspan="3" class="text-center km-muted">无数据</td></tr>');
                 }
 
                 // 文件列表
@@ -663,7 +693,9 @@ $(document).ready(function () {
                     $('#fileClassesBox').show();
                     var $tb = $('#fileClassesBody').empty();
                     $.each(d.classes, function (i, c) {
-                        $tb.append('<tr><td>' + escHtml(c.name || c) + '</td><td>' + (c.lineno || '-') + '</td></tr>');
+                        var vid = c.vid || c.id;
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        $tb.append('<tr><td>' + escHtml(c.name || c) + viewBtn + '</td><td>' + (c.lineno || '-') + '</td></tr>');
                     });
                 } else { $('#fileClassesBox').hide(); }
 
@@ -672,7 +704,9 @@ $(document).ready(function () {
                     $('#fileFunctionsBox').show();
                     var $tb = $('#fileFunctionsBody').empty();
                     $.each(d.functions, function (i, f) {
-                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(f.name || f) + '">' + escHtml(f.name || f) + '</a></td><td>' + (f.lineno || '-') + '</td></tr>');
+                        var vid = f.vid || f.id;
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(f.name || f) + '">' + escHtml(f.name || f) + '</a>' + viewBtn + '</td><td>' + (f.lineno || '-') + '</td></tr>');
                     });
                 } else { $('#fileFunctionsBox').hide(); }
 
@@ -712,6 +746,19 @@ $(document).ready(function () {
         $('.tab-pane').hide();
         $('#tab-function').show();
         queryFunction(currentScanId, name);
+    });
+
+    // "查看子图" 按钮 -> 跳到图可视化 Tab 并加载
+    $(document).on('click', '.btn-view-graph', function () {
+        var vid = $(this).data('vid');
+        if (vid == null) return;
+        $('#graphVidInput').val(vid);
+        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+        $('.tab-btn[data-tab="tab-graph"]').removeClass('btn-default').addClass('btn-primary');
+        $('.tab-pane').hide();
+        $('#tab-graph').show();
+        // 触发子图加载
+        $('#btnLoadSubgraph').click();
     });
 
     // ===== Tab 3: 函数查询 =====
@@ -774,7 +821,9 @@ $(document).ready(function () {
                     $('#funcCallersBox').show();
                     var $tb = $('#funcCallersBody').empty();
                     $.each(d.callers, function (i, c) {
-                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a></td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
+                        var vid = c.vid;
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a>' + viewBtn + '</td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
                     });
                 } else { $('#funcCallersBox').hide(); }
 
@@ -783,7 +832,9 @@ $(document).ready(function () {
                     $('#funcCalleesBox').show();
                     var $tb = $('#funcCalleesBody').empty();
                     $.each(d.callees, function (i, c) {
-                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a></td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
+                        var vid = c.vid;
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a>' + viewBtn + '</td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
                     });
                 } else { $('#funcCalleesBox').hide(); }
             },
@@ -872,6 +923,7 @@ $(document).ready(function () {
             // Chain
             if (chain.length > 0) {
                 html += '<h4>追踪链</h4>';
+                html += '<div class="row"><div class="col-xs-12 col-md-6">';
                 html += '<div style="border-left:3px solid #3c8dbc;padding-left:15px;margin-left:10px;">';
                 $.each(chain, function (ci, step) {
                     html += '<div style="margin-bottom:10px;padding:8px;background:#f9f9f9;border-radius:3px;">';
@@ -883,12 +935,118 @@ $(document).ready(function () {
                     if (step.lineno) html += '<div>行号: ' + step.lineno + '</div>';
                     html += '</div>';
                 });
+                html += '</div></div>';
+                // 迷你链路图容器
+                var traceVids = [];
+                $.each(chain, function(ci, step) {
+                    if (step.vid != null) traceVids.push(step.vid);
+                });
+                if (traceVids.length > 1) {
+                    html += '<div class="col-xs-12 col-md-6"><div class="km-chain-graph-container" style="display:block;" id="traceGraph_' + idx + '">';
+                    html += '<div class="km-chain-graph-placeholder">加载中...</div>';
+                    html += '</div></div>';
+                }
                 html += '</div>';
             }
 
             html += '</div></div></div></div>';
             $container.append(html);
         });
+
+        // 异步加载每个 trace 的链路图
+        if (currentScanId) {
+            data.forEach(function (item, idx) {
+                var chain = (item.result || {}).chain || [];
+                var traceVids = [];
+                chain.forEach(function (step) { if (step.vid != null) traceVids.push(step.vid); });
+                if (traceVids.length > 1) {
+                    (function (traceIdx, vids) {
+                        var containerId = 'traceGraph_' + traceIdx;
+                        var $gc = $('#' + containerId);
+                        if (!$gc.length) return;
+                        $.ajax({
+                            url: '/api/graph/chain_subgraph',
+                            data: { scan_id: currentScanId, vids: vids.join(',') },
+                            dataType: 'json',
+                            success: function (resp) {
+                                if (resp.code === 200 && resp.data && resp.data.nodes && resp.data.nodes.length > 0) {
+                                    renderChainMiniGraph(containerId, resp.data);
+                                } else {
+                                    $gc.html('<div class="km-chain-graph-placeholder">无图数据</div>');
+                                }
+                            },
+                            error: function () {
+                                $gc.html('<div class="km-chain-graph-placeholder">加载失败</div>');
+                            }
+                        });
+                    })(idx, traceVids);
+                }
+            });
+        }
+    }
+
+    // 渲染链路迷你图（复用于 task_detail 和 graph_analysis trace）
+    function renderChainMiniGraph(containerId, data) {
+        var container = document.getElementById(containerId);
+        if (!container) return;
+
+        // 销毁旧实例
+        if (container._cyreg && container._cyreg.cy) {
+            try { container._cyreg.cy.destroy(); } catch(e) {}
+            container._cyreg = null;
+        }
+        // 清除占位
+        var ph = container.querySelector('.km-chain-graph-placeholder');
+        if (ph) ph.remove();
+
+        var nodes = data.nodes || [];
+        var edges = data.edges || [];
+
+        var colorMap = {
+            'file': '#3498db', 'function': '#2ecc71', 'class': '#9b59b6',
+            'operator': '#e67e22', 'identifier': '#95a5a6', 'branch': '#e74c3c',
+            'parameter': '#1abc9c', 'return': '#3498db', 'import': '#f1c40f'
+        };
+        var edgeColorMap = {
+            'dfg': '#f44336', 'use': '#4CAF50', 'cg': '#2196F3',
+            'own': '#555', 'member': '#795548', 'control': '#FF9800'
+        };
+
+        var cyNodes = [];
+        var cyEdges = [];
+        nodes.forEach(function (nd) {
+            var c = colorMap[nd.label] || '#95a5a6';
+            cyNodes.push({
+                data: {
+                    id: 'n' + nd.id, label: nd.name || nd.label || ('v' + nd.id),
+                    nodeLabel: nd.label, color: c
+                }
+            });
+        });
+        edges.forEach(function (ed) {
+            var ec = edgeColorMap[ed.label] || '#666';
+            cyEdges.push({
+                data: {
+                    id: 'e' + ed.source + '_' + ed.target,
+                    source: 'n' + ed.source, target: 'n' + ed.target,
+                    label: ed.label, color: ec
+                }
+            });
+        });
+
+        var cy = cytoscape({
+            container: container,
+            elements: [].concat(cyNodes, cyEdges),
+            style: [
+                { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'color': '#fff', 'text-outline-width': 2, 'text-outline-color': '#333', 'background-color': 'data(color)', 'width': 24, 'height': 24 } },
+                { selector: 'edge', style: { 'width': 1.5, 'line-color': 'data(color)', 'target-arrow-shape': 'triangle', 'target-arrow-color': 'data(color)', 'curve-style': 'bezier', 'arrow-scale': 0.8 } }
+            ],
+            layout: { name: 'breadthfirst', directed: true, spacingFactor: 1.2 },
+            userZoomingEnabled: true, userPanningEnabled: true,
+            boxSelectionEnabled: false,
+            minZoom: 0.3, maxZoom: 3
+        });
+        container._cyreg = { cy: cy };
     }
 
     // ===== 工具函数 =====

@@ -134,6 +134,7 @@ class GraphQueryBuilder:
 
             if child_label == NodeLabel.CLASS.value:
                 classes.append({
+                    "vid": child_vid,
                     "name": _vattr(cv, "name", ""),
                     "lineno": _vattr(cv, "lineno", 0),
                 })
@@ -146,6 +147,7 @@ class GraphQueryBuilder:
                         params.append(_vattr(pv, "name", ""))
 
                 functions.append({
+                    "vid": child_vid,
                     "name": _vattr(cv, "name", ""),
                     "fullname": _vattr(cv, "fullname", ""),
                     "lineno": _vattr(cv, "lineno", 0),
