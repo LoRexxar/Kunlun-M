@@ -185,7 +185,10 @@ class VulnerabilityResult:
         """
         mr = cls()
         try:
-            mr.line_number = int(single_match[1]) if single_match[1] else 0
+            try:
+                mr.line_number = int(single_match[1])
+            except (ValueError, TypeError):
+                mr.line_number = int(float(single_match[1])) if single_match[1] else 0
             mr.code_content = single_match[2]
             mr.file_path = single_match[0]
             # 间接调用：第 4 个元素是 indirect_map
@@ -228,7 +231,7 @@ class VulnerabilityResult:
 
         trigger = '{}:{}'.format(
             self.file_path.replace(target_directory, '') if target_directory and self.file_path else (self.file_path or ''),
-            int(self.line_number) if self.line_number else 0
+            self.line_number if self.line_number and not isinstance(self.line_number, str) else int(float(self.line_number or 0))
         )
 
         return {

@@ -714,7 +714,12 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     filename = check_filepath(PROJECT_DIRECTORY, filename)
 
     line_number = line_number if line_number else 0
-    line_start = int(line_number) - show_line if (int(line_number) - show_line) > 0 else 0
+    # 容错处理：line_number 可能是 float 字符串（如 '13.0'），先转 float 再 int
+    try:
+        _lineno = int(line_number)
+    except (ValueError, TypeError):
+        _lineno = int(float(line_number))
+    line_start = _lineno - show_line if (_lineno - show_line) > 0 else 0
     line_start = line_start if line_start else 1
     line_end = int(line_start) + show_line + show_line
 
@@ -726,7 +731,7 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     for line in lines:
 
         if not is_back:
-            if line_start + i == int(line_number):
+            if line_start + i == _lineno:
                 logger_console.warning("%4d: %s" % (line_start+i, line.replace("\n", "")))
             else:
                 logger_console.info("%4d: %s" % (line_start+i, line.replace("\n", "")))
