@@ -691,11 +691,11 @@ class GraphNodeVulnsApiView(View):
 
         vulns = []
         for rf in ResultFlow.objects.filter(node_vid=vid).values(
-            "vul_func", "node_name", "node_path", "node_lineno", "node_type"
+            "vul_id", "node_content", "node_path", "node_lineno", "node_type"
         )[:20]:
             vulns.append({
-                "vul_func": rf.get("vul_func", ""),
-                "node_name": rf.get("node_name", ""),
+                "vul_id": rf.get("vul_id", ""),
+                "node_content": rf.get("node_content", ""),
                 "node_path": rf.get("node_path", ""),
                 "node_lineno": rf.get("node_lineno", ""),
                 "node_type": rf.get("node_type", ""),

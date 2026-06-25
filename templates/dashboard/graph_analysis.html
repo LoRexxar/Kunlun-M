@@ -1221,7 +1221,7 @@ $(document).ready(function () {
 
         // 异步加载关联漏洞
         var vid = parseInt(data.id);
-        var sid = currentScanId();
+        var sid = currentScanId;
         if (sid && !isNaN(vid)) {
             $('#nodeDetailContent').append('<div id="nodeVulnsArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载关联漏洞...</span></div>');
             $.ajax({
@@ -1237,7 +1237,7 @@ $(document).ready(function () {
                     var vulnHtml = '<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#e74c3c;"><i class="fa fa-bug"></i> 关联漏洞 (' + resp.data.length + ')</div>';
                     vulnHtml += '<table class="table km-table" style="font-size:11px;margin-bottom:0;">';
                     $.each(resp.data, function (i, v) {
-                        vulnHtml += '<tr><td><code>' + escHtml(v.node_name || '-') + '</code></td>';
+                        vulnHtml += '<tr><td><code>' + escHtml(v.node_content || '-') + '</code></td>';
                         vulnHtml += '<td>' + escHtml(v.node_type || '-') + '</td>';
                         var loc = '';
                         if (v.node_path) loc += v.node_path.split('/').pop();
