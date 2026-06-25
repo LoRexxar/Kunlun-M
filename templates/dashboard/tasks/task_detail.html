@@ -325,6 +325,7 @@
 
 <link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.4/cytoscape.min.js"></script>
 <style>
 .km-vul-row-active { background-color: #e8f4fd !important; }
 .km-vul-row:hover { background-color: #f5f5f5 !important; }
@@ -419,6 +420,26 @@
   background:transparent !important; border-radius:0 !important; margin:0 !important;
   padding:0 !important; min-width:0 !important;
 }
+/* 链路图迷你容器 */
+.km-chain-graph-container {
+  width: 100%;
+  height: 280px;
+  background: rgb(26, 26, 46);
+  border-radius: 4px;
+  margin-top: 8px;
+  position: relative;
+  display: none;
+}
+.km-chain-graph-container.km-chain-graph-visible {
+  display: block;
+}
+.km-chain-graph-placeholder {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: #666;
+  font-size: 13px;
+}
 </style>
 <script>
 var currentTaskId = {{ task.id }};
@@ -495,6 +516,7 @@ function renderChainNodes(vulId, nodes) {
 
   var html = '<div class="km-chain-title">漏洞传播链';
   html += ' <a href="' + graphUrl + '" target="_blank" class="btn btn-default btn-xs" style="margin-left:8px;font-size:10px;" title="在图分析中查看"><i class="fa fa-project-diagram"></i> 图</a>';
+  html += ' <button type="button" class="btn btn-default btn-xs" style="margin-left:4px;font-size:10px;" title="内嵌链路图" onclick="event.stopPropagation(); toggleChainGraph(\'' + vulId + '\')"><i class="fa fa-share-alt"></i> 链路图</button>';
   html += '</div><div class="km-chain-nodes">';
   for (var i = 0; i < nodes.length; i++) {
     var node = nodes[i];
@@ -514,6 +536,16 @@ function renderChainNodes(vulId, nodes) {
   html += '</div>';
   sidebar.innerHTML = html;
   selectChainNodeInline(vulId, nodes.length - 1);
+
+  // 添加链路图迷你容器到代码区
+  var codeArea = document.getElementById('chainCode_' + vulId);
+  if (codeArea) {
+    var graphDiv = document.createElement('div');
+    graphDiv.className = 'km-chain-graph-container';
+    graphDiv.id = 'chainGraph_' + vulId;
+    graphDiv.innerHTML = '<div class="km-chain-graph-placeholder">点击「链路图」可视化传播路径</div>';
+    codeArea.appendChild(graphDiv);
+  }
 }
 
 function selectChainNodeInline(vulId, idx) {
@@ -567,6 +599,148 @@ function selectChainNodeInline(vulId, idx) {
     codeArea.innerHTML = '<div class="km-chain-code-header"><span style="color:' + style.color + '"><i class="fa ' + style.icon + '"></i> ' + (style.label || node.type) + '</span></div>'
       + '<div class="km-chain-code-body"><pre style="margin:0;padding:12px;font-size:14px;font-family:\'Fira Code\',Consolas,monospace;background:#eaedf1;color:#24292e;">' + escapeHtml(node.content || '(无代码)') + '</pre></div>';
   }
+}
+
+// 链路图迷你可视化
+var chainGraphInstances = {};
+
+function toggleChainGraph(vulId) {
+  var container = document.getElementById('chainGraph_' + vulId);
+  if (!container) return;
+
+  if (container.classList.contains('km-chain-graph-visible')) {
+    container.classList.remove('km-chain-graph-visible');
+    container.innerHTML = '<div class="km-chain-graph-placeholder">点击「链路图」可视化传播路径</div>';
+    if (chainGraphInstances[vulId]) {
+      try { chainGraphInstances[vulId].destroy(); } catch(e) {}
+      delete chainGraphInstances[vulId];
+    }
+    return;
+  }
+
+  var nodes = chainDataMap[vulId];
+  if (!nodes || nodes.length === 0) return;
+  var vids = [];
+  for (var i = 0; i < nodes.length; i++) {
+    if (nodes[i].vid !== undefined && nodes[i].vid !== null) {
+      vids.push(nodes[i].vid);
+    }
+  }
+  if (vids.length === 0) {
+    container.classList.add('km-chain-graph-visible');
+    container.innerHTML = '<div class="km-chain-graph-placeholder">暂无图节点数据</div>';
+    return;
+  }
+
+  container.classList.add('km-chain-graph-visible');
+  container.innerHTML = '';
+
+  $.ajax({
+    url: '/api/graph/chain_subgraph',
+    data: { scan_id: currentTaskId, vids: vids.join(',') },
+    dataType: 'json',
+    success: function(resp) {
+      if (resp.code !== 200 || !resp.data || !resp.data.nodes || resp.data.nodes.length === 0) {
+        container.innerHTML = '<div class="km-chain-graph-placeholder">无图数据</div>';
+        return;
+      }
+      renderChainGraph(vulId, container, resp.data, nodes);
+    },
+    error: function() {
+      container.innerHTML = '<div class="km-chain-graph-placeholder">加载失败</div>';
+    }
+  });
+}
+
+function renderChainGraph(vulId, container, graphData, chainNodes) {
+  if (chainGraphInstances[vulId]) {
+    try { chainGraphInstances[vulId].destroy(); } catch(e) {}
+  }
+
+  var cyElements = [];
+  var chainVidOrder = {};
+  for (var i = 0; i < chainNodes.length; i++) {
+    if (chainNodes[i].vid !== undefined && chainNodes[i].vid !== null) {
+      chainVidOrder[chainNodes[i].vid] = i;
+    }
+  }
+
+  var nodeColorMap = {
+    'File': '#6c5ce7', 'Function': '#0984e3', 'Class': '#00b894',
+    'Operator': '#fdcb6e', 'Branch': '#00cec9', 'Parameter': '#e17055',
+    'Return': '#d63031', 'Statement': '#74b9ff', 'Expression': '#a29bfe',
+    'Identifier': '#55efc4', 'StringLiteral': '#ffeaa7', 'NumericLiteral': '#fab1a0',
+  };
+  var chainTypeColor = { 'source': '#e74c3c', 'sink': '#e67e22', 'NewScan': '#3498db' };
+
+  for (var i = 0; i < graphData.nodes.length; i++) {
+    var nd = graphData.nodes[i];
+    var chainIdx = chainVidOrder[nd.id];
+    var chainType = (chainIdx !== undefined) ? chainNodes[chainIdx].type : null;
+    var color = chainTypeColor[chainType] || nodeColorMap[nd.label] || '#95a5a6';
+    var borderColor = '#fff', borderWidth = 1;
+    if (chainType === 'source') { borderColor = '#e74c3c'; borderWidth = 3; }
+    if (chainType === 'sink') { borderColor = '#e67e22'; borderWidth = 3; }
+    var nodeData = {
+      id: 'n' + nd.id,
+      data: {
+        id: nd.id, label: nd.name || nd.label || ('node_' + nd.id),
+        nodeLabel: nd.label, color: color, borderColor: borderColor,
+        borderWidth: borderWidth, chainType: chainType || '',
+        chainIdx: chainIdx !== undefined ? chainIdx : -1,
+      }
+    };
+    if (nd.label) nodeData.data[nd.label] = true;
+    if (chainType) nodeData.data[chainType] = true;
+    cyElements.push(nodeData);
+  }
+
+  for (var i = 0; i < graphData.edges.length; i++) {
+    var ed = graphData.edges[i];
+    var edgeData = {
+      id: 'e' + ed.source + '_' + ed.target + '_' + i,
+      data: { source: 'n' + ed.source, target: 'n' + ed.target, label: ed.label, edgeType: ed.type || ed.label }
+    };
+    if (ed.label) edgeData.data[ed.label] = true;
+    cyElements.push(edgeData);
+  }
+
+  var rootId = cyElements.length > 0 ? cyElements[0].id : undefined;
+  var cy = cytoscape({
+    container: container,
+    elements: cyElements,
+    style: [
+      { selector: 'node', style: {
+        'label': 'data(label)', 'color': '#fff', 'font-size': '10px',
+        'text-valign': 'center', 'text-halign': 'center',
+        'background-color': 'data(color)', 'border-color': 'data(borderColor)',
+        'border-width': 'data(borderWidth)', 'width': 28, 'height': 28,
+        'text-max-width': '80px', 'text-overflow-wrap': 'ellipsis',
+      }},
+      { selector: 'edge', style: {
+        'width': 2, 'line-color': '#555', 'target-arrow-color': '#555',
+        'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
+        'arrow-scale': 0.6, 'opacity': 0.6,
+      }},
+      { selector: 'edge[dfg]', style: { 'line-color': '#3498db', 'target-arrow-color': '#3498db', 'opacity': 0.8, 'width': 2.5 }},
+      { selector: 'edge[use]', style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'opacity': 0.7 }},
+      { selector: 'edge[cg]', style: { 'line-color': '#e67e22', 'target-arrow-color': '#e67e22', 'opacity': 0.7 }},
+      { selector: 'edge[control]', style: { 'line-color': '#9b59b6', 'target-arrow-color': '#9b59b6', 'opacity': 0.5, 'line-style': 'dashed' }},
+      { selector: 'edge[own]', style: { 'opacity': 0.15, 'width': 1 }},
+      { selector: 'node.source', style: { 'border-width': 3, 'border-color': '#e74c3c', 'width': 34, 'height': 34 }},
+      { selector: 'node.sink', style: { 'border-width': 3, 'border-color': '#e67e22', 'width': 34, 'height': 34 }},
+      { selector: 'node.NewScan', style: { 'border-width': 2, 'border-color': '#3498db' }},
+    ],
+    layout: { name: 'breadthfirst', directed: true, spacingFactor: 1.3, roots: rootId },
+    userZoomingEnabled: true, userPanningEnabled: true, boxSelectionEnabled: false,
+  });
+
+  cy.on('tap', 'node', function(evt) {
+    var idx = evt.target.data().chainIdx;
+    if (idx >= 0) selectChainNodeInline(vulId, idx);
+  });
+
+  chainGraphInstances[vulId] = cy;
 }
 
 function delVul(vulid){

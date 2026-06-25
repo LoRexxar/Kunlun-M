@@ -552,3 +552,21 @@ class GraphQueryBuilder:
         if center_vid is not None:
             result["center_vid"] = center_vid
         return result
+
+    # --- get_chain_subgraph() ---
+    def get_chain_subgraph(self, vids: list[int]) -> dict[str, Any]:
+        """Extract subgraph for a list of VIDs (e.g., taint chain nodes).
+
+        Simply collects the given VIDs + all edges between them.
+        Unlike get_subgraph() which does BFS expansion, this is exact.
+
+        Args:
+            vids: List of vertex IDs from the chain.
+
+        Returns:
+            Same format as get_subgraph(): {nodes, edges, total_nodes, total_edges}
+        """
+        valid_vids = {v for v in vids if v is not None and 0 <= v < self.graph.vcount()}
+        if not valid_vids:
+            return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0}
+        return self._serialize_subgraph(valid_vids)
