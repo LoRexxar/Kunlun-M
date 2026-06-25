@@ -92,6 +92,7 @@ class GraphQueryBuilder:
             "edge_count": self.graph.ecount(),
             "files": sorted(files, key=lambda f: f["path"]),
             "label_summary": dict(sorted(label_counts.items(), key=lambda x: -x[1])),
+            "edge_type_summary": self.edge_type_summary(),
             "function_count": label_counts.get(NodeLabel.FUNCTION.value, 0),
             "class_count": label_counts.get(NodeLabel.CLASS.value, 0),
             "sink_count": len(sinks),
@@ -657,3 +658,166 @@ class GraphQueryBuilder:
             result["target_line"] = ""
 
         return result
+
+    # --- get_call_graph() ---
+    def get_call_graph(
+        self,
+        func_name: str,
+        depth: int = 2,
+        direction: str = "both",
+        max_nodes: int = 200,
+    ) -> dict[str, Any]:
+        """Build a call graph centered on a function.
+
+        Starting from the given function, follows ``use`` edges to
+        discover callers (inbound) and callees (outbound), up to
+        *depth* levels deep.  Returns a subgraph suitable for
+        Cytoscape.js rendering.
+
+        Args:
+            func_name: Function name to use as center.
+            depth: Recursion depth (default 2).
+            direction: ``"both"`` (callers+callees), ``"in"`` (callers only),
+                or ``"out"`` (callees only).
+            max_nodes: Safety cap.
+
+        Returns:
+            Same format as :meth:`get_subgraph`:
+            ``{center_vid, nodes, edges, total_nodes, total_edges}``
+        """
+        func_vids = self._analyzer.find_function_def(func_name)
+        if not func_vids:
+            return {"error": f"Function not found: {func_name}"}
+
+        center = func_vids[0]
+        visited: set[int] = {center}
+        queue = [(center, 0)]  # (vid, current_depth)
+
+        while queue:
+            if len(visited) > max_nodes:
+                break
+            vid, d = queue.pop(0)
+            if d >= depth:
+                continue
+
+            # Follow outbound (callees)
+            if direction in ("both", "out"):
+                for e in self.graph.es.select(_source=vid, label="use"):
+                    target = e.target
+                    tv = self.graph.vs[target]
+                    if (_vattr(tv, "label") == NodeLabel.FUNCTION.value
+                            and target not in visited):
+                        visited.add(target)
+                        queue.append((target, d + 1))
+
+            # Follow inbound (callers: function→operator→use→function)
+            if direction in ("both", "in"):
+                for e in self.graph.es.select(_target=vid, label="use"):
+                    source = e.source
+                    sv = self.graph.vs[source]
+                    if source not in visited:
+                        visited.add(source)
+                        queue.append((source, d + 1))
+
+        return self._serialize_subgraph(visited, center_vid=center)
+
+    # --- trace_variable() ---
+    def trace_variable(
+        self,
+        var_name: str,
+        file_path: str | None = None,
+        max_nodes: int = 300,
+    ) -> dict[str, Any]:
+        """Trace a variable's data-flow path through the graph.
+
+        Finds all identifier nodes matching *var_name* (optionally scoped
+        to *file_path*), then follows ``dfg`` (data-flow) and ``use``
+        edges to build a propagation subgraph.
+
+        Args:
+            var_name: Variable name to trace (case-insensitive substring).
+            file_path: Optional file scope.
+            max_nodes: Safety cap.
+
+        Returns:
+            dict with:
+            - seed_nodes: [{vid, label, name, file_path, lineno}]
+            - subgraph: {nodes, edges, total_nodes, total_edges}
+            - total_seeds: number of matching seed nodes
+        """
+        name_lower = var_name.lower()
+        seeds: list[dict[str, Any]] = []
+
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
+                continue
+            vname = _vattr(v, "name", "")
+            if name_lower not in vname.lower():
+                continue
+            if file_path and _vattr(v, "file_path") != file_path:
+                continue
+            seeds.append({
+                "vid": v.index,
+                "label": _vattr(v, "label", ""),
+                "name": vname,
+                "file_path": _vattr(v, "file_path", ""),
+                "lineno": int(_vattr(v, "lineno", 0) or 0),
+            })
+
+        if not seeds:
+            return {"seed_nodes": [], "subgraph": {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0}, "total_seeds": 0}
+
+        # BFS from all seed nodes, following dfg and use edges
+        visited: set[int] = set()
+        seed_vids = {s["vid"] for s in seeds}
+        visited.update(seed_vids)
+        bfs_queue = list(seed_vids)
+
+        while bfs_queue:
+            if len(visited) > max_nodes:
+                break
+            next_q: list[int] = []
+            for vid in bfs_queue:
+                for nb in self.graph.neighbors(vid, mode="all"):
+                    if nb in visited:
+                        continue
+                    # Check at least one edge has dfg or use label
+                    has_flow = False
+                    for e in self.graph.es.select(_source=vid, _target=nb):
+                        if _vattr(e, "label") in ("dfg", "use"):
+                            has_flow = True
+                            break
+                    if not has_flow:
+                        for e in self.graph.es.select(_source=nb, _target=vid):
+                            if _vattr(e, "label") in ("dfg", "use"):
+                                has_flow = True
+                                break
+                    if has_flow:
+                        visited.add(nb)
+                        next_q.append(nb)
+            bfs_queue = next_q
+
+        return {
+            "seed_nodes": seeds,
+            "subgraph": self._serialize_subgraph(visited),
+            "total_seeds": len(seeds),
+        }
+
+    # --- edge_type_summary() ---
+    def edge_type_summary(self) -> dict[str, int]:
+        """Return a summary of edge types in the graph.
+
+        Returns a dict mapping edge label → count, sorted by count descending.
+        This is a lightweight helper for overview dashboards.
+
+        Usage::
+
+            builder = GraphQueryBuilder(graph, language="php")
+            print(builder.edge_type_summary())
+            # {'own': 15000, 'use': 3200, 'dfg': 1800, 'control': 450, ...}
+        """
+        counts: dict[str, int] = {}
+        for e in self.graph.es:
+            label = _vattr(e, "label", "unknown")
+            counts[label] = counts.get(label, 0) + 1
+        return dict(sorted(counts.items(), key=lambda x: -x[1]))

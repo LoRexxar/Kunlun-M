@@ -533,6 +533,20 @@ class GraphQueryApiView(View):
                 label = tokens[0] if len(tokens) > 0 else None
                 name = tokens[1] if len(tokens) > 1 else None
                 result = session.query.search(label=label or None, name=name or None)
+            elif query_type == "call_graph":
+                depth = int(request.GET.get("depth", "2"))
+                direction = request.GET.get("direction", "both")
+                result = session.query.get_call_graph(
+                    func_name=query_arg,
+                    depth=depth,
+                    direction=direction,
+                )
+            elif query_type == "trace_variable":
+                var_file = request.GET.get("file_path", "")
+                result = session.query.trace_variable(
+                    var_name=query_arg,
+                    file_path=var_file or None,
+                )
             else:
                 return JsonResponse({"code": 400, "error": f"Unknown query type: {query_type}"})
 

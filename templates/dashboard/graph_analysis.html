@@ -48,6 +48,7 @@
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-file">文件查询</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-function">函数查询</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-trace">污点追踪</button>
+      <button class="btn btn-default btn-sm tab-btn" data-tab="tab-vartrace"><i class="fa fa-code-branch"></i> 变量追踪</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-graph">图可视化</button>
     </div>
   </div>
@@ -128,6 +129,26 @@
             <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th></tr></thead>
             <tbody id="fileListBody">
               <tr><td colspan="3" class="text-center km-muted">未加载</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 边类型分布 -->
+  <div class="row" style="margin-top:10px;" id="edgeTypeRow">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">边类型分布</h3>
+        </div>
+        <div class="box-body">
+          <div id="edgeTypeChart"></div>
+          <table class="table table-striped km-table" style="margin-top:10px;">
+            <thead><tr><th>类型</th><th style="text-align:right;">数量</th><th>含义</th><th style="width:30%;"></th></tr></thead>
+            <tbody id="edgeTypeBody">
+              <tr><td colspan="4" class="text-center km-muted">未加载</td></tr>
             </tbody>
           </table>
         </div>
@@ -283,6 +304,27 @@
     </div>
   </div>
 
+  <!-- 调用关系图 -->
+  <div class="row" id="funcCallGraphRow" style="display:none;margin-top:15px;">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-header">
+          <h3 class="box-title">调用关系图</h3>
+          <div class="box-tools pull-right">
+            <div class="btn-group">
+              <button type="button" class="btn btn-default btn-xs" id="btnCallGraphBoth" title="双向"> callers+callees </button>
+              <button type="button" class="btn btn-default btn-xs" id="btnCallGraphIn" title="仅调用者"> callers </button>
+              <button type="button" class="btn btn-default btn-xs" id="btnCallGraphOut" title="仅被调用"> callees </button>
+            </div>
+          </div>
+        </div>
+        <div class="box-body">
+          <div id="funcCallGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="row" id="funcErrorArea" style="display:none;">
     <div class="col-xs-12">
       <div class="box">
@@ -323,6 +365,28 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ==================== Tab 5.5: 变量追踪 ==================== -->
+<div class="tab-pane" id="tab-vartrace" style="display:none;">
+  <div class="row">
+    <div class="col-xs-12">
+      <div class="box">
+        <div class="box-body">
+          <div class="input-group" style="max-width:600px;">
+            <input type="text" id="varTraceInput" class="form-control" placeholder="输入变量名，如 $cmd 或 $_GET">
+            <span class="input-group-btn">
+              <button id="btnTraceVar" class="btn btn-primary" type="button">追踪</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="varTraceResult">
+    <div class="text-center km-muted" style="padding:20px;">输入变量名后点击"追踪"，查看数据流传播路径</div>
   </div>
 </div>
 
@@ -640,6 +704,38 @@ $(document).ready(function () {
                 } else {
                     $fl.append('<tr><td colspan="3" class="text-center km-muted">无数据</td></tr>');
                 }
+
+                // 边类型分布
+                var $et = $('#edgeTypeBody').empty();
+                var $etChart = $('#edgeTypeChart');
+                var edgeTypeNames = {
+                    'own': '所属关系', 'cg': '调用图', 'dfg': '数据流', 'use': '使用',
+                    'frg': '文件引用', 'control': '控制流', 'unknown': '未知'
+                };
+                var edgeTypeColors = {
+                    'own': '#3498db', 'cg': '#e67e22', 'dfg': '#e74c3c', 'use': '#2ecc71',
+                    'frg': '#9b59b6', 'control': '#f39c12', 'unknown': '#95a5a6'
+                };
+                if (d.edge_type_summary) {
+                    var maxEdge = 0;
+                    $.each(d.edge_type_summary, function(t, c) { if (c > maxEdge) maxEdge = c; });
+                    var etChartHtml = '<div style="display:flex;height:16px;border-radius:3px;overflow:hidden;">';
+                    $.each(d.edge_type_summary, function(t, c) {
+                        var pct = maxEdge > 0 ? (c / maxEdge * 100) : 0;
+                        etChartHtml += '<div style="width:' + pct + '%;background:' + (edgeTypeColors[t] || '#999') + ';" title="' + escHtml(t) + ': ' + c + '"></div>';
+                    });
+                    etChartHtml += '</div>';
+                    $etChart.html(etChartHtml);
+
+                    $.each(d.edge_type_summary, function(t, c) {
+                        var pct = maxEdge > 0 ? (c / maxEdge * 100) : 0;
+                        var color = edgeTypeColors[t] || '#999';
+                        $et.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(t) + '</code></td><td style="text-align:right;">' + c + '</td><td class="km-muted">' + escHtml(edgeTypeNames[t] || t) + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
+                    });
+                } else {
+                    $etChart.html('');
+                    $et.append('<tr><td colspan="4" class="text-center km-muted">无数据</td></tr>');
+                }
             },
             error: function () {
                 $btn.prop('disabled', false).html('<i class="fa fa-refresh"></i> 加载概览');
@@ -840,12 +936,64 @@ $(document).ready(function () {
                         $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a>' + viewBtn + '</td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
                     });
                 } else { $('#funcCalleesBox').hide(); }
+
+                // 自动加载调用关系图
+                if (d.name && !d.error) { loadCallGraph(scanId, funcName, 'both'); }
             },
             error: function (xhr) {
                 $('#funcErrorArea').show();
                 $('#funcErrorMsg').text('请求失败: ' + (xhr.statusText || '网络错误'));
             }
         });
+    }
+
+    // ===== 调用关系图 =====
+    $('#btnCallGraphBoth').on('click', function () { loadCallGraph(currentScanId, $('#funcQueryInput').val().trim(), 'both'); });
+    $('#btnCallGraphIn').on('click', function () { loadCallGraph(currentScanId, $('#funcQueryInput').val().trim(), 'in'); });
+    $('#btnCallGraphOut').on('click', function () { loadCallGraph(currentScanId, $('#funcQueryInput').val().trim(), 'out'); });
+
+    function loadCallGraph(scanId, funcName, direction) {
+        if (!scanId || !funcName) return;
+        var $row = $('#funcCallGraphRow');
+        $row.show();
+        var $container = $('#funcCallGraphContainer');
+        $container.html('<div style="text-align:center;padding:20px;color:#999;">加载调用图...</div>');
+        $.ajax({
+            url: '/api/graph/query',
+            data: { scan_id: scanId, query_type: 'call_graph', query_arg: funcName, direction: direction || 'both', depth: 2 },
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code !== 200 || !resp.data || resp.data.error) {
+                    $container.html('<div style="text-align:center;padding:20px;color:#999;">' + escHtml(resp.data ? resp.data.error : '无数据') + '</div>');
+                    return;
+                }
+                renderCallGraph($container[0], resp.data);
+            },
+            error: function () { $container.html('<div style="text-align:center;padding:20px;color:#f44;">请求失败</div>'); }
+        });
+    }
+
+    function renderCallGraph(container, data) {
+        var nodes = data.nodes || [];
+        var edges = data.edges || [];
+        if (nodes.length === 0) {
+            container.innerHTML = '<div style="text-align:center;padding:20px;color:#999;">无节点数据</div>';
+            return;
+        }
+        var cyNodes = [];
+        var cyEdges = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            var bg = n.label === 'function' ? '#2ecc71' : '#95a5a6';
+            var shape = n.label === 'function' ? 'roundrectangle' : 'ellipse';
+            var borderW = (data.center_vid && n.data.id == data.center_vid) ? 3 : 1;
+            cyNodes.push({ data: { id: n.data.id, label: n.data.label || n.data.name || '', name: n.data.name || '', _label: n.label || '' }, style: { 'background-color': bg, 'label': n.data.name || '', 'shape': shape, 'border-width': borderW, 'border-color': '#fff', 'color': '#fff', 'text-valign': 'center', 'font-size': 11, 'width': 60, 'height': 30 }, position: { x: 0, y: 0 } });
+        }
+        for (var i = 0; i < edges.length; i++) {
+            var e = edges[i];
+            cyEdges.push({ data: { source: e.data.source, target: e.data.target, label: e.data.label || '' }, style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 2, 'curve-style': 'bezier' }, classes: '' });
+        }
+        cytoscape({ container: container, elements: { nodes: cyNodes, edges: cyEdges }, style: [], layout: { name: 'breadthfirst', directed: true, spacingFactor: 1.5 } });
     }
 
     // ===== Tab 4: 污点追踪 =====
@@ -1056,6 +1204,85 @@ $(document).ready(function () {
     function escHtml(str) {
         if (str == null) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ===== 变量追踪 =====
+    $('#btnTraceVar').on('click', function () {
+        var varName = $('#varTraceInput').val().trim();
+        if (!varName) { alert('请输入变量名'); return; }
+        traceVariable(currentScanId, varName);
+    });
+    $('#varTraceInput').on('keypress', function (e) {
+        if (e.which === 13) { $('#btnTraceVar').click(); }
+    });
+
+    function traceVariable(scanId, varName) {
+        if (!scanId) { alert('请先选择一个 Scan'); return; }
+        var $r = $('#varTraceResult');
+        $r.html('<div class="text-center km-muted" style="padding:20px;">追踪中...</div>');
+        $.ajax({
+            url: '/api/graph/query',
+            data: { scan_id: scanId, query_type: 'trace_variable', query_arg: varName },
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code !== 200 || !resp.data) {
+                    $r.html('<div class="text-center text-danger" style="padding:20px;">追踪失败</div>');
+                    return;
+                }
+                var d = resp.data;
+                if (d.total_seeds === 0) {
+                    $r.html('<div class="text-center km-muted" style="padding:20px;">未找到匹配的变量节点</div>');
+                    return;
+                }
+                var html = '<div class="row"><div class="col-xs-12"><div class="box"><div class="box-header"><h3 class="box-title">找到 ' + d.total_seeds + ' 个匹配节点</h3></div><div class="box-body table-responsive no-padding"><table class="table table-hover km-table"><thead><tr><th>变量名</th><th>文件</th><th>行号</th><th></th></tr></thead><tbody>';
+                $.each(d.seed_nodes, function (i, s) {
+                    var viewBtn = ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + s.vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>';
+                    html += '<tr><td><code>' + escHtml(s.name) + '</code></td><td>' + escHtml(s.file_path || '-') + '</td><td>' + s.lineno + '</td><td>' + viewBtn + '</td></tr>';
+                });
+                html += '</tbody></table></div></div></div></div>';
+                if (d.subgraph && d.subgraph.nodes && d.subgraph.nodes.length > 0) {
+                    html += '<div class="row" style="margin-top:10px;"><div class="col-xs-12"><div class="box"><div class="box-header"><h3 class="box-title">数据流传播图（' + d.subgraph.total_nodes + ' 节点, ' + d.subgraph.total_edges + ' 边）</h3></div><div class="box-body"><div id="varTraceGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div></div></div></div></div>';
+                }
+                $r.html(html);
+                if (d.subgraph && d.subgraph.nodes && d.subgraph.nodes.length > 0) {
+                    setTimeout(function () {
+                        var $gc = $('#varTraceGraphContainer');
+                        if ($gc.length) { renderVarTraceGraph($gc[0], d.subgraph, d.seed_nodes); }
+                    }, 100);
+                }
+            },
+            error: function () { $r.html('<div class="text-center text-danger" style="padding:20px;">请求失败</div>'); }
+        });
+    }
+
+    function renderVarTraceGraph(container, subgraph, seedNodes) {
+        var nodes = subgraph.nodes || [];
+        var edges = subgraph.edges || [];
+        if (nodes.length === 0) return;
+        var seedSet = {};
+        $.each(seedNodes || [], function (i, s) { seedSet[s.vid] = true; });
+        var cyNodes = [];
+        var cyEdges = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            var bg = seedSet[n.data.id] ? '#e74c3c' : (nodeColorMap[n.label] || '#95a5a6');
+            var borderW = seedSet[n.data.id] ? 3 : 1;
+            cyNodes.push({
+                data: { id: n.data.id, label: n.data.name || '', _label: n.label || '' },
+                style: { 'background-color': bg, 'label': n.data.name || '', 'shape': 'ellipse', 'border-width': borderW, 'border-color': '#fff', 'color': '#fff', 'text-valign': 'center', 'font-size': 10, 'width': 40, 'height': 25 },
+                position: { x: 0, y: 0 }
+            });
+        }
+        for (var i = 0; i < edges.length; i++) {
+            var e = edges[i];
+            var eLabel = e.data.label || '';
+            var lineColor = (eLabel === 'dfg') ? '#e74c3c' : (eLabel === 'use' ? '#2ecc71' : '#555');
+            cyEdges.push({
+                data: { source: e.data.source, target: e.data.target, label: eLabel },
+                style: { 'line-color': lineColor, 'target-arrow-color': lineColor, 'width': 2, 'curve-style': 'bezier' }
+            });
+        }
+        cytoscape({ container: container, elements: { nodes: cyNodes, edges: cyEdges }, style: [], layout: { name: 'breadthfirst', directed: true, spacingFactor: 1.2 } });
     }
 
     // ===== Tab 5: 图可视化 =====
@@ -1520,6 +1747,8 @@ $(document).ready(function () {
     window.loadSubgraph = loadSubgraph;
     window.loadNodeSource = loadNodeSource;
     window.loadFileGraph = loadFileGraph;
+    window.loadCallGraph = loadCallGraph;
+    window.traceVariable = traceVariable;
     window.selectScan = selectScan;
     window.ensureCytoscape = ensureCytoscape;
     window.jumpToGraph = jumpToGraph;
