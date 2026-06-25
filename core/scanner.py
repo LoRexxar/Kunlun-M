@@ -220,6 +220,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 else:
                     # --yes 模式：静默加载缓存
                     graph = cached_graph
+            # 缓存命中且有 scan_id 时，确保图保存到当前 scan 的 workspace
+            if graph is not None and a_sid:
+                try:
+                    from core.graph.workspace import ensure_scan_dir, get_workspace_db
+                    from core.graph.graph_io import AstGraphIO
+                    from core.graph.sqlite_index import ScanRecord
+                    from core.pretreatment import ast_object as _ao
+                    scan_dir = ensure_scan_dir(a_sid)
+                    gio = AstGraphIO(scan_dir)
+                    meta = gio.save(graph)
+                    sr = ScanRecord(get_workspace_db())
+                    sr.upsert(
+                        scan_id=a_sid,
+                        language=_ao.lan[0] if _ao.lan else None,
+                        target=target_directory,
+                        graph_path=meta["file_path"],
+                        node_count=graph.vcount(),
+                        edge_count=graph.ecount(),
+                    )
+                    logger.info('[SCAN] [GRAPH] Cached graph saved to workspace/%s', a_sid)
+                except Exception as e:
+                    logger.warning('[SCAN] [GRAPH] Failed to save cached graph to workspace/%s: %s', a_sid, e)
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Cache check failed, will rebuild: %s', e)
 
