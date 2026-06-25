@@ -226,301 +226,368 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             graph = build_ast_graph(ast_object, db_path=db_path, scan_id=a_sid)
             logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
         except Exception as e:
-            logger.warning('[SCAN] [GRAPH] Build failed, falling back to old scan: %s', e)
+            logger.warning('[SCAN] [GRAPH] Build failed: %s', e)
 
     if graph is None or graph.vcount() == 0:
-        logger.warning('[SCAN] [GRAPH] Empty or no graph, falling back to old scan')
-        return oldscan(target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=special_rules,
-                       language=language, framework=framework, file_count=file_count,
-                       extension_count=extension_count, files=files, tamper_name=tamper_name,
-                       is_unconfirm=is_unconfirm)
+        logger.warning('[SCAN] [GRAPH] Empty or no graph — sink-based rules skipped')
 
-    # ── Taint enrichment ──
-    try:
-        from core.pretreatment import ast_object
-        from core.graph.knowledge_bridge import enrich_taint
-        from core.core_engine.trace_cache import TraceCache
+    # ── 非 sink-compatible 规则过滤 ──
+    from Kunlun_M.const import mm_framework_dependency as _MM_FW_DEP
+    _skip_modes = {'only-regex', 'only-keyword', 'file-path-regex-match', 'regex-return-regex'}
+    _skip_count = 0
+    _fw_dep_rules = []
+    for _lang, _rules in lang_rules.items():
+        _remaining = []
+        for _rule in _rules:
+            _mm = getattr(_rule, 'match_mode', '')
+            if _mm == _MM_FW_DEP:
+                _fw_dep_rules.append(_rule)
+                continue
+            if _mm in _skip_modes:
+                _skip_count += 1
+                logger.info('[CVI-%s] [SKIP] match_mode=%s not supported by graph engine',
+                           _rule.svid, _mm)
+                continue
+            _remaining.append(_rule)
+        lang_rules[_lang] = _remaining
+    if _skip_count:
+        logger.info('[SCAN] Skipped %d non-sink-compatible rules', _skip_count)
+    if _fw_dep_rules:
+        logger.info('[SCAN] %d framework-dependency rules will be processed separately', len(_fw_dep_rules))
 
-        # 语言 → (模块路径, builtin sources 属性名)
-        # 对有 _BUILTIN_SOURCE_MEMBERS 的语言，创建轻量 SourceRegistry
-        # 对 JS/TS 用 discover_sources（包含框架检测 + AST 遍历）
-        _LANG_BUILTIN_SOURCE = {
-            'go': ('core.core_engine.go.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'c': ('core.core_engine.c.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'python': ('core.core_engine.python.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'ruby': ('core.core_engine.ruby.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'rust': ('core.core_engine.rust.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'csharp': ('core.core_engine.csharp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'kotlin': ('core.core_engine.kotlin.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'lua': ('core.core_engine.lua.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'cpp': ('core.core_engine.cpp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-            'typescript': ('core.core_engine.typescript.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
-        }
-        # PHP/Java 的 SourceRegistry 接口不同（无 is_source_member），需适配
+    # ── Sink-based scan (requires valid graph) ──
+    if graph is not None and graph.vcount() > 0:
+        # ── Taint enrichment ──
+        try:
+            from core.pretreatment import ast_object
+            from core.graph.knowledge_bridge import enrich_taint
+            from core.core_engine.trace_cache import TraceCache
 
-        def _make_source_registry(lang):
-            """为指定语言创建 source_registry（轻量，仅 builtin）"""
-            # JS/TS 使用完整 discover（含框架 + AST 遍历）
-            if lang in ('javascript', 'typescript'):
-                engine = 'javascript' if lang == 'javascript' else 'typescript'
-                from importlib import import_module
-                mod = import_module(f'core.core_engine.{engine}.source_discovery')
-                return mod.discover_sources(ast_object.target_directory, ast_object)
-            # PHP：dataclass，builtin_sources 字段已含 superglobals
-            if lang == 'php':
-                from core.core_engine.php.source_discovery import SourceRegistry as _SR
-                _php_sr = _SR()
-                # 适配接口：添加 is_source_member 方法
-                _orig_isv = _php_sr.is_source_variable
-                _php_sr.source_members = _php_sr.builtin_sources
-                def _php_ism(expr):
-                    return _orig_isv(expr.split('.')[0].split('(')[0]) if expr else False
-                _php_sr.is_source_member = _php_ism
-                return _php_sr
-            # Java：无 is_source_member，需适配
-            if lang == 'java':
-                from core.core_engine.java.source_discovery import SourceRegistry as _SR, _BUILTIN_SOURCE_MEMBERS
-                _java_sr = _SR()
-                _java_sr.source_members = set(_BUILTIN_SOURCE_MEMBERS)
-                def _java_ism(expr):
-                    for sm in _java_sr.source_members:
-                        if expr == sm or expr.startswith(sm + '.') or expr.startswith(sm + '('):
-                            return True
-                    return False
-                _java_sr.is_source_member = _java_ism
-                return _java_sr
-            # 其他语言：从 _BUILTIN_SOURCE_MEMBERS 创建轻量 SourceRegistry
-            entry = _LANG_BUILTIN_SOURCE.get(lang)
-            if not entry:
-                return None
-            try:
-                mod = __import__(entry[0], fromlist=['SourceRegistry', entry[1]])
-                SR = getattr(mod, 'SourceRegistry', None)
-                BSM = getattr(mod, entry[1], None)
-                if SR and BSM:
-                    sr = SR()
-                    for sm in BSM:
-                        sr.add_source_member(sm)
-                    # Rust: 注册短名（use std::env → env::args）
-                    if lang == "rust":
+            # 语言 → (模块路径, builtin sources 属性名)
+            # 对有 _BUILTIN_SOURCE_MEMBERS 的语言，创建轻量 SourceRegistry
+            # 对 JS/TS 用 discover_sources（包含框架检测 + AST 遍历）
+            _LANG_BUILTIN_SOURCE = {
+                'go': ('core.core_engine.go.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'c': ('core.core_engine.c.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'python': ('core.core_engine.python.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'ruby': ('core.core_engine.ruby.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'rust': ('core.core_engine.rust.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'csharp': ('core.core_engine.csharp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'kotlin': ('core.core_engine.kotlin.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'lua': ('core.core_engine.lua.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'cpp': ('core.core_engine.cpp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+                'typescript': ('core.core_engine.typescript.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
+            }
+            # PHP/Java 的 SourceRegistry 接口不同（无 is_source_member），需适配
+
+            def _make_source_registry(lang):
+                """为指定语言创建 source_registry（轻量，仅 builtin）"""
+                # JS/TS 使用完整 discover（含框架 + AST 遍历）
+                if lang in ('javascript', 'typescript'):
+                    engine = 'javascript' if lang == 'javascript' else 'typescript'
+                    from importlib import import_module
+                    mod = import_module(f'core.core_engine.{engine}.source_discovery')
+                    return mod.discover_sources(ast_object.target_directory, ast_object)
+                # PHP：dataclass，builtin_sources 字段已含 superglobals
+                if lang == 'php':
+                    from core.core_engine.php.source_discovery import SourceRegistry as _SR
+                    _php_sr = _SR()
+                    # 适配接口：添加 is_source_member 方法
+                    _orig_isv = _php_sr.is_source_variable
+                    _php_sr.source_members = _php_sr.builtin_sources
+                    def _php_ism(expr):
+                        return _orig_isv(expr.split('.')[0].split('(')[0]) if expr else False
+                    _php_sr.is_source_member = _php_ism
+                    return _php_sr
+                # Java：无 is_source_member，需适配
+                if lang == 'java':
+                    from core.core_engine.java.source_discovery import SourceRegistry as _SR, _BUILTIN_SOURCE_MEMBERS
+                    _java_sr = _SR()
+                    _java_sr.source_members = set(_BUILTIN_SOURCE_MEMBERS)
+                    def _java_ism(expr):
+                        for sm in _java_sr.source_members:
+                            if expr == sm or expr.startswith(sm + '.') or expr.startswith(sm + '('):
+                                return True
+                        return False
+                    _java_sr.is_source_member = _java_ism
+                    return _java_sr
+                # 其他语言：从 _BUILTIN_SOURCE_MEMBERS 创建轻量 SourceRegistry
+                entry = _LANG_BUILTIN_SOURCE.get(lang)
+                if not entry:
+                    return None
+                try:
+                    mod = __import__(entry[0], fromlist=['SourceRegistry', entry[1]])
+                    SR = getattr(mod, 'SourceRegistry', None)
+                    BSM = getattr(mod, entry[1], None)
+                    if SR and BSM:
+                        sr = SR()
                         for sm in BSM:
-                            for prefix in ("std::", "std::process::", "std::io::", "std::net::"):
-                                if sm.startswith(prefix):
-                                    sr.add_source_member(sm[len(prefix):])
-                    return sr
-            except ImportError:
-                logger.debug('[SCAN] [GRAPH] No source_discovery for lang=%s', lang)
-            return None
+                            sr.add_source_member(sm)
+                        # Rust: 注册短名（use std::env → env::args）
+                        if lang == "rust":
+                            for sm in BSM:
+                                for prefix in ("std::", "std::process::", "std::io::", "std::net::"):
+                                    if sm.startswith(prefix):
+                                        sr.add_source_member(sm[len(prefix):])
+                        return sr
+                except ImportError:
+                    logger.debug('[SCAN] [GRAPH] No source_discovery for lang=%s', lang)
+                return None
 
-        # 按语言分别创建 TraceCache 并 enrich
-        for lang in lang_rules.keys():
-            trace_cache = TraceCache(lang)
-            sr = _make_source_registry(lang)
-            count = enrich_taint(
-                graph, language=lang,
-                trace_cache=trace_cache,
-                source_registry=sr,
-            )
-            if count:
-                logger.info('[SCAN] [GRAPH] Enriched %d function taint annotations for %s', count, lang)
-    except Exception as e:
-        logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
-
-    # 对每种语言使用 GraphAnalyzer 扫描
-    from core.graph.graph_analyzer import GraphAnalyzer, AnalysisResult
-    from core.utils import parse_sink_names
-    from Kunlun_M.const import VulnerabilityResult
-    from utils.igraph_compat import _vattr
-
-    for lang, lang_rule_list in lang_rules.items():
-        analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang))
-
-        # 收集该语言所有规则的 sink 函数名
-        all_sink_names = []
-        for rule in lang_rule_list:
-            try:
-                if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list) and len(rule.vul_function) > 0:
-                    names = parse_sink_names('|'.join(rule.vul_function))
-                elif hasattr(rule, 'match') and rule.match:
-                    names = parse_sink_names(rule.match)
-                else:
-                    continue
-                for sn in names:
-                    # 使用完整限定名（class_.method）以匹配 Go/Java 的 qualified function names
-                    if sn.class_:
-                        name_str = f"{sn.class_}.{sn.method}"
-                    else:
-                        name_str = sn.method
-                    # 清洗：保留字母、数字、下划线、点号
-                    name_str = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
-                    if name_str:
-                        all_sink_names.append(name_str)
-            except Exception:
-                continue
-
-        if not all_sink_names:
-            continue
-
-        all_sink_names = list(set(all_sink_names))
-        logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
-
-        sinks = analyzer.find_sinks(sink_names=all_sink_names)
-        logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
-
-        for sink in sinks:
-            try:
-                # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
-                arg_vids = list(set(sink.get('arg_vids', [])))
-                found_controllable = False
-                found_unconfirmed = False
-                result = None
-                unconfirmed_result = None
-                for arg_vid in arg_vids:
-                    arg_label = _vattr(graph.vs[arg_vid], 'label', '')
-                    if arg_label == 'function':
-                        continue
-                    r = analyzer.parameters_back(arg_vid)
-                    if r is not None:
-                        if r.is_controllable:
-                            found_controllable = True
-                            result = r
-                            break
-                        elif not r.is_uncontrollable and not found_unconfirmed:
-                            found_unconfirmed = True
-                            unconfirmed_result = r
-                if not found_controllable:
-                    # unconfirm 模式：记录疑似漏洞
-                    if found_unconfirmed and is_unconfirm:
-                        result = unconfirmed_result
-                        found_controllable = True
-                    elif not arg_vids:
-                        # 无参数的 sink（如 rand::thread_rng()）— 跳过 taint 回溯，
-                        # 依赖 rule.main() 做二次筛选
-                        found_controllable = True
-                        sink_vid = sink['vid']
-                        result = AnalysisResult(
-                            code=0,
-                            reason=f"presence of sink '{sink.get('name', '')}'",
-                            chain=[], path=[sink_vid],
-                        )
-                    else:
-                        continue
-
-                sink_name = sink.get('name', '')
-                # Multi-rule matching per sink:
-                # Collect all matching rules, then try each rule's main() —
-                # first rule whose main() passes gets to report.
-                matched_rules = []
-                sn_lower = sink_name.lower().replace("::", ".")
-                for pass_name in ("exact", "suffix"):
-                    for rule in lang_rule_list:
-                        rule_sink_names = []
-                        if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
-                            for sn in parse_sink_names('|'.join(rule.vul_function)):
-                                rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                        elif hasattr(rule, 'match') and rule.match:
-                            for sn in parse_sink_names(rule.match):
-                                rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                        if not rule_sink_names:
-                            continue
-                        rsn = [n.lower() for n in rule_sink_names]
-                        if pass_name == "exact":
-                            # Exact match or qualified-name match
-                            if sn_lower in rsn:
-                                matched_rules.append(rule)
-                                continue
-                            if "." in sn_lower and any("." in n and sn_lower == n for n in rsn):
-                                matched_rules.append(rule)
-                                continue
-                        else:
-                            # Suffix/fallback match
-                            if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
-                                matched_rules.append(rule)
-                                continue
-                    if matched_rules:
-                        break  # exact pass found matches, skip suffix pass
-
-                if not matched_rules:
-                    continue
-
-                # Try each matched rule; first whose main() passes reports
-                # rule.main() 二次筛选
-                main_input = sink_name  # default: sink function name
-                sink_file = _vattr(graph.vs[sink['vid']], 'path', '')
-                sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
-                # Pre-read source line for main() input
-                if sink_file:
-                    try:
-                        with open(sink_file, 'r', encoding='utf-8', errors='replace') as mf:
-                            source_lines = mf.readlines()
-                        idx = int(sink_lineno) - 1
-                        if 0 <= idx < len(source_lines):
-                            main_input = source_lines[idx].strip()
-                    except Exception:
-                        pass
-
-                matched_rule = None
-                for candidate_rule in matched_rules:
-                    if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
-                        try:
-                            main_result = candidate_rule.main(main_input)
-                            if main_result is False:
-                                logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip rule for sink {sink}'.format(
-                                    cvi=candidate_rule.svid, sink=sink_name))
-                                continue
-                        except Exception:
-                            pass  # main() exception doesn't block
-                    matched_rule = candidate_rule
-                    break
-
-                if matched_rule is None:
-                    # All candidate rules' main() returned False
-                    continue
-
-                # 文件路径过滤：vendor/test 目录
-                vuln_file_path = _vattr(graph.vs[sink['vid']], 'path', '')
-                if vuln_file_path:
-                    vuln_file_norm = os.path.normpath(vuln_file_path)
-                    # vendor 目录
-                    if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
-                        continue
-                    # test 目录
-                    for test_path in ['/test/', '/tests/', '/unitTests/']:
-                        if test_path in vuln_file_norm:
-                            continue
-
-                # 构建污点传播链
-                chain = []
-                for vid in result.path:
-                    v = graph.vs[vid]
-                    node_label = _vattr(v, 'label', '')
-                    node_name = _vattr(v, 'name', '')
-                    node_file = _vattr(v, 'path', '')
-                    node_lineno = _vattr(v, 'lineno', 0) or 0
-                    chain.append((node_label, node_name, node_file, node_lineno))
-
-                # 构建 VulnerabilityResult
-                sink_vid = sink['vid']
-                file_path = _vattr(graph.vs[sink_vid], 'path', '')
-                lineno = _vattr(graph.vs[sink_vid], 'lineno', 0)
-
-                vuln = VulnerabilityResult.from_match(
-                    (file_path, lineno, sink_name),
-                    svid=matched_rule.svid,
-                    language=matched_rule.language,
-                    rule_name=matched_rule.vulnerability,
-                    author=matched_rule.author
+            # 按语言分别创建 TraceCache 并 enrich
+            for lang in lang_rules.keys():
+                trace_cache = TraceCache(lang)
+                sr = _make_source_registry(lang)
+                count = enrich_taint(
+                    graph, language=lang,
+                    trace_cache=trace_cache,
+                    source_registry=sr,
                 )
-                vuln.analysis = result.reason
-                vuln.chain = chain
-                find_vulnerabilities.append(vuln)
-                logger.debug('[CVI-{cvi}] [GRAPH] Found: {sink}'.format(
-                    cvi=matched_rule.svid, sink=sink_name))
+                if count:
+                    logger.info('[SCAN] [GRAPH] Enriched %d function taint annotations for %s', count, lang)
+        except Exception as e:
+            logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 
-            except Exception as e:
-                logger.debug('[SCAN] [GRAPH] Sink analysis error: %s', e)
+        # 对每种语言使用 GraphAnalyzer 扫描
+        from core.graph.graph_analyzer import GraphAnalyzer, AnalysisResult
+        from core.utils import parse_sink_names
+        from Kunlun_M.const import VulnerabilityResult
+        from utils.igraph_compat import _vattr
+
+        for lang, lang_rule_list in lang_rules.items():
+            analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang))
+
+            # 收集该语言所有规则的 sink 函数名
+            all_sink_names = []
+            for rule in lang_rule_list:
+                try:
+                    if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list) and len(rule.vul_function) > 0:
+                        names = parse_sink_names('|'.join(rule.vul_function))
+                    elif hasattr(rule, 'match') and rule.match:
+                        names = parse_sink_names(rule.match)
+                    else:
+                        continue
+                    for sn in names:
+                        # 使用完整限定名（class_.method）以匹配 Go/Java 的 qualified function names
+                        if sn.class_:
+                            name_str = f"{sn.class_}.{sn.method}"
+                        else:
+                            name_str = sn.method
+                        # 清洗：保留字母、数字、下划线、点号
+                        name_str = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
+                        if name_str:
+                            all_sink_names.append(name_str)
+                except Exception:
+                    continue
+
+            if not all_sink_names:
                 continue
 
+            all_sink_names = list(set(all_sink_names))
+            logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
+
+            sinks = analyzer.find_sinks(sink_names=all_sink_names)
+            logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
+
+            for sink in sinks:
+                try:
+                    # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
+                    arg_vids = list(set(sink.get('arg_vids', [])))
+                    found_controllable = False
+                    found_unconfirmed = False
+                    result = None
+                    unconfirmed_result = None
+                    for arg_vid in arg_vids:
+                        arg_label = _vattr(graph.vs[arg_vid], 'label', '')
+                        if arg_label == 'function':
+                            continue
+                        r = analyzer.parameters_back(arg_vid)
+                        if r is not None:
+                            if r.is_controllable:
+                                found_controllable = True
+                                result = r
+                                break
+                            elif not r.is_uncontrollable and not found_unconfirmed:
+                                found_unconfirmed = True
+                                unconfirmed_result = r
+                    if not found_controllable:
+                        # unconfirm 模式：记录疑似漏洞
+                        if found_unconfirmed and is_unconfirm:
+                            result = unconfirmed_result
+                            found_controllable = True
+                        elif not arg_vids:
+                            # 无参数的 sink（如 rand::thread_rng()）— 跳过 taint 回溯，
+                            # 依赖 rule.main() 做二次筛选
+                            found_controllable = True
+                            sink_vid = sink['vid']
+                            result = AnalysisResult(
+                                code=0,
+                                reason=f"presence of sink '{sink.get('name', '')}'",
+                                chain=[], path=[sink_vid],
+                            )
+                        else:
+                            continue
+
+                    sink_name = sink.get('name', '')
+                    # Multi-rule matching per sink:
+                    # Collect all matching rules, then try each rule's main() —
+                    # first rule whose main() passes gets to report.
+                    matched_rules = []
+                    sn_lower = sink_name.lower().replace("::", ".")
+                    for pass_name in ("exact", "suffix"):
+                        for rule in lang_rule_list:
+                            rule_sink_names = []
+                            if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
+                                for sn in parse_sink_names('|'.join(rule.vul_function)):
+                                    rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
+                            elif hasattr(rule, 'match') and rule.match:
+                                for sn in parse_sink_names(rule.match):
+                                    rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
+                            if not rule_sink_names:
+                                continue
+                            rsn = [n.lower() for n in rule_sink_names]
+                            if pass_name == "exact":
+                                # Exact match or qualified-name match
+                                if sn_lower in rsn:
+                                    matched_rules.append(rule)
+                                    continue
+                                if "." in sn_lower and any("." in n and sn_lower == n for n in rsn):
+                                    matched_rules.append(rule)
+                                    continue
+                            else:
+                                # Suffix/fallback match
+                                if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
+                                    matched_rules.append(rule)
+                                    continue
+                        if matched_rules:
+                            break  # exact pass found matches, skip suffix pass
+
+                    if not matched_rules:
+                        continue
+
+                    # Try each matched rule; first whose main() passes reports
+                    # rule.main() 二次筛选
+                    main_input = sink_name  # default: sink function name
+                    sink_file = _vattr(graph.vs[sink['vid']], 'path', '')
+                    sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
+                    # Pre-read source line for main() input
+                    if sink_file:
+                        try:
+                            with open(sink_file, 'r', encoding='utf-8', errors='replace') as mf:
+                                source_lines = mf.readlines()
+                            idx = int(sink_lineno) - 1
+                            if 0 <= idx < len(source_lines):
+                                main_input = source_lines[idx].strip()
+                        except Exception:
+                            pass
+
+                    matched_rule = None
+                    for candidate_rule in matched_rules:
+                        if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
+                            try:
+                                main_result = candidate_rule.main(main_input)
+                                if main_result is False:
+                                    logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip rule for sink {sink}'.format(
+                                        cvi=candidate_rule.svid, sink=sink_name))
+                                    continue
+                            except Exception:
+                                pass  # main() exception doesn't block
+                        matched_rule = candidate_rule
+                        break
+
+                    if matched_rule is None:
+                        # All candidate rules' main() returned False
+                        continue
+
+                    # 文件路径过滤：vendor/test 目录
+                    vuln_file_path = _vattr(graph.vs[sink['vid']], 'path', '')
+                    if vuln_file_path:
+                        vuln_file_norm = os.path.normpath(vuln_file_path)
+                        # vendor 目录
+                        if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
+                            continue
+                        # test 目录
+                        for test_path in ['/test/', '/tests/', '/unitTests/']:
+                            if test_path in vuln_file_norm:
+                                continue
+
+                    # 构建污点传播链
+                    chain = []
+                    for vid in result.path:
+                        v = graph.vs[vid]
+                        node_label = _vattr(v, 'label', '')
+                        node_name = _vattr(v, 'name', '')
+                        node_file = _vattr(v, 'path', '')
+                        node_lineno = _vattr(v, 'lineno', 0) or 0
+                        chain.append((node_label, node_name, node_file, node_lineno))
+
+                    # 构建 VulnerabilityResult
+                    sink_vid = sink['vid']
+                    file_path = _vattr(graph.vs[sink_vid], 'path', '')
+                    lineno = _vattr(graph.vs[sink_vid], 'lineno', 0)
+
+                    vuln = VulnerabilityResult.from_match(
+                        (file_path, lineno, sink_name),
+                        svid=matched_rule.svid,
+                        language=matched_rule.language,
+                        rule_name=matched_rule.vulnerability,
+                        author=matched_rule.author
+                    )
+                    vuln.analysis = result.reason
+                    vuln.chain = chain
+                    find_vulnerabilities.append(vuln)
+                    logger.debug('[CVI-{cvi}] [GRAPH] Found: {sink}'.format(
+                        cvi=matched_rule.svid, sink=sink_name))
+
+                except Exception as e:
+                    logger.debug('[SCAN] [GRAPH] Sink analysis error: %s', e)
+                    continue
+
+
+    # ── Framework-dependency rules (independent of graph) ──
+    if _fw_dep_rules:
+        from utils.pom_parser import check_framework_dependency, search_code_patterns
+        try:
+            for rule in _fw_dep_rules:
+                if rule.status is False:
+                    continue
+                fw_deps = getattr(rule, 'framework_deps', [])
+                config_patterns = getattr(rule, 'config_patterns', [])
+                exclude_patterns = getattr(rule, 'exclude_patterns', [])
+                for dep_config in fw_deps:
+                    try:
+                        matched_deps = check_framework_dependency(target_directory, dep_config)
+                        for matched in matched_deps:
+                            pom_path = matched['pom']
+                            version = matched['version']
+                            cve = matched.get('cve', '')
+                            desc = matched.get('description', '')
+                            if config_patterns:
+                                config_files = search_code_patterns(target_directory, config_patterns)
+                                if not config_files:
+                                    continue
+                            if exclude_patterns:
+                                exclude_files = search_code_patterns(target_directory, exclude_patterns)
+                                if exclude_files:
+                                    continue
+                            match_text = f"{dep_config['group_id']}:{dep_config['artifact_id']}:{version}"
+                            if cve:
+                                match_text += f" ({cve})"
+                            vuln = VulnerabilityResult.from_match(
+                                (pom_path, '0', match_text),
+                                svid=rule.svid,
+                                language=rule.language,
+                                rule_name=rule.vulnerability,
+                                author=rule.author
+                            )
+                            vuln.analysis = f'Framework dependency: {match_text}'
+                            vuln.chain = [('Dependency', match_text, pom_path, 0)]
+                            find_vulnerabilities.append(vuln)
+                            logger.info('[CVI-%s] [FRAMEWORK] Found: %s', rule.svid, match_text)
+                    except Exception as e:
+                        logger.debug('[CVI-%s] [FRAMEWORK] Error: %s', rule.svid, e)
+        except Exception as e:
+            logger.warning('[SCAN] [FRAMEWORK] Framework-dependency scan failed: %s', e)
     # 写入数据库（复用旧逻辑）
     data = []
     data2 = []

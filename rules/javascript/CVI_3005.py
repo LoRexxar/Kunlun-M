@@ -25,7 +25,7 @@ class CVI_3005(SingleRuleMixin):
         self.level = 4
 
         # 部分配置
-        self.match_mode = "vustomize-match"
+        self.match_mode = "function-param-regex"
         self.match = r"(\.innerHTML\s*=\s*([^;]+)\b)"
 
         self.vul_function = r"innerHTML"

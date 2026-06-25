@@ -25,7 +25,7 @@ class CVI_30061(SingleRuleMixin):
         self.level = 4
 
         # 部分配置
-        self.match_mode = "vustomize-match"
+        self.match_mode = "function-param-regex"
         self.match = r"(\.attr\(\s*[^,]+,([\w_.]*)\s*\))"
 
         self.vul_function = r"attr"

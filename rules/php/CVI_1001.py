@@ -26,7 +26,7 @@ class CVI_1001(SingleRuleMixin):
         self.level = 7
 
         # 部分配置
-        self.match_mode = "vustomize-match"
+        self.match_mode = "function-param-regex"
         self.match = r"curl_setopt\s*\(.*,\s*CURLOPT_URL\s*,(.*)\)"
 
         self.vul_function = "curl_setopt"
