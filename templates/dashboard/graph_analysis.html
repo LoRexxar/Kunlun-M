@@ -1044,9 +1044,9 @@ $(document).ready(function () {
 
         // Action buttons
         html += '<div style="margin-top:10px;">';
-        html += '<button class="btn btn-primary btn-xs" onclick="loadSubgraph(currentScanId, ' + data.id + ')"><i class="fa fa-expand"></i> 展开此节点</button> ';
+        html += '<button class="btn btn-primary btn-xs" onclick="loadSubgraph(currentScanId(), ' + data.id + ')"><i class="fa fa-expand"></i> 展开此节点</button> ';
         if (data.file_path) {
-            html += '<button class="btn btn-default btn-xs" onclick="loadFileGraph(currentScanId, \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
+            html += '<button class="btn btn-default btn-xs" onclick="loadFileGraph(currentScanId(), \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
         }
         html += '</div>';
 
@@ -1054,7 +1054,7 @@ $(document).ready(function () {
     }
 
     function loadSubgraph(scanId, vid, depth) {
-        if (!scanId || !vid) { alert('请先选择 Scan 并输入节点 VID'); return; }
+        if (!scanId || vid === undefined || vid === null) { alert('请先选择 Scan 并输入节点 VID'); return; }
         depth = depth || parseInt($('#graphDepthInput').val()) || 2;
 
         var edgeLabels = [];
@@ -1113,12 +1113,17 @@ $(document).ready(function () {
         });
     }
 
+    // Expose to global scope for onclick handlers in node detail panel
+    window.loadSubgraph = loadSubgraph;
+    window.loadFileGraph = loadFileGraph;
+    window.currentScanId = function() { return currentScanId; };
+
     // Init Cytoscape on page load
     initCytoscape();
 
     $('#btnLoadSubgraph').on('click', function() {
         var vid = $('#graphVidInput').val();
-        if (!vid) { alert('请输入节点 VID'); return; }
+        if (vid === '' || vid === null || vid === undefined) { alert('请输入节点 VID'); return; }
         loadSubgraph(currentScanId, parseInt(vid));
     });
 
