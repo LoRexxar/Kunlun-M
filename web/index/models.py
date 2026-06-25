@@ -445,6 +445,7 @@ def get_and_check_evil_func(task_id):
     return nefs
 
 
+# LEGACY: unused by graph engine, retained for backward compatibility
 # 数据流模板表
 def get_dataflow_table(name, isnew=False):
 
@@ -480,6 +481,7 @@ def get_dataflow_table(name, isnew=False):
     return model_class
 
 
+# LEGACY: unused by graph engine, retained for backward compatibility
 def get_dataflow_class(name, isnew=False, isrenew=False):
     DateflowObject = get_dataflow_table(name, isnew)
 

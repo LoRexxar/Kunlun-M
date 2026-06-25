@@ -33,7 +33,7 @@ from core.vendors import get_project_by_version, get_and_save_vendor_vuls
 from Kunlun_M.settings import RULES_PATH
 from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
-from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, NewEvilFunc, Project, ProjectVendors, VendorVulns
+from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, Project, ProjectVendors, VendorVulns
 from web.index.models import get_resultflow_class, get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
 
 import importlib
@@ -204,25 +204,6 @@ def display_result(scan_id, is_ask=False):
                 "[SCAN] ending\r\n -------------------------------------------------------------------------")
 
         logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
-
-        # show New evil Function
-        nfs = NewEvilFunc.objects.filter(project_id=project_id, is_active=1)
-
-        if nfs:
-
-            table2 = PrettyTable(
-                ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
-
-            table2.align = 'l'
-            idy = 1
-
-            for nf in nfs:
-                row = [idy, nf.func_name, nf.origin_func_name, nf.svid]
-
-                table2.add_row(row)
-                idy += 1
-
-            logger.info("[MainThread] New evil Function list by NewCore:\r\n{table}".format(table=table2))
 
     else:
         logger.info("[MainThread] Scan id {} has no Result.".format(scan_id))

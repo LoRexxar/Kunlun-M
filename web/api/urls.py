@@ -21,8 +21,6 @@ urlpatterns = [
     path("task/<int:task_id>/result", views.TaskResultApiView.as_view(), name="task_result_detail"),
     # task resultflow details
     path("task/<int:task_id>/resultflow", views.TaskResultFlowApiView.as_view(), name="task_resultflow_detail"),
-    # task new evil func
-    path("task/<int:task_id>/newevilfunc", views.TaskNewEvilFuncApiView.as_view(), name="task_new_evil_func_detail"),
     # task vendors
     path("task/<int:task_id>/vendors", views.TaskVendorsApiView.as_view(), name="task_vendors"),
 
