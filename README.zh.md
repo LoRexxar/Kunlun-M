@@ -48,7 +48,7 @@ python kunlun.py <命令> [参数]
 | 命令 | 说明 |
 |------|------|
 | `init` | 初始化 / 迁移数据库 |
-| `reset -y` | 重置数据库（清除扫描数据、ResultFlow、workspace） |
+| `reset` | 重置数据库（清除扫描数据、ResultFlow、workspace） |
 | `scan -t <目标>` | 扫描目标（文件、目录或压缩包） |
 | `console` | 交互式控制台（含图遍历 REPL） |
 | `web [-p 9999]` | Web Dashboard + API |

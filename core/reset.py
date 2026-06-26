@@ -1,9 +1,8 @@
 """
-数据库重置模块 — 清除扫描数据和 workspace，保留规则/tamper/用户。
+数据库重置模块 — 清除扫描数据和 workspace，保留规则/tamper/用户/账号。
 
 用法:
-    python kunlun.py reset              # 交互确认
-    python kunlun.py reset -y            # 跳过确认
+    python kunlun.py reset              # 必须输入 yes 确认
     python kunlun.py reset --keep-workspace  # 保留 workspace 目录
 """
 import os
@@ -13,80 +12,105 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# 需要清空的业务表（按外键依赖顺序）
-_BUSINESS_TABLES = [
-    'index_scanresulttask',
-    'index_scantask',
-    'index_projectvendors',
-    'index_newevilfunc',
-    'index_project',
-    'index_vendorvulns',
-    'django_session',
-]
-
-# 需要保留的表（不清理）
-_KEEP_TABLES = {
-    'auth_group', 'auth_group_permissions', 'auth_permission',
-    'auth_user', 'auth_user_groups', 'auth_user_user_permissions',
-    'django_content_type', 'django_migrations',
-    'framework_tamper',
-    'index_rules',
-    'web_apitoken',
-    'sqlite_sequence',
-}
+# ANSI 红色
+_RED = '\033[91m'
+_RESET = '\033[0m'
+_BOLD = '\033[1m'
 
 
-def reset_database(skip_confirm=False, keep_workspace=False):
+def _red(text):
+    return _RED + text + _RESET
+
+
+def _bold_red(text):
+    return _BOLD + _RED + text + _RESET
+
+
+def reset_database(keep_workspace=False):
     """重置数据库：清除扫描数据 + ResultFlow 动态表 + workspace，重新 migrate + 加载规则。"""
     from django.conf import settings
 
     db_path = settings.DATABASES['default']['NAME']
 
-    if not skip_confirm:
-        print("=" * 50)
-        print("  KunLun-M Database Reset")
-        print("=" * 50)
-        print("  This will DELETE:")
-        print("    - All scan tasks, results, projects")
-        print("    - All vendor/vulnerability data")
-        print("    - All ResultFlow tables")
-        print("    - All sessions")
-        if not keep_workspace:
-            print("    - All workspace (graph cache) files")
-        print()
-        print("  This will KEEP:")
-        print("    - Rules (index_rules)")
-        print("    - Tampers (framework_tamper)")
-        print("    - Users & API tokens")
-        print("=" * 50)
+    # 先统计当前数据量，给用户明确的提示
+    from web.index.models import (
+        ScanResultTask, ScanTask, ProjectVendors,
+        NewEvilFunc, Project, VendorVulns,
+    )
+    from django.contrib.sessions.models import Session
 
-        confirm = input("  Are you sure? (yes/no): ").strip().lower()
-        if confirm != 'yes':
-            logger.info("Reset cancelled.")
-            return
+    n_project = Project.objects.count()
+    n_scan = ScanTask.objects.count()
+    n_result = ScanResultTask.objects.count()
+    n_vendor = ProjectVendors.objects.count()
+    n_evilfunc = NewEvilFunc.objects.count()
+    n_session = Session.objects.count()
 
+    # ResultFlow 动态表
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'ResultFlow_%'"
+    )
+    n_rf = len(cur.fetchall())
+    conn.close()
+
+    # workspace
+    workspace_root = os.path.join(settings.BASE_DIR, 'workspace')
+    n_workspace = len(os.listdir(workspace_root)) if os.path.isdir(workspace_root) else 0
+
+    print()
+    print("=" * 50)
+    print("  KunLun-M Database Reset")
+    print("=" * 50)
+    print()
+    print("  " + _bold_red("WARNING: This will permanently DELETE:"))
+    print()
+    print("  Scan Data:")
+    print("    - Projects:              {:>6}".format(n_project))
+    print("    - Scan Tasks:            {:>6}".format(n_scan))
+    print("    - Scan Results:          {:>6}".format(n_result))
+    print("    - Evil Functions:        {:>6}".format(n_evilfunc))
+    print("    - Vendor Dependencies:   {:>6}".format(n_vendor))
+    print("  ResultFlow Tables:")
+    print("    - Dynamic Tables:       {:>6}".format(n_rf))
+    print("  Sessions:")
+    print("    - Active Sessions:      {:>6}".format(n_session))
+    if not keep_workspace and n_workspace > 0:
+        print("  Workspace (Graph Cache):")
+        print("    - Cached Entries:      {:>6}".format(n_workspace))
+    elif keep_workspace and n_workspace > 0:
+        print("  Workspace:                   (kept)")
+    print()
+    print("  KEEP:")
+    print("    - Rules (index_rules)")
+    print("    - Tampers (framework_tamper)")
+    print("    - User accounts (auth_user)")
+    print("    - API tokens (web_apitoken)")
+    print()
+    print("=" * 50)
+    print()
+
+    confirm = input("  Type " + _bold_red("yes") + " to confirm reset: ").strip().lower()
+    if confirm != 'yes':
+        print("  Reset cancelled.")
+        return
+
+    print()
     logger.info("[RESET] Starting database reset...")
 
     # 1. 通过 Django ORM 清空业务表
     logger.info("[RESET] Clearing business tables...")
     from django.core.management import call_command
-    from web.index.models import (
-        ScanResultTask, ScanTask, ProjectVendors,
-        NewEvilFunc, Project, VendorVulns,
-    )
 
-    counts = {}
     for model in [ScanResultTask, ScanTask, ProjectVendors, NewEvilFunc, VendorVulns, Project]:
         cnt = model.objects.count()
         model.objects.all().delete()
-        counts[model._meta.db_table] = cnt
         logger.info("[RESET]   Deleted {} rows from {}".format(cnt, model._meta.db_table))
 
     # 清空 sessions
-    from django.contrib.sessions.models import Session
     session_cnt = Session.objects.count()
     Session.objects.all().delete()
-    counts['django_session'] = session_cnt
     logger.info("[RESET]   Deleted {} rows from django_session".format(session_cnt))
 
     # 2. 删除 ResultFlow 动态表
@@ -100,13 +124,11 @@ def reset_database(skip_confirm=False, keep_workspace=False):
     for t in rf_tables:
         cur.execute('DROP TABLE IF EXISTS [{}]'.format(t))
         conn.commit()
-        logger.info("[RESET]   Dropped table {}".format(t))
     conn.close()
     logger.info("[RESET]   Dropped {} ResultFlow tables".format(len(rf_tables)))
 
     # 3. 清理 workspace
     if not keep_workspace:
-        workspace_root = os.path.join(settings.BASE_DIR, 'workspace')
         if os.path.isdir(workspace_root):
             items = os.listdir(workspace_root)
             if items:
@@ -146,17 +168,10 @@ def reset_database(skip_confirm=False, keep_workspace=False):
     except Exception as e:
         logger.warning("[RESET]   Tamper load error: {}".format(e))
 
-    # 6. 统计
+    # 6. 验证
     logger.info("[RESET] Verifying...")
-    remain = {}
-    from web.index.models import Project, ScanTask, ScanResultTask
-    remain['projects'] = Project.objects.count()
-    remain['scan_tasks'] = ScanTask.objects.count()
-    remain['scan_results'] = ScanResultTask.objects.count()
-
-    logger.info("[RESET] Reset complete!")
     print()
-    print("  Database reset done.")
-    print("  Remaining: {} projects, {} scan tasks, {} results".format(
-        remain['projects'], remain['scan_tasks'], remain['scan_results']))
+    print("  " + _red("Reset complete."))
+    print("  Projects: {} | Scan Tasks: {} | Results: {}".format(
+        Project.objects.count(), ScanTask.objects.count(), ScanResultTask.objects.count()))
     print()

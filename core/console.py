@@ -594,7 +594,7 @@ class KunlunInterpreter(BaseInterpreter):
         """Reset database."""
         keep_workspace = '--keep-workspace' in (kwargs.get('raw_args') or [])
         from core.reset import reset_database
-        reset_database(skip_confirm=False, keep_workspace=keep_workspace)
+        reset_database(keep_workspace=keep_workspace)
 
     def command_exit(self, *args, **kwargs):
         raise EOFError

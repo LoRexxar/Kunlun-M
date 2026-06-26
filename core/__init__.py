@@ -270,7 +270,6 @@ def main():
 
         # reset
         parser_group_reset = subparsers.add_parser('reset', help='Reset database — clear scan data and workspace, re-init')
-        parser_group_reset.add_argument('-y', '--yes', action='store_true', default=False, help='Skip confirmation')
         parser_group_reset.add_argument('--keep-workspace', action='store_true', default=False, help='Keep workspace (graph cache) files')
         parser_group_reset.set_defaults(reset="reset")
 
@@ -539,10 +538,7 @@ def main():
 
         if hasattr(args, "reset") and args.reset == "reset":
             from core.reset import reset_database
-            reset_database(
-                skip_confirm=args.yes,
-                keep_workspace=args.keep_workspace,
-            )
+            reset_database(keep_workspace=args.keep_workspace)
             exit()
 
         if hasattr(args, "console"):
