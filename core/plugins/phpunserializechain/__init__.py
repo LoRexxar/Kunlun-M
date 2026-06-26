@@ -1,17 +1,10 @@
 #!/usr/bin/env python
 # encoding: utf-8
-'''
-@author: LoRexxar
-@contact: lorexxar@gmail.com
-@file: __init__.py.py
-@time: 2020/10/14 15:12
-@desc:
+"""PHP Unserialize Chain Finder plugin — graph engine version."""
 
-'''
+from .main import PhpUnserializeChain
 
-from .main import PhpUnSerChain
-
-PLUGIN_NAME = 'php_unserialize_chain_tools'
-PLUGIN_OBJECT = PhpUnSerChain
+PLUGIN_NAME = 'phpunserializechain'
+PLUGIN_OBJECT = PhpUnserializeChain
 PLUGIN_STATUS = True
-PLUGIN_DESCRIPTION = 'Discover the PHP deserialization chain through codedb'
+PLUGIN_DESCRIPTION = 'Find PHP unserialize chains via AST graph analysis and generate PoC'
