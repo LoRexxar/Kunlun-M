@@ -1,4 +1,29 @@
 ## 更新日志
+- 2026-06-26
+  - KunLun-M 2.17.0
+  - **项目级导入导出功能**
+    - 新增 `core/import_export.py` 模块，支持以 Project 为主体的完整数据打包和迁移
+    - 导出命令 `export-project`：打包项目关联的 scantask/result/newevilfunc/vendors/ResultFlow + workspace 图文件（graph.graphmlz + meta.json），生成 `kunlun-export-{name}-{timestamp}.tar.gz`
+    - 导入命令 `import-project`：自动创建数据库表结构，ID 全量重映射（scantask/result/newevilfunc），ResultFlow 的 vul_id 映射到新 result ID
+    - manifest.json 含 version/hash/sha256 校验，导入时自动校验完整性
+    - ResultFlow 表操作使用 sqlite3 直连，绕过 Django debug SQL 的 `%` 格式化 bug
+    - 同名项目通过 project_hash 去重，`--force` 覆盖
+    - CLI: `python kunlun.py export-project -p <project> [-o <dir>]` / `import-project -f <archive> [--force]`
+    - Console: `KunLun-M> export <project>` / `import <archive>`
+  - **igraph → Neo4j 图导出功能**
+    - 新增 `core/neo4j_export.py` 模块，支持将项目 AST 图批量导出到 Neo4j 图数据库
+    - 数据映射：12 种 igraph 节点类型 → Neo4j Label（KunlunFile/KunlunFunction/KunlunOperator/...），7 种 igraph 边类型 → Neo4j Relationship（CONTAINS/CALLS/DATA_FLOW/AST_CHILD/USES/FILE_REF/MEMBER_ACCESS）
+    - 完整属性映射：lineno/name/fullname/signature/file_path/call_type/role/access_type 等
+    - vid → internal_id 预映射 + UNWIND 批量写入，避免 MATCH 全表扫描（778 节点 + 1161 边 3.1 秒，4698 节点 + 7695 边 29.2 秒）
+    - CLI: `python kunlun.py export-neo4j -p <project> [-s <scan_id>] [--clean] [--neo4j-uri <uri>] [--neo4j-user <user>] [--neo4j-password <pwd>]`
+    - Console: `KunLun-M> neo4j <project_or_scan_id> [--clean]`
+    - `settings.py` 新增 `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD` 配置项，支持环境变量 `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD` 覆盖
+    - `--clean` 导出前清空已有 KunlunM 节点，`--batch-size` 控制批量写入大小（默认 500）
+  - **GraphTraversal 性能优化**
+    - 修复 `shortest_path()` 不可达节点 RuntimeWarning
+    - 修复 `AstGraphIO.load()` vertex id 冲突 warning，新增 `_load_graphmlz()` 方法静默 igraph 警告
+  - **Console GraphTraversal 文档**
+    - 新增 `docs/graph-traversal.md` 详细使用手册
 - 2026-06-17
   - KunLun-M 2.15.1
   - **Tamper 数据模型重构**
