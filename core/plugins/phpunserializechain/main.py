@@ -478,7 +478,8 @@ class PhpUnserializeChain(BasePluginClass):
         output = self.output.strip() if self.output else ''
         if output:
             return os.path.abspath(output)
-        return os.path.abspath(os.path.join(self.target, '.kunlunm_unserialize_poc'))
+        base = os.path.dirname(self.target) if os.path.isfile(self.target) else self.target
+        return os.path.abspath(os.path.join(base, '.kunlunm_unserialize_poc'))
 
     def safe_php_identifier(self, value, default='UnknownClass'):
         if not value:
