@@ -120,7 +120,16 @@ class AstGraphIO:
                 "Install it with: pip install python-igraph"
             )
 
-        return ig.Graph.Read_GraphMLz(self.graph_path)
+        return self._load_graphmlz(self.graph_path)
+
+    @staticmethod
+    def _load_graphmlz(path: str) -> "igraph.Graph":
+        """加载 GraphMLz 文件，静默 igraph 内部 vertex id 冲突 warning。"""
+        import warnings
+        import igraph as ig
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Could not add vertex ids")
+            return ig.Graph.Read_GraphMLz(path)
 
     def exists(self) -> bool:
         """判断图文件是否存在。"""

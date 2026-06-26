@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from typing import Any
+import warnings
 
 import igraph as ig
 
@@ -276,8 +277,10 @@ class GraphTraversal:
             vid 路径列表；不可达或异常时返回 ``[]``。
         """
         try:
-            paths = self.graph.get_shortest_paths(source_vid, target_vid, mode="all")
-            return paths[0] if paths else []
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                paths = self.graph.get_shortest_paths(source_vid, target_vid, mode="all")
+                return paths[0] if paths and paths[0] else []
         except Exception:
             return []
 
