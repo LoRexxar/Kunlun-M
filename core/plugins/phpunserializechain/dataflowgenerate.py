@@ -18,11 +18,48 @@ from utils.file import Directory, load_kunlunmignore
 from utils.utils import ParseArgs
 from utils.log import logger, logger_console
 
-from web.index.models import get_dataflow_class
+from django.db import connection, models as django_models
 
 from Kunlun_M.const import ext_dict
 
 from phply import phpast as php
+
+
+def _get_dataflow_model(filename, renew=False):
+    """创建或获取 DataFlow 动态模型（内联自 web.index.models LEGACY 函数）"""
+    table_name = "DataFlow_{}".format(filename)
+    model_name = "DataFlowTemplate_{}".format(table_name)
+
+    if model_name in globals():
+        model_class = globals()[model_name]
+    else:
+        model_class = type(
+            model_name,
+            (django_models.Model,),
+            {
+                "__module__": __name__,
+                "node_locate": django_models.CharField(max_length=1000),
+                "node_sort": django_models.IntegerField(),
+                "source_node": django_models.CharField(max_length=500),
+                "node_type": django_models.CharField(max_length=500),
+                "sink_node": django_models.CharField(max_length=500, null=True),
+                "is_exists": staticmethod(
+                    lambda: table_name in connection.introspection.table_names()
+                ),
+                "Meta": type("Meta", (), {"db_table": table_name}),
+            },
+        )
+        globals()[model_name] = model_class
+
+    if model_class.is_exists() and renew:
+        with connection.schema_editor() as schema_editor:
+            schema_editor.delete_model(model_class)
+
+    if not model_class.is_exists():
+        with connection.schema_editor() as schema_editor:
+            schema_editor.create_model(model_class)
+
+    return model_class
 
 
 class DataflowGenerate:
@@ -73,7 +110,7 @@ class DataflowGenerate:
         else:
             filename = targetlist[-1]
 
-        self.dataflow_db = get_dataflow_class(filename, isrenew=renew)
+        self.dataflow_db = _get_dataflow_model(filename, renew=renew)
 
         dataflows = self.dataflow_db.objects.all()
 

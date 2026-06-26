@@ -445,57 +445,6 @@ def get_and_check_evil_func(task_id):
     return nefs
 
 
-# LEGACY: unused by graph engine, retained for backward compatibility
-# 数据流模板表
-def get_dataflow_table(name, isnew=False):
-
-    prefix = ""
-
-    if isnew:
-        prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
-
-    table_name = "DataFlow_{}{}".format(name, prefix)
-
-    model_name = "DataFlowTemplate_{}".format(table_name)
-
-    if model_name in globals():
-        return globals()[model_name]
-
-    model_class = type(
-        model_name,
-        (models.Model,),
-        {
-            "__module__": __name__,
-            "node_locate": models.CharField(max_length=1000),
-            "node_sort": models.IntegerField(),
-            "source_node": models.CharField(max_length=500),
-            "node_type": models.CharField(max_length=500),
-            "sink_node": models.CharField(max_length=500, null=True),
-            "is_exists": staticmethod(
-                lambda: table_name in connection.introspection.table_names()
-            ),
-            "Meta": type("Meta", (), {"db_table": table_name}),
-        },
-    )
-    globals()[model_name] = model_class
-    return model_class
-
-
-# LEGACY: unused by graph engine, retained for backward compatibility
-def get_dataflow_class(name, isnew=False, isrenew=False):
-    DateflowObject = get_dataflow_table(name, isnew)
-
-    if DateflowObject.is_exists() and isrenew:
-        with connection.schema_editor() as schema_editor:
-            schema_editor.delete_model(DateflowObject)
-
-    if not DateflowObject.is_exists():
-        with connection.schema_editor() as schema_editor:
-            schema_editor.create_model(DateflowObject)
-
-    return DateflowObject
-
-
 # 结果流模板表
 def get_resultflow_table(table_name):
     # prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))

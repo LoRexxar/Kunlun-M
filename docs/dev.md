@@ -50,7 +50,7 @@ python kunlun.py console
 ## 本地修改与验证建议
 
 - 修改规则后：规则文件会自动同步到数据库（用于 Web 展示与回滚），无需手动执行 config load。
-- 扫描日志：Web 侧可通过 `/backend/tasklog/<task_id>`、`/backend/debuglog/<task_id>` 查看（支持 `token` 分享访问）。
+- 扫描日志：Web 侧可通过任务详情页 `/dashboard/tasks/detail/<task_id>` 或 `/backend/debuglog/<task_id>` 查看（支持 `token` 分享访问）。
 - API 调用：需要 `apitoken`（来自 `Kunlun_M/settings.py` 的 `API_TOKEN`），参数名是 `apitoken`。
 
 ---

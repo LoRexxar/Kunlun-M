@@ -49,7 +49,7 @@ DataFlow 表字段（动态 Model）：
 - `node_type`：节点类型（例如 `newMethod`、`MethodCall`、`Assignment` 等）
 - `sink_node`：汇表达式（例如调用参数、赋值右侧、控制结构条件等）
 
-定义处：[get_dataflow_table](file:///d:/program/Kunlun_M/web/index/models.py#L415-L447)
+定义处：[_get_dataflow_model](file:///d:/program/Kunlun_M/core/plugins/phpunserializechain/dataflowgenerate.py#L23-L62)
 
 ### 3.2 DataFlow 表名如何确定
 当你传入目标目录 `<target_path>` 时，插件取“目标路径最后一段名称”作为表名后缀：
@@ -57,7 +57,7 @@ DataFlow 表字段（动态 Model）：
 
 实现：
 - 目标名解析：[DataflowGenerate.main](file:///d:/program/Kunlun_M/core/plugins/phpunserializechain/dataflowgenerate.py#L66-L87)
-- 创建/重建逻辑：[get_dataflow_class](file:///d:/program/Kunlun_M/web/index/models.py#L449-L460)
+- 创建/重建逻辑：[_get_dataflow_model](file:///d:/program/Kunlun_M/core/plugins/phpunserializechain/dataflowgenerate.py#L23-L62)
 
 `-r/--renew` 会删除并重建该表（仅针对对应目标名的 DataFlow 表）。
 
