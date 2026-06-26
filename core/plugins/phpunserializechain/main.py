@@ -109,12 +109,14 @@ class PhpUnserializeChain(BasePluginClass):
                         if t_label == "function":
                             t_name = self.graph.vs[target_vid]["name"]
                             self.method_in_class.setdefault((vid, t_name), []).append(target_vid)
-                            # 提取方法体节点
+                            # 提取方法体节点（跳过嵌套的 function 声明节点，避免无限递归）
                             body_vids = []
                             for sub_eid in self.graph.incident(target_vid, mode="out"):
                                 sub_e = self.graph.es[sub_eid]
                                 if sub_e["label"] == "own":
-                                    body_vids.append(sub_e.target)
+                                    sub_label = self.graph.vs[sub_e.target]["label"]
+                                    if sub_label != "function":
+                                        body_vids.append(sub_e.target)
                             self.method_body_vids[target_vid] = body_vids
 
         # 提取继承关系（crg extends 边）
@@ -156,9 +158,11 @@ class PhpUnserializeChain(BasePluginClass):
                             unserchain = []
                             chain_relations = []
                             chain_properties = []
+                            visited = set()
 
                             if self._check_node_danger(bvid, class_name, mvid, unserchain,
-                                                       chain_relations, chain_properties, depth=0):
+                                                       chain_relations, chain_properties,
+                                                       depth=0, visited=visited):
                                 # 检查是否已存在指纹
                                 fp = json.dumps([self._vid_to_label(v) for v in unserchain], sort_keys=True)
                                 if fp not in self.chain_fingerprints:
@@ -192,7 +196,7 @@ class PhpUnserializeChain(BasePluginClass):
         return "{}:{}".format(self.graph.vs[vid]["label"], _vattr(self.graph.vs[vid], "name", ""))
 
     def _check_node_danger(self, node_vid, class_name, method_vid, unserchain,
-                            chain_relations, chain_properties, depth=0):
+                            chain_relations, chain_properties, depth=0, visited=None):
         """检查节点是否触发危险 sink 或可继续递归。"""
         if depth > 40:
             logger.warn("[PhpUnSerChain] Too much depth. return.")
@@ -200,6 +204,12 @@ class PhpUnserializeChain(BasePluginClass):
 
         if not self.graph or node_vid < 0 or node_vid >= self.graph.vcount():
             return False
+
+        if visited is None:
+            visited = set()
+        if node_vid in visited:
+            return False
+        visited.add(node_vid)
 
         label = self.graph.vs[node_vid]["label"]
         name = _vattr(self.graph.vs[node_vid], "name", "")
@@ -213,24 +223,33 @@ class PhpUnserializeChain(BasePluginClass):
         if label == "function":
             # 方法调用 → 跟入
             if self._try_follow_method_call(node_vid, name, class_name, method_vid,
-                                             unserchain, chain_relations, chain_properties, depth):
+                                             unserchain, chain_relations, chain_properties,
+                                             depth, visited=visited):
                 return True
 
-        # Operator 节点 — 检查是否为成员访问链 ($this->a->b)
+        # Operator 节点 — 检查是否为方法调用
         if label == "operator":
             op_type = _vattr(self.graph.vs[node_vid], "type", "")
             if op_type in ("method_call",):
+                # 先尝试通过 use 边跟入目标方法（operator(method_call) 的标准形态）
+                if self._follow_operator_method_call(node_vid, class_name, method_vid,
+                                                     unserchain, chain_relations,
+                                                     chain_properties, depth, visited):
+                    return True
+                # 再尝试 $this->a->b 形式的链式成员访问（触发 __call/__get）
                 if self._try_follow_member_call(node_vid, class_name, method_vid,
-                                                unserchain, chain_relations, chain_properties, depth):
+                                                unserchain, chain_relations, chain_properties,
+                                                depth, visited=visited):
                     return True
 
-        # 递归检查子节点（own/ast 边）
+        # 递归检查子节点（own/dfg 边，跳过 ast 边避免整个文件 AST 爆炸）
         for eid in self.graph.incident(node_vid, mode="out"):
             e = self.graph.es[eid]
-            if e["label"] in ("own", "ast", "dfg"):
+            if e["label"] in ("own", "dfg"):
                 target_vid = e.target
                 if self._check_node_danger(target_vid, class_name, method_vid,
-                                           unserchain, chain_relations, chain_properties, depth + 1):
+                                           unserchain, chain_relations, chain_properties,
+                                           depth + 1, visited=visited):
                     return True
 
         return False
@@ -252,8 +271,12 @@ class PhpUnserializeChain(BasePluginClass):
         return False
 
     def _try_follow_method_call(self, node_vid, call_name, current_class, method_vid,
-                                unserchain, chain_relations, chain_properties, depth):
+                                unserchain, chain_relations, chain_properties, depth,
+                                visited=None):
         """尝试跟入方法调用。"""
+        if visited is None:
+            visited = set()
+
         # 查找当前类中是否有该方法
         class_vids = self.class_vids.get(current_class, [])
         for cvid in class_vids:
@@ -266,19 +289,24 @@ class PhpUnserializeChain(BasePluginClass):
                 body_vids = self.method_body_vids.get(tmvid, [])
                 for bvid in body_vids:
                     if self._check_node_danger(bvid, current_class, tmvid,
-                                               unserchain, chain_relations, chain_properties, depth + 1):
+                                               unserchain, chain_relations, chain_properties,
+                                               depth + 1, visited=visited):
                         return True
                 unserchain.pop()
 
         # 尝试父类/子类
         return self._try_find_method_in_hierarchy(call_name, current_class, node_vid,
                                                    method_vid, unserchain, chain_relations,
-                                                   chain_properties, depth)
+                                                   chain_properties, depth, visited=visited)
 
     def _try_find_method_in_hierarchy(self, method_name, current_class, node_vid,
                                       current_method_vid, unserchain,
-                                      chain_relations, chain_properties, depth):
+                                      chain_relations, chain_properties, depth,
+                                      visited=None):
         """在类继承层次中查找方法。"""
+        if visited is None:
+            visited = set()
+
         # 查找父类
         class_vids = self.class_vids.get(current_class, [])
         for cvid in class_vids:
@@ -296,7 +324,8 @@ class PhpUnserializeChain(BasePluginClass):
                         for bvid in body_vids:
                             if self._check_node_danger(bvid, parent_name, pmvid,
                                                        unserchain, chain_relations,
-                                                       chain_properties, depth + 1):
+                                                       chain_properties, depth + 1,
+                                                       visited=visited):
                                 return True
                         unserchain.pop()
 
@@ -311,15 +340,68 @@ class PhpUnserializeChain(BasePluginClass):
                 for bvid in body_vids:
                     if self._check_node_danger(bvid, child_name, cmvid,
                                                unserchain, chain_relations,
-                                               chain_properties, depth + 1):
+                                               chain_properties, depth + 1,
+                                               visited=visited):
+                        return True
+                unserchain.pop()
+
+        return False
+
+    def _follow_operator_method_call(self, op_vid, current_class, method_vid,
+                                     unserchain, chain_relations, chain_properties,
+                                     depth, visited):
+        """从 operator(method_call) 节点通过 use 边跟入目标方法。
+
+        operator(method_call) 节点的 name 是目标方法名（如 dispatchDestruct），
+        通过 use 出边指向目标 function 的声明节点。但声明节点本身没有 body
+        （body children 是挂在被 class→own 指向的定义节点上），所以这里：
+        1. 从 use 边找到目标 function 声明节点，取出方法名
+        2. 在所有类的 method_in_class 索引中找到该方法的定义节点
+           （POP chain 中属性类型通常是动态绑定的，无法仅靠继承层次定位）
+        3. 遍历定义节点的 body_vids
+        """
+        # 1. 从 use 出边找到目标 function 声明节点
+        target_func_name = None
+        for eid in self.graph.incident(op_vid, mode="out"):
+            e = self.graph.es[eid]
+            if e["label"] == "use":
+                target_vid = e.target
+                if _vattr(self.graph.vs[target_vid], "label", "") == "function":
+                    target_func_name = _vattr(self.graph.vs[target_vid], "name", "")
+                    break
+
+        if not target_func_name:
+            return False
+
+        # 2. 在所有类中查找该方法的定义节点
+        # PHP POP chain 的属性类型通常无法静态确定（如 $this->b->method()），
+        # 因此对同名方法做全局搜索，覆盖跨类属性持有关系。
+        for (class_vid, mname), def_vids in self.method_in_class.items():
+            if mname != target_func_name or mname == "__class__":
+                continue
+            for dvid in def_vids:
+                if dvid == method_vid:
+                    continue  # 避免自递归
+                target_class = _vattr(self.graph.vs[class_vid], "name", "")
+                body_vids = self.method_body_vids.get(dvid, [])
+
+                unserchain.append(op_vid)
+                for bvid in body_vids:
+                    if self._check_node_danger(bvid, target_class, dvid,
+                                               unserchain, chain_relations,
+                                               chain_properties, depth + 1, visited):
                         return True
                 unserchain.pop()
 
         return False
 
     def _try_follow_member_call(self, node_vid, current_class, method_vid,
-                                unserchain, chain_relations, chain_properties, depth):
+                                unserchain, chain_relations, chain_properties, depth,
+                                visited=None):
         """跟踪 $this->a->b 形式的链式调用。"""
+        if visited is None:
+            visited = set()
+
         name = _vattr(self.graph.vs[node_vid], "name", "")
 
         # 提取链式属性名
@@ -341,7 +423,8 @@ class PhpUnserializeChain(BasePluginClass):
                     for bvid in body_vids:
                         if self._check_node_danger(bvid, current_class, mvid,
                                                    unserchain, chain_relations,
-                                                   chain_properties, depth + 1):
+                                                   chain_properties, depth + 1,
+                                                   visited=visited):
                             return True
                     unserchain.pop()
 
