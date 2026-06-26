@@ -302,8 +302,9 @@ class KunlunInterpreter(BaseInterpreter):
                                               Show result vuls/new evil func with option or show display option
     del [vuls, newevilfunc] <result_id>       Del result id
     set <option_name> <option_value>          Config for show mode
+    graph                                     Enter graph traversal REPL (g.function.main.ownout)
     check_log                                 Open log file
-    back                                      Back to the root list 
+    back                                      Back to the root list
     """
 
     def __init__(self):
@@ -315,7 +316,7 @@ class KunlunInterpreter(BaseInterpreter):
         self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'exit']
         self.config_commands = ['help', 'set ', 'save', 'back', 'showit']
         self.scan_commands = ['help', 'set ', 'show ', 'run', 'status']
-        self.result_commands = ['help', 'show ', 'del ', 'set ', 'back']
+        self.result_commands = ['help', 'show ', 'del ', 'set ', 'graph', 'back']
 
         self.subcommand_root_list = ['rule', 'tamper']
         self.subcommand_result_list = ['options', 'vuls', 'newevilfunc']
@@ -1489,6 +1490,82 @@ Tamper Name:
             self.current_mode = "result"
             logger_console.info(self.result_help)
 
+    def command_graph(self, *args, **kwargs):
+        """Enter graph traversal REPL for the current scan result."""
+        if self.current_mode != 'result':
+            logger.warn("[Console] Command graph only for result mode")
+            return
+
+        if not self.result_task_id:
+            logger.error("[Console] No scan task loaded. Use 'load <scan_id>' first.")
+            return
+
+        scan_id = self.result_task_id
+
+        # 加载图
+        from core.graph.workspace import get_scan_dir
+        from core.graph.graph_io import AstGraphIO
+
+        scan_dir = get_scan_dir(scan_id)
+        graph_io = AstGraphIO(scan_dir)
+
+        if not graph_io.exists():
+            logger.error(f"[Console] Graph file not found for scan {scan_id}. Path: {scan_dir}")
+            return
+
+        graph = graph_io.load()
+        if graph is None:
+            logger.error(f"[Console] Failed to load graph for scan {scan_id}")
+            return
+
+        logger_console.info(f"Graph loaded: {graph.vcount()} nodes, {graph.ecount()} edges")
+        logger_console.info("Type 'help' for available commands, 'exit' to return to console.")
+
+        # 获取语言
+        language = ""
+        if self.result_obj and hasattr(self.result_obj, 'language'):
+            language = self.result_obj.language or ""
+
+        # 创建 GraphTraversal 实例
+        from core.graph.graph_traversal import GraphTraversal
+        g = GraphTraversal(graph, language=language)
+
+        # 预注入常用函数
+        from core.graph.graph_analyzer import GraphAnalyzer
+        analyzer = GraphAnalyzer(graph, language=language)
+
+        # 构建本地命名空间
+        local_ns = {
+            "g": g,
+            "graph": graph,
+            "analyzer": analyzer,
+        }
+
+        # 启动 Python REPL
+        import code
+        try:
+            code.interact(
+                banner=(
+                    "\n=== KunLun-M Graph Traversal REPL ===\n"
+                    f"Scan ID: {scan_id}\n"
+                    f"Nodes: {graph.vcount()}, Edges: {graph.ecount()}\n\n"
+                    "Available:\n"
+                    "  g            GraphTraversal entry point\n"
+                    "  g.function   All function nodes\n"
+                    "  g.function.main.ownout  Traverse owned nodes of 'main'\n"
+                    "  g.function.main.l()     Print formatted list\n"
+                    "  g.count()   Node count\n"
+                    "  g.ids()     Node vid list\n"
+                    "  g.find_dfg(src_vid, dst_vid)  Data flow path\n"
+                    "  g.shortest_path(src, dst)     Shortest path\n"
+                    "\nType 'exit()' or Ctrl+D to return.\n"
+                ),
+                local=local_ns,
+                exitmsg="\nReturning to KunLun-M console.\n",
+            )
+        except SystemExit:
+            pass
+
     def command_check_log(self, *args, **kwargs):
         if self.current_mode != 'result':
             logger.warn("[Console] Command check_log only for result mode")
@@ -1509,6 +1586,10 @@ Tamper Name:
         else:
             logger.error("[Console] Log File {} does not exist.".format(log_file_path))
             return
+
+    @stop_after(2)
+    def complete_graph(self, text, *args, **kwargs):
+        return []
 
     @stop_after(2)
     def complete_show(self, text, *args, **kwargs):

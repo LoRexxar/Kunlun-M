@@ -26,6 +26,7 @@ from core.graph.graph_pipeline import build_ast_graph
 from core.graph.sqlite_index import AstNodeIndex, FileHash
 from core.graph.graph_analyzer import GraphAnalyzer, AnalysisResult
 from core.graph.graph_query_builder import GraphQueryBuilder
+from core.graph.graph_traversal import GraphTraversal
 from core.graph.session import AstGraphSession
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "AstGraphIO", "build_ast_graph", "AstNodeIndex", "FileHash",
     "GraphAnalyzer", "AnalysisResult",
     "GraphQueryBuilder", "AstGraphSession",
+    "GraphTraversal",
 ]
