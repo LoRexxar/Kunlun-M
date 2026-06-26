@@ -16,7 +16,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from web.index.controller import login_or_token_required, api_token_required
-from web.index.models import ScanTask, ScanResultTask, Rules, NewEvilFunc, VendorVulns, get_resultflow_class
+from web.index.models import ScanTask, ScanResultTask, Rules, VendorVulns, get_resultflow_class
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult
 from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
@@ -24,127 +24,8 @@ from Kunlun_M.settings import LOGS_PATH
 from utils.path_safety import is_path_under
 
 
-def _is_path_under_allowed_dir(path, allowed_dir):
-    """检查路径是否在允许的目录内，防止路径遍历攻击（已迁移到 utils.path_safety）"""
-    return is_path_under(path, allowed_dir)
-
-
 def index(request):
     return HttpResponse("Nothing here.")
-
-@login_or_token_required
-def tasklog(req, task_id):
-    task = ScanTask.objects.filter(id=task_id).first()
-    visit_token = ""
-
-    if 'token' in req.GET:
-        visit_token = req.GET['token']
-
-    # check task是否存在
-    if not task:
-        return redirect("dashboard:tasks_list")
-
-    project_id = get_and_check_scantask_project_id(task_id)
-
-    srts = list(get_and_check_scanresult(task_id).objects.filter(scan_project_id=project_id, is_active=1))
-    nefs = NewEvilFunc.objects.filter(project_id=project_id)
-
-    ResultFlow = get_resultflow_class(task_id)
-    rfs = ResultFlow.objects.all() if ResultFlow else []
-
-    task.parameter_config = " ".join(ast.literal_eval(task.parameter_config)).replace('\\', '/')
-
-    # 构建 chain 数据（与 dashboard controller 一致）
-    chain_map = {}
-    for rf in rfs:
-        if rf.node_type == "sca_scan":
-            continue
-        r = get_and_check_scanresult(task_id).objects.filter(id=rf.vul_id, is_active=1).first()
-        if not r:
-            continue
-        chain_map.setdefault(rf.vul_id, []).append({
-            'type': rf.node_type,
-            'content': rf.node_content or '',
-            'path': rf.node_path or '',
-            'lineno': str(rf.node_lineno or ''),
-            'source': rf.node_source or '',
-            'vid': rf.node_vid if hasattr(rf, 'node_vid') and rf.node_vid is not None else None,
-        })
-
-    # 计算 level 和 has_chain
-    for taskresult in srts:
-        taskresult.is_unconfirm = int(taskresult.is_unconfirm)
-        taskresult.level = 'low'
-        taskresult.chain_nodes = chain_map.get(taskresult.id, [])
-        taskresult.has_chain = len(taskresult.chain_nodes) > 0
-
-        if taskresult.cvi_id == '9999':
-            vender_vul_id = taskresult.vulfile_path.split(":")[-1]
-            if vender_vul_id:
-                vv = VendorVulns.objects.filter(id=vender_vul_id).first()
-                if vv:
-                    taskresult.level = VENDOR_VUL_LEVEL[vv.severity]
-        else:
-            r = Rules.objects.filter(svid=taskresult.cvi_id).first()
-            if r:
-                taskresult.level = VUL_LEVEL[r.level]
-
-    # 构建 chain JSON 供前端使用
-    chain_json_map = {}
-    for tr in srts:
-        if tr.has_chain:
-            chain_json_map[str(tr.id)] = tr.chain_nodes
-    chain_json = json.dumps(chain_json_map, ensure_ascii=False)
-
-    data = {
-        "task": task,
-        "taskresults": srts,
-        "newevilfuncs": nefs,
-        "chain_json": chain_json,
-        'visit_token': visit_token
-    }
-    return render(req, 'backend/tasklog.html', data)
-
-
-@login_or_token_required
-def tasklogtail(req, task_id):
-    task = ScanTask.objects.filter(id=task_id).first()
-    if not task:
-        return JsonResponse({"code": 404, "status": False, "message": "Task not found."})
-
-    offset = 0
-    if "offset" in req.GET:
-        try:
-            offset = int(req.GET["offset"])
-        except Exception:
-            offset = 0
-    if offset < 0:
-        offset = 0
-
-    log_path = os.path.join(LOGS_PATH, "ScanTask_{}.log".format(task_id))
-
-    # 验证路径仍在 LOGS_PATH 目录内，防止路径遍历
-    if not _is_path_under_allowed_dir(log_path, LOGS_PATH):
-        return JsonResponse({"code": 400, "status": False, "message": "Bad request."})
-
-    if not os.path.exists(log_path):
-        return JsonResponse({"code": 200, "status": True, "message": {"offset": offset, "data": "", "eof": True}})
-
-    max_bytes = 20000
-    with open(log_path, "rb") as f:
-        f.seek(offset)
-        data = f.read(max_bytes)
-        new_offset = f.tell()
-
-    text = ""
-    try:
-        text = data.decode("utf-8", errors="ignore")
-    except Exception:
-        text = ""
-
-    eof = len(data) < max_bytes
-    return JsonResponse({"code": 200, "status": True, "message": {"offset": new_offset, "data": text, "eof": eof}})
-
 
 @login_or_token_required
 def debuglog(req, task_id):
@@ -162,7 +43,7 @@ def debuglog(req, task_id):
     debuglog_filename = os.path.join(LOGS_PATH, 'ScanTask_{}.log'.format(task_id))
 
     # 验证路径仍在 LOGS_PATH 目录内，防止路径遍历
-    if not _is_path_under_allowed_dir(debuglog_filename, LOGS_PATH):
+    if not is_path_under(debuglog_filename, LOGS_PATH):
         return HttpResponse("Ooooops, bad request...", status=400)
 
     if not os.path.exists(debuglog_filename):
@@ -191,7 +72,7 @@ def downloadlog(req, task_id):
     debuglog_filename = os.path.join(LOGS_PATH, 'ScanTask_{}.log'.format(task_id))
 
     # 验证路径仍在 LOGS_PATH 目录内，防止路径遍历
-    if not _is_path_under_allowed_dir(debuglog_filename, LOGS_PATH):
+    if not is_path_under(debuglog_filename, LOGS_PATH):
         return HttpResponse("Ooooops, bad request...", status=400)
 
     if not os.path.exists(debuglog_filename):
@@ -300,7 +181,7 @@ def uploadlog(req):
     logfile_path = os.path.join(LOGS_PATH, logfile_name)
 
     # 验证目标路径仍在 LOGS_PATH 目录内
-    if not _is_path_under_allowed_dir(logfile_path, LOGS_PATH):
+    if not is_path_under(logfile_path, LOGS_PATH):
         return HttpResponse("Ooooops, bad request...", status=400)
 
     if os.path.exists(logfile_path):

@@ -95,7 +95,7 @@
     {% if task.is_finished == 2 %}
     <button id="btnLogLive" type="button" class="btn btn-warning"><i class="fa fa-terminal"></i> 实时日志</button>
     {% endif %}
-    <button id="result" type="button" class="btn btn-primary"><i class="fa fa-file-text-o"></i> 查看完整日志</button>
+    <a id="result" class="btn btn-primary" href="{% url 'backend:debuglog' task.id %}?token={{ visit_token }}"><i class="fa fa-file-text-o"></i> 查看完整日志</a>
     <a class="btn btn-default" href="{% url 'backend:exportresult' task.id %}?format=csv"><i class="fa fa-download"></i> CSV</a>
     <a class="btn btn-default" href="{% url 'backend:exportresult' task.id %}?format=json"><i class="fa fa-download"></i> JSON</a>
     <a class="btn btn-default" href="{% url 'backend:exportresult' task.id %}?format=html"><i class="fa fa-file-code-o"></i> HTML</a>
@@ -772,11 +772,6 @@ $(document).ready(function(){
   $("#tasks").addClass("menu-open");
   $("#tasks").find("ul").find("li#task_list").addClass("active");
   $("#tasks").find("ul").css("display","block");
-
-  // 查看完整日志
-  $("button#result").click(function () {
-      location.href = "{% url 'backend:tasklog' task.id %}?token={{ visit_token }}";
-  });
 
   // 实时日志
   var logPollTimer = null;
