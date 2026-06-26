@@ -271,6 +271,7 @@ class KunlunInterpreter(BaseInterpreter):
     export <project_id_or_name>                     Export project (DB + graph) to archive
     import <archive_path>                           Import project from archive
     neo4j <project_or_scan_id> [--clean]             Export AST graphs to Neo4j
+    reset [--keep-workspace]                         Reset database (clear scan data, workspace)
     exit                                             Exit KunLun-M""")
 
     config_rule_help = """Config Rule commands:
@@ -316,7 +317,7 @@ class KunlunInterpreter(BaseInterpreter):
         self.prompt_hostname = "KunLun-M"
         self.current_mode = 'root'
 
-        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'export ', 'import ', 'neo4j ', 'exit']
+        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'export ', 'import ', 'neo4j ', 'reset', 'exit']
         self.config_commands = ['help', 'set ', 'save', 'back', 'showit']
         self.scan_commands = ['help', 'set ', 'show ', 'run', 'status']
         self.result_commands = ['help', 'show ', 'del ', 'set ', 'graph', 'back']
@@ -588,6 +589,12 @@ class KunlunInterpreter(BaseInterpreter):
                 logger_console.info("  {}: {}".format(k, v))
         except (ValueError, ImportError) as e:
             logger_console.error("Neo4j export failed: {}".format(e))
+
+    def command_reset(self, *args, **kwargs):
+        """Reset database."""
+        keep_workspace = '--keep-workspace' in (kwargs.get('raw_args') or [])
+        from core.reset import reset_database
+        reset_database(skip_confirm=False, keep_workspace=keep_workspace)
 
     def command_exit(self, *args, **kwargs):
         raise EOFError

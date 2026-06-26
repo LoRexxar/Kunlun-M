@@ -48,6 +48,7 @@ python kunlun.py <command> [args]
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize / migrate database |
+| `reset -y` | Reset database (clear scan data, ResultFlow, workspace) |
 | `scan -t <target>` | Scan target (file, directory, or archive) |
 | `console` | Interactive console with graph REPL |
 | `web [-p 9999]` | Web dashboard with API |

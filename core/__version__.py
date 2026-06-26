@@ -33,6 +33,7 @@ Supports 14 languages with AST-based graph engine for taint analysis.
 
 __epilog__ = """Quick Start:
   python {m} init                              Initialize database
+  python {m} reset -y                          Reset database (clear all scan data)
   python {m} scan -t <target>                  Scan a project
   python {m} scan -t <target> -lan php          Scan with specific language
   python {m} scan -t <target> -f html -o r.html Export HTML report

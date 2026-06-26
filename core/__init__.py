@@ -60,7 +60,7 @@ def main():
         t1 = time.time()
 
         # 核心命令列表，在 -h 中分组展示
-        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze', 'export-project', 'import-project', 'export-neo4j'}
+        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze', 'export-project', 'import-project', 'export-neo4j', 'reset'}
 
         class GroupedSubparsersFormatter(argparse.RawDescriptionHelpFormatter):
             """自定义 formatter：将 subparsers 拆分为 Core Commands 和 Other Commands 两组"""
@@ -267,6 +267,12 @@ def main():
                                               metavar='<n>',
                                               help='batch size for Neo4j writes (default: 500)')
         parser_group_export_neo4j.set_defaults(export_neo4j="export_neo4j")
+
+        # reset
+        parser_group_reset = subparsers.add_parser('reset', help='Reset database — clear scan data and workspace, re-init')
+        parser_group_reset.add_argument('-y', '--yes', action='store_true', default=False, help='Skip confirmation')
+        parser_group_reset.add_argument('--keep-workspace', action='store_true', default=False, help='Keep workspace (graph cache) files')
+        parser_group_reset.set_defaults(reset="reset")
 
         # 加载插件参数列表以及帮助
 
@@ -529,6 +535,14 @@ def main():
             except (ValueError, ImportError) as e:
                 logger.error("[NEO4J] {}".format(e))
                 exit(1)
+            exit()
+
+        if hasattr(args, "reset") and args.reset == "reset":
+            from core.reset import reset_database
+            reset_database(
+                skip_confirm=args.yes,
+                keep_workspace=args.keep_workspace,
+            )
             exit()
 
         if hasattr(args, "console"):
