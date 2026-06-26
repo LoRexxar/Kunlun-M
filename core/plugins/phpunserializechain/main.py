@@ -133,6 +133,61 @@ class PhpUnserializeChain(BasePluginClass):
                         if crg_type == "extends":
                             self.class_children.setdefault(parent_name, []).append(vid)
 
+        # 反向映射：body_vid → (class_name, method_name)，用于链追踪后反查类归属
+        self.body_vid_to_method = {}
+        for class_vid_list in self.class_vids.values():
+            for class_vid in class_vid_list:
+                class_name = self.graph.vs[class_vid]["name"]
+                for eid in self.graph.incident(class_vid, mode="out"):
+                    e = self.graph.es[eid]
+                    if e["label"] == "own" and self.graph.vs[e.target]["label"] == "function":
+                        def_vid = e.target
+                        method_name = self.graph.vs[def_vid]["name"]
+                        for bvid in self.method_body_vids.get(def_vid, []):
+                            self.body_vid_to_method[bvid] = (class_name, method_name)
+
+        # 从源码提取每个类的属性引用（$this->prop 模式）
+        # PHP normalizer 会把 $this->prop->method() 简化为 operator(method_call)，
+        # 因此无法从图结构直接获取属性名，需要从源文件提取
+        self.class_property_names = {}  # class_name → set of property names
+        self.class_method_names = {}   # class_name → set of method names (用于过滤)
+        for class_vid_list in self.class_vids.values():
+            for class_vid in class_vid_list:
+                class_name = self.graph.vs[class_vid]["name"]
+                # 收集类中已定义的方法名（用于过滤 $this->method() 调用）
+                method_names = set()
+                for eid in self.graph.incident(class_vid, mode="out"):
+                    e = self.graph.es[eid]
+                    if e["label"] == "own" and self.graph.vs[e.target]["label"] == "function":
+                        method_names.add(self.graph.vs[e.target]["name"])
+                self.class_method_names[class_name] = method_names
+
+                fp = _vattr(self.graph.vs[class_vid], "file_path", "")
+                if not fp or not os.path.isfile(fp):
+                    continue
+                # 获取 class 在源码中的位置范围
+                lineno = int(_vattr(self.graph.vs[class_vid], "lineno", 0) or 0)
+                end_lineno = int(_vattr(self.graph.vs[class_vid], "end_lineno", 0) or 0)
+
+                try:
+                    with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
+                        lines = f.readlines()
+                except (IOError, OSError):
+                    continue
+
+                if lineno > 0 and end_lineno > lineno:
+                    class_source = ''.join(lines[lineno-1:end_lineno])
+                else:
+                    class_source = ''.join(lines)
+
+                prop_names = set()
+                # 匹配 $this->prop_name（排除 $this->method() 形式）
+                for pm in re.finditer(r'\$this->(\w+)', class_source):
+                    prop = pm.group(1)
+                    if prop not in method_names and not prop.startswith('_'):
+                        prop_names.add(prop)
+                self.class_property_names[class_name] = prop_names
+
         logger.info("[PhpUnSerChain] Graph loaded: {} classes, {} functions".format(
             len(self.class_vids), len(self.func_vids)))
 
@@ -167,6 +222,20 @@ class PhpUnserializeChain(BasePluginClass):
                                 fp = json.dumps([self._vid_to_label(v) for v in unserchain], sort_keys=True)
                                 if fp not in self.chain_fingerprints:
                                     self.chain_fingerprints.add(fp)
+                                    # 后处理：从 unserchain 反查实际经过的类和方法
+                                    class_seq = []
+                                    method_seq = []
+                                    seen_cm = set()
+                                    for v in unserchain:
+                                        info = self.body_vid_to_method.get(v)
+                                        if info:
+                                            cname, mname = info
+                                            key = (cname, mname)
+                                            if key not in seen_cm:
+                                                seen_cm.add(key)
+                                                class_seq.append(cname)
+                                                method_seq.append(mname)
+
                                     self.available_chains.append({
                                         'chain_id': "{}::{}=>{}".format(
                                             class_name, magic,
@@ -176,13 +245,13 @@ class PhpUnserializeChain(BasePluginClass):
                                         'entry_class': class_name,
                                         'entry_locate': class_name,
                                         'has_wakeup': magic == "__wakeup",
-                                        'class_sequence': [class_name],
-                                        'method_sequence': [magic],
+                                        'class_sequence': class_seq or [class_name],
+                                        'method_sequence': method_seq or [magic],
                                         'chain_nodes': [
                                             {
                                                 'node_type': self.graph.vs[v]["label"],
-                                                'class': class_name,
-                                                'method': _vattr(self.graph.vs[v], "name", ""),
+                                                'class': self.body_vid_to_method.get(v, (class_name, ""))[0],
+                                                'method': self.body_vid_to_method.get(v, ("", ""))[1],
                                                 'source_node': self._vid_to_label(v),
                                                 'sink_node': '',
                                                 'vid': v,
@@ -490,20 +559,38 @@ class PhpUnserializeChain(BasePluginClass):
         return safe or default
 
     def extract_controllable_properties(self, chain):
+        """提取链中可控属性。
+
+        优先从源码提取每个链路经过的类的属性引用，
+        回退到 chain_nodes 文本正则匹配。
+        """
         if chain.get('analysis_properties'):
             return chain.get('analysis_properties')
+
+        # 从源码属性映射中提取链路经过的类的属性
         props = []
         seen = set()
-        pattern = re.compile(r'\$[a-zA-Z_]\w*(?:->([a-zA-Z_]\w*))')
-        for item in chain.get('chain_nodes', []):
-            for field in ['source_node', 'sink_node']:
-                value = item.get(field, '')
-                if not isinstance(value, str):
-                    continue
-                for prop in pattern.findall(value):
-                    if prop and prop not in seen:
+        for node in chain.get('chain_nodes', []):
+            cls = node.get('class', '')
+            if cls in self.class_property_names:
+                for prop in self.class_property_names[cls]:
+                    if prop not in seen:
                         seen.add(prop)
                         props.append(prop)
+
+        # 回退：从 chain_nodes 文本正则匹配
+        if not props:
+            pattern = re.compile(r'\$[a-zA-Z_]\w*(?:->([a-zA-Z_]\w*))')
+            for item in chain.get('chain_nodes', []):
+                for field in ['source_node', 'sink_node']:
+                    value = item.get(field, '')
+                    if not isinstance(value, str):
+                        continue
+                    for prop in pattern.findall(value):
+                        if prop and prop not in seen:
+                            seen.add(prop)
+                            props.append(prop)
+
         return props
 
     def render_chain_php(self, chain, chain_index):
@@ -584,6 +671,8 @@ if ({has_wakeup}) {{
             return "// Trigger hint: $root->undefinedMethod('PAYLOAD_CALL');"
         if m == '__invoke':
             return "// Trigger hint: $root();"
+        if m == '__destruct':
+            return "// Trigger hint: target-side unserialize() will invoke __destruct automatically."
         if m == '__wakeup':
             return "// Trigger hint: target-side unserialize() will invoke __wakeup automatically."
         if m == '__sleep':
