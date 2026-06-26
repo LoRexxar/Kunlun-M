@@ -407,6 +407,184 @@ class TaskRetryApiView(View):
         return JsonResponse({"code": 200, "message": "Task queued for retry."})
 
 
+class TaskStatusApiView(View):
+    """轻量级任务状态查询 — 仅返回 id/name/status/error 等核心字段。
+
+    GET 参数:
+        task_id: 任务 ID
+    """
+
+    @staticmethod
+    @api_token_required
+    def get(request, task_id):
+        task = ScanTask.objects.filter(id=task_id).first()
+        if not task:
+            return JsonResponse({"code": 404, "status": False, "message": "Task not found."})
+
+        status_map = {0: "failed", 1: "success", 2: "running", 3: "pending"}
+        return JsonResponse({
+            "code": 200, "status": True,
+            "message": {
+                "id": task.id,
+                "task_name": task.task_name,
+                "status": status_map.get(task.is_finished, "unknown"),
+                "source_type": task.source_type,
+                "language": "",
+                "error_message": task.error_message or "",
+                "created_at": str(task.created_at) if task.created_at else "",
+                "started_at": str(task.started_at) if task.started_at else "",
+                "finished_at": str(task.finished_at) if task.finished_at else "",
+            }
+        })
+
+
+class TaskCreateApiView(View):
+    """通过 API 创建扫描任务（仅支持本地路径模式）。
+
+    POST 参数:
+        target_path: 扫描目标路径 (必填)
+        task_name: 任务名称 (可选，默认取目录名)
+        language: 语言 (可选)
+        special_rules: 特殊规则 (可选)
+        tamper_name: tamper 名称 (可选)
+        black_path: 黑名单路径 (可选)
+        unconfirm: 是否确认未确认漏洞 0/1 (可选，默认 0)
+        unprecom: 是否跳过预编译 0/1 (可选，默认 0)
+        without_vendor: 是否跳过组件检测 0/1 (可选，默认 0)
+        no_cache: 是否不使用缓存 0/1 (可选，默认 0)
+    """
+
+    @staticmethod
+    @api_token_required
+    def post(request):
+        from Kunlun_M import settings
+
+        allowed_paths = getattr(settings, "WEB_SCAN_ALLOWED_PATHS", [])
+        if not allowed_paths:
+            return JsonResponse({"code": 403, "status": False, "message": "Path scan not enabled. Configure WEB_SCAN_ALLOWED_PATHS in settings."})
+
+        target_path = (request.POST.get("target_path", "") or "").strip()
+        if not target_path:
+            return JsonResponse({"code": 400, "status": False, "message": "target_path required"})
+
+        target_path = os.path.abspath(os.path.expanduser(target_path))
+        if not os.path.isdir(target_path):
+            return JsonResponse({"code": 400, "status": False, "message": "Path does not exist or is not a directory: {}".format(target_path)})
+
+        if "*" not in allowed_paths:
+            real_path = os.path.realpath(target_path)
+            matched = False
+            for allowed_dir in allowed_paths:
+                real_allowed = os.path.realpath(os.path.abspath(allowed_dir))
+                if real_path == real_allowed or real_path.startswith(real_allowed + os.sep):
+                    matched = True
+                    break
+            if not matched:
+                return JsonResponse({"code": 403, "status": False, "message": "Path not in allowed scan directories."})
+
+        task_name = (request.POST.get("task_name", "") or "").strip()
+        if not task_name:
+            task_name = os.path.basename(target_path.rstrip(os.sep)) or "unnamed"
+
+        opts = {
+            "language": (request.POST.get("language", "") or "").strip(),
+            "special_rules": (request.POST.get("special_rules", "") or "").strip(),
+            "tamper_name": (request.POST.get("tamper_name", "") or "").strip(),
+            "black_path": (request.POST.get("black_path", "") or "").strip(),
+            "unconfirm": request.POST.get("unconfirm", "0"),
+            "unprecom": request.POST.get("unprecom", "0"),
+            "without_vendor": request.POST.get("without_vendor", "0"),
+            "no_cache": request.POST.get("no_cache", "0"),
+        }
+
+        task = ScanTask(
+            task_name=task_name,
+            target_path=target_path,
+            parameter_config=repr(["api", "path", target_path]),
+            is_finished=3,
+            source_type="path",
+            options_json=json.dumps(opts, ensure_ascii=False),
+            created_at=timezone.now(),
+            last_scan_time=timezone.now(),
+        )
+        task.save()
+
+        return JsonResponse({"code": 200, "status": True, "message": {"task_id": task.id, "task_name": task.task_name}})
+
+
+class TaskCreateWithConfigApiView(View):
+    """通过 API 一步创建、配置并排队扫描任务。
+
+    POST 参数同 TaskCreateApiView + TaskConfigView 合并。
+    创建后自动设置 options_json 并置为待执行状态。
+    """
+
+    @staticmethod
+    @api_token_required
+    def post(request):
+        from Kunlun_M import settings
+        from web.index.scan_dispatcher import try_dispatch
+
+        allowed_paths = getattr(settings, "WEB_SCAN_ALLOWED_PATHS", [])
+        if not allowed_paths:
+            return JsonResponse({"code": 403, "status": False, "message": "Path scan not enabled."})
+
+        target_path = (request.POST.get("target_path", "") or "").strip()
+        if not target_path:
+            return JsonResponse({"code": 400, "status": False, "message": "target_path required"})
+
+        target_path = os.path.abspath(os.path.expanduser(target_path))
+        if not os.path.isdir(target_path):
+            return JsonResponse({"code": 400, "status": False, "message": "Path does not exist: {}".format(target_path)})
+
+        if "*" not in allowed_paths:
+            real_path = os.path.realpath(target_path)
+            matched = any(
+                real_path == os.path.realpath(os.path.abspath(d)) or real_path.startswith(os.path.realpath(os.path.abspath(d)) + os.sep)
+                for d in allowed_paths
+            )
+            if not matched:
+                return JsonResponse({"code": 403, "status": False, "message": "Path not in allowed scan directories."})
+
+        task_name = (request.POST.get("task_name", "") or "").strip() or os.path.basename(target_path.rstrip(os.sep)) or "unnamed"
+
+        opts = {
+            "language": (request.POST.get("language", "") or "").strip(),
+            "special_rules": (request.POST.get("special_rules", "") or "").strip(),
+            "tamper_name": (request.POST.get("tamper_name", "") or "").strip(),
+            "black_path": (request.POST.get("black_path", "") or "").strip(),
+            "unconfirm": request.POST.get("unconfirm", "0"),
+            "unprecom": request.POST.get("unprecom", "0"),
+            "without_vendor": request.POST.get("without_vendor", "0"),
+            "no_cache": request.POST.get("no_cache", "0"),
+        }
+
+        task = ScanTask(
+            task_name=task_name,
+            target_path=target_path,
+            parameter_config=repr(["api", "path", target_path]),
+            is_finished=3,
+            source_type="path",
+            options_json=json.dumps(opts, ensure_ascii=False),
+            created_at=timezone.now(),
+            last_scan_time=timezone.now(),
+        )
+        task.save()
+
+        # 尝试立即调度
+        try_dispatch()
+
+        task.refresh_from_db()
+        return JsonResponse({
+            "code": 200, "status": True,
+            "message": {
+                "task_id": task.id,
+                "task_name": task.task_name,
+                "status": "running" if task.is_finished == 2 else "queued",
+            }
+        })
+
+
 class StatsApiView(View):
     """仪表盘统计数据"""
 
@@ -533,10 +711,9 @@ class GraphQueryApiView(View):
                     return JsonResponse({"code": 400, "error": "trace format: file:line"})
                 result = session.query.trace(parts[0], int(parts[1]))
             elif query_type == "search":
-                tokens = query_arg.split(":", 2)
-                label = tokens[0] if len(tokens) > 0 else None
-                name = tokens[1] if len(tokens) > 1 else None
-                result = session.query.search(label=label or None, name=name or None)
+                label = request.GET.get("label") or (query_arg.split(":", 2)[0] if query_arg else None) or None
+                name = request.GET.get("name") or (query_arg.split(":", 2)[1] if query_arg and ":" in query_arg else None) or None
+                result = session.query.search(label=label, name=name)
             elif query_type == "call_graph":
                 depth = int(request.GET.get("depth", "2"))
                 direction = request.GET.get("direction", "both")
