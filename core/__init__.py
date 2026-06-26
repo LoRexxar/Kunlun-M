@@ -60,7 +60,7 @@ def main():
         t1 = time.time()
 
         # 核心命令列表，在 -h 中分组展示
-        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze', 'export-project', 'import-project'}
+        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze', 'export-project', 'import-project', 'export-neo4j'}
 
         class GroupedSubparsersFormatter(argparse.RawDescriptionHelpFormatter):
             """自定义 formatter：将 subparsers 拆分为 Core Commands 和 Other Commands 两组"""
@@ -239,6 +239,34 @@ def main():
         parser_group_import_project.add_argument('--force', dest='force', action='store_true', default=False,
                                                   help='overwrite existing project with same hash')
         parser_group_import_project.set_defaults(import_project="import_project")
+
+        # export-neo4j
+        parser_group_export_neo4j = subparsers.add_parser('export-neo4j',
+                                    help='export project AST graphs to Neo4j',
+                                    description=__introduction__.format(detail='export project AST graphs to Neo4j'),
+                                    formatter_class=argparse.RawDescriptionHelpFormatter,
+                                    usage=argparse.SUPPRESS, add_help=True)
+        parser_group_export_neo4j.add_argument('-p', '--project', dest='project', default=None,
+                                              metavar='<project_id_or_name>',
+                                              help='export all scans of a project')
+        parser_group_export_neo4j.add_argument('-s', '--scan', dest='scan', default=None,
+                                              metavar='<scan_id>', type=int,
+                                              help='export a single scan')
+        parser_group_export_neo4j.add_argument('--neo4j-uri', dest='neo4j_uri', default=None,
+                                              metavar='<uri>',
+                                              help='Neo4j URI (default: settings.NEO4J_URI)')
+        parser_group_export_neo4j.add_argument('--neo4j-user', dest='neo4j_user', default=None,
+                                              metavar='<user>',
+                                              help='Neo4j username (default: settings.NEO4J_USER)')
+        parser_group_export_neo4j.add_argument('--neo4j-password', dest='neo4j_password', default=None,
+                                              metavar='<password>',
+                                              help='Neo4j password (default: settings.NEO4J_PASSWORD)')
+        parser_group_export_neo4j.add_argument('--clean', dest='clean', action='store_true', default=False,
+                                              help='clear existing KunlunM nodes before export')
+        parser_group_export_neo4j.add_argument('--batch-size', dest='batch_size', default=500, type=int,
+                                              metavar='<n>',
+                                              help='batch size for Neo4j writes (default: 500)')
+        parser_group_export_neo4j.set_defaults(export_neo4j="export_neo4j")
 
         # 加载插件参数列表以及帮助
 
@@ -458,6 +486,48 @@ def main():
                     "\n".join("  {}: {}".format(k, v) for k, v in report.items())))
             except ValueError as e:
                 logger.error("[IMPORT] {}".format(e))
+                exit(1)
+            exit()
+
+        if hasattr(args, "export_neo4j") and args.export_neo4j == "export_neo4j":
+            from core.neo4j_export import (
+                export_project_to_neo4j,
+                export_scan_to_neo4j,
+                list_projects_with_graphs,
+            )
+            try:
+                if args.scan is not None:
+                    report = export_scan_to_neo4j(
+                        scan_id=args.scan,
+                        uri=args.neo4j_uri,
+                        user=args.neo4j_user,
+                        password=args.neo4j_password,
+                        clean=args.clean,
+                        batch_size=args.batch_size,
+                    )
+                elif args.project:
+                    report = export_project_to_neo4j(
+                        project_ref=args.project,
+                        uri=args.neo4j_uri,
+                        user=args.neo4j_user,
+                        password=args.neo4j_password,
+                        clean=args.clean,
+                        batch_size=args.batch_size,
+                    )
+                else:
+                    projects = list_projects_with_graphs()
+                    if projects:
+                        logger.info("Usage: export-neo4j -p <project_id_or_name> OR -s <scan_id>")
+                        logger.info("Available projects with graphs:")
+                        for pid, pname, scount in projects:
+                            logger.info("  {}  {} ({} scans)".format(pid, pname, scount))
+                    else:
+                        logger.info("No projects with graph files found.")
+                    exit()
+                logger.info("[NEO4J] Export complete:\n{}".format(
+                    "\n".join("  {}: {}".format(k, v) for k, v in report.items())))
+            except (ValueError, ImportError) as e:
+                logger.error("[NEO4J] {}".format(e))
                 exit(1)
             exit()
 

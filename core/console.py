@@ -270,6 +270,7 @@ class KunlunInterpreter(BaseInterpreter):
     config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
     export <project_id_or_name>                     Export project (DB + graph files) to archive
     import <archive_path>                           Import project from archive
+    neo4j <project_id_or_name|scan_id> [--clean]    Export AST graphs to Neo4j
     exit                                             Exit KunLun-M & save Config""")
 
     config_rule_help = """Config Rule commands:
@@ -315,7 +316,7 @@ class KunlunInterpreter(BaseInterpreter):
         self.prompt_hostname = "KunLun-M"
         self.current_mode = 'root'
 
-        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'export ', 'import ', 'exit']
+        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'export ', 'import ', 'neo4j ', 'exit']
         self.config_commands = ['help', 'set ', 'save', 'back', 'showit']
         self.scan_commands = ['help', 'set ', 'show ', 'run', 'status']
         self.result_commands = ['help', 'show ', 'del ', 'set ', 'graph', 'back']
@@ -551,6 +552,42 @@ class KunlunInterpreter(BaseInterpreter):
                 logger_console.info("  {}: {}".format(k, v))
         except ValueError as e:
             logger_console.error("Import failed: {}".format(e))
+
+    def command_neo4j(self, *args, **kwargs):
+        """Export AST graphs to Neo4j."""
+        arg = args[0].strip() if args else ''
+        if not arg:
+            from core.neo4j_export import list_projects_with_graphs
+            projects = list_projects_with_graphs()
+            if projects:
+                logger_console.info("Usage: neo4j <project_id_or_name|scan_id> [--clean]")
+                logger_console.info("Available projects with graphs:")
+                for pid, pname, scount in projects:
+                    logger_console.info("  {}  {} ({} scans)".format(pid, pname, scount))
+            else:
+                logger_console.info("No projects with graph files found.")
+            return
+
+        parts = arg.split()
+        target = parts[0]
+        clean = '--clean' in parts
+
+        from core.neo4j_export import export_project_to_neo4j, export_scan_to_neo4j
+        try:
+            # 判断是 scan_id 还是 project：纯数字→尝试 scan，否则→project
+            if target.isdigit():
+                report = export_scan_to_neo4j(
+                    scan_id=int(target), clean=clean,
+                )
+            else:
+                report = export_project_to_neo4j(
+                    project_ref=target, clean=clean,
+                )
+            logger_console.info("[Console] Neo4j export complete:")
+            for k, v in report.items():
+                logger_console.info("  {}: {}".format(k, v))
+        except (ValueError, ImportError) as e:
+            logger_console.error("Neo4j export failed: {}".format(e))
 
     def command_exit(self, *args, **kwargs):
         raise EOFError

@@ -214,6 +214,14 @@ WEB_SCAN_MAX_CONCURRENCY = 1
 # HTML 报告自定义模板路径（为空则使用内置默认模板）
 HTML_TEMPLATE_PATH = ''
 
+# Neo4j 图数据库配置（用于 igraph → Neo4j 导出）
+# 连接信息也可通过 CLI 参数 --neo4j-uri / --neo4j-user / --neo4j-password 覆盖
+NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+NEO4J_MAX_CONNECTION_POOL_SIZE = 50
+NEO4J_CONNECTION_ACQUISITION_TIMEOUT = 60.0
+
 # vendor vuln scan
 WITH_VENDOR = False
 ACTIVE_SCA_SYSTEM = ['osv', 'depsdev', 'ossindex']
