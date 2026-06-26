@@ -1,316 +1,283 @@
 [中文](README.zh.md) | English
 
-> <big>**Since Cobra-W 2.0, Cobra-W has been officially renamed to Kunlun-M（昆仑镜）.**</big>
+# KunLun-M
 
-> **Python 3.10+ is recommended (Python 3.13+ preferred); Python 2.7 has reached end-of-life.**
-
-> Thanks to the AI era, I can address the project's basic maintenance issues at extremely low cost. Although the project's concepts may not be cutting-edge by today's standards, the stable core still serves as a solid tool reference. I will continue to iterate rapidly using Codex at minimal cost, boldly experiment with new features, and **attempt to build a potentially very useful tool using AI-era methods**.
-
-# Kunlun-Mirror
 [![GitHub release](https://img.shields.io/github/release/LoRexxar/Kunlun-M/all.svg)](https://github.com/LoRexxar/Kunlun-M/releases)
 [![license](https://img.shields.io/github/license/LoRexxar/Kunlun-M.svg)](./LICENSE)
-![](https://img.shields.io/badge/language-python3.13-orange.svg)
+![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)
 
-```
- _   __            _                      ___  ___
-| | / /           | |                     |  \/  |
-| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
-|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
-| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
-\_| \_/\__,_|_| |_\____/\__,_|_| |_|     \_|  |_/  -v2.15.0
+**KunLun-M（昆仑镜）** is an open-source static code security analysis system. It builds an AST graph from source code and performs taint analysis to detect vulnerabilities.
 
-GitHub: https://github.com/LoRexxar/Kunlun-M
+- **14 languages**: PHP / JavaScript / TypeScript / Python / Java / Go / Ruby / Rust / C / C++ / C# / Kotlin / Lua / Solidity
+- **AST graph engine**: Builds a full program graph (call graph, data flow, AST structure) for taint tracking
+- **CLI / Console / Web** three modes
+- **Built-in AI Agent skill**: One-click integration with Codex / Claude Code / Hermes etc.
 
-KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
+## Quick Start
 
-Main Program
+```bash
+# Install
+git clone https://github.com/LoRexxar/Kunlun-M.git && cd Kunlun-M
+pip install -r requirements.txt
+cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
 
-positional arguments:
-Core Commands
--------------
-  init    Kunlun-M init before use.
-  scan    scan target path
-  console enter console mode
-  web     KunLun-m Web mode
-Other Commands
---------------
-  export   export rules and tampers from database to files
-  generate generate rule & tamper
-  show     show rule & tamper
-  search   search project by vendor/path/...
-  plugin   Plugins list:
-           entrance_finder                                   Quickly find the php entry page
-           php_unserialize_chain_tools                       Discover the PHP deserialization chain through codedb
-          
+# Init database
+python kunlun.py init
 
-options:
-  -h, --help            show this help message and exit
+# Scan
+python kunlun.py scan -t /path/to/project
 
-Usage:
-  python kunlun.py init
-  python kunlun.py scan -t tests/vulnerabilities
-  python kunlun.py scan -t tests/vulnerabilities -r 1000, 1001
-  python kunlun.py scan -t tests/vulnerabilities -tp wordpress
-  python kunlun.py scan -t tests/vulnerabilities -d -uc
-  python kunlun.py console
-  python kunlun.py web -p 9999
+# Scan with specific language
+python kunlun.py scan -t /path/to/project -lan php
+
+# Export HTML report
+python kunlun.py scan -t /path/to/project -f html -o report.html
+
+# Web dashboard
+python kunlun.py web -p 9999
 ```
 
-## Introduction
-Cobra is a **source code security audit** tool that supports detecting **most significant** security issues and vulnerabilities in source code written in multiple programming languages.
-[https://github.com/wufeifei/cobra](https://github.com/wufeifei/cobra)
+## CLI Commands
 
-Cobra-W is a fork evolved from Cobra 2.0, shifting the tool's focus from discovering as many threats as possible to improving the accuracy and precision of vulnerability detection.
-[https://github.com/LoRexxar/Kunlun-M/tree/cobra-w](https://github.com/LoRexxar/Kunlun-M/tree/cobra-w)
+```
+python kunlun.py <command> [args]
+```
 
-Kunlun-Mirror evolved from Cobra-W 2.0. After going through the painful process of maintaining and improving the original tool, Kunlun-Mirror (昆仑镜) shifts the tool's focus towards serving security researchers, continuously improving the user experience around practical tool-based usage.
+### Core Commands
 
-The tool currently primarily supports semantic analysis for **PHP, Nodejs/JavaScript, Python, Java, Go, and C/C++**, as well as basic scanning for **Chrome extensions and Solidity**.
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize / migrate database |
+| `scan -t <target>` | Scan target (file, directory, or archive) |
+| `console` | Interactive console with graph REPL |
+| `web [-p 9999]` | Web dashboard with API |
+| `analyze` | AST graph secondary analysis |
+| `export-project -p <project>` | Export project to portable archive |
+| `import-project -f <archive>` | Import project from archive |
+| `export-neo4j -p <project>` | Export AST graph to Neo4j |
 
-Built-in Skills have been added, **supporting one-click integration with AI Agents (OpenClaw / Codex / Claude Code / Hermes, etc.)** for rapid vulnerability scanning.
+### Scan Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `-t/--target` | Target file/directory (required) |
+| `-lan/--language` | Language (php/javascript/python/java/go/ruby/rust/c/cpp/csharp/kotlin/lua/solidity) |
+| `-r/--rule` | Specific rules (comma-separated CVI IDs, e.g. `1000,1001`) |
+| `-f/--format` | Output format: `csv` (default) / `json` / `md` / `html` / `xml` |
+| `-o/--output` | Output file path |
+| `-tp/--tamper` | Apply tamper (e.g. wordpress) |
+| `-b/--blackpath` | Exclude paths (e.g. `vendor,node_modules`) |
+| `--without-vendor` | Skip SCA (vendor vulnerability) scan |
+| `--no-cache` | Force rebuild graph (no cache) |
+| `-d/--debug` | Debug mode |
+
+### Other Commands
+
+| Command | Description |
+|---------|-------------|
+| `export` | Export rules & tampers from database to files |
+| `generate rule` | Generate rule template file |
+| `generate tamper` | Generate tamper template file |
+| `show rule [-k <key>]` | Show rules (filter by language/key) |
+| `show tamper` | Show tampers |
+| `search vendor <name> <version>` | Search vendor vulnerabilities |
+| `plugin <name>` | Run plugin (`entrance_finder` / `php_unserialize_chain_tools`) |
+
+## Console Mode
+
+Console mode provides an interactive REPL with graph traversal support:
+
+```bash
+python kunlun.py console
+
+KunLun-M> scan
+KunLun-M(scan)> set target /path/to/project
+KunLun-M(scan)> run
+
+KunLun-M> load 42
+KunLun-M(result)> show vuls
+KunLun-M(result)> graph           # Enter graph traversal REPL
+>>> g.function.main.ownout.count
+14
+```
+
+### Graph Traversal REPL
+
+Inside the graph REPL, use `g` as the entry point for Joern-style graph queries:
+
+```python
+>>> g.function                          # All function nodes
+>>> g.file.index                        # File named 'index'
+>>> g.identifier.session.dfg            # Data flow from 'session'
+>>> g.function.main.ownout              # AST children of main
+>>> g.identifier.input.uses             # Functions using 'input'
+>>> g.function.exec.shortest_path      # Shortest path to 'exec'
+```
+
+See [docs/graph-traversal.md](./docs/graph-traversal.md) for the full API reference.
+
+## Web Dashboard
+
+```
+python kunlun.py web -p 9999
+```
+
+Web mode includes:
+- **Dashboard**: Task management, project overview, scan results
+- **Graph Analysis**: Interactive Cytoscape.js graph visualization (4 layouts)
+- **API**: Token-authenticated REST API for automation
+
+### Main API Endpoints
+
+```
+POST   /api/task/create                   Create scan task
+POST   /api/task/create/start             Create + auto-start scan
+GET    /api/task/<task_id>/status         Task status
+GET    /api/task/list                     Task list
+GET    /api/task/<task_id>/result         Scan results
+GET    /api/task/<task_id>/resultflow     Taint flow data
+GET    /api/rule/list                     Rule list
+GET    /api/graph/query                   AST graph query
+GET    /api/graph/subgraph                Subgraph extraction (for visualization)
+GET    /api/graph/chain_subgraph          Taint chain subgraph
+GET    /api/graph/node_vulns             Node-associated vulnerabilities
+```
+
+Configure `API_TOKEN` in `Kunlun_M/settings.py` for API authentication.
+
+## Data Export & Import
+
+### Project Archive
+
+Export a complete project (database records + graph files) as a portable `.tar.gz`:
+
+```bash
+python kunlun.py export-project -p nodejs
+python kunlun.py import-project -f kunlun-export-nodejs-*.tar.gz [--force]
+```
+
+### Neo4j Graph Export
+
+Export AST graphs to Neo4j for advanced Cypher queries:
+
+```bash
+python kunlun.py export-neo4j -p nodejs --clean
+python kunlun.py export-neo4j -s 42 --neo4j-uri bolt://host:7687
+```
+
+See [docs/data-export.md](./docs/data-export.md) for full documentation.
+
+## AI Agent Integration
+
+If you're using an AI Agent (Codex / Claude Code / Hermes etc.), send:
+
+> Download `https://github.com/LoRexxar/Kunlun-M.git` and load its skill (kunlun-m-general).
+
+The agent will auto-detect `skills/kunlun-m-general/` and follow the docs to initialize and scan.
+
+See [docs/skill_kunlunm_general.md](./docs/skill_kunlunm_general.md) for scripted workflows.
+
+## Supported Languages
+
+| Language | Semantic Analysis | Graph Engine |
+|----------|:-:|:-:|
+| PHP | ✅ | ✅ |
+| JavaScript | ✅ | ✅ |
+| TypeScript | ✅ | ✅ |
+| Python | ✅ | ✅ |
+| Java | ✅ | ✅ |
+| Go | ✅ | ✅ |
+| Ruby | ✅ | ✅ |
+| Rust | ✅ | ✅ |
+| C | ✅ | ✅ |
+| C++ | ✅ | ✅ |
+| C# | ✅ | ✅ |
+| Kotlin | ✅ | ✅ |
+| Lua | ✅ | ✅ |
+| Solidity | Basic | — |
+
+## Plugins
+
+### PHP Deserialization Chain Finder
+
+Automatically discovers PHP deserialization chains and generates PoC files:
+
+```bash
+python kunlun.py plugin php_unserialize_chain_tools -t /path/to/php/project
+```
+
+### Entrance Finder
+
+Quickly finds potential PHP entry pages in large codebases:
+
+```bash
+python kunlun.py plugin entrance_finder -t /path/to/php/project -l 3
+```
+
+## Development
+
+### Rule Development
+
+Rules follow the convention `rules/{language}/CVI_{id}.py`. See `rules/rule.template` for a template.
+
+### Architecture
+
+```
+core/
+├── __init__.py          CLI entry, subcommand dispatch
+├── scanner.py           Graph-based scan engine (build graph → taint analysis)
+├── graph/
+│   ├── graph_pipeline.py    AST → igraph graph builder
+│   ├── graph_query_builder.py  6 query methods (overview/file/function/trace/search/subgraph)
+│   ├── graph_io.py          Graph persistence (GraphMLZ)
+│   ├── node_edge_schema.py  12 node types, 9 edge types
+│   └── workspace.py         Scan workspace management
+├── import_export.py     Project archive export/import
+├── neo4j_export.py      igraph → Neo4j export
+├── console.py           Interactive console + graph REPL
+└── engine.py            Thin re-export layer
+
+web/
+├── index/               Models, dashboard pages
+├── api/                 REST API (session + token auth)
+└── dashboard/           Web UI (templates + controllers)
+```
+
+### Documentation
+
+- [docs/README.md](./docs/README.md) — Documentation index
+- [docs/cli.md](./docs/cli.md) — CLI detailed reference
+- [docs/architecture.md](./docs/architecture.md) — Architecture overview
+- [docs/data-export.md](./docs/data-export.md) — Export/import & Neo4j
+- [docs/graph-traversal.md](./docs/graph-traversal.md) — Graph traversal REPL
+- [docs/changelog.md](./docs/changelog.md) — Changelog
+
+## Changelog
+
+[docs/changelog.md](./docs/changelog.md)
 
 ## Stargazers
 
 <div align=center><a href="https://github.com/LoRexxar/Kunlun-M"><img src="https://api.star-history.com/svg?repos=LoRexxar/Kunlun-M&type=Timeline"></a></div>
 
-## why KunLun-M
-
-KunLun-M is perhaps the only open-source and actively maintained automated code audit tool on the market. We hope this open-source tool can help advance the development of white-box auditing:>.
-
-## Changelog
-
-[changelog.md](./docs/changelog.md)
-
-
-## Installation
-
-First, install the dependencies:
-```
-pip install -r requirements.txt
-```
-
-Migrate the configuration file:
-```
-cp Kunlun_M/settings.py.bak Kunlun_M/settings.py
-```
-
-
-Initialize the database (SQLite is used by default):
-```
-python kunlun.py init
-```
-
-### Docker Installation
-
-Install via Docker, which starts web mode by default:
-
-```
-sudo docker build -t kunlun-m -f ./docker/Dockerfile .
-```
-
-By linking with MySQL, you can perform local scanning and view results through the web interface.
-
-## Usage
-
-### cli mode
-
-Use scan mode to scan various source code:
-```
-python3 kunlun.py scan -t ./tests/vulnerabilities/
-```
-
-Export reports (JSON/Markdown/HTML):
-```
-python3 kunlun.py scan -t ./tests/vulnerabilities/ -f json -o /tmp/report.json
-python3 kunlun.py scan -t ./tests/vulnerabilities/ -f md -o /tmp/report.md
-python3 kunlun.py scan -t ./tests/vulnerabilities/ -f html -o /tmp/report.html
-```
-
-Use show mode to view all current rules/tampers:
-```
-python3 kunlun.py show rule           # Show all rules
-python3 kunlun.py show rule -k php    # Show all PHP rules
-python3 kunlun.py show tamper         # Show all tampers
-```
-
-Use the -h flag with any sub-command to view detailed help documentation.
-
-### skill automation
-
-If you are using an AI Agent (OpenClaw / Codex / Claude Code / Hermes, etc.) to run Kunlun-M, you can simply send the following message to your Agent as a "basic installation instruction":
-
-> Download `https://github.com/LoRexxar/Kunlun-M.git` and load its skill (kunlun-m-general).
-
-The Agent will typically automatically recognize the `skills/kunlun-m-general/` directory in the repository, and follow the documentation to complete initialization and subsequent scanning.
-
-For a more detailed scripted workflow with test/report commands, see [docs/skill_kunlunm_general.md](./docs/skill_kunlunm_general.md).
-
-### CI/CD scan driver
-
-Run scans in CI/CD with gating (stable JSON reports + clear exit codes):
-
-```
-python tools/ci_scan.py --target . --output artifacts/kunlun-ci.json --fail-on high
-```
-
-For more parameters, exit codes, report structure, and GitHub Actions/GitLab CI/Jenkins examples, see [docs/ci.md](./docs/ci.md)
-
-
-### web mode
-KunLun-M Dashboard, with the ability to access APIs via apitoken to retrieve data.
-
-Default port is 9999:
-```
-python3 .\kunlun.py web -p 9999
-```
-
-![](docs/web.png)
-
-Modify `API_TOKEN` in `Kunlun_M/settings.py`, and access the API via `?apitoken=...` to retrieve data:
-```
-# api profile
-API_TOKEN = "secret_api_token"
-```
-
-Api List
-```
-/api/task/list                                       View task list
-/api/task/<int:task_id>                              View task details
-/api/task/<int:task_id>/result                       View task scan results
-/api/task/<int:task_id>/resultflow                   View task scan result flow
-/api/task/<int:task_id>/newevilfunc                  View new malicious functions generated after scan
-
-/api/rule/list                                       View rule list
-/api/rule/<int:rule_id>                              View rule details
-```
-
-### console mode
-
-**Console mode is recommended:**
-```
-python3 kunlun.py console
-
-
- _   __            _                      ___  ___
-| | / /           | |                     |  \/  |
-| |/ / _   _ _ __ | |    _   _ _ __       | .  . |
-|    \| | | | '_ \| |   | | | | '_ \ _____| |\/| |
-| |\  \ |_| | | | | |___| |_| | | | |_____| |  | |
-\_| \_/\__,_|_| |_\____/\__,_|_| |_|     \_|  |_/  -v2.15.0
-
-GitHub: https://github.com/LoRexxar/Kunlun-M
-
-KunLun-M is a static code analysis system that automates the detecting vulnerabilities and security issue.
-
-Global commands:
-    help                                             Print this help menu
-    scan                                             Enter the scan mode
-    load <scan_id>                                   Load Scan task
-    showt                                            Show all Scan task list
-    show [rule, tamper] <key>                        Show rules or tampers
-    config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
-    exit                                             Exit KunLun-M & save Config
-
-
-KunLun-M (root) >
-```
-
-#### Using KunLun-M to view rules and tampers
-
-[![asciicast](https://asciinema.org/a/360842.svg)](https://asciinema.org/a/360842)
-
-#### Using KunLun-M to scan for vulnerabilities
-
-[![asciicast](https://asciinema.org/a/360843.svg)](https://asciinema.org/a/360843)
-
-#### Using KunLun-M to view scan results
-
-[![asciicast](https://asciinema.org/a/360845.svg)](https://asciinema.org/a/360845)
-
-
-### plugin mode
-
-#### phpunserializechain
-
-A simple model for automatically finding PHP deserialization chains.
-
-**If you are updating from an older version and scanning the same target, please use the -r parameter to renew the database.**
-
-```
-python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path}
-```
-
-If the plugin identifies a complete PHP deserialization chain, it will automatically generate `.kunlunm_unserialize_poc/` in the target directory, containing the chain JSON summary, `chain_XX.php` (one PoC per chain), and the batch execution script `poc_all_chains.php`.
-The generated `chain_XX.php` will preferentially use the hierarchical relationships and property information saved during the recursive scanning process to assemble the object graph; if insufficient information is available, it falls back to property path extraction and fallback relationships.
-It also outputs corresponding trigger syntax for implicit magic method chains (`__toString` / `__call` / `__wakeup` / `__invoke`).
-
-```
-python3 .\kunlun.py plugin php_unserialize_chain_tools -t {target_path} -o /tmp/unser_poc
-```
-
-![](docs/phpunserchain.png)
-
-
-#### EntranceFinder
-
-An interesting little tool designed to help quickly discover potential entry pages (or ones that developers may have overlooked) when auditing large amounts of PHP code.
-
-```
-python3 .\kunlun.py plugin entrance_finder -t {target_path} -l 3
-```
-
-![](docs/entrancefinder.png)
-
-## Development Documentation
-
-Documentation index and development notes:
-
-- [docs/README.md](./docs/README.md)
-- [docs/dev.md](./docs/dev.md)
-
-### Rule Plugin Development
-
-Rule plugins follow this structure:
-```
-rules/{language_type}/CVI_xxxx.py
-```
-
-In the rules directory, only properly named rules will be loaded successfully. The naming format must strictly follow `CVI_{number}.py`.
-
-You can refer to `rules/rule.template` as a rule template.
-
-### .kunlunmignore
-
-`.kunlunmignore` is used to ignore scan paths. The current implementation only supports the `*` wildcard (which is converted to regex `\\w+`), suitable for ignoring directory or file patterns like `vendor/*` or `node_modules/*`.
-
-Matched files will not be scanned.
-
-You can also use `scan -b` to specify a comma-separated blacklist of paths (e.g., `-b vendor,node_modules`).
-
 ## 404StarLink Project
+
 ![](https://github.com/knownsec/404StarLink-Project/raw/master/logo.png)
 
-KunLun-M is part of the 404Team [StarLink Project](https://github.com/knownsec/404StarLink-Project). If you have any questions about KunLun-M or want to connect with other community members, please refer to the StarLink Project's group joining method.
-
-- [https://github.com/knownsec/404StarLink#%E4%BA%A4%E6%B5%81community](https://github.com/knownsec/404StarLink#%E4%BA%A4%E6%B5%81community)
+KunLun-M is part of the [404Team StarLink Project](https://github.com/knownsec/404StarLink-Project).
 
 ## Contributors
 
-Thanks to the following contributors for their contributions to the development of this tool:
+**Core Developer:**
+- [LoRexxar](https://github.com/LoRexxar)
 
-Core Developer:
-
--  [LoRexxar](https://github.com/LoRexxar)
-
-Important Contributors:
-
+**Important Contributors:**
 - Vidar-Team [LuckC4t](https://github.com/LuckyC4t)
-
 - Dubhe [Sissel](https://github.com/boke1208)
 
-Minor Contributors:
-- Dubhe [Sissel](https://github.com/Sndav)
-- [#jax777](https://github.com/jax777)
-- [lavon321](https://github.com/lavon321)
-- [Raul1718](https://github.com/Raul1718)
-- [akkuman](https://github.com/akkuman)
+**Contributors:**
+- Dubhe [Sndav](https://github.com/Sndav), [#jax777](https://github.com/jax777), [lavon321](https://github.com/lavon321), [Raul1718](https://github.com/Raul1718), [akkuman](https://github.com/akkuman)
+
+## License
+
+[MIT License](./LICENSE)

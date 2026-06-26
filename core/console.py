@@ -263,15 +263,15 @@ class KunlunInterpreter(BaseInterpreter):
     global_help = __introduction__.format(detail="""Global commands:
     help                                             Print this help menu
     scan                                             Enter the scan mode
-    load <scan_id>                                   Load Scan task
-    showt                                            Show all Scan task list
+    load <scan_id>                                   Load scan result
+    showt                                            Show all scan task list
     show [rule, tamper] <key>                        Show rules or tampers
-    search [vendor, ] <vendor_name> <vendor_version> Search Project which contains vendor
+    search [vendor, ] <vendor_name> <vendor_version> Search project by vendor
     config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
-    export <project_id_or_name>                     Export project (DB + graph files) to archive
+    export <project_id_or_name>                     Export project (DB + graph) to archive
     import <archive_path>                           Import project from archive
-    neo4j <project_id_or_name|scan_id> [--clean]    Export AST graphs to Neo4j
-    exit                                             Exit KunLun-M & save Config""")
+    neo4j <project_or_scan_id> [--clean]             Export AST graphs to Neo4j
+    exit                                             Exit KunLun-M""")
 
     config_rule_help = """Config Rule commands:
     help                          Print this help menu

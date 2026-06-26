@@ -91,7 +91,7 @@ def main():
                     return chr(10).join(parts)
                 return super()._format_action(action)
 
-        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__.format(detail="Main Program"), epilog=__epilog__, formatter_class=GroupedSubparsersFormatter, usage=argparse.SUPPRESS)
+        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__.format(detail="Commands"), epilog=__epilog__, formatter_class=GroupedSubparsersFormatter, usage=argparse.SUPPRESS)
 
         subparsers = parser.add_subparsers()
 
