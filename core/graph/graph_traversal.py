@@ -39,9 +39,16 @@ class GraphTraversal:
         a = g.function.main
         a.ownout                            # same as g.function.main.ownout
 
-        # Output
-        g.function.l()                      # formatted list
-        g.function.main.code()              # show source context
+        # Output (terminal operators — auto-evaluated as property access)
+        g.function.l()                      # formatted list (needs parens)
+        g.function.count                    # node count (auto-call, no parens needed)
+        g.function.ids                      # vid list (auto-call, no parens needed)
+        g.function.nodes                    # node attribute dicts (auto-call)
+
+        # Also available as methods (when chained with parens):
+        g.function.n()                      # same as .count
+        g.function.vids()                    # same as .ids
+        g.function._nodes()                  # same as .nodes
 
         # Analysis
         g.find_dfg(source_vid, sink_vid)        # find data flow path
@@ -128,6 +135,15 @@ class GraphTraversal:
         # 注意：__getattr__ 仅在常规属性查找失败时触发，
         # 因此 self.graph / self.language / self._vids 等真实属性不会进入这里。
 
+        # 0. 特殊终端操作符：自动调用对应方法返回结果
+        # （这些不能定义为真实方法，否则 __getattribute__ 会优先返回方法对象）
+        if name == "count":
+            return self.n()
+        if name == "ids":
+            return self.vids()
+        if name == "nodes":
+            return self._nodes()
+
         # 1. 节点类型匹配（如 g.function）
         if name in _NODE_LABELS:
             return self._filter_by_label(name)
@@ -178,17 +194,21 @@ class GraphTraversal:
         """Alias for l()."""
         self.l()
 
-    def count(self) -> int:
-        """返回当前节点集合的大小。"""
+    def n(self) -> int:
+        """返回当前节点集合的大小。在 REPL 中推荐用 .n() 代替 .count()，
+        因为 .count 会被 Python __getattribute__ 拦截为方法对象。"""
         base = self._vids if self._vids is not None else [v.index for v in self.graph.vs]
         return len(base)
 
-    def ids(self) -> list[int]:
+    # count() 在 __getattr__ 中特殊处理——当链式末尾访问 .count 时自动调用 n()
+    # 不能定义为真实方法，否则 Python __getattribute__ 会优先返回方法对象
+
+    def vids(self) -> list[int]:
         """返回当前节点集合的 vid 列表。"""
         base = self._vids if self._vids is not None else [v.index for v in self.graph.vs]
         return base
 
-    def nodes(self) -> list[dict]:
+    def _nodes(self) -> list[dict]:
         """返回当前节点集合的属性字典列表（含 _vid）。"""
         base = self._vids if self._vids is not None else [v.index for v in self.graph.vs]
         result = []
