@@ -24,6 +24,32 @@ from core.vendors import get_project_vendor_by_name, get_vendor_vul_by_name
 from Kunlun_M.settings import LOGS_PATH
 
 
+def _load_graph_session(scan_id):
+    """Load AstGraphSession for a given scan_id.
+
+    Returns (session, error_response) tuple.
+    On success, session is loaded and ready to use — caller must session.close().
+    On failure, session is None and error_response is a JsonResponse to return.
+    """
+    from core.graph.session import AstGraphSession
+    from core.graph.workspace import get_workspace_db, get_scan_dir
+    from core.graph.sqlite_index import ScanRecord
+
+    graph_dir = get_scan_dir(scan_id)
+    graph_path = os.path.join(graph_dir, "graph.graphmlz")
+    if not os.path.exists(graph_path):
+        return None, JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
+
+    workspace_db = get_workspace_db()
+    sr = ScanRecord(workspace_db)
+    info = sr.get_by_id(scan_id)
+    language = info.get("language", "php") if info else "php"
+
+    session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
+    session.load()
+    return session, None
+
+
 def index(request):
     return HttpResponse("Nothing here.")
 
@@ -119,12 +145,24 @@ class TaskResultFlowApiView(View):
     def get(request, task_id):
         scantask = ScanTask.objects.filter(id=task_id).first()
 
+        if not scantask:
+            return JsonResponse({"code": 404, "status": False, "message": "Task {} not found.".format(task_id)})
+
         if not scantask.is_finished:
             return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
 
         ResultFlow = get_resultflow_class(int(task_id))
-        rfs = ResultFlow.objects.filter().order_by('vul_id')
+        if ResultFlow is None:
+            return JsonResponse({"code": 404, "status": False, "message": "No ResultFlow table for task {}.".format(task_id)})
 
+        # 获取该 task 下所有活跃的 ScanResultTask id，用于过滤 ResultFlow
+        srt_ids = list(
+            get_and_check_scanresult(task_id).objects.filter(
+                scan_task_id=task_id, is_active=1
+            ).values_list("id", flat=True)
+        )
+
+        rfs = ResultFlow.objects.filter(vul_id__in=srt_ids).order_by("vul_id", "id")
         resultflow_list = list(rfs.values())
         return JsonResponse(
             {"code": 200, "status": True, "message": resultflow_list})
@@ -148,27 +186,6 @@ class TaskResultFlowDetailApiView(View):
         resultflow_list = list(rfs.values())
         return JsonResponse(
             {"code": 200, "status": True, "message": resultflow_list})
-
-
-# class TaskResultFlowDetailDelApiView(View):
-#     """删除当前任务结果流细节"""
-#
-#     @staticmethod
-#     @api_token_required
-#     def get(request, task_id, vul_id):
-#         scantask = ScanTask.objects.filter(id=task_id).first()
-#
-#         if not scantask.is_finished:
-#             return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
-#
-#         ResultFlow = get_resultflow_class(int(task_id))
-#         rfs = ResultFlow.objects.filter(vul_id=vul_id)
-#
-#         resultflow_list = list(rfs.values())
-#         return JsonResponse(
-#             {"code": 200, "status": True, "message": resultflow_list})
-
-
 
 
 class TaskVendorsApiView(View):
@@ -396,9 +413,6 @@ class StatsApiView(View):
     @staticmethod
     @login_required
     def get(request):
-        from django.db.models import Count
-        from web.index.models import ScanResultTask, Rules, ScanTask
-
         # 漏洞按语言分布
         lang_dist = list(
             ScanResultTask.objects.filter(is_active=1)
@@ -495,10 +509,6 @@ class GraphQueryApiView(View):
     @staticmethod
     @login_or_token_required
     def get(request):
-        import os
-        from core.graph.session import AstGraphSession
-        from core.graph.workspace import get_workspace_db, get_scan_dir
-
         scan_id = request.GET.get("scan_id")
         query_type = request.GET.get("query_type", "overview")
         query_arg = request.GET.get("query_arg", "")
@@ -506,24 +516,11 @@ class GraphQueryApiView(View):
         if not scan_id:
             return JsonResponse({"code": 400, "error": "scan_id required"})
 
-        workspace_db = get_workspace_db()
-        graph_dir = get_scan_dir(scan_id)
-
-        # Verify graph exists
-        graph_path = os.path.join(graph_dir, "graph.graphmlz")
-        if not os.path.exists(graph_path):
-            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
-
-        # Get language from scan record
-        from core.graph.sqlite_index import ScanRecord
-        sr = ScanRecord(workspace_db)
-        info = sr.get_by_id(scan_id)
-        language = info.get("language", "php") if info else "php"
+        session, err = _load_graph_session(scan_id)
+        if err:
+            return err
 
         try:
-            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
-            session.load()
-
             if query_type == "overview":
                 result = session.query.overview()
             elif query_type == "file":
@@ -544,25 +541,21 @@ class GraphQueryApiView(View):
                 depth = int(request.GET.get("depth", "2"))
                 direction = request.GET.get("direction", "both")
                 result = session.query.get_call_graph(
-                    func_name=query_arg,
-                    depth=depth,
-                    direction=direction,
+                    func_name=query_arg, depth=depth, direction=direction,
                 )
             elif query_type == "trace_variable":
                 var_file = request.GET.get("file_path", "")
                 result = session.query.trace_variable(
-                    var_name=query_arg,
-                    file_path=var_file or None,
+                    var_name=query_arg, file_path=var_file or None,
                 )
             else:
                 return JsonResponse({"code": 400, "error": f"Unknown query type: {query_type}"})
 
-            session.close()
             return JsonResponse({"code": 200, "data": result})
-        except FileNotFoundError as e:
-            return JsonResponse({"code": 404, "error": str(e)})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
+        finally:
+            session.close()
 
 
 class GraphSubgraphApiView(View):
@@ -580,10 +573,6 @@ class GraphSubgraphApiView(View):
     @staticmethod
     @login_or_token_required
     def get(request):
-        import os
-        from core.graph.session import AstGraphSession
-        from core.graph.workspace import get_workspace_db, get_scan_dir
-
         scan_id = request.GET.get("scan_id")
         vid = request.GET.get("vid")
         file_path = request.GET.get("file_path")
@@ -597,23 +586,13 @@ class GraphSubgraphApiView(View):
         if not vid and not file_path:
             return JsonResponse({"code": 400, "error": "vid or file_path required"})
 
-        graph_dir = get_scan_dir(scan_id)
-        graph_path = os.path.join(graph_dir, "graph.graphmlz")
-        if not os.path.exists(graph_path):
-            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
-
-        workspace_db = get_workspace_db()
-        from core.graph.sqlite_index import ScanRecord
-        sr = ScanRecord(workspace_db)
-        info = sr.get_by_id(scan_id)
-        language = info.get("language", "php") if info else "php"
+        session, err = _load_graph_session(scan_id)
+        if err:
+            return err
 
         edge_labels = [x.strip() for x in edge_labels_str.split(",") if x.strip()] or None
 
         try:
-            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
-            session.load()
-
             if file_path:
                 result = session.query.get_file_subgraph(
                     file_path, include_cross_edges=True, max_nodes=max_nodes
@@ -622,13 +601,11 @@ class GraphSubgraphApiView(View):
                 result = session.query.get_subgraph(
                     int(vid), depth=depth, edge_labels=edge_labels, max_nodes=max_nodes
                 )
-
-            session.close()
             return JsonResponse({"code": 200, "data": result})
-        except FileNotFoundError as e:
-            return JsonResponse({"code": 404, "error": str(e)})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
+        finally:
+            session.close()
 
 class GraphChainSubgraphApiView(View):
     """传播链子图 API — 给定一组 vid，返回它们之间的子图用于链路可视化。
@@ -641,10 +618,6 @@ class GraphChainSubgraphApiView(View):
     @staticmethod
     @login_or_token_required
     def get(request):
-        import os
-        from core.graph.session import AstGraphSession
-        from core.graph.workspace import get_workspace_db, get_scan_dir
-
         scan_id = request.GET.get("scan_id")
         vids_str = request.GET.get("vids", "")
 
@@ -653,10 +626,9 @@ class GraphChainSubgraphApiView(View):
         if not vids_str:
             return JsonResponse({"code": 400, "error": "vids required"})
 
-        graph_dir = get_scan_dir(scan_id)
-        graph_path = os.path.join(graph_dir, "graph.graphmlz")
-        if not os.path.exists(graph_path):
-            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
+        session, err = _load_graph_session(scan_id)
+        if err:
+            return err
 
         vids = []
         for part in vids_str.split(","):
@@ -670,22 +642,13 @@ class GraphChainSubgraphApiView(View):
         if not vids:
             return JsonResponse({"code": 400, "error": "No valid vids"})
 
-        workspace_db = get_workspace_db()
-        from core.graph.sqlite_index import ScanRecord
-        sr = ScanRecord(workspace_db)
-        info = sr.get_by_id(scan_id)
-        language = info.get("language", "php") if info else "php"
-
         try:
-            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
-            session.load()
             result = session.query.get_chain_subgraph(vids)
-            session.close()
             return JsonResponse({"code": 200, "data": result})
-        except FileNotFoundError as e:
-            return JsonResponse({"code": 404, "error": str(e)})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
+        finally:
+            session.close()
 
 
 # --- 查询节点关联漏洞 ---
@@ -737,10 +700,6 @@ class GraphNodeSourceApiView(View):
     @staticmethod
     @login_or_token_required
     def get(request):
-        import os
-        from core.graph.session import AstGraphSession
-        from core.graph.workspace import get_workspace_db, get_scan_dir
-
         scan_id = request.GET.get("scan_id")
         vid = request.GET.get("vid")
         context_lines = int(request.GET.get("context_lines", 5))
@@ -749,24 +708,14 @@ class GraphNodeSourceApiView(View):
             return JsonResponse({"code": 400, "error": "scan_id and vid required"})
 
         vid = int(vid)
-        graph_dir = get_scan_dir(scan_id)
-        graph_path = os.path.join(graph_dir, "graph.graphmlz")
-        if not os.path.exists(graph_path):
-            return JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
-
-        workspace_db = get_workspace_db()
-        from core.graph.sqlite_index import ScanRecord
-        sr = ScanRecord(workspace_db)
-        info = sr.get_by_id(scan_id)
-        language = info.get("language", "php") if info else "php"
+        session, err = _load_graph_session(scan_id)
+        if err:
+            return err
 
         try:
-            session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
-            session.load()
             result = session.query.get_node_source_context(vid, context_lines=context_lines)
-            session.close()
             return JsonResponse({"code": 200, "data": result})
-        except FileNotFoundError as e:
-            return JsonResponse({"code": 404, "error": str(e)})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
+        finally:
+            session.close()
