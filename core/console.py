@@ -268,6 +268,8 @@ class KunlunInterpreter(BaseInterpreter):
     show [rule, tamper] <key>                        Show rules or tampers
     search [vendor, ] <vendor_name> <vendor_version> Search Project which contains vendor
     config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
+    export <project_id_or_name>                     Export project (DB + graph files) to archive
+    import <archive_path>                           Import project from archive
     exit                                             Exit KunLun-M & save Config""")
 
     config_rule_help = """Config Rule commands:
@@ -313,7 +315,7 @@ class KunlunInterpreter(BaseInterpreter):
         self.prompt_hostname = "KunLun-M"
         self.current_mode = 'root'
 
-        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'exit']
+        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'export ', 'import ', 'exit']
         self.config_commands = ['help', 'set ', 'save', 'back', 'showit']
         self.scan_commands = ['help', 'set ', 'show ', 'run', 'status']
         self.result_commands = ['help', 'show ', 'del ', 'set ', 'graph', 'back']
@@ -515,6 +517,40 @@ class KunlunInterpreter(BaseInterpreter):
 
         logger_console.info(self.scan_help)
         self.command_status()
+
+    def command_export(self, *args, **kwargs):
+        arg = args[0].strip() if args else ''
+        if not arg:
+            from core.import_export import list_projects
+            projects = list_projects()
+            if projects:
+                logger_console.info("Usage: export <project_id_or_name>")
+                logger_console.info("Available projects:")
+                for pid, pname in projects:
+                    logger_console.info("  {}  {}".format(pid, pname))
+            else:
+                logger_console.info("No projects found.")
+            return
+        from core.import_export import export_project
+        try:
+            path = export_project(arg)
+            logger_console.info("[Console] Project exported to: {}".format(path))
+        except ValueError as e:
+            logger_console.error("Export failed: {}".format(e))
+
+    def command_import(self, *args, **kwargs):
+        arg = args[0].strip() if args else ''
+        if not arg:
+            logger_console.info("Usage: import <archive_path>")
+            return
+        from core.import_export import import_project
+        try:
+            report = import_project(arg)
+            logger_console.info("[Console] Import completed:")
+            for k, v in report.items():
+                logger_console.info("  {}: {}".format(k, v))
+        except ValueError as e:
+            logger_console.error("Import failed: {}".format(e))
 
     def command_exit(self, *args, **kwargs):
         raise EOFError

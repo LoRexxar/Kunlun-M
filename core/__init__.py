@@ -60,7 +60,7 @@ def main():
         t1 = time.time()
 
         # 核心命令列表，在 -h 中分组展示
-        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze'}
+        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze', 'export-project', 'import-project'}
 
         class GroupedSubparsersFormatter(argparse.RawDescriptionHelpFormatter):
             """自定义 formatter：将 subparsers 拆分为 Core Commands 和 Other Commands 两组"""
@@ -212,6 +212,33 @@ def main():
         parser_group_analyze.add_argument('query_arg', nargs='?', default=None,
                                            help='argument for query (file path / function name / file:line)')
         parser_group_analyze.set_defaults(analyze="analyze")
+
+        # export-project
+        parser_group_export_project = subparsers.add_parser('export-project',
+                                                            help='export a project (DB + graph files) to a portable archive',
+                                                            description=__introduction__.format(detail='export a project to a portable archive'),
+                                                            formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                            usage=argparse.SUPPRESS, add_help=True)
+        parser_group_export_project.add_argument('-p', '--project', dest='project', required=True,
+                                                  metavar='<project_id_or_name>',
+                                                  help='project to export (id or name)')
+        parser_group_export_project.add_argument('-o', '--output', dest='output', default=None,
+                                                  metavar='<output_dir>',
+                                                  help='output directory (default: project root)')
+        parser_group_export_project.set_defaults(export_project="export_project")
+
+        # import-project
+        parser_group_import_project = subparsers.add_parser('import-project',
+                                                            help='import a project archive into this KunLun-M instance',
+                                                            description=__introduction__.format(detail='import a project archive'),
+                                                            formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                            usage=argparse.SUPPRESS, add_help=True)
+        parser_group_import_project.add_argument('-f', '--file', dest='archive', required=True,
+                                                  metavar='<archive_path>',
+                                                  help='path to kunlun-export-*.tar.gz')
+        parser_group_import_project.add_argument('--force', dest='force', action='store_true', default=False,
+                                                  help='overwrite existing project with same hash')
+        parser_group_import_project.set_defaults(import_project="import_project")
 
         # 加载插件参数列表以及帮助
 
@@ -410,6 +437,29 @@ def main():
             except Exception as e:
                 logger.error("[ANALYZE] Error: %s", e)
                 exit(1)
+
+        if hasattr(args, "export_project") and args.export_project == "export_project":
+            import json as _json
+            from core.import_export import export_project
+            try:
+                path = export_project(args.project, output_dir=args.output)
+                logger.info("[EXPORT] Project exported to: {}".format(path))
+            except ValueError as e:
+                logger.error("[EXPORT] {}".format(e))
+                exit(1)
+            exit()
+
+        if hasattr(args, "import_project") and args.import_project == "import_project":
+            import json as _json
+            from core.import_export import import_project
+            try:
+                report = import_project(args.archive, force=args.force)
+                logger.info("[IMPORT] Import completed:\n{}".format(
+                    "\n".join("  {}: {}".format(k, v) for k, v in report.items())))
+            except ValueError as e:
+                logger.error("[IMPORT] {}".format(e))
+                exit(1)
+            exit()
 
         if hasattr(args, "console"):
             # 静默同步规则和 tamper
