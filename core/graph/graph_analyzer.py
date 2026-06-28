@@ -208,6 +208,8 @@ class GraphAnalyzer:
                 continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
+                callee_name = _vattr(v, "callee", "")
+            if not callee_name:
                 continue
             if not isinstance(callee_name, str):
                 continue
@@ -1584,6 +1586,10 @@ class GraphAnalyzer:
             resolved = self._resolve_variable_callee(op_vid, name)
             if resolved:
                 return resolved
+        # Fallback: 检查节点自身的 callee 属性（PHP normalizer 同时写 name 和 callee）
+        callee_attr = _vattr(self.graph.vs[op_vid], "callee", "")
+        if callee_attr and isinstance(callee_attr, str):
+            return callee_attr
         return name
 
     def _resolve_variable_callee(self, start_vid: int, var_name: str, max_depth: int = 5) -> str | None:

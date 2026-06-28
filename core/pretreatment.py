@@ -280,18 +280,19 @@ class Pretreatment:
                         logger.warning('[AST] [ERROR] lexer repair failed for {}'.format(filepath))
                         continue
 
-                        if repaired_code_content == code_content:
-                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
-                            continue
+                    # repair 成功后，尝试用修复后的代码重新解析
+                    if repaired_code_content == code_content:
+                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        continue
 
-                        try:
-                            parser = make_parser()
-                            all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
-                            logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
-                            self.pre_result[filepath]['ast_nodes'] = all_nodes
-                        except Exception:
-                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
-                            continue
+                    try:
+                        parser = make_parser()
+                        all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
+                        logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
+                        self.pre_result[filepath]['ast_nodes'] = all_nodes
+                    except Exception:
+                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        continue
 
                     except AssertionError as e:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))

@@ -61,6 +61,35 @@ class AliasBuilder:
         self.graph = graph
         self.language = language
         self._alias_count = 0
+        # 预构建 identifier/parameter 名字索引：name -> [(vid, parent_func_vid), ...]
+        # 用于 _find_callee_identifier 的 O(1) fallback 查找
+        self._name_to_idents: dict[str, list[tuple[int, int | None]]] = {}
+        for v in self.graph.vs:
+            if v["label"] in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value):
+                name = _vattr(v, "name", "")
+                if name:
+                    parent_func = self._find_own_parent_function(v.index)
+                    self._name_to_idents.setdefault(name, []).append((v.index, parent_func))
+        # 预构建函数名→vid索引（用于 _find_or_create_function O(1) 查找）
+        self._func_name_to_vid: dict[str, int] = {}
+        for v in self.graph.vs:
+            if v["label"] == NodeLabel.FUNCTION.value:
+                fname = _vattr(v, "name", "")
+                if fname:
+                    self._func_name_to_vid[fname] = v.index
+        # 预构建 (file, name) → [(vid, has_dfg)] 索引（用于 _find_same_name_with_dfg O(1) 查找）
+        self._file_name_idents: dict[str, list[tuple[int, bool]]] = {}
+        for v in self.graph.vs:
+            if v["label"] in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value):
+                name = _vattr(v, "name", "")
+                if not name:
+                    continue
+                fpath = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+                if not fpath:
+                    continue
+                has_dfg = bool(self.graph.es.select(_target=v.index, label="dfg"))
+                key = f"{fpath}\x00{name}"
+                self._file_name_idents.setdefault(key, []).append((v.index, has_dfg))
         call_types = {
             OperatorType.CALL.value,
             OperatorType.STATIC_CALL.value,
@@ -136,25 +165,16 @@ class AliasBuilder:
                 t = self.graph.vs[e.target]
                 if t["label"] == NodeLabel.IDENTIFIER.value:
                     return e.target
-        # Fallback: find identifier or parameter by name.
-        # Prefer same-scope (same own-parent function) to avoid shadowing bugs.
-        enclosing_func = self._find_own_parent_function(op_vid)
-        same_scope = []
-        cross_scope = []
-        for vid in range(self.graph.vcount()):
-            v = self.graph.vs[vid]
-            if (
-                v["label"] in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value)
-                and _vattr(v, "name") == func_name
-            ):
-                if enclosing_func and self._find_own_parent_function(vid) == enclosing_func:
-                    same_scope.append(vid)
-                else:
-                    cross_scope.append(vid)
-        if same_scope:
-            return same_scope[0]
-        if cross_scope:
-            return cross_scope[0]
+        # Fallback: 从预构建索引查找 identifier/parameter by name
+        candidates = self._name_to_idents.get(func_name, [])
+        if candidates:
+            enclosing_func = self._find_own_parent_function(op_vid)
+            # 优先同作用域
+            for vid, parent_func in candidates:
+                if enclosing_func and parent_func == enclosing_func:
+                    return vid
+            # 回退到跨作用域
+            return candidates[0][0]
         return None
 
     def _find_own_parent_function(self, vid: int) -> int | None:
@@ -317,13 +337,15 @@ class AliasBuilder:
 
     def _find_or_create_function(self, name: str) -> int | None:
         """Find an existing function node with the given name, or create one."""
-        # Search existing function nodes
-        for v in self.graph.vs:
-            if v["label"] == NodeLabel.FUNCTION.value:
-                fname = _vattr(v, "name", "")
-                fullname = _vattr(v, "fullname", "") or ""
-                if fname == name or name in fullname or fullname.endswith("." + name):
-                    return v.index
+        # O(1) 索引查找
+        vid = self._func_name_to_vid.get(name)
+        if vid is not None:
+            return vid
+        # Fallback: 在 fullname 中查找（如 PHP 类方法 class::method）
+        for v in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
+            fullname = _vattr(v, "fullname", "") or ""
+            if fullname and (name in fullname or fullname.endswith("." + name)):
+                return v.index
 
         # Create a placeholder function node
         vid = self.graph.vcount()
@@ -349,31 +371,21 @@ class AliasBuilder:
         """
         # Get the file of the current identifier to scope the search
         current_file = _vattr(self.graph.vs[current], "file_path", "") or _vattr(self.graph.vs[current], "path", "")
-        # Prefer identifier with DFG incoming edge (definition with data source)
+        if not current_file:
+            return None
+        # O(1) 索引查找：candidates = [(vid, has_dfg), ...]
+        key = f"{current_file}\x00{name}"
+        candidates = self._file_name_idents.get(key, [])
         best = None
         best_has_dfg = False
-        for v in self.graph.vs:
-            if v.index == current:
+        for vid, has_dfg in candidates:
+            if vid == current:
                 continue
-            if _vattr(v, "name") != name:
-                continue
-            if v["label"] not in (
-                NodeLabel.IDENTIFIER.value,
-                NodeLabel.PARAMETER.value,
-            ):
-                continue
-            # Same-file filter: avoid cross-language alias pollution
-            v_file = _vattr(v, "file_path", "") or _vattr(v, "path", "")
-            if current_file and v_file and current_file != v_file:
-                continue
-            has_dfg = any(
-                self.graph.es.select(_target=v.index, label="dfg")
-            )
-            if has_dfg:
-                # First match with DFG wins (usually the definition site)
-                return v.index
-            if best is None:
-                best = v.index
+            if has_dfg and not best_has_dfg:
+                best = vid
+                best_has_dfg = True
+            elif best is None:
+                best = vid
         return best
 
     def _create_alias_edge(

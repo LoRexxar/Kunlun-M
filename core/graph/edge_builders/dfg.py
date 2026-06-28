@@ -46,6 +46,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def __init__(self) -> None:
         self.graph: "ig.Graph | None" = None
         self._dfg_edges: list[tuple[int, int, str]] = []  # (src, tgt, dfg_type)
+        # 函数名→vid列表索引（build() 中预构建，用于 _resolve_function O(1) 查找）
+        self._func_name_index: dict[str, list[int]] = {}
 
     # -- 公共接口 ------------------------------------------------------------
 
@@ -72,6 +74,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         if self.graph.vcount() == 0:
             return 0
+
+        # 预构建函数名索引：name → [vid1, vid2, ...]
+        # 避免在 _resolve_function 中对每个函数调用做 O(V) 全图遍历
+        self._func_name_index = {}
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+                continue
+            fname = _vattr(v, "name", "")
+            if not fname:
+                continue
+            self._func_name_index.setdefault(fname, []).append(v.index)
 
         # 依次执行各分析步骤
         self._analyze_operator_flows()
@@ -874,8 +887,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if not func_name:
             return func_vid
 
-        # 通过同名匹配找真正的函数定义（支持 function 和 identifier callee）
-        # 查找 func_vid 所在的文件/函数作用域（用于优先同作用域匹配）
+        # 通过预构建的函数名索引做 O(1) 查找，替代原 O(V) 全图遍历
+        candidates = self._func_name_index.get(func_name, [])
+        if not candidates:
+            return func_vid
+
+        # 查找 func_vid 所在的父作用域（用于优先同作用域匹配）
         parent_vid = None
         for eid in self.graph.incident(func_vid, mode="in"):
             e = self.graph.es[eid]
@@ -886,29 +903,27 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         best_match = func_vid  # 默认返回自身
         first_global = None  # 记录第一个全局匹配（用于 parent 不匹配时回退）
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
-                continue
-            if v.index == func_vid:
-                continue
-            if _vattr(v, "name") != func_name:
+        for vid in candidates:
+            if vid == func_vid:
                 continue
 
-            if self._has_function_body(v.index):
-                if first_global is None:
-                    first_global = v.index
-                # 优先选择同文件/同作用域的
-                if parent_vid is not None:
-                    for eid2 in self.graph.incident(v.index, mode="in"):
-                        e2 = self.graph.es[eid2]
-                        if _vattr(e2, "label") in (EdgeLabel.OWN.value, EdgeLabel.AST.value) and e2.source == parent_vid:
-                            best_match = v.index
-                            break
-                    if best_match != func_vid:
+            if not self._has_function_body(vid):
+                continue
+
+            if first_global is None:
+                first_global = vid
+            # 优先选择同文件/同作用域的
+            if parent_vid is not None:
+                for eid2 in self.graph.incident(vid, mode="in"):
+                    e2 = self.graph.es[eid2]
+                    if _vattr(e2, "label") in (EdgeLabel.OWN.value, EdgeLabel.AST.value) and e2.source == parent_vid:
+                        best_match = vid
                         break
-                else:
-                    best_match = v.index
+                if best_match != func_vid:
                     break
+            else:
+                best_match = vid
+                break
 
         # 同作用域未匹配到，回退到全局匹配
         if best_match == func_vid and first_global is not None:
