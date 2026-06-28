@@ -40,8 +40,8 @@ from utils.log import logger
 from utils.status import get_scan_id
 
 from Kunlun_M.settings import RUNNING_PATH
-from web.index.models import ScanResultTask, NewEvilFunc
-from web.index.models import get_resultflow_class, check_update_or_new_scanresult
+from web.index.models import ScanResultTask, NewEvilFunc, TaintChain
+from web.index.models import check_update_or_new_scanresult
 
 
 class Running:
@@ -633,15 +633,25 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
         sr = check_update_or_new_scanresult(scan_task_id=a_sid, is_active=True, **db_params)
         if sr:
+            step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    ResultFlow = get_resultflow_class(int(a_sid))
                     node_source = show_context(chain[2], chain[3], is_back=True)
                     node_vid = chain[4] if len(chain) >= 5 else None
-                    rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
-                                    node_path=chain[2], node_source=node_source, node_lineno=chain[3],
-                                    node_vid=node_vid)
-                    rf.save()
+                    tc = TaintChain(
+                        scan_task=int(a_sid),
+                        vul_result=sr.id,
+                        chain_index=0,
+                        step_order=step,
+                        node_label=chain[0],
+                        node_name=chain[1],
+                        file_path=chain[2],
+                        lineno=int(float(chain[3])) if chain[3] else 0,
+                        vid=node_vid,
+                        source_code=node_source,
+                    )
+                    tc.save()
+                    step += 1
 
         data.append(row)
         data2.append(row2)
@@ -784,14 +794,23 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
         sr = check_update_or_new_scanresult(scan_task_id=a_sid, is_active=True, **db_params)
 
         if sr:
+            step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    ResultFlow = get_resultflow_class(int(a_sid))
                     node_source = show_context(chain[2], chain[3], is_back=True)
-
-                    rf = ResultFlow(vul_id=sr.id, node_type=chain[0], node_content=chain[1],
-                                    node_path=chain[2], node_source=node_source, node_lineno=chain[3])
-                    rf.save()
+                    tc = TaintChain(
+                        scan_task=int(a_sid),
+                        vul_result=sr.id,
+                        chain_index=0,
+                        step_order=step,
+                        node_label=chain[0],
+                        node_name=chain[1],
+                        file_path=chain[2],
+                        lineno=int(float(chain[3])) if chain[3] else 0,
+                        source_code=node_source,
+                    )
+                    tc.save()
+                    step += 1
 
         data.append(row)
         data2.append(row2)

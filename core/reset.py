@@ -35,7 +35,7 @@ def reset_database(keep_workspace=False):
     # 先统计当前数据量，给用户明确的提示
     from web.index.models import (
         ScanResultTask, ScanTask, ProjectVendors,
-        NewEvilFunc, Project, VendorVulns,
+        NewEvilFunc, Project, VendorVulns, TaintChain,
     )
     from django.contrib.sessions.models import Session
 
@@ -44,6 +44,7 @@ def reset_database(keep_workspace=False):
     n_result = ScanResultTask.objects.count()
     n_vendor = ProjectVendors.objects.count()
     n_evilfunc = NewEvilFunc.objects.count()
+    n_taint_chain = TaintChain.objects.count()
     n_session = Session.objects.count()
 
     # ResultFlow 动态表
@@ -72,6 +73,7 @@ def reset_database(keep_workspace=False):
     print("    - Scan Results:          {:>6}".format(n_result))
     print("    - Evil Functions:        {:>6}".format(n_evilfunc))
     print("    - Vendor Dependencies:   {:>6}".format(n_vendor))
+    print("    - Taint Chains:          {:>6}".format(n_taint_chain))
     print("  ResultFlow Tables:")
     print("    - Dynamic Tables:       {:>6}".format(n_rf))
     print("  Sessions:")
@@ -103,7 +105,7 @@ def reset_database(keep_workspace=False):
     logger.info("[RESET] Clearing business tables...")
     from django.core.management import call_command
 
-    for model in [ScanResultTask, ScanTask, ProjectVendors, NewEvilFunc, VendorVulns, Project]:
+    for model in [ScanResultTask, ScanTask, ProjectVendors, NewEvilFunc, VendorVulns, TaintChain, Project]:
         cnt = model.objects.count()
         model.objects.all().delete()
         logger.info("[RESET]   Deleted {} rows from {}".format(cnt, model._meta.db_table))

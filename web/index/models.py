@@ -301,6 +301,28 @@ class ScanResultTask(models.Model):
         super().save(*args, **kwargs)
 
 
+class TaintChain(models.Model):
+    """漏洞传播链路存储（替代 ResultFlow_* 动态表）"""
+    scan_task = models.IntegerField(db_index=True)
+    vul_result = models.IntegerField(db_index=True)
+    chain_index = models.IntegerField(default=0)
+    step_order = models.IntegerField(default=0)
+    node_label = models.CharField(max_length=50)
+    node_name = models.CharField(max_length=500)
+    file_path = models.CharField(max_length=500)
+    lineno = models.IntegerField(default=0)
+    vid = models.IntegerField(null=True, blank=True)
+    source_code = models.TextField(default='')
+
+    class Meta:
+        db_table = 'taint_chain'
+        ordering = ['vul_result', 'chain_index', 'step_order']
+        indexes = [
+            models.Index(fields=['scan_task', 'vul_result']),
+            models.Index(fields=['vul_result', 'chain_index']),
+        ]
+
+
 def get_and_check_scanresult(scan_task_id):
     srtn = ScanResultTask.objects.filter(scan_task_id=scan_task_id).first()
 

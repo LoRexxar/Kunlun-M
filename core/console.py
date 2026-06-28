@@ -39,7 +39,7 @@ from core import cli
 from core.engine import Running
 
 from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, NewEvilFunc
-from web.index.models import get_resultflow_class
+from web.index.models import TaintChain
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, check_and_new_project_id
 
 
@@ -1308,22 +1308,20 @@ Tamper Name:
                                 logger.info("[Result] ScanResult id {}:\n{}".format(key, table))
 
                                 # show Vuls Chain
-                                ResultFlow = get_resultflow_class(int(self.result_task_id))
+                                from web.index.models import TaintChain
+                                chains = TaintChain.objects.filter(vul_result=sr.id).order_by('chain_index', 'step_order')
 
-                                if ResultFlow:
-                                    rfs = ResultFlow.objects.filter(vul_id=sr.id)
+                                if chains:
+                                    logger.info("[Chain] Vul {}".format(sr.id))
+                                    for tc in chains:
+                                        logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name,
+                                                                                   tc.file_path, tc.lineno))
+                                        if not show_context(tc.file_path, tc.lineno):
+                                            logger_console.info(tc.source_code)
 
-                                    if rfs:
-                                        logger.info("[Chain] Vul {}".format(sr.id))
-                                        for rf in rfs:
-                                            logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
-                                                                                       rf.node_path, rf.node_lineno))
-                                            if not show_context(rf.node_path, rf.node_lineno):
-                                                logger_console.info(rf.node_source)
-
-                                        logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
-                                        logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
-                                        return
+                                    logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
+                                    logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
+                                    return
 
                             else:
                                 logger.error("[Console] ScanTask {} not found id {}. please check you result id.".format(self.result_task_id, key))

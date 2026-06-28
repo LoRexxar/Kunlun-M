@@ -289,18 +289,17 @@ class TaskDetailView(View):
         # 加载漏洞链数据
         chain_map = {}
         try:
-            from web.index.models import get_resultflow_class
-            RF = get_resultflow_class(task.id)
-            if RF:
-                for rf in RF.objects.all().order_by('id'):
-                    chain_map.setdefault(rf.vul_id, []).append({
-                        'type': rf.node_type,
-                        'content': rf.node_content or '',
-                        'path': rf.node_path or '',
-                        'lineno': str(rf.node_lineno or ''),
-                        'source': rf.node_source or '',
-                        'vid': rf.node_vid if hasattr(rf, 'node_vid') and rf.node_vid is not None else None,
-                    })
+            from web.index.models import TaintChain
+            srt_ids = [tr.id for tr in taskresults]
+            for tc in TaintChain.objects.filter(scan_task=task.id, vul_result__in=srt_ids).order_by('vul_result', 'chain_index', 'step_order'):
+                chain_map.setdefault(tc.vul_result, []).append({
+                    'type': tc.node_label,
+                    'content': tc.node_name or '',
+                    'path': tc.file_path or '',
+                    'lineno': str(tc.lineno or ''),
+                    'source': tc.source_code or '',
+                    'vid': tc.vid,
+                })
         except Exception as e:
             import logging
             logging.getLogger('django').warning('[chain] load chain data failed: %s', e)

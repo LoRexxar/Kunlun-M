@@ -109,28 +109,28 @@ class ProjectDetailView(View):
             task.is_finished = int(task.is_finished)
             task.parameter_config = del_sensitive_for_config(task.parameter_config)
 
-        # 加载漏洞链：用最新有结果的 task 的 ResultFlow
+        # 加载漏洞链数据
         chain_map = {}
         source_root = ''
         finished_tasks = [t for t in tasks if int(t.is_finished) == 1]
-        for t in finished_tasks:
+        task_ids = [t.id for t in finished_tasks]
+        if task_ids:
             try:
-                from web.index.models import get_resultflow_class
-                RF = get_resultflow_class(t.id)
-                if RF:
-                    for rf in RF.objects.all().order_by('id'):
-                        chain_map.setdefault(rf.vul_id, []).append({
-                            'type': rf.node_type,
-                            'content': rf.node_content or '',
-                            'path': rf.node_path or '',
-                            'lineno': str(rf.node_lineno or ''),
-                            'source': rf.node_source or '',
-                            'vid': rf.node_vid if hasattr(rf, 'node_vid') and rf.node_vid is not None else None,
-                        })
-                    source_root = t.source_dir or t.target_path or ''
-                    break  # 只加载最新 task 的链
-            except Exception:
-                continue
+                from web.index.models import TaintChain
+                srt_ids = [tr.id for tr in taskresults]
+                for tc in TaintChain.objects.filter(scan_task__in=task_ids, vul_result__in=srt_ids).order_by('vul_result', 'chain_index', 'step_order'):
+                    chain_map.setdefault(tc.vul_result, []).append({
+                        'type': tc.node_label,
+                        'content': tc.node_name or '',
+                        'path': tc.file_path or '',
+                        'lineno': str(tc.lineno or ''),
+                        'source': tc.source_code or '',
+                        'vid': tc.vid,
+                    })
+                source_root = finished_tasks[0].source_dir or finished_tasks[0].target_path or ''
+            except Exception as e:
+                import logging
+                logging.getLogger('django').warning('[chain] load chain data failed: %s', e)
 
         for taskresult in taskresults:
             taskresult.is_unconfirm = int(taskresult.is_unconfirm)

@@ -34,7 +34,7 @@ from Kunlun_M.settings import RULES_PATH
 from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
 from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, Project, ProjectVendors, VendorVulns
-from web.index.models import get_resultflow_class, get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
+from web.index.models import get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
 
 import importlib
 
@@ -183,19 +183,19 @@ def display_result(scan_id, is_ask=False):
             table.add_row(row)
 
             # show Vuls Chain
-            ResultFlow = get_resultflow_class(scan_id)
-            rfs = ResultFlow.objects.filter(vul_id=sr.id)
+            from web.index.models import TaintChain
+            chains = TaintChain.objects.filter(vul_result=sr.id).order_by('chain_index', 'step_order')
 
             logger.info("[Chain] Vul {}".format(sr.id))
-            for rf in rfs:
-                logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
+            for tc in chains:
+                logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
 
                 try:
                     if author == 'SCA':
                         continue
 
-                    if not show_context(rf.node_path, rf.node_lineno):
-                        logger_console.info(rf.node_source)
+                    if not show_context(tc.file_path, tc.lineno):
+                        logger_console.info(tc.source_code)
                 except:
                     logger.error("[SCAN] Error: {}".format(traceback.print_exc()))
                     continue

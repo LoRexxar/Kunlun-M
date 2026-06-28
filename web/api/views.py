@@ -18,7 +18,7 @@ from django.db.models import Count
 from django.utils import timezone
 
 from web.index.models import ScanTask, VendorVulns, Rules, Project, ProjectVendors, ScanResultTask
-from web.index.models import get_and_check_scantask_project_id, get_resultflow_class, get_and_check_scanresult
+from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult
 from core.vendors import get_project_vendor_by_name, get_vendor_vul_by_name
 
 from Kunlun_M.settings import LOGS_PATH
@@ -138,11 +138,12 @@ class TaskResultDetailDelApiView(View):
 
 
 class TaskResultFlowApiView(View):
-    """展示当前任务结果流细节"""
+    """展示指定任务结果流"""
 
     @staticmethod
     @api_token_required
     def get(request, task_id):
+        from web.index.models import TaintChain
         scantask = ScanTask.objects.filter(id=task_id).first()
 
         if not scantask:
@@ -151,21 +152,28 @@ class TaskResultFlowApiView(View):
         if not scantask.is_finished:
             return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
 
-        ResultFlow = get_resultflow_class(int(task_id))
-        if ResultFlow is None:
-            return JsonResponse({"code": 404, "status": False, "message": "No ResultFlow table for task {}.".format(task_id)})
-
-        # 获取该 task 下所有活跃的 ScanResultTask id，用于过滤 ResultFlow
+        # 获取该 task 下所有活跃的 ScanResultTask id
         srt_ids = list(
             get_and_check_scanresult(task_id).objects.filter(
                 scan_task_id=task_id, is_active=1
             ).values_list("id", flat=True)
         )
 
-        rfs = ResultFlow.objects.filter(vul_id__in=srt_ids).order_by("vul_id", "id")
-        resultflow_list = list(rfs.values())
-        return JsonResponse(
-            {"code": 200, "status": True, "message": resultflow_list})
+        chains = TaintChain.objects.filter(scan_task=task_id, vul_result__in=srt_ids).order_by("vul_result", "chain_index", "step_order")
+        result_list = []
+        for tc in chains:
+            result_list.append({
+                "vul_id": tc.vul_result,
+                "chain_index": tc.chain_index,
+                "step_order": tc.step_order,
+                "node_type": tc.node_label,
+                "node_content": tc.node_name,
+                "node_path": tc.file_path,
+                "node_lineno": tc.lineno,
+                "node_source": tc.source_code,
+                "node_vid": tc.vid,
+            })
+        return JsonResponse({"code": 200, "status": True, "message": result_list})
 
 
 class TaskResultFlowDetailApiView(View):
@@ -174,18 +182,28 @@ class TaskResultFlowDetailApiView(View):
     @staticmethod
     @api_token_required
     def get(request, result_id, vul_id):
+        from web.index.models import TaintChain
         scantask = ScanResultTask.objects.filter(id=result_id).first()
         task_id = scantask.scan_task_id
 
         if not scantask.is_finished:
             return JsonResponse({"code": 403, "status": False, "message": "Task {} not finished.".format(task_id)})
 
-        ResultFlow = get_resultflow_class(int(task_id))
-        rfs = ResultFlow.objects.filter(vul_id=vul_id)
-
-        resultflow_list = list(rfs.values())
-        return JsonResponse(
-            {"code": 200, "status": True, "message": resultflow_list})
+        chains = TaintChain.objects.filter(vul_result=vul_id).order_by("chain_index", "step_order")
+        result_list = []
+        for tc in chains:
+            result_list.append({
+                "vul_id": tc.vul_result,
+                "chain_index": tc.chain_index,
+                "step_order": tc.step_order,
+                "node_type": tc.node_label,
+                "node_content": tc.node_name,
+                "node_path": tc.file_path,
+                "node_lineno": tc.lineno,
+                "node_source": tc.source_code,
+                "node_vid": tc.vid,
+            })
+        return JsonResponse({"code": 200, "status": True, "message": result_list})
 
 
 class TaskVendorsApiView(View):
@@ -844,21 +862,21 @@ class GraphNodeVulnsApiView(View):
         vid = int(vid)
 
         try:
-            from web.index.models import get_resultflow_class
-            ResultFlow = get_resultflow_class(scan_id)
-        except Exception:
-            return JsonResponse({"code": 404, "error": "no resultflow table for scan_id " + str(scan_id)})
+            from web.index.models import TaintChain
+            chains = TaintChain.objects.filter(scan_task=scan_id, vid=vid).values(
+                "vul_result", "node_name", "file_path", "lineno", "node_label"
+            )[:20]
+        except Exception as e:
+            return JsonResponse({"code": 404, "error": str(e)})
 
         vulns = []
-        for rf in ResultFlow.objects.filter(node_vid=vid).values(
-            "vul_id", "node_content", "node_path", "node_lineno", "node_type"
-        )[:20]:
+        for tc in chains:
             vulns.append({
-                "vul_id": rf.get("vul_id", ""),
-                "node_content": rf.get("node_content", ""),
-                "node_path": rf.get("node_path", ""),
-                "node_lineno": rf.get("node_lineno", ""),
-                "node_type": rf.get("node_type", ""),
+                "vul_id": tc.get("vul_result", ""),
+                "node_content": tc.get("node_name", ""),
+                "node_path": tc.get("file_path", ""),
+                "node_lineno": tc.get("lineno", ""),
+                "node_type": tc.get("node_label", ""),
             })
 
         return JsonResponse({"code": 200, "data": vulns})
