@@ -27,7 +27,7 @@ class CVI_1011(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"(system|passthru|exec|pcntl_exec|shell_exec|popen|proc_open|ob_start|expect_popen|mb_send_mail|w32api_register_function|w32api_invoke_function|ssh2_exec)"
+        self.match = r"(system|passthru|exec|pcntl_exec|shell_exec|popen|proc_open|expect_popen|mb_send_mail|w32api_register_function|w32api_invoke_function|ssh2_exec)"
 
     def main(self, regex_string):
         """

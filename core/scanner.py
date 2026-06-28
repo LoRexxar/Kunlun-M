@@ -263,7 +263,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     # ── 非 sink-compatible 规则过滤 ──
     from Kunlun_M.const import mm_framework_dependency as _MM_FW_DEP
-    _skip_modes = {'only-regex', 'only-keyword', 'file-path-regex-match', 'regex-return-regex'}
+    _skip_modes = {'only-regex', 'only-keyword', 'file-path-regex-match', 'regex-return-regex', 'vustomize-match'}
     _skip_count = 0
     _fw_dep_rules = []
     for _lang, _rules in lang_rules.items():
