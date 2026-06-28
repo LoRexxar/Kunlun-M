@@ -137,7 +137,7 @@ class TaskResultDetailDelApiView(View):
         return JsonResponse({"code": 200, "status": True, "message": "Delete Success."})
 
 
-class TaskResultFlowApiView(View):
+class TaskTaintChainApiView(View):
     """展示指定任务结果流"""
 
     @staticmethod
@@ -176,7 +176,7 @@ class TaskResultFlowApiView(View):
         return JsonResponse({"code": 200, "status": True, "message": result_list})
 
 
-class TaskResultFlowDetailApiView(View):
+class TaskTaintChainDetailApiView(View):
     """展示指定任务结果流细节"""
 
     @staticmethod

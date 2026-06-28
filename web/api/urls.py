@@ -19,17 +19,16 @@ urlpatterns = [
     path("task/<int:task_id>", views.TaskDetailApiView.as_view(), name="task_detail"),
     # task result details
     path("task/<int:task_id>/result", views.TaskResultApiView.as_view(), name="task_result_detail"),
-    # task resultflow details
-    path("task/<int:task_id>/resultflow", views.TaskResultFlowApiView.as_view(), name="task_resultflow_detail"),
+    # task taint chain
+    path("task/<int:task_id>/taintchain", views.TaskTaintChainApiView.as_view(), name="task_taintchain"),
     # task vendors
     path("task/<int:task_id>/vendors", views.TaskVendorsApiView.as_view(), name="task_vendors"),
 
     # task result
     path("task/result/<int:result_id>", views.TaskResultDetailApiView.as_view(), name="task_result"),
     path("task/result/<int:result_id>/del", views.TaskResultDetailDelApiView.as_view(), name="task_result_del"),
-    # task resultflow
-    path("task/result/<int:result_id>/resultflow/<int:vul_id>", views.TaskResultFlowDetailApiView.as_view(), name="task_resultflow"),
-    # path("task/<int:task_id>/resultflow/<int:vul_id>/del", views.TaskResultFlowDetailDelApiView.as_view(), name="task_resultflow_detail_del"),
+    # task taint chain detail
+    path("task/result/<int:result_id>/taintchain/<int:vul_id>", views.TaskTaintChainDetailApiView.as_view(), name="task_taintchain_detail"),
 
     # rule list
     path("rule/list", views.RuleListApiView.as_view(), name="rule_list"),

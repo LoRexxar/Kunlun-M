@@ -40,7 +40,7 @@ python kunlun.py web -p 9999
 - `GET /api/task/list`
 - `GET /api/task/<task_id>`
 - `GET /api/task/<task_id>/result`
-- `GET /api/task/<task_id>/resultflow`
+- `GET /api/task/<task_id>/taintchain`
 - `GET /api/task/<task_id>/newevilfunc`
 - `GET /api/rule/list`
 - `GET /api/rule/<rule_id>`

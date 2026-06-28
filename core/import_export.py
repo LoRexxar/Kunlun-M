@@ -29,7 +29,7 @@ from django.db.models.fields import DateTimeField
 from utils.log import logger
 
 from web.index.models import (
-    Project, ProjectVendors, ScanTask, ScanResultTask, NewEvilFunc,
+    Project, ProjectVendors, ScanTask, ScanResultTask, NewEvilFunc, TaintChain,
 )
 from core.graph.workspace import WORKSPACE_ROOT
 
@@ -91,64 +91,6 @@ def _resolve_project(project_id_or_name):
     return project
 
 
-def _resultflow_table_name(project_id):
-    """计算 ResultFlow 动态表名。"""
-    return "ResultFlow_1{:08d}".format(project_id)
-
-
-def _get_resultflow_rows(table_name):
-    """用 raw SQL 读取 ResultFlow 表的全部数据。返回 (columns, rows) 或 None。"""
-    import sqlite3
-    db_path = connection.settings_dict['NAME']
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (table_name,)
-        )
-        if not cur.fetchone():
-            return None
-        cur.execute("SELECT * FROM [{}]".format(table_name))
-        columns = [desc[0] for desc in cur.description]
-        rows = [tuple(r) for r in cur.fetchall()]
-        return columns, rows
-    finally:
-        conn.close()
-
-
-def _create_resultflow_table(table_name):
-    """用 raw SQL 创建 ResultFlow 表（如果不存在）。"""
-    import sqlite3
-    db_path = connection.settings_dict['NAME']
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS [{}] (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                vul_id INTEGER NOT NULL,
-                node_type varchar(50) NOT NULL,
-                node_content varchar(500) NOT NULL,
-                node_path varchar(300) NOT NULL,
-                node_source TEXT,
-                node_lineno varchar(20),
-                node_vid INTEGER
-            )
-        """.format(table_name))
-        try:
-            cur.execute("ALTER TABLE [{}] ADD COLUMN node_source TEXT".format(table_name))
-        except Exception:
-            pass
-        try:
-            cur.execute("ALTER TABLE [{}] ADD COLUMN node_vid INTEGER".format(table_name))
-        except Exception:
-            pass
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def list_projects():
     """列出所有项目，返回 [(id, project_name), ...] 列表。"""
     return list(Project.objects.values_list('id', 'project_name').order_by('-id'))
@@ -180,9 +122,8 @@ def export_project(project_id_or_name, output_dir=None):
     newevilfuncs = list(NewEvilFunc.objects.filter(project_id=pid))
     vendors = list(ProjectVendors.objects.filter(project_id=pid))
 
-    # 2. ResultFlow
-    rf_table_name = _resultflow_table_name(pid)
-    rf_data = _get_resultflow_rows(rf_table_name)
+    # 2. TaintChain
+    taint_chains = list(TaintChain.objects.filter(scan_task__in=scan_ids).order_by('vul_result', 'chain_index', 'step_order'))
 
     # 3. Workspace 图文件
     graph_dirs = []
@@ -208,16 +149,15 @@ def export_project(project_id_or_name, output_dir=None):
         "result_count": len(results),
         "newevilfunc_count": len(newevilfuncs),
         "vendor_count": len(vendors),
-        "resultflow_table": rf_table_name if rf_data else "",
-        "resultflow_rows": len(rf_data[1]) if rf_data else 0,
+        "taint_chain_rows": len(taint_chains),
         "graph_files": len(graph_dirs),
     }
 
     logger.info("[EXPORT]   scans={}, results={}, newevilfuncs={}, vendors={}, "
-                "resultflow={}, graphs={}".format(
+                "taint_chains={}, graphs={}".format(
                     manifest["scan_count"], manifest["result_count"],
                     manifest["newevilfunc_count"], manifest["vendor_count"],
-                    manifest["resultflow_rows"], manifest["graph_files"]))
+                    manifest["taint_chain_rows"], manifest["graph_files"]))
 
     # 5. 序列化 DB 数据
     db_data = {
@@ -228,13 +168,8 @@ def export_project(project_id_or_name, output_dir=None):
         "vendors.json": [_model_to_dict(v) for v in vendors],
     }
 
-    if rf_data:
-        columns, rows = rf_data
-        db_data["resultflow.json"] = {
-            "table_name": rf_table_name,
-            "columns": columns,
-            "rows": rows,
-        }
+    if taint_chains:
+        db_data["taint_chains.json"] = [_model_to_dict(tc) for tc in taint_chains]
 
     # 6. 打包
     if output_dir is None:
@@ -330,7 +265,8 @@ def import_project(archive_path, force=False):
         results_data = _load_json("results.json") or []
         newevilfuncs_data = _load_json("newevilfuncs.json") or []
         vendors_data = _load_json("vendors.json") or []
-        resultflow_data = _load_json("resultflow.json")
+        taint_chains_data = _load_json("taint_chains.json") or []
+
 
         if not project_data or not scantasks_data:
             raise ValueError("Invalid archive: missing project or scantasks data")
@@ -438,76 +374,39 @@ def import_project(archive_path, force=False):
 
             logger.info("[IMPORT]   Imported {} vendors".format(len(vendors_data)))
 
-        # 事务结束，以下 ResultFlow 和 workspace 操作不在 Django 事务中
+        # 事务结束，以下 TaintChain 和 workspace 操作不在 Django 事务中
 
-        # 5e. 导入 ResultFlow
-        rf_rows_imported = 0
-        if resultflow_data:
-            rf_table = resultflow_data.get("table_name", "")
-            rf_columns = resultflow_data.get("columns", [])
-            rf_rows = resultflow_data.get("rows", [])
+        # 5e. 导入 TaintChain
+        tc_rows_imported = 0
+        if taint_chains_data:
+            step_counter = {}
+            for tc_data in taint_chains_data:
+                fields = _dict_to_model_fields(tc_data)
+                old_scan_task = fields.pop('scan_task', None)
+                old_vul_result = fields.pop('vul_result', None)
+                # 映射到新 ID
+                new_scan_task = scan_id_map.get(int(old_scan_task) if old_scan_task else 0, 0)
+                new_vul_result = result_id_map.get(int(old_vul_result) if old_vul_result else 0, 0)
+                if not new_vul_result:
+                    continue
+                key = new_vul_result
+                step = step_counter.get(key, 0)
+                TaintChain(
+                    scan_task=new_scan_task,
+                    vul_result=new_vul_result,
+                    chain_index=fields.get('chain_index', 0),
+                    step_order=step,
+                    node_label=fields.get('node_label', ''),
+                    node_name=fields.get('node_name', ''),
+                    file_path=fields.get('file_path', ''),
+                    lineno=fields.get('lineno', 0),
+                    vid=fields.get('vid'),
+                    source_code=fields.get('source_code', ''),
+                ).save()
+                step_counter[key] = step + 1
+                tc_rows_imported += 1
 
-            # 计算新表名（基于新 project_id）
-            new_rf_table = _resultflow_table_name(new_project_id)
-
-            import sqlite3
-            db_path = connection.settings_dict['NAME']
-            rf_conn = sqlite3.connect(db_path)
-            rf_cur = rf_conn.cursor()
-
-            try:
-                # 检查表是否存在
-                rf_cur.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    (new_rf_table,)
-                )
-                table_exists = rf_cur.fetchone() is not None
-
-                if table_exists:
-                    rf_cur.execute("SELECT COUNT(*) FROM [{}]".format(new_rf_table))
-                    existing_rows = rf_cur.fetchone()[0]
-                    if existing_rows > 0:
-                        if force:
-                            logger.info("[IMPORT]   Clearing existing ResultFlow table ({})".format(new_rf_table))
-                            rf_cur.execute("DELETE FROM [{}]".format(new_rf_table))
-                        else:
-                            logger.info("[IMPORT]   ResultFlow table {} has {} rows, appending new data".format(
-                                new_rf_table, existing_rows))
-                else:
-                    rf_conn.close()
-                    _create_resultflow_table(new_rf_table)
-                    rf_conn = sqlite3.connect(db_path)
-                    rf_cur = rf_conn.cursor()
-
-                # 找到 vul_id 列索引
-                vul_id_idx = rf_columns.index('vul_id') if 'vul_id' in rf_columns else 1
-
-                for row in rf_rows:
-                    old_vul_id = row[vul_id_idx]
-                    new_vul_id = result_id_map.get(int(old_vul_id)) if old_vul_id else None
-                    if not new_vul_id:
-                        continue  # 跳过无法映射的行
-                    # 构建 INSERT（跳过 id 列）
-                    col_names = [c for c in rf_columns if c != 'id']
-                    col_placeholders = []
-                    col_values = []
-                    for c in col_names:
-                        idx = rf_columns.index(c)
-                        val = row[idx]
-                        if c == 'vul_id':
-                            val = new_vul_id
-                        col_placeholders.append("?")
-                        col_values.append(val)
-                    sql = "INSERT INTO [{}] ({}) VALUES ({})".format(
-                        new_rf_table, ", ".join(col_names), ", ".join(col_placeholders))
-                    rf_cur.execute(sql, col_values)
-                    rf_rows_imported += 1
-
-                rf_conn.commit()
-                logger.info("[IMPORT]   Imported {} ResultFlow rows into {}".format(
-                    rf_rows_imported, new_rf_table))
-            finally:
-                rf_conn.close()
+            logger.info("[IMPORT]   Imported {} TaintChain rows".format(tc_rows_imported))
 
         # 5f. 复制 workspace 图文件
         graphs_copied = 0
@@ -540,7 +439,7 @@ def import_project(archive_path, force=False):
         "results_imported": len(results_data),
         "newevilfuncs_imported": len(newevilfuncs_data),
         "vendors_imported": len(vendors_data),
-        "resultflow_rows_imported": rf_rows_imported if 'rf_rows_imported' in dir() else 0,
+        "taint_chain_rows_imported": tc_rows_imported if 'tc_rows_imported' in dir() else 0,
         "graph_files_copied": graphs_copied if 'graphs_copied' in dir() else 0,
     }
 

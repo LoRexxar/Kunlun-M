@@ -27,7 +27,7 @@ def _bold_red(text):
 
 
 def reset_database(keep_workspace=False):
-    """重置数据库：清除扫描数据 + ResultFlow 动态表 + workspace，重新 migrate + 加载规则。"""
+    """重置数据库：清除扫描数据 + TaintChain + 旧 ResultFlow 动态表 + workspace，重新 migrate + 加载规则。"""
     from django.conf import settings
 
     db_path = settings.DATABASES['default']['NAME']

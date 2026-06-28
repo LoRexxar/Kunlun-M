@@ -6,7 +6,7 @@
 
 ## 1. 项目归档导出 / 导入
 
-将一个项目的完整数据（扫描任务、漏洞结果、危险函数、组件信息、ResultFlow 污点链路、workspace 图文件）打包为可移植的 `.tar.gz` 归档，支持跨实例迁移。
+将一个项目的完整数据（扫描任务、漏洞结果、危险函数、组件信息、TaintChain 污点链路、workspace 图文件）打包为可移植的 `.tar.gz` 归档，支持跨实例迁移。
 
 ### 1.1 导出
 
@@ -33,7 +33,7 @@ kunlun-export-{name}-{timestamp}.tar.gz
 │   ├── results.json        # 漏洞结果列表
 │   ├── newevilfuncs.json   # 危险函数列表
 │   ├── vendors.json        # 组件信息列表
-│   └── resultflow.json     # 污点链路数据（动态表 ResultFlow_XXXXXXXX）
+│   └── taint_chains.json   # 污点链路数据（TaintChain 表）
 └── workspace/
     └── {scan_id}/          # 每个扫描的图文件
         ├── graph.graphmlz  # igraph 压缩图数据
@@ -54,7 +54,7 @@ kunlun-export-{name}-{timestamp}.tar.gz
   "result_count": 47,
   "newevilfunc_count": 12,
   "vendor_count": 5,
-  "resultflow_rows": 168,
+  "taint_chain_rows": 168,
   "graph_files": 6
 }
 ```
@@ -64,7 +64,7 @@ kunlun-export-{name}-{timestamp}.tar.gz
 ```
 KunLun-M> export nodejs
 [EXPORT] Exporting project 'nodejs' (id=1) ...
-[EXPORT]   scans=3, results=47, newevilfuncs=12, vendors=5, resultflow=168, graphs=6
+[EXPORT]   scans=3, results=47, newevilfuncs=12, vendors=5, taint_chains=168, graphs=6
 [EXPORT] Archive saved: kunlun-export-nodejs-20260626_080350.tar.gz (0.15 MB)
 ```
 
@@ -89,7 +89,7 @@ python kunlun.py import-project -f <archive_path> [--force]
    - 已存在且有 `--force`：复用已有 project 记录
    - 不存在：创建新 project 记录
 3. ID 全量重映射：scantask、result、newevilfunc 全部新建 ID
-4. ResultFlow 的 `vul_id` 字段自动映射到新 result ID
+4. TaintChain 的 `vul_result` 字段自动映射到新 result ID
 5. workspace 图文件复制到 `workspace/{new_scan_id}/`
 
 **Console 模式：**
@@ -99,17 +99,16 @@ KunLun-M> import kunlun-export-nodejs-20260626_080350.tar.gz
 [IMPORT] Importing from kunlun-export-nodejs-20260626_080350.tar.gz ...
 [IMPORT]   Created project 'nodejs' (new id=2)
 [IMPORT]   Imported 3 scantasks, 47 results, 12 newevilfuncs, 5 vendors
-[IMPORT]   Imported 168 resultflow rows
+[IMPORT]   Imported 168 TaintChain rows
 [IMPORT]   Copied 6 graph files
 [IMPORT] Import complete.
 ```
 
 ### 1.3 注意事项
 
-- 导入使用 Django ORM 处理常规表，使用 **sqlite3 直连**处理 ResultFlow 动态表（避免 Django cursor 对带 `%` SQL 的格式化 bug）
+- TaintChain 使用 Django ORM 直接操作
 - 同名项目判定基于 `project_hash`，不是项目名称
 - 导入后旧项目的 scan ID 和新项目的 scan ID 不同，workspace 目录按新 scan ID 组织
-- ResultFlow 表名格式为 `ResultFlow_1{project_id:08d}`，是项目级共享的
 
 ---
 

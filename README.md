@@ -136,7 +136,7 @@ POST   /api/task/create/start             Create + auto-start scan
 GET    /api/task/<task_id>/status         Task status
 GET    /api/task/list                     Task list
 GET    /api/task/<task_id>/result         Scan results
-GET    /api/task/<task_id>/resultflow     Taint flow data
+GET    /api/task/<task_id>/taintchain     Taint chain data
 GET    /api/rule/list                     Rule list
 GET    /api/graph/query                   AST graph query
 GET    /api/graph/subgraph                Subgraph extraction (for visualization)

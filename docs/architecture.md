@@ -71,7 +71,7 @@ Kunlun-M/
   - `Rule(language).rules(...)` 加载规则
   - 以规则为粒度并发执行（`asyncio.gather`）
   - 对单规则调用 `scan_single -> SingleRule.process`
-  - 聚合漏洞、写入数据库、写入结果流（ResultFlow）
+  - 聚合漏洞、写入数据库、写入传播链（TaintChain）
 
 特点：
 
@@ -126,7 +126,7 @@ Kunlun-M/
 3. `core.cli.start()` 收集文件、识别语言框架、执行 AST 预处理
 4. `core.engine.scan()` 按规则并发扫描
 5. 语言引擎（PHP/JS）完成语义分析与证据链构建
-6. 结果写入 `ScanResultTask` / `ResultFlow` 等模型
+6. 结果写入 `ScanResultTask` / `TaintChain` 等模型
 7. CLI 展示结果，Web/API 侧可查询同一批任务数据
 
 ---

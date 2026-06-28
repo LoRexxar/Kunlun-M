@@ -136,7 +136,7 @@ POST   /api/task/create/start             创建并自动启动扫描
 GET    /api/task/<task_id>/status         任务状态
 GET    /api/task/list                     任务列表
 GET    /api/task/<task_id>/result         扫描结果
-GET    /api/task/<task_id>/resultflow     污点链路数据
+GET    /api/task/<task_id>/taintchain     污点链路数据
 GET    /api/rule/list                     规则列表
 GET    /api/graph/query                   AST 图查询
 GET    /api/graph/subgraph                子图提取（用于可视化）
