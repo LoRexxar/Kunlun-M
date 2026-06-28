@@ -268,6 +268,7 @@ class Pretreatment:
 
                         # 合并字典
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        continue  # 解析成功，跳过 repair 逻辑
 
                     except SyntaxError as e:
                         if self.is_unprecom:
