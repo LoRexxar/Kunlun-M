@@ -274,7 +274,11 @@ class Pretreatment:
                             logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
                             continue
 
+                    try:
                         repaired_code_content = self._repair_php_code_for_parser(code_content)
+                    except Exception:
+                        logger.warning('[AST] [ERROR] lexer repair failed for {}'.format(filepath))
+                        continue
 
                         if repaired_code_content == code_content:
                             logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))

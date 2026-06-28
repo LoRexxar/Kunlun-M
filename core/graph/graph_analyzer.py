@@ -209,6 +209,8 @@ class GraphAnalyzer:
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
                 continue
+            if not isinstance(callee_name, str):
+                continue
             if callee_name.startswith("\\"):
                 callee_name = callee_name[1:]
             # Normalize: Rust uses :: but sink names use .
@@ -280,6 +282,8 @@ class GraphAnalyzer:
                 lhs_v = self.graph.vs[lhs_vid]
                 lhs_label = _vattr(lhs_v, "label", "")
                 lhs_vname = _vattr(lhs_v, "name", "")
+                if not isinstance(lhs_vname, str):
+                    continue
                 if lhs_label == "property" or lhs_label == "identifier":
                     if lhs_vname in name_set:
                         lhs_name = lhs_vname

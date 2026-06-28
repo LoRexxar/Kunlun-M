@@ -1365,9 +1365,9 @@ class Normalizer:
         if isinstance(node, str):
             return node
         if isinstance(node, phpast.Variable):
-            return node.name  # phply already includes the $ prefix
+            return str(node.name) if node.name else ""
         if isinstance(node, phpast.Constant):
-            return node.name
+            return str(node.name) if node.name else ""
         if isinstance(node, phpast.ObjectProperty):
             obj_text = self._expr_text(node.node)
             return f"{obj_text}->{node.name}"
@@ -1391,4 +1391,5 @@ class Normalizer:
             return f"{self._expr_text(node.node)} = {self._expr_text(node.expr)}"
         if isinstance(node, phpast.Cast):
             return f"({node.type}){self._expr_text(node.expr)}"
-        return str(getattr(node, "name", "")) or type(node).__name__
+        name_val = getattr(node, "name", "")
+        return str(name_val) if name_val else type(node).__name__

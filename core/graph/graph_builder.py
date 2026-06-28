@@ -115,7 +115,7 @@ class AstGraphBuilder:
                 if k == "label":
                     v_attrs["label"].append(n.get("label", ""))
                 elif k == "name":
-                    v_attrs["name"].append(n.get("name", ""))
+                    v_attrs["name"].append(str(n.get("name", "")))
                 elif k == "lineno":
                     v_attrs["lineno"].append(n.get("lineno", 0))
                 elif k == "end_lineno":
