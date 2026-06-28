@@ -615,11 +615,8 @@ class Normalizer:
             if finally_node:
                 self._walk_node(finally_node, add_node, add_edge, ctx_stack, file_path, 0)
 
-        # Switch: walk cases
-        if node_type_name == "Switch":
-            switch_nodes = getattr(node, "nodes", []) or []
-            for idx, child in enumerate(switch_nodes):
-                self._walk_node(child, add_node, add_edge, ctx_stack, file_path, idx)
+        # Switch: cases already walked by body_attr_map above; skip duplicate
+        # (body_attr_map["Switch"] = "nodes" at L587 already iterates Switch.nodes)
 
         # Match: walk arms
         if node_type_name == "Match":
