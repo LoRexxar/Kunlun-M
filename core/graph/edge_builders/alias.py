@@ -72,11 +72,16 @@ class AliasBuilder:
                     self._name_to_idents.setdefault(name, []).append((v.index, parent_func))
         # 预构建函数名→vid索引（用于 _find_or_create_function O(1) 查找）
         self._func_name_to_vid: dict[str, int] = {}
+        # fullname 索引：支持 PHP class::method 等模糊匹配
+        self._func_fullname_to_vid: dict[str, int] = {}
         for v in self.graph.vs:
             if v["label"] == NodeLabel.FUNCTION.value:
                 fname = _vattr(v, "name", "")
                 if fname:
                     self._func_name_to_vid[fname] = v.index
+                fullname = _vattr(v, "fullname", "") or ""
+                if fullname:
+                    self._func_fullname_to_vid[fullname] = v.index
         # 预构建 (file, name) → [(vid, has_dfg)] 索引（用于 _find_same_name_with_dfg O(1) 查找）
         self._file_name_idents: dict[str, list[tuple[int, bool]]] = {}
         for v in self.graph.vs:
@@ -341,11 +346,11 @@ class AliasBuilder:
         vid = self._func_name_to_vid.get(name)
         if vid is not None:
             return vid
-        # Fallback: 在 fullname 中查找（如 PHP 类方法 class::method）
-        for v in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
-            fullname = _vattr(v, "fullname", "") or ""
-            if fullname and (name in fullname or fullname.endswith("." + name)):
-                return v.index
+        # Fallback: 在 fullname 索引中模糊查找（如 PHP 类方法 class::method）
+        # keys 数量远小于全图节点数
+        for fn, vid in self._func_fullname_to_vid.items():
+            if name in fn or fn.endswith("." + name):
+                return vid
 
         # Create a placeholder function node
         vid = self.graph.vcount()
