@@ -472,6 +472,14 @@ class Normalizer:
 
         name_node = self._find_child_by_type(node, "identifier")
         name = self._text(name_node) if name_node else "<anonymous>"
+        if name == "<anonymous>":
+            # function M.method_name() — name 嵌套在 dot_index_expression 中
+            dot_idx = self._find_child_by_type(node, "dot_index_expression")
+            if dot_idx:
+                # 取最后一个 identifier（方法名短名，与 CG builder 占位节点一致）
+                idents = [c for c in dot_idx.children if c.type == "identifier"]
+                if idents:
+                    name = self._text(idents[-1]).strip()
 
         # Parameters
         param_list = self._find_child_by_type(node, "parameters")
@@ -1053,14 +1061,16 @@ class Normalizer:
         # Walk arguments
         arg_list = self._find_child_by_type(node, "arguments")
         if arg_list:
-            for idx, arg in enumerate(arg_list.children):
+            arg_idx = 0
+            for arg in arg_list.children:
                 if arg.type in ("(", ")", ","):
                     continue
                 arg_pos = self._walk_node(arg, add_node, add_edge,
                                           ctx_stack, file_path, 0)
                 if arg_pos is not None:
                     self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
-                                   extra={"index": idx})
+                                   extra={"arg_index": arg_idx})
+                arg_idx += 1
 
         # use edge to function (callee target, may be external)
         if callee_name and isinstance(callee_name, str) and callee_name != "<call>":
@@ -1130,14 +1140,16 @@ class Normalizer:
         # Walk arguments
         arg_list = self._find_child_by_type(node, "arguments")
         if arg_list:
-            for idx, arg in enumerate(arg_list.children):
+            arg_idx = 0
+            for arg in arg_list.children:
                 if arg.type in ("(", ")", ","):
                     continue
                 arg_pos = self._walk_node(arg, add_node, add_edge,
                                           ctx_stack, file_path, 0)
                 if arg_pos is not None:
                     self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
-                                   extra={"index": idx})
+                                   extra={"arg_index": arg_idx})
+                arg_idx += 1
 
         # use edge to function (callee target, may be external)
         if method_name and isinstance(method_name, str) and method_name != "<method>":

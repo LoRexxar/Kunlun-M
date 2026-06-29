@@ -605,6 +605,11 @@ class Normalizer:
 
         # function_definition: type function_declarator compound_statement
         func_decl = self._find_child_by_type(node, "function_declarator")
+        if not func_decl:
+            # 嵌套在 pointer_declarator 中（如 char *func()）
+            ptr_decl = self._find_child_by_type(node, "pointer_declarator")
+            if ptr_decl:
+                func_decl = self._find_child_by_type(ptr_decl, "function_declarator")
         body = self._find_child_by_type(node, "compound_statement")
 
         # Name
@@ -723,6 +728,11 @@ class Normalizer:
                             ctx_stack, file_path, depth) -> int:
         lineno = self._lineno(node)
         func_decl = self._find_child_by_type(node, "function_declarator")
+        if not func_decl:
+            # 嵌套在 pointer_declarator 中（如 char *func();）
+            ptr_decl = self._find_child_by_type(node, "pointer_declarator")
+            if ptr_decl:
+                func_decl = self._find_child_by_type(ptr_decl, "function_declarator")
         name = "<func>"
         if func_decl:
             name_node = self._find_child_by_type(func_decl, "identifier")
