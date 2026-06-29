@@ -1583,9 +1583,13 @@ class GraphAnalyzer:
         # Last resort: operator's own name
         name = _vattr(self.graph.vs[op_vid], "name")
         if name:
-            resolved = self._resolve_variable_callee(op_vid, name)
-            if resolved:
-                return resolved
+            # Only trace DFG for variable-like callees (e.g. $func in PHP)
+            # Skip language constructs (isset, echo, array_key_exists, etc.)
+            # whose DFG upstream contains arg nodes, not callee definitions.
+            if name.startswith('$') or not name[0].isalpha():
+                resolved = self._resolve_variable_callee(op_vid, name)
+                if resolved:
+                    return resolved
         # Fallback: 检查节点自身的 callee 属性（PHP normalizer 同时写 name 和 callee）
         callee_attr = _vattr(self.graph.vs[op_vid], "callee", "")
         if callee_attr and isinstance(callee_attr, str):
