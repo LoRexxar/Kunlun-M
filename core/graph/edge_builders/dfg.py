@@ -625,15 +625,29 @@ class DataFlowBuilder(BaseEdgeBuilder):
         """#6: 跨文件变量链接 — 对无 DFG 入边的 identifier，沿 import 链
         搜索被 include 文件中的同名变量，建立 cross_file DFG 边。
 
-        PHP include 语义：被 include 文件的代码在 parent 文件的作用域执行，
-        因此同名全局变量可以直接流通。本方法在单文件 DFG 全部建完后执行。
+        支持语言语义：
+        - PHP include: 被包含文件的代码在 parent 作用域执行，$变量直接流通
+        - C/C++ #include: 预处理文本替换，全局变量声明跨文件可见
+        - Ruby require: 模块加载，全局变量($前缀)和常量跨文件可见
+        - Lua require/dofile: 模块加载，模块返回值通过赋值连接
 
-        只处理文件级变量（不在函数内的），函数局部变量不跨文件流通。
+        只处理文件级变量（不在函数体内的），函数局部变量不跨文件流通。
         """
-        if language != "php":
-            return  # 当前仅实现 PHP；后续语言在此扩展
-
         import os
+
+        # 变量名过滤函数（按语言）
+        def _is_global_var(name: str) -> bool:
+            if language == "php":
+                return name.startswith("$")
+            elif language in ("c", "cpp"):
+                # C/C++ 全局变量：不以特定前缀区分，但排除函数内局部变量
+                # 排除明显不是变量的：数字、空、单字符运算符
+                return bool(name) and name not in ("=", "+", "-", "*", "/", ")", "(", ";", ",", "{", "}", "[", "]")
+            elif language == "ruby":
+                return name.startswith("$") or name[0:1].isupper()  # $var or Constant
+            elif language == "lua":
+                return bool(name) and not name.startswith("_ENV")
+            return False
 
         # ── Step 1: file_path → file_vid 映射 ──
         file_path_to_vid: dict[str, int] = {}
@@ -664,8 +678,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
             ):
                 continue
             vname = _vattr(v, "name", "")
-            if not vname or not vname.startswith("$"):
-                continue  # PHP 变量以 $ 开头
+            if not _is_global_var(vname):
+                continue  # 按语言规则过滤变量名
 
             # 直接用 identifier 的 file_path 属性确定所属文件
             # （不依赖 _get_scope_parent，因为 identifier 可能没有 own/ast 入边）
@@ -687,7 +701,42 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 )
 
             cat = "defined" if has_dfg_in else "undefined"
-            file_vars[file_vid][vname][cat].append(v.index)
+
+            # C/C++: 函数内变量的 defined 降级为 local（不作为跨文件链接源）
+            # 但函数内的 undefined 保留（可能是引用全局变量）
+            if language in ("c", "cpp"):
+                in_function = False
+                for eid in self.graph.incident(v.index, mode="in"):
+                    e = self.graph.es[eid]
+                    elabel = _vattr(e, "label")
+                    if elabel in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                        ancestor = e.source
+                        visited_scope = {v.index}
+                        while ancestor is not None and ancestor not in visited_scope:
+                            visited_scope.add(ancestor)
+                            alabel = _vattr(self.graph.vs[ancestor], "label")
+                            if alabel == NodeLabel.FUNCTION.value:
+                                in_function = True
+                                break
+                            if alabel == NodeLabel.FILE.value:
+                                break
+                            found_up = False
+                            for eid2 in self.graph.incident(ancestor, mode="in"):
+                                e2 = self.graph.es[eid2]
+                                if _vattr(e2, "label") in (
+                                    EdgeLabel.OWN.value, EdgeLabel.AST.value
+                                ):
+                                    ancestor = e2.source
+                                    found_up = True
+                                    break
+                            if not found_up:
+                                break
+                        break
+                if in_function and cat == "defined":
+                    cat = "local"  # 函数内已定义变量，不作为跨文件链接源
+
+            if cat in ("defined", "undefined"):
+                file_vars[file_vid][vname][cat].append(v.index)
 
         # 保存供 _resolve_import_targets 使用（策略 2）
         self._cross_file_vars = file_vars
@@ -748,6 +797,59 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 cross_count, len(processed),
             )
 
+        # ── Step 4b: 共享 include 文件的 parent 之间变量链接 ──
+        # C/C++ 语义：变量定义在 .c 文件，声明(extern)在 .h 文件。
+        # 两个 .c 文件通过共同 #include 同一 .h 文件关联。
+        # 需要：parent A 的 defined → parent B 的 undefined（共享同一 target）
+        if language in ("c", "cpp"):
+            target_to_parents: dict[int, set[int]] = defaultdict(set)
+            for parent_vid, target_vids in parent_to_targets.items():
+                for tv in target_vids:
+                    target_to_parents[tv].add(parent_vid)
+
+            shared_pairs: set[tuple[int, int]] = set()
+            for target_vid, parents in target_to_parents.items():
+                if len(parents) < 2:
+                    continue
+                parent_list = list(parents)
+                for i in range(len(parent_list)):
+                    for j in range(i + 1, len(parent_list)):
+                        a, b = parent_list[i], parent_list[j]
+                        pair = (min(a, b), max(a, b))
+                        if pair not in shared_pairs:
+                            shared_pairs.add(pair)
+                            a_vars = file_vars.get(a, {})
+                            b_vars = file_vars.get(b, {})
+                            for var_name, a_cats in a_vars.items():
+                                a_defined = a_cats.get("defined", [])
+                                b_undefined = b_vars.get(
+                                    var_name, {}
+                                ).get("undefined", [])
+                                for a_vid in a_defined:
+                                    for b_vid in b_undefined:
+                                        self._add_dfg_edge(
+                                            a_vid, b_vid, DfgType.CROSS_FILE.value
+                                        )
+                                        cross_count += 1
+                            # Reverse direction too
+                            for var_name, b_cats in b_vars.items():
+                                b_defined = b_cats.get("defined", [])
+                                a_undefined = a_vars.get(
+                                    var_name, {}
+                                ).get("undefined", [])
+                                for b_vid in b_defined:
+                                    for a_vid in a_undefined:
+                                        self._add_dfg_edge(
+                                            b_vid, a_vid, DfgType.CROSS_FILE.value
+                                        )
+                                        cross_count += 1
+
+            if cross_count:
+                logger.info(
+                    "[DataFlowBuilder] Shared-include cross-file links: %d additional edges for %d shared targets",
+                    cross_count, len(shared_pairs),
+                )
+
     def _resolve_import_targets(
         self, import_vid: int, parent_fp: str,
         file_path_map: dict[str, int],
@@ -762,13 +864,25 @@ class DataFlowBuilder(BaseEdgeBuilder):
         import os
 
         arg_vids = self._get_ast_children(import_vid, role="arg")
+        parent_dir = os.path.dirname(parent_fp)
+
+        # Case S: source 属性直接提供路径（C/C++ #include "utils.h"）
+        # C/C++ import 节点没有 ast[arg] 子节点，路径存在 source 属性中
         if not arg_vids:
+            source = _vattr(self.graph.vs[import_vid], "source", "")
+            if source:
+                resolved = os.path.normpath(os.path.join(parent_dir, source))
+                vid = file_path_map.get(resolved)
+                if vid is not None:
+                    return [vid]
+                return self._fuzzy_match_file(source, file_path_map)
             return []
+
         arg_vid = arg_vids[0]
         arg_v = self.graph.vs[arg_vid]
         arg_label = _vattr(arg_v, "label", "")
         arg_type = _vattr(arg_v, "type", "")
-        parent_dir = os.path.dirname(parent_fp)
+
 
         # Case A: 拼接路径（binary_op / concat）
         if arg_label == NodeLabel.OPERATOR.value and arg_type in (
