@@ -424,6 +424,7 @@ class Normalizer:
             }
 
         elif node_type_name == "UseDeclaration":
+            expr = None
             name = getattr(node, "name", "")
             alias = getattr(node, "alias", None) or ""
             frg_type = FrgType.USE
@@ -432,6 +433,8 @@ class Normalizer:
                 "fullname": name,
                 "alias": alias,
             }
+        else:
+            expr = None
 
         pos = add_node({
             "label": NodeLabel.IMPORT.value,
@@ -446,6 +449,15 @@ class Normalizer:
         if ctx:
             add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
                        "attrs": {"index": depth}})
+
+        # For Include/Require: walk expr as ast child so find_sinks can
+        # discover the argument vid (e.g., include($file) → arg=$file vid)
+        if expr is not None:
+            expr_pos = self._walk_node(expr, add_node, add_edge, ctx_stack,
+                                      file_path, depth + 1)
+            if expr_pos is not None:
+                add_edge({"label": EdgeLabel.AST.value, "source": pos,
+                          "target": expr_pos, "attrs": {"role": "arg"}})
 
         # DEPENDENCY node: link import to its resolved dependency
         if name:

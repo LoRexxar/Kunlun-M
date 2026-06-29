@@ -265,6 +265,32 @@ class GraphAnalyzer:
                 "arg_vids": arg_vids,
             })
 
+        # 第三轮：查找 import 类型节点（PHP include/require）
+        # import 节点的 type 就是 include/require/include_once/require_once
+        import_keywords = {"include", "require", "include_once", "require_once"}
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.IMPORT.value:
+                continue
+            vtype = _vattr(v, "type", "")
+            if vtype not in import_keywords:
+                continue
+            if vtype in name_set:
+                matched_name = vtype
+            else:
+                continue
+            # Collect argument vid via ast[role=arg] edge
+            arg_vids = [
+                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                if _vattr(e, "role") == "arg"
+            ]
+            results.append({
+                "vid": v.index, "name": matched_name,
+                "lineno": _vattr(v, "lineno", 0),
+                "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                "type": vtype,
+                "arg_vids": arg_vids,
+            })
+
         # 第二轮：查找 assign 类型节点中匹配 sink_name 的属性赋值
         # 例如 element.innerHTML = expr → innerHTML 是 sink
         assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
@@ -744,6 +770,53 @@ class GraphAnalyzer:
                                 path=new_path + [obj_vid],
                                 expr_lineno=_vattr(obj_v, "lineno", 0)))
 
+        # Before returning Inconclusive, try "same-name variable def-chaining":
+        # SSA-like graphs create separate identifier nodes per assignment.
+        # When $target = str_replace(..., $target) forms a DFG cycle, BFS
+        # visits vid=14953→14954→14960→14953 and exhausts without reaching
+        # vid=14947 ($target = $_REQUEST['ip'], the real source).
+        # Fix: collect all identifier names in visited, find same-name
+        # identifier nodes in the same file not in visited, and recursively
+        # check if they lead to a controllable source.
+        start_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        if start_fp and len(visited) > 2:
+            # Collect identifier names encountered during BFS
+            visited_idents: dict[str, list[int]] = {}
+            for up_vid in visited:
+                uv = self.graph.vs[up_vid]
+                if _vattr(uv, "label") != NodeLabel.IDENTIFIER.value:
+                    continue
+                u_name = _vattr(uv, "name", "")
+                if not u_name:
+                    continue
+                visited_idents.setdefault(u_name, []).append(up_vid)
+            # For each identifier name, find same-file same-name nodes NOT in visited
+            # Use attribute-based filtering to avoid full graph scan
+            checked: set[int] = set()
+            for u_name, vids in visited_idents.items():
+                # Fast path: select vertices by name attribute
+                for cand in self.graph.vs.select(
+                    label=NodeLabel.IDENTIFIER.value, name=u_name
+                ):
+                    if cand.index in visited or cand.index in checked:
+                        continue
+                    cand_fp = _vattr(cand, "file_path", "") or _vattr(cand, "path", "")
+                    if cand_fp != start_fp:
+                        continue
+                    checked.add(cand.index)
+                    # Check if this candidate has DFG sources to trace
+                    if self._get_dfg_sources(cand.index):
+                        # Use _trace_dfg_direct to avoid recursive
+                        # parameters_back calling def-chain again
+                        r = self._trace_dfg_direct(cand.index, max_depth=20)
+                        if r is not None and r.is_controllable:
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"def-chain '{u_name}' → {r.reason}",
+                                chain=r.chain,
+                                path=r.path,
+                                expr_lineno=r.expr_lineno))
+
         # Exhausted
         return self._cached(cache_key, AnalysisResult(
             code=3,
@@ -1078,6 +1151,62 @@ class GraphAnalyzer:
     def _cached(self, key, result: AnalysisResult) -> AnalysisResult:
         self._decision_cache[key] = result
         return result
+
+    def _trace_dfg_direct(self, start_vid: int, max_depth: int = 20) -> AnalysisResult | None:
+        """Simplified DFG backward trace for def-chain resolution.
+
+        Unlike parameters_back(), this does NOT trigger def-chain recursion,
+        preventing infinite loops. Used only by the def-chain fallback in
+        parameters_back() when SSA-style graphs create disconnected
+        identifier nodes (e.g., $x = f($x) cycles).
+        """
+        visited: set[int] = {start_vid}
+        queue: deque[tuple[int, int]] = deque()
+        queue.append((start_vid, 0))
+        while queue:
+            cur_vid, depth = queue.popleft()
+            for up_vid in self._get_dfg_sources(cur_vid):
+                if up_vid in visited:
+                    continue
+                visited.add(up_vid)
+                uv = self.graph.vs[up_vid]
+                uname = _vattr(uv, "name", "")
+                ulabel = _vattr(uv, "label", "")
+                utype = _vattr(uv, "type", "")
+                # Source variable
+                if self._is_source_variable(uname):
+                    return AnalysisResult(
+                        code=1, reason=f"superglobal '{uname}'",
+                        chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
+                        path=[start_vid, up_vid],
+                        expr_lineno=_vattr(uv, "lineno", 0))
+                # Member access source (e.g., $_REQUEST['ip'])
+                if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
+                    full_text = _vattr(uv, "full_text", "")
+                    if full_text and full_text != uname and self._is_source_variable(full_text):
+                        return AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{full_text}' (via member '{uname}')",
+                            chain=[{"step": "member_source", "vid": up_vid,
+                                    "name": full_text, "code": 1}],
+                            path=[start_vid, up_vid],
+                            expr_lineno=_vattr(uv, "lineno", 0))
+                    # Also check member edges for source objects (e.g., $_REQUEST → member → 'ip')
+                    for me in self.graph.es.select(_target=up_vid, label="member"):
+                        obj_vid = me.source
+                        obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
+                        if self._is_source_variable(obj_name):
+                            return AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{obj_name}' via member access",
+                                chain=[{"step": "member_source", "vid": obj_vid,
+                                        "name": obj_name, "code": 1}],
+                                path=[start_vid, up_vid, obj_vid],
+                                expr_lineno=_vattr(self.graph.vs[obj_vid], "lineno", 0))
+                # Continue BFS
+                if depth + 1 < max_depth:
+                    queue.append((up_vid, depth + 1))
+        return None
 
     def _is_source_variable(self, name: str) -> bool:
         if not name:
