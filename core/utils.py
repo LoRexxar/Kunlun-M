@@ -22,27 +22,44 @@ def parse_sink_names(match_string):
         "system|exec"               -> [SinkName(None, 'system'), SinkName(None, 'exec')]
         "Class::method"             -> [SinkName('Class', 'method')]
         "os.system|subprocess.call" -> [SinkName('os', 'system'), SinkName('subprocess', 'call')]
+        "(system|exec|passthru)"    -> [SinkName(None, 'system'), SinkName(None, 'exec'), SinkName(None, 'passthru')]
+        "(mysqli_query|pg_query)\\s?\\(]" -> [SinkName(None, 'mysqli_query'), SinkName(None, 'pg_query')]
 
     :param match_string: 规则中的 match 字段值
     :return: list of SinkName
     """
+    import re
     if not isinstance(match_string, str):
         return []
 
-    # 去掉外层的分组括号（PHP 规则 match 常为 "(system|exec|passthru)" 格式）
     match_string = match_string.strip()
-    if match_string.startswith('(') and match_string.endswith(')'):
-        match_string = match_string[1:-1]
+
+    # 去掉外层分组括号 "(a|b|c)..." → "a|b|c..."
+    # 用正则匹配确保正确提取，即使末尾有正则后缀
+    m = re.match(r'^\((.+)\)(.*)$', match_string, re.DOTALL)
+    if m:
+        match_string = m.group(1).strip() + m.group(2).strip()
 
     # 去掉正则转义字符（Go 规则的 match 常为 "exec\\.Command|os\\.StartProcess"）
-    # 只保留 \s, \*, \(, \) 等正则元字符的转义，去掉 \. 的转义
-    import re
-    match_string = re.sub(r'\\(.)', lambda m: m.group(1) if m.group(1) not in ('s', '*', '(', ')', '[', ']', '{', '}', '+', '?', '|', '^', '$') else m.group(0), match_string)
+    # 只保留 \s, \(, \) 等正则元字符的转义，去掉 \. 的转义
+    match_string = re.sub(
+        r'\\(.)',
+        lambda m: m.group(1) if m.group(1) not in ('s', '*', '(', ')', '[', ']', '{', '}', '+', '?', '|', '^', '$') else m.group(0),
+        match_string,
+    )
+
+    # 去掉剩余的正则转义序列（\s, \(, \[ 等未转换的）
+    match_string = re.sub(r'\\.', '', match_string)
 
     raw_names = match_string.split('|')
     result = []
     for name in raw_names:
         name = name.strip()
+        if not name:
+            continue
+
+        # 清理每个 sink 名中的正则元字符后缀（如 \(, \[, +, *, ? 等）
+        name = re.sub(r'[^a-zA-Z0-9_.:]', '', name)
         if not name:
             continue
 
