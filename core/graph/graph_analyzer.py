@@ -419,11 +419,18 @@ class GraphAnalyzer:
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Check member access on start node: $_GET['cmd'] / $obj->prop
-        if _vattr(sv, "type") == "property":
-            for me in self.graph.es.select(_target=start_vid, label="member"):
-                obj_vid = me.source
+        # Supports nested chains: $_FILES['uploaded']['tmp_name']
+        if _vattr(sv, "type") in ("field", "property"):
+            cur_member = start_vid
+            for _ in range(10):
+                member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                if not member_edges:
+                    break
+                obj_vid = member_edges[0].source
                 obj_v = self.graph.vs[obj_vid]
                 obj_name = _vattr(obj_v, "name", "")
+                obj_label = _vattr(obj_v, "label", "")
+                obj_type = _vattr(obj_v, "type", "")
                 if self._is_source_variable(obj_name):
                     return self._cached(cache_key, AnalysisResult(
                         code=1,
@@ -432,6 +439,10 @@ class GraphAnalyzer:
                                 "name": obj_name, "code": 1}],
                         path=[start_vid, obj_vid],
                         expr_lineno=_vattr(obj_v, "lineno", 0)))
+                if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
+                    cur_member = obj_vid
+                else:
+                    break
 
         if _vattr(sv, "label") == NodeLabel.OPERATOR.value \
                 and _vattr(sv, "type") in _CALL_TYPES:
@@ -477,6 +488,34 @@ class GraphAnalyzer:
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int, list[int]]] = deque()
         queue.append((start_vid, 0, [start_vid]))
+
+        # Pre-check: if start_vid itself is a property in a member chain,
+        # walk the chain to find a source variable (e.g., $_FILES['uploaded']['tmp_name'])
+        start_label = _vattr(sv, "label", "")
+        start_type = _vattr(sv, "type", "")
+        if start_label == NodeLabel.IDENTIFIER.value and start_type in ("field", "property"):
+            cur_member = start_vid
+            for _ in range(10):
+                member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                if not member_edges:
+                    break
+                obj_vid = member_edges[0].source
+                obj_v = self.graph.vs[obj_vid]
+                obj_name = _vattr(obj_v, "name", "")
+                obj_label = _vattr(obj_v, "label", "")
+                obj_type = _vattr(obj_v, "type", "")
+                if self._is_source_variable(obj_name):
+                    return self._cached(cache_key, AnalysisResult(
+                        code=1,
+                        reason=f"superglobal '{obj_name}' via member access",
+                        chain=[{"step": "member_source", "vid": obj_vid,
+                                "name": obj_name, "code": 1}],
+                        path=[start_vid, obj_vid],
+                        expr_lineno=_vattr(obj_v, "lineno", 0)))
+                if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
+                    cur_member = obj_vid
+                else:
+                    break
 
         # Pre-compute branch chain for the sink arg (start_vid).
         # Branch constraints protect the sink location, not intermediate
@@ -756,11 +795,19 @@ class GraphAnalyzer:
                 # Rule 5: member access — e.g. $_GET['id'] or $obj->prop
                 # The identifier 'id' is the property/key, track back via
                 # member edge to find the object node ($_GET).
-                if ulabel == NodeLabel.IDENTIFIER.value and _vattr(uv, "type") == "property":
-                    for me in self.graph.es.select(_target=up_vid, label="member"):
-                        obj_vid = me.source
+                # Support nested member chains: $_FILES['uploaded']['tmp_name']
+                # → member chain tmp_name←uploaded←$_FILES
+                if ulabel == NodeLabel.IDENTIFIER.value and _vattr(uv, "type") in ("field", "property"):
+                    cur_member = up_vid
+                    for _ in range(10):
+                        member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                        if not member_edges:
+                            break
+                        obj_vid = member_edges[0].source
                         obj_v = self.graph.vs[obj_vid]
                         obj_name = _vattr(obj_v, "name", "")
+                        obj_label = _vattr(obj_v, "label", "")
+                        obj_type = _vattr(obj_v, "type", "")
                         if self._is_source_variable(obj_name):
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -769,6 +816,10 @@ class GraphAnalyzer:
                                         "name": obj_name, "code": 1}],
                                 path=new_path + [obj_vid],
                                 expr_lineno=_vattr(obj_v, "lineno", 0)))
+                        if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
+                            cur_member = obj_vid
+                        else:
+                            break
 
         # Before returning Inconclusive, try "same-name variable def-chaining":
         # SSA-like graphs create separate identifier nodes per assignment.
