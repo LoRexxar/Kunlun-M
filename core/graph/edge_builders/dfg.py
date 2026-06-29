@@ -646,7 +646,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
             elif language == "ruby":
                 return name.startswith("$") or name[0:1].isupper()  # $var or Constant
             elif language == "lua":
-                return bool(name) and not name.startswith("_ENV")
+                # Lua 模块通过 return table 暴露接口，变量不自动跨文件可见
+                # 只有显式全局变量（非 local）才有跨文件意义
+                # 但 tree-sitter 中 local 难以从 identifier 层面区分
+                # 暂时不做 Lua 跨文件变量链接（通过 _resolve_function 已覆盖参数传递）
+                return False
             return False
 
         # ── Step 1: file_path → file_vid 映射 ──
@@ -972,13 +976,23 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def _fuzzy_match_file(
         self, partial_path: str, file_path_map: dict[str, int],
     ) -> list[int]:
-        """模糊匹配文件路径 — 用 basename 或后缀匹配。"""
+        """模糊匹配文件路径 — 用 basename 或后缀匹配。
+
+        支持 Ruby/Lua 的 require 'module' 无扩展名模式：
+        partial_path='config' 能匹配 'config.rb'（去掉目标文件扩展名后比较）。
+        """
         import os
         basename = os.path.basename(partial_path)
         results: list[int] = []
         for fp, vid in file_path_map.items():
             if fp.endswith(basename) or fp.endswith(partial_path):
                 results.append(vid)
+            else:
+                # 无扩展名匹配（Ruby require 'utils' → utils.rb）
+                fp_base = os.path.basename(fp)
+                dot_idx = fp_base.rfind(".")
+                if dot_idx > 0 and fp_base[:dot_idx] == basename:
+                    results.append(vid)
         return results[:5]
 
     # -- 分析步骤 5：内置知识 + 函数摘要传递 ----------------------------------

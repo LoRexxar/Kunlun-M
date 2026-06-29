@@ -581,11 +581,37 @@ class Normalizer:
         if body is None:
             body = self._find_child_by_type(node, "begin")
         if body:
+            # 找到最后一个有意义的子节点（跳过 end/rescue/ensure 等）
+            last_expr = None
+            last_expr_pos = None
             for idx, child in enumerate(body.children):
                 if child.type in _SKIP_TYPES:
                     continue
-                self._walk_node(child, add_node, add_edge, ctx_stack,
+                if child.type in ("end", "rescue", "ensure", "else"):
+                    continue
+                ret = self._walk_node(child, add_node, add_edge, ctx_stack,
                                 file_path, idx)
+                if ret is not None and child.type not in ("return",):
+                    last_expr = child
+                    last_expr_pos = ret
+
+            # Ruby 隐式返回：函数体最后一个表达式（非 return）自动成为返回值
+            if last_expr is not None and last_expr.type != "return":
+                ret_pos = add_node({
+                    "label": NodeLabel.RETURN.value,
+                    "name": "return",
+                    "lineno": self._lineno(last_expr),
+                    "language": self.language,
+                    "attrs": {
+                        "type": "return",
+                        "raw_type": "implicit_return",
+                        "file_path": file_path,
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, ret_pos, depth)
+                if last_expr_pos is not None:
+                    self._ast_edge(add_edge, ret_pos, last_expr_pos,
+                                   AstRole.VALUE.value)
 
         ctx_stack.pop()
         return pos
