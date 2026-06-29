@@ -659,17 +659,10 @@ def dict_to_csv(vul_list, filename):
 
     # 去除列表中的换行符
 
-    if not os.path.exists(filename):
-        with open(filename, 'w+', encoding='utf-8', errors='ignore') as f:
-            # 防止在 Excel 中中文显示乱码
-            # f.write(BOM_UTF8)
-            csv_writer = csv.DictWriter(f, header)
-            csv_writer.writeheader()
-            csv_writer.writerows(vul_list)
-    else:
-        with open(filename, 'a', encoding='utf-8', errors='ignore') as f:
-            csv_writer = csv.DictWriter(f, header)
-            csv_writer.writerows(vul_list)
+    with open(filename, 'w', encoding='utf-8', errors='ignore') as f:
+        csv_writer = csv.DictWriter(f, header)
+        csv_writer.writeheader()
+        csv_writer.writerows(vul_list)
 
 
 def dict_to_pretty_table(vul_list):
