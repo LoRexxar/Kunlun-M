@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -25,6 +26,8 @@ from core.graph.node_edge_schema import (
 from utils.igraph_compat import _vattr
 
 __all__ = ["DataFlowBuilder"]
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +101,13 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # for DFG incoming edges on output param identifiers.
         self._analyze_builtin_and_summary(language)
         self._analyze_same_variables()
+        try:
+            self._analyze_cross_file_variables(language)
+        except Exception:
+            logger.exception(
+                "[DataFlowBuilder] _analyze_cross_file_variables failed, "
+                "skipping cross-file DFG links"
+            )
 
         # 批量写入
         self._apply_dfg_edges()
@@ -608,6 +618,254 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                 target_vid, vid, DfgType.SAME.value
                             )
                             break
+
+    # -- 分析步骤 6：跨文件变量链接 -------------------------------------------
+
+    def _analyze_cross_file_variables(self, language: str) -> None:
+        """#6: 跨文件变量链接 — 对无 DFG 入边的 identifier，沿 import 链
+        搜索被 include 文件中的同名变量，建立 cross_file DFG 边。
+
+        PHP include 语义：被 include 文件的代码在 parent 文件的作用域执行，
+        因此同名全局变量可以直接流通。本方法在单文件 DFG 全部建完后执行。
+
+        只处理文件级变量（不在函数内的），函数局部变量不跨文件流通。
+        """
+        if language != "php":
+            return  # 当前仅实现 PHP；后续语言在此扩展
+
+        import os
+
+        # ── Step 1: file_path → file_vid 映射 ──
+        file_path_to_vid: dict[str, int] = {}
+        for v in self.graph.vs:
+            if _vattr(v, "label") == NodeLabel.FILE.value:
+                # file 节点的路径在 location 属性中
+                fp = (
+                    _vattr(v, "location", "")
+                    or _vattr(v, "path", "")
+                    or _vattr(v, "file_path", "")
+                )
+                if fp:
+                    file_path_to_vid[os.path.normpath(fp)] = v.index
+
+        if not file_path_to_vid:
+            return
+
+        # ── Step 2: 按文件分组 identifier ──
+        # file_vars[file_vid][var_name]["defined"] = [vid, ...]
+        # file_vars[file_vid][var_name]["undefined"] = [vid, ...]
+        file_vars: dict[int, dict[str, dict[str, list[int]]]] = \
+            defaultdict(lambda: defaultdict(lambda: {"defined": [], "undefined": []}))
+
+        for v in self.graph.vs:
+            if _vattr(v, "label") not in (
+                NodeLabel.IDENTIFIER.value,
+                NodeLabel.PARAMETER.value,
+            ):
+                continue
+            vname = _vattr(v, "name", "")
+            if not vname or not vname.startswith("$"):
+                continue  # PHP 变量以 $ 开头
+
+            # 直接用 identifier 的 file_path 属性确定所属文件
+            # （不依赖 _get_scope_parent，因为 identifier 可能没有 own/ast 入边）
+            v_fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if not v_fp:
+                continue
+            norm_v_fp = os.path.normpath(v_fp)
+            file_vid = file_path_to_vid.get(norm_v_fp)
+            if file_vid is None:
+                continue
+
+            # 检查是否有 DFG 入边（含已累积未 flush 的）
+            has_dfg_in = bool(
+                list(self.graph.es.select(_target=v.index, label="dfg"))
+            )
+            if not has_dfg_in:
+                has_dfg_in = any(
+                    tgt == v.index for _, tgt, _ in self._dfg_edges
+                )
+
+            cat = "defined" if has_dfg_in else "undefined"
+            file_vars[file_vid][vname][cat].append(v.index)
+
+        # 保存供 _resolve_import_targets 使用（策略 2）
+        self._cross_file_vars = file_vars
+
+        # ── Step 3: 遍历 import 节点，构建 parent → targets 映射 ──
+        import_types = {"include", "require", "require_once", "include_once"}
+        parent_to_targets: dict[int, set[int]] = defaultdict(set)
+
+        for v in self.graph.vs:
+            if _vattr(v, "label") != "import":
+                continue
+            if _vattr(v, "type", "") not in import_types:
+                continue
+
+            import_vid = v.index
+            import_fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if not import_fp:
+                continue
+            norm_import_fp = os.path.normpath(import_fp)
+            parent_vid = file_path_to_vid.get(norm_import_fp)
+            if parent_vid is None:
+                continue
+
+            target_vids = self._resolve_import_targets(
+                import_vid, import_fp, file_path_to_vid
+            )
+            for tv in target_vids:
+                parent_to_targets[parent_vid].add(tv)
+
+        # ── Step 4: 链接同名变量 ──
+        processed: set[tuple[int, int]] = set()
+        cross_count = 0
+        for parent_vid, target_vids in parent_to_targets.items():
+            parent_vars = file_vars.get(parent_vid, {})
+            for target_vid in target_vids:
+                if (parent_vid, target_vid) in processed:
+                    continue
+                processed.add((parent_vid, target_vid))
+
+                target_vars = file_vars.get(target_vid, {})
+                # target 文件中 defined → parent 文件中 undefined 同名变量
+                for var_name, target_cats in target_vars.items():
+                    target_defined = target_cats.get("defined", [])
+                    parent_undefined = parent_vars.get(
+                        var_name, {}
+                    ).get("undefined", [])
+
+                    for t_vid in target_defined:
+                        for p_vid in parent_undefined:
+                            self._add_dfg_edge(
+                                t_vid, p_vid, DfgType.CROSS_FILE.value
+                            )
+                            cross_count += 1
+
+        if cross_count:
+            logger.info(
+                "[DataFlowBuilder] Cross-file links: %d edges for %d file pairs",
+                cross_count, len(processed),
+            )
+
+    def _resolve_import_targets(
+        self, import_vid: int, parent_fp: str,
+        file_path_map: dict[str, int],
+    ) -> list[int]:
+        """解析 import 节点的目标文件，返回 target file_vid 列表。
+
+        Case A — 静态路径: arg 是 operator (binary_op/concat)，trace 字符串
+                 叶子拼出路径，normpath 后精确匹配。
+        Case B — 动态路径: arg 是 identifier（如 include($file)），
+                 收集同一 parent 文件中所有 import 的已知目标作为候选。
+        """
+        import os
+
+        arg_vids = self._get_ast_children(import_vid, role="arg")
+        if not arg_vids:
+            return []
+        arg_vid = arg_vids[0]
+        arg_v = self.graph.vs[arg_vid]
+        arg_label = _vattr(arg_v, "label", "")
+        arg_type = _vattr(arg_v, "type", "")
+        parent_dir = os.path.dirname(parent_fp)
+
+        # Case A: 拼接路径（binary_op / concat）
+        if arg_label == NodeLabel.OPERATOR.value and arg_type in (
+            "binary_op", "concat",
+        ):
+            parts = self._trace_concat_strings(arg_vid)
+            if parts:
+                joined = "".join(parts)
+                resolved = os.path.normpath(os.path.join(parent_dir, joined))
+                vid = file_path_map.get(resolved)
+                if vid is not None:
+                    return [vid]
+                return self._fuzzy_match_file(joined, file_path_map)
+
+        # Case B: 动态 include（arg 是 identifier/其他）
+        # 策略 1: 收集同一 parent 文件中所有 import 的已知目标
+        import_types = {"include", "require", "require_once", "include_once"}
+        norm_parent = os.path.normpath(parent_fp)
+        candidates: set[int] = set()
+        for v in self.graph.vs:
+            if _vattr(v, "label") != "import":
+                continue
+            if _vattr(v, "type", "") not in import_types:
+                continue
+            v_fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if os.path.normpath(v_fp) != norm_parent:
+                continue
+            # 递归 resolve（边界：静态 import 返回结果，不再递归）
+            child_arg_vids = self._get_ast_children(v.index, role="arg")
+            if child_arg_vids:
+                ca = self.graph.vs[child_arg_vids[0]]
+                if (_vattr(ca, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(ca, "type", "") in ("binary_op", "concat")):
+                    resolved = self._resolve_import_targets(
+                        v.index, v_fp, file_path_map
+                    )
+                    for r in resolved:
+                        candidates.add(r)
+
+        # 策略 2: 动态 include 变量的同名候选
+        # include($file) → $file 在 target 文件中有 DFG 入边
+        # 注意：策略 1 的 fuzzy match 可能返回大量误匹配，策略 2 始终追加
+        if arg_label == NodeLabel.IDENTIFIER.value:
+            var_name = _vattr(arg_v, "name", "")
+            if var_name.startswith("$"):
+                cross_vars = getattr(self, "_cross_file_vars", {})
+                parent_vid = file_path_map.get(norm_parent)
+                for other_fvid, varmap in cross_vars.items():
+                    if parent_vid is not None and other_fvid == parent_vid:
+                        continue  # 跳过 parent 自己
+                    for vn, cats in varmap.items():
+                        if vn == var_name and cats.get("defined"):
+                            candidates.add(other_fvid)
+                            break  # 每个文件最多一个
+
+        return list(candidates)
+
+    def _trace_concat_strings(self, vid: int) -> list[str]:
+        """递归 trace ast 子节点，提取字符串叶子，返回有序列表。
+
+        用于解析 include 路径拼接，如:
+        DVWA_WEB_PAGE_TO_ROOT . 'dvwa/includes/dvwaPage.inc.php'
+        → ['dvwa/includes/dvwaPage.inc.php']  (跳过常量部分)
+
+        const type=string 的 name 带引号，需要 strip。
+        const type=constant 无法静态求值，跳过。
+        """
+        result: list[str] = []
+        for e in self.graph.es.select(_source=vid, label="ast"):
+            child_vid = e.target
+            child = self.graph.vs[child_vid]
+            child_label = _vattr(child, "label", "")
+            child_type = _vattr(child, "type", "")
+            child_name = _vattr(child, "name", "")
+
+            if child_label == "const" and child_type == "string":
+                # name 带引号，如 "'path.php'" → "path.php"
+                stripped = child_name.strip("'\"")
+                result.append(stripped)
+            elif (child_label == NodeLabel.OPERATOR.value
+                  and child_type in ("binary_op", "concat")):
+                result.extend(self._trace_concat_strings(child_vid))
+            # const type=constant / identifier type=variable 等无法静态求值，跳过
+
+        return result
+
+    def _fuzzy_match_file(
+        self, partial_path: str, file_path_map: dict[str, int],
+    ) -> list[int]:
+        """模糊匹配文件路径 — 用 basename 或后缀匹配。"""
+        import os
+        basename = os.path.basename(partial_path)
+        results: list[int] = []
+        for fp, vid in file_path_map.items():
+            if fp.endswith(basename) or fp.endswith(partial_path):
+                results.append(vid)
+        return results[:5]
 
     # -- 分析步骤 5：内置知识 + 函数摘要传递 ----------------------------------
 
