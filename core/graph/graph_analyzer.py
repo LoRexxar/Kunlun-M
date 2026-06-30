@@ -1749,7 +1749,9 @@ class GraphAnalyzer:
                 tvid = e.target
                 for ae in self.graph.es.select(_source=tvid, label="alias"):
                     resolved_name = _vattr(ae, "resolved_name", "")
-                    if resolved_name:
+                    # Sanity check: resolved_name must look like a valid
+                    # function name (no spaces, no SQL keywords, etc.)
+                    if resolved_name and " " not in resolved_name:
                         return resolved_name
         callee_names: list[tuple[str, int]] = []  # (name, target_vid)
         for e in self.graph.es.select(_source=op_vid, label="ast"):
@@ -1764,11 +1766,18 @@ class GraphAnalyzer:
         for e in self.graph.es.select(_source=op_vid, label="use"):
             for ae in self.graph.es.select(_source=e.target, label="alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
-                if resolved_name:
+                if resolved_name and " " not in resolved_name:
                     return resolved_name
         # Prefer the last identifier callee (actual method name in chains)
         for name, tvid in reversed(callee_names):
             if _vattr(self.graph.vs[tvid], "label") == "identifier":
+                vtype = _vattr(self.graph.vs[tvid], "type", "")
+                # Property-type identifiers (member access like obj.method)
+                # are method names, not variables — return directly.
+                # Only attempt variable resolution for variable-type callees
+                # (e.g., PHP $func = 'system'; $func()).
+                if vtype == "property":
+                    return name
                 resolved = self._resolve_variable_callee(tvid, name)
                 if resolved:
                     return resolved
@@ -1781,7 +1790,7 @@ class GraphAnalyzer:
             # Check alias edges on the function target
             for ae in self.graph.es.select(_source=e.target, label="alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
-                if resolved_name:
+                if resolved_name and " " not in resolved_name:
                     return resolved_name
             name = _vattr(self.graph.vs[e.target], "name")
             resolved = self._resolve_variable_callee(e.target, name)

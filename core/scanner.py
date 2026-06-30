@@ -384,6 +384,69 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         from Kunlun_M.const import VulnerabilityResult
         from utils.igraph_compat import _vattr
 
+        def _get_rule_sink_names(rule) -> list[str]:
+            """Extract cleaned sink names from a rule object.
+
+            Handles the fact that DB vul_function is stored as a *string*
+            representation of a list (e.g. "['exec', 'query']") rather than
+            an actual list.  Falls back to the rule's ``match`` field and runs
+            it through ``parse_sink_names`` to strip regex noise.
+            """
+            raw = getattr(rule, 'vul_function', None)
+            if not raw:
+                raw = getattr(rule, 'match', None)
+            if not raw:
+                return []
+            # DB stores list as string — parse it back
+            if isinstance(raw, str):
+                raw_stripped = raw.strip()
+                if raw_stripped.startswith('['):
+                    try:
+                        import ast as _ast
+                        parsed = _ast.literal_eval(raw_stripped)
+                        if isinstance(parsed, list):
+                            raw = parsed
+                        else:
+                            raw = raw_stripped
+                    except Exception:
+                        raw = raw_stripped
+                else:
+                    raw = raw_stripped
+            if isinstance(raw, list):
+                join_str = '|'.join(str(x) for x in raw if x)
+            else:
+                join_str = str(raw)
+            if not join_str:
+                return []
+            result: list[str] = []
+            for sn in parse_sink_names(join_str):
+                if sn.class_:
+                    name_str = f"{sn.class_}.{sn.method}"
+                else:
+                    name_str = sn.method
+                name_str = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
+                if name_str:
+                    result.append(name_str)
+            return result
+
+        def _get_rule_sink_names_list(rule):
+            """Return raw SinkName list from a rule (for LEGACY oldscan path)."""
+            raw = getattr(rule, 'vul_function', None)
+            if not raw:
+                return None
+            if isinstance(raw, str) and raw.strip().startswith('['):
+                try:
+                    import ast as _ast
+                    parsed = _ast.literal_eval(raw.strip())
+                    if isinstance(parsed, list) and parsed:
+                        return parse_sink_names('|'.join(str(x) for x in parsed))
+                except Exception:
+                    pass
+            if isinstance(raw, list) and raw:
+                return parse_sink_names('|'.join(str(x) for x in raw))
+            return None
+
+
         for lang, lang_rule_list in lang_rules.items():
             analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang))
 
@@ -391,22 +454,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             all_sink_names = []
             for rule in lang_rule_list:
                 try:
-                    if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list) and len(rule.vul_function) > 0:
-                        names = parse_sink_names('|'.join(rule.vul_function))
-                    elif hasattr(rule, 'match') and rule.match:
-                        names = parse_sink_names(rule.match)
-                    else:
-                        continue
-                    for sn in names:
-                        # 使用完整限定名（class_.method）以匹配 Go/Java 的 qualified function names
-                        if sn.class_:
-                            name_str = f"{sn.class_}.{sn.method}"
-                        else:
-                            name_str = sn.method
-                        # 清洗：保留字母、数字、下划线、点号
-                        name_str = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
-                        if name_str:
-                            all_sink_names.append(name_str)
+                    for name_str in _get_rule_sink_names(rule):
+                        all_sink_names.append(name_str)
                 except Exception:
                     continue
 
@@ -466,13 +515,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     sn_lower = sink_name.lower().replace("::", ".")
                     for pass_name in ("exact", "suffix"):
                         for rule in lang_rule_list:
-                            rule_sink_names = []
-                            if hasattr(rule, 'vul_function') and isinstance(rule.vul_function, list):
-                                for sn in parse_sink_names('|'.join(rule.vul_function)):
-                                    rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
-                            elif hasattr(rule, 'match') and rule.match:
-                                for sn in parse_sink_names(rule.match):
-                                    rule_sink_names.append(f"{sn.class_}.{sn.method}" if sn.class_ else sn.method)
+                            rule_sink_names = _get_rule_sink_names(rule)
                             if not rule_sink_names:
                                 continue
                             rsn = [n.lower() for n in rule_sink_names]
@@ -996,10 +1039,8 @@ class SingleRule(object):
                     from core.utils import parse_sink_names, SinkName as _SinkName
                     # 优先使用 vul_function（干净函数名列表）构建 sink_names
                     # C/Go 等语言的 match 是正则表达式，parse_sink_names 无法正确解析
-                    if (hasattr(self.sr, 'vul_function') and
-                        isinstance(self.sr.vul_function, list) and
-                        len(self.sr.vul_function) > 0):
-                        sink_names = parse_sink_names('|'.join(self.sr.vul_function))
+                    if _get_rule_sink_names_list(self.sr):
+                        sink_names = [sn.method for sn in _get_rule_sink_names_list(self.sr)]
                     else:
                         sink_names = parse_sink_names(self.sr.match)
                     if sink_names:
