@@ -515,6 +515,7 @@ class Normalizer:
                 "fullname": fullname,
                 "type": func_type,
                 "signature": signature,
+                "return_type": rt_text if return_type else "",
                 "file_path": file_path,
                 "raw_type": node_type,
                 "static": is_static,

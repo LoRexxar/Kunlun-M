@@ -1506,27 +1506,49 @@ class Normalizer:
             elif callee.type == "Super":
                 call_type = OperatorType.METHOD_CALL.value
 
-        pos = add_node({
-            "label": NodeLabel.OPERATOR.value,
-            "name": callee_text or "<call>",
-            "lineno": lineno,
-            "end_lineno": end_lineno,
-            "language": self.language,
-            "attrs": {
-                "type": call_type,
-                "raw_type": "CallExpression",
-                "optional": optional,
-            },
-        })
-
-        self._own_edge(add_edge, ctx_stack, pos, depth)
-
-        # callee
-        if callee is not None:
+        # For MemberExpression callees, _walk_member already creates the
+        # operator node.  Reuse it instead of creating a duplicate.
+        if callee is not None and hasattr(callee, "type") and callee.type == "MemberExpression":
             callee_pos = self._walk_node(callee, add_node, add_edge, ctx_stack,
                                           file_path, 0)
             if callee_pos is not None:
-                self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
+                pos = callee_pos
+            else:
+                pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": callee_text or "<call>",
+                    "lineno": lineno,
+                    "end_lineno": end_lineno,
+                    "language": self.language,
+                    "attrs": {
+                        "type": call_type,
+                        "raw_type": "CallExpression",
+                        "optional": optional,
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, pos, depth)
+        else:
+            pos = add_node({
+                "label": NodeLabel.OPERATOR.value,
+                "name": callee_text or "<call>",
+                "lineno": lineno,
+                "end_lineno": end_lineno,
+                "language": self.language,
+                "attrs": {
+                    "type": call_type,
+                    "raw_type": "CallExpression",
+                    "optional": optional,
+                },
+            })
+
+            self._own_edge(add_edge, ctx_stack, pos, depth)
+
+            # callee (non-MemberExpression)
+            if callee is not None:
+                callee_pos = self._walk_node(callee, add_node, add_edge, ctx_stack,
+                                              file_path, 0)
+                if callee_pos is not None:
+                    self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
 
         # arguments
         for idx, arg in enumerate(arguments):
@@ -1552,25 +1574,46 @@ class Normalizer:
 
         callee_text = self._expr_text(callee) if callee else ""
 
-        pos = add_node({
-            "label": NodeLabel.OPERATOR.value,
-            "name": callee_text or "<new>",
-            "lineno": lineno,
-            "end_lineno": end_lineno,
-            "language": self.language,
-            "attrs": {
-                "type": OperatorType.NEW.value,
-                "raw_type": "NewExpression",
-            },
-        })
-
-        self._own_edge(add_edge, ctx_stack, pos, depth)
-
-        if callee is not None:
+        # For MemberExpression callees, _walk_member already creates the
+        # operator node.  Reuse it instead of creating a duplicate.
+        if callee is not None and hasattr(callee, "type") and callee.type == "MemberExpression":
             callee_pos = self._walk_node(callee, add_node, add_edge, ctx_stack,
                                           file_path, 0)
             if callee_pos is not None:
-                self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
+                pos = callee_pos
+            else:
+                pos = add_node({
+                    "label": NodeLabel.OPERATOR.value,
+                    "name": callee_text or "<new>",
+                    "lineno": lineno,
+                    "end_lineno": end_lineno,
+                    "language": self.language,
+                    "attrs": {
+                        "type": OperatorType.NEW.value,
+                        "raw_type": "NewExpression",
+                    },
+                })
+                self._own_edge(add_edge, ctx_stack, pos, depth)
+        else:
+            pos = add_node({
+                "label": NodeLabel.OPERATOR.value,
+                "name": callee_text or "<new>",
+                "lineno": lineno,
+                "end_lineno": end_lineno,
+                "language": self.language,
+                "attrs": {
+                    "type": OperatorType.NEW.value,
+                    "raw_type": "NewExpression",
+                },
+            })
+
+            self._own_edge(add_edge, ctx_stack, pos, depth)
+
+            if callee is not None:
+                callee_pos = self._walk_node(callee, add_node, add_edge, ctx_stack,
+                                              file_path, 0)
+                if callee_pos is not None:
+                    self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
 
         for idx, arg in enumerate(arguments):
             arg_pos = self._walk_node(arg, add_node, add_edge, ctx_stack,

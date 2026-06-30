@@ -67,10 +67,12 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             if _vattr(e, "role") == "callee":
                 callee_targets.add(e.target)
 
-        # Build name → [vid] index for identifier lookup (receiver type)
+        # Build name → [vid] index for identifier/parameter lookup
+        # (parameters carry java_type for receiver type resolution)
         name_index: dict[str, list[int]] = {}
         for v in graph.vs:
-            if _vattr(v, "label") == NodeLabel.IDENTIFIER.value:
+            vl = _vattr(v, "label", "")
+            if vl in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value):
                 name = _vattr(v, "name", "")
                 if name:
                     name_index.setdefault(name, []).append(v.index)
@@ -232,6 +234,66 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                     else:
                         break
 
+        # Step 3 (fallback): Chain call return type inference.
+        # For ``DocumentBuilderFactory.newDocumentBuilder().parse()``,
+        # the receiver is itself a call whose return type we need.
+        return self._resolve_chain_receiver_type(graph, op_vid)
+
+    def _resolve_chain_receiver_type(self, graph: "ig.Graph",
+                                     op_vid: int) -> str | None:
+        """Resolve receiver type from a chained call's return type.
+
+        For ``DocumentBuilderFactory.newDocumentBuilder().parse()``,
+        the receiver of ``parse()`` is the return value of
+        ``newDocumentBuilder()``.  This method:
+
+        1. Finds the inner call operator from the callee chain.
+        2. Looks up the inner call's function node for ``return_type``.
+        3. Applies ``newXxx()`` → ``Xxx`` heuristic for Java factory
+           methods when no return_type is available.
+        """
+        for e in graph.es.select(_source=op_vid, label="ast"):
+            if _vattr(e, "role") != "callee":
+                continue
+            target = e.target
+            target_label = _vattr(graph.vs[target], "label", "")
+            if target_label != NodeLabel.OPERATOR.value:
+                continue
+            inner_type = _vattr(graph.vs[target], "type", "")
+            if inner_type not in _CALL_TYPES:
+                continue
+
+            inner_op_name = _vattr(graph.vs[target], "name", "")
+            inner_callee = self._extract_callee_name(
+                graph, target, inner_op_name
+            )
+            if not inner_callee:
+                continue
+
+            # Try to build inner fullname and find existing function node
+            if inner_type == OperatorType.STATIC_CALL.value and \
+                    "." in inner_op_name:
+                qualifier = inner_op_name.split(".")[0]
+                inner_fullname = f"{qualifier}.{inner_callee}"
+            else:
+                inner_fullname = inner_callee
+
+            # Check graph for function node with return_type
+            for v in graph.vs.select(label="function"):
+                if _vattr(v, "fullname") == inner_fullname:
+                    rt = _vattr(v, "return_type", "")
+                    if rt and rt != "void":
+                        return rt
+
+            # Heuristic: Java factory pattern ``newXxx()`` → ``Xxx``
+            if inner_callee.startswith("new") and len(inner_callee) > 3:
+                hint = inner_callee[3:]
+                # Verify it looks like a type name (starts with uppercase)
+                if hint[0:1].isupper():
+                    return hint
+
+            return None
+
         return None
 
     def _get_receiver_ident_names(self, graph: "ig.Graph",
@@ -327,8 +389,9 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         # Try name match (reuse existing external function node)
         for v in graph.vs.select(label="function"):
             if _vattr(v, "name") == func_name:
-                # Prefer non-external
-                if not _vattr(v, "is_external", False):
+                # Only reuse external nodes by name; non-external nodes
+                # have specific class context and must match by fullname.
+                if _vattr(v, "is_external", False):
                     return v.index
 
         # Create new external function node
