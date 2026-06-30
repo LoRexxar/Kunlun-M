@@ -1,0 +1,78 @@
+# -*- coding: utf-8 -*-
+
+"""
+    Java Unrestricted File Upload Rule (AST-enhanced)
+    ~~~~
+    :author:    KunLun-M
+    :homepage:  https://github.com/LoRexxar/Kunlun-M
+    :license:   MIT, see LICENSE for more details.
+    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved.
+"""
+
+import re
+
+from utils.api import *
+
+class CVI_6069(SingleRuleMixin):
+    """
+    rule class
+    """
+
+    def __init__(self):
+        self.svid = 6069
+        self.language = "java"
+        self.vulnerability = "Unrestricted File Upload"
+        self.description = "通过AST分析检测Part.write()/MultipartFile.write()/getSubmittedFileName()/transferTo()等文件上传sink的参数是否来自用户可控输入，追踪数据流以发现不安全文件上传漏洞。建议对上传文件名进行白名单校验、限制上传目录、检查文件内容和扩展名。"
+        self.level = 7
+
+        # 部分配置
+        self.match_mode = "function-param-regex"
+        self.match = r"write\(|getSubmittedFileName\(|transferTo\(|getOriginalFilename\("
+
+        # for regex
+        self.unmatch = [
+            r"normalize\(\)",
+            r"getCanonicalPath",
+            r"whitelist",
+            r"ALLOWED_EXTENSIONS",
+            r"allowedExtensions",
+        ]
+
+        self.vul_function = [
+            "write",
+            "getSubmittedFileName",
+            "transferTo",
+            "getOriginalFilename",
+        ]
+
+    def main(self, regex_string):
+        """
+        二次筛选：排除有路径规范化和文件名白名单检查的安全写法。
+        """
+        if not isinstance(regex_string, str):
+            regex_string = str(regex_string)
+
+        # 排除有安全校验的写法
+        safe_patterns = [
+            r"normalize\(\)",
+            r"getCanonicalPath",
+            r"whitelist",
+            r"ALLOWED_EXTENSIONS",
+            r"allowedExtensions",
+        ]
+        for safe_pat in safe_patterns:
+            if re.search(safe_pat, regex_string):
+                return False
+
+        # 确认包含文件上传相关的 sink 调用
+        upload_patterns = [
+            r"\.write\s*\(",
+            r"\.getSubmittedFileName\s*\(",
+            r"\.transferTo\s*\(",
+            r"\.getOriginalFilename\s*\(",
+        ]
+        for pat in upload_patterns:
+            if re.search(pat, regex_string):
+                return True
+
+        return None
