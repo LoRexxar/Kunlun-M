@@ -175,6 +175,8 @@ class GraphAnalyzer:
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._call_stack: list[str] = []
         self._source_registry = source_registry
+        # Lazy-built name index for fast identifier lookup
+        self._name_index: dict[str, list[int]] | None = None
 
     # --- Sink discovery ---------------------------------------------------
 
@@ -188,7 +190,22 @@ class GraphAnalyzer:
         if sink_names is None:
             sink_names = sorted(_SINK_FUNCTIONS)
         name_set = set(sink_names)
+        normalized_set = {sn.replace("::", ".") for sn in name_set}
         results: list[dict] = []
+
+        # Pre-check: does the sink set contain qualified names (with dots)?
+        # Receiver type resolution is only useful when the set has entries
+        # like "Unmarshaller.unmarshal", not bare names like "parse".
+        has_qualified_sinks = any("." in sn for sn in normalized_set)
+        # For quick pre-check in receiver type resolution: build a set of
+        # method-name suffixes from qualified sink names (e.g., "unmarshal"
+        # from "Unmarshaller.unmarshal") to skip resolution when the callee
+        # name can't possibly match any qualified entry.
+        _qualified_suffixes: set[str] = set()
+        if has_qualified_sinks:
+            for sn in normalized_set:
+                if "." in sn:
+                    _qualified_suffixes.add(sn.rsplit(".", 1)[-1])
 
         # 收集所有作为 callee 的节点 vid（MemberExpression 等），用于去重
         # JS/PHP 中 method_call 的 callee MemberExpression 也会被标记为 operator+method_call
@@ -217,7 +234,6 @@ class GraphAnalyzer:
                 callee_name = callee_name[1:]
             # Normalize: Rust uses :: but sink names use .
             normalized_callee = callee_name.replace("::", ".")
-            normalized_set = {sn.replace("::", ".") for sn in name_set}
             matched_name = None
             # Prefer operator's own qualified name (e.g. "YAML.load") over short callee name ("load")
             # when the qualified name is in the sink set. This ensures CVI-9414 ("YAML.load")
@@ -255,7 +271,11 @@ class GraphAnalyzer:
                 # DFG/field lookup to find its declared type (java_type/dtype),
                 # then build a qualified name like "Unmarshaller.unmarshal"
                 # for matching against the sink set.
-                if op_name and "." in op_name and normalized_callee:
+                # Pre-check: only attempt if sink set has qualified names AND
+                # the callee method name appears as a suffix in some entry.
+                if (has_qualified_sinks and op_name and "." in op_name
+                        and normalized_callee
+                        and normalized_callee in _qualified_suffixes):
                     receiver_type = self._resolve_receiver_type(v.index)
                     if receiver_type:
                         qualified = receiver_type + "." + normalized_callee
@@ -1444,18 +1464,16 @@ class GraphAnalyzer:
 
         # Step 2: For each receiver name, search for java_type
         for qualifier_name in receiver_names:
-            # Collect all same-name identifiers, prefer same-file
+            # Fast lookup via name index
+            all_candidates = self._lookup_identifiers(qualifier_name)
+            # Sort: same-file first
             candidates: list[int] = []
-            for v in self.graph.vs:
-                if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
-                    continue
-                if _vattr(v, "name") != qualifier_name:
-                    continue
-                vfile = _vattr(v, "file_path", "")
+            for vid in all_candidates:
+                vfile = _vattr(self.graph.vs[vid], "file_path", "")
                 if vfile == call_file:
-                    candidates.insert(0, v.index)
+                    candidates.insert(0, vid)
                 else:
-                    candidates.append(v.index)
+                    candidates.append(vid)
 
             for vid in candidates:
                 # Check this identifier itself for java_type/dtype
@@ -1527,6 +1545,22 @@ class GraphAnalyzer:
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
         return [e.source for e in self.graph.es.select(_target=vid, label="dfg")]
+
+    def _build_name_index(self) -> None:
+        """Build name→vid index for identifier nodes (lazy, called once)."""
+        if self._name_index is not None:
+            return
+        self._name_index = {}
+        for v in self.graph.vs:
+            if _vattr(v, "label") == NodeLabel.IDENTIFIER.value:
+                name = _vattr(v, "name", "")
+                if name:
+                    self._name_index.setdefault(name, []).append(v.index)
+
+    def _lookup_identifiers(self, name: str) -> list[int]:
+        """Fast lookup: return all identifier vid with given name."""
+        self._build_name_index()
+        return self._name_index.get(name, [])
 
     def _get_context(self, vid: int) -> int | None:
         """Walk up own edges to find enclosing function/file vid."""
