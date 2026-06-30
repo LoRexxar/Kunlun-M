@@ -36,7 +36,19 @@ class CVI_6007(SingleRuleMixin):
             r"setExpandEntityReferences\(false\)",
         ]
 
-        self.vul_function = ["parse", "DocumentBuilderFactory", "SAXParserFactory", "XMLInputFactory"]
+        # vul_function 使用限定名（Class.method），配合引擎 receiver type resolution
+        # 消除宽泛短名（如 "parse"）导致的误报
+        self.vul_function = [
+            "Unmarshaller.unmarshal",
+            "DocumentBuilder.parse",
+            "SAXParser.parse",
+            "XMLReader.parse",
+            "SAXBuilder.build",
+            "SAXReader.read",
+            "Digester.parse",
+            "XMLInputFactory.createXMLStreamReader",
+            "XMLInputFactory.createXMLEventReader",
+        ]
 
     def main(self, regex_string):
         """XML 解析器工厂名已足够精确，不需要额外筛选"""
