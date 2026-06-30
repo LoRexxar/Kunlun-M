@@ -16,7 +16,7 @@ from typing import Any, Optional
 import igraph as ig
 
 from core.graph.node_edge_schema import (
-    EdgeLabel, NodeLabel, OperatorType,
+    AstRole, EdgeLabel, NodeLabel, OperatorType,
 )
 from utils.igraph_compat import _vattr
 
@@ -225,14 +225,18 @@ class GraphAnalyzer:
             op_name = _vattr(v, "name", "")
             if op_name:
                 normalized_op = op_name.replace("::", ".")
+                # Only match when op_name is MORE specific than set entries
+                # (e.g., op="os.execute" matches sn="execute").
+                # Reverse endswith (sn more specific than op) is NOT auto-matched
+                # — it should go to receiver type resolution instead.
                 if "." in normalized_op and (normalized_op in normalized_set or
-                    any(normalized_op.endswith("." + sn) or sn.endswith("." + normalized_op) for sn in normalized_set)):
+                    any(normalized_op.endswith("." + sn) for sn in normalized_set)):
                     matched_name = normalized_op
                     callee_name = op_name
             if not matched_name:
                 if normalized_callee in normalized_set:
                     matched_name = normalized_callee
-                elif any(normalized_callee.endswith("." + sn) or sn.endswith("." + normalized_callee) for sn in normalized_set):
+                elif any(normalized_callee.endswith("." + sn) for sn in normalized_set):
                     matched_name = normalized_callee
                 else:
                     # Fallback: try operator's own name (e.g. "os.execute" when
@@ -242,9 +246,29 @@ class GraphAnalyzer:
                         if normalized_op in normalized_set:
                             matched_name = normalized_op
                             callee_name = op_name
-                        elif any(normalized_op.endswith("." + sn) or sn.endswith("." + normalized_op) for sn in normalized_set):
+                        elif any(normalized_op.endswith("." + sn) for sn in normalized_set):
                             matched_name = normalized_op
                             callee_name = op_name
+            if not matched_name:
+                # Receiver type resolution: for instance method calls like
+                # unmarshaller.unmarshal(), trace the receiver variable through
+                # DFG/field lookup to find its declared type (java_type/dtype),
+                # then build a qualified name like "Unmarshaller.unmarshal"
+                # for matching against the sink set.
+                if op_name and "." in op_name and normalized_callee:
+                    receiver_type = self._resolve_receiver_type(v.index)
+                    if receiver_type:
+                        qualified = receiver_type + "." + normalized_callee
+                        qualified_norm = qualified.replace("::", ".")
+                        if qualified_norm in normalized_set:
+                            matched_name = qualified_norm
+                            callee_name = qualified
+                        elif any(
+                            qualified_norm.endswith("." + sn)
+                            for sn in normalized_set
+                        ):
+                            matched_name = qualified_norm
+                            callee_name = qualified
             if not matched_name:
                 continue
             # Collect argument vids via ast[role=arg] edges
@@ -1385,6 +1409,120 @@ class GraphAnalyzer:
                     break
 
         return False, ""
+
+    def _resolve_receiver_type(self, call_vid: int) -> str | None:
+        """Resolve the declared type of a method call's receiver.
+
+        For ``unmarshaller.unmarshal()``, extracts receiver identifier
+        name from the callee chain, then looks up same-name identifiers
+        in the graph (prefer field declarations with ``java_type``/
+        ``dtype``), falling back to DFG backward tracing.
+
+        For ``this.field.method()``, follows the callee member edges to
+        find the field identifier name, then searches class fields.
+
+        Returns the type name (e.g. "Unmarshaller") or None.
+        """
+        # Step 1: Extract receiver identifier name(s) from callee chain
+        receiver_names: list[str] = self._get_receiver_ident_names(call_vid)
+        if not receiver_names:
+            # Fallback: parse op_name to extract receiver identifier.
+            # For "unmarshaller.unmarshal()" the callee is directly an
+            # identifier node (no MemberReference operator), so the receiver
+            # name is only available in the operator's name attribute.
+            op_name = _vattr(self.graph.vs[call_vid], "name", "")
+            if op_name and "." in op_name:
+                parts = op_name.rsplit(".", 1)
+                # Skip if the prefix looks like a package/qualifier keyword
+                prefix = parts[0].rsplit(".", 1)[-1]  # last segment
+                if prefix and prefix not in ("this", "self", "super", "cls"):
+                    receiver_names = [prefix]
+        if not receiver_names:
+            return None
+
+        call_file = _vattr(self.graph.vs[call_vid], "file_path", "")
+
+        # Step 2: For each receiver name, search for java_type
+        for qualifier_name in receiver_names:
+            # Collect all same-name identifiers, prefer same-file
+            candidates: list[int] = []
+            for v in self.graph.vs:
+                if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
+                    continue
+                if _vattr(v, "name") != qualifier_name:
+                    continue
+                vfile = _vattr(v, "file_path", "")
+                if vfile == call_file:
+                    candidates.insert(0, v.index)
+                else:
+                    candidates.append(v.index)
+
+            for vid in candidates:
+                # Check this identifier itself for java_type/dtype
+                dtype = _vattr(self.graph.vs[vid], "java_type", "") or \
+                        _vattr(self.graph.vs[vid], "dtype", "")
+                if dtype:
+                    return dtype
+
+                # Trace DFG backward to find the definition site
+                visited: set[int] = set()
+                current = vid
+                for _ in range(5):  # max 5 hops
+                    if current in visited:
+                        break
+                    visited.add(current)
+                    for src_vid in self._get_dfg_sources(current):
+                        sv = self.graph.vs[src_vid]
+                        dtype = _vattr(sv, "java_type", "") or \
+                                _vattr(sv, "dtype", "")
+                        if dtype:
+                            return dtype
+                        # Follow chain (multi-level assignment)
+                        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
+                            current = src_vid
+                            break
+                    else:
+                        break
+
+        return None
+
+    def _get_receiver_ident_names(self, call_vid: int) -> list[str]:
+        """Extract receiver identifier names from a method call's callee chain.
+
+        For ``this.unmarshaller.unmarshal()``, follows callee member edges
+        to find ``unmarshaller`` (skipping ``this`` and method name).
+        """
+        _CALL_TYPES = {
+            OperatorType.CALL.value, OperatorType.STATIC_CALL.value,
+            OperatorType.METHOD_CALL.value,
+        }
+        callee_vids: list[int] = []
+        for e in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(e, "role") == "callee":
+                callee_vids.append(e.target)
+
+        names: list[str] = []
+        for cvid in callee_vids:
+            cv = self.graph.vs[cvid]
+            if _vattr(cv, "label") == NodeLabel.IDENTIFIER.value:
+                continue  # This is the method name identifier
+            # Follow the receiver expression to find identifier names
+            for e2 in self.graph.es.select(_source=cvid, label="ast"):
+                role = _vattr(e2, "role", "")
+                child = self.graph.vs[e2.target]
+                child_name = _vattr(child, "name", "")
+                child_label = _vattr(child, "label", "")
+                if (role == "right" or role == AstRole.CALLEE.value) \
+                        and child_label == NodeLabel.IDENTIFIER.value \
+                        and child_name and child_name not in ("this", "self"):
+                    names.append(child_name)
+            # Recurse into nested method calls (method chains)
+            if _vattr(cv, "label") == NodeLabel.OPERATOR.value \
+                    and _vattr(cv, "type") in _CALL_TYPES:
+                sub = self._get_receiver_ident_names(cvid)
+                names.extend(sub)
+
+        return names
 
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
