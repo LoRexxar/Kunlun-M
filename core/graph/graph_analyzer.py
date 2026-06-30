@@ -253,10 +253,34 @@ class GraphAnalyzer:
                 if _vattr(e, "role") == "arg"
             ]
             # Also collect dfg sources flowing directly into the sink node
-            # (e.g., Rust macro format args: user_input → dfg → log::info)
+            # (e.g., Rust macro format args: user_input → dfg → log::info).
+            # Skip DFG sources from the callee chain (receiver object /
+            # nested calls in method chain).  The callee chain represents
+            # the call target, not data arguments — its controllability
+            # does NOT make the call dangerous.
             for de in self.graph.es.select(_target=v.index, label="dfg"):
-                if de.source not in arg_vids:
-                    arg_vids.append(de.source)
+                src = de.source
+                if src in arg_vids:
+                    continue
+                src_label = _vattr(self.graph.vs[src], "label", "")
+                # Skip operator nodes: nested calls in the method chain
+                # (e.g., getWriter() in resp.getWriter().write(x))
+                if src_label == NodeLabel.OPERATOR.value:
+                    continue
+                # Skip identifier nodes matching the receiver name
+                # extracted from the operator's qualified name prefix.
+                # E.g., for "resp.getWriter.write", receiver = "resp".
+                if _vattr(v, "type") in (
+                    OperatorType.METHOD_CALL.value,
+                    OperatorType.STATIC_CALL.value,
+                ):
+                    sink_op_name = _vattr(v, "name", "")
+                    if "." in sink_op_name:
+                        receiver_name = sink_op_name.split(".")[0]
+                        src_name = _vattr(self.graph.vs[src], "name", "")
+                        if src_name == receiver_name:
+                            continue
+                arg_vids.append(src)
             results.append({
                 "vid": v.index, "name": callee_name,
                 "lineno": _vattr(v, "lineno", 0),
