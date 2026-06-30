@@ -117,7 +117,7 @@ class Normalizer:
             edges.append(ed)
 
         file_pos = _add_node(file_node)
-        ctx_stack: list[tuple[int, str]] = [(file_pos, NodeLabel.FILE.value)]
+        ctx_stack: list[tuple[int, str, str]] = [(file_pos, NodeLabel.FILE.value, "<file>")]
 
         # CompilationUnit: imports + types
         imports = getattr(ast_nodes, "import", None) or getattr(ast_nodes, "imports", []) or []
@@ -438,7 +438,7 @@ class Normalizer:
 
         # Body (methods, fields, inner classes)
         body = getattr(node, "body", []) or []
-        ctx_stack.append((pos, NodeLabel.CLASS.value))
+        ctx_stack.append((pos, NodeLabel.CLASS.value, name))
         for idx, child in enumerate(body):
             self._walk_node(child, add_node, add_edge, ctx_stack, file_path,
                            idx)
@@ -497,13 +497,22 @@ class Normalizer:
         else:
             func_type = FunctionType.METHOD.value
 
+        # Resolve enclosing class name from ctx_stack for qualified fullname
+        # e.g. "CommentsCache.parse" instead of bare "parse"
+        enclosing_class = ""
+        for entry in reversed(ctx_stack):
+            if entry[1] == NodeLabel.CLASS.value:
+                enclosing_class = entry[2]
+                break
+        fullname = f"{enclosing_class}.{name}" if enclosing_class else name
+
         pos = add_node({
             "label": NodeLabel.FUNCTION.value,
             "name": name,
             "lineno": lineno,
             "language": self.language,
             "attrs": {
-                "fullname": name,
+                "fullname": fullname,
                 "type": func_type,
                 "signature": signature,
                 "file_path": file_path,
@@ -520,7 +529,7 @@ class Normalizer:
             self._walk_node(ann, add_node, add_edge, ctx_stack, file_path, 0)
 
         # Push context
-        ctx_stack.append((pos, NodeLabel.FUNCTION.value))
+        ctx_stack.append((pos, NodeLabel.FUNCTION.value, name))
 
         # Parameters
         for idx, param in enumerate(params):
@@ -1697,6 +1706,7 @@ class Normalizer:
                        ctx_stack, file_path, depth) -> int:
         lineno, _ = self._loc(node)
         declarators = getattr(node, "declarators", []) or []
+        decl_type = self._type_text(getattr(node, "type", None))
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
@@ -1715,15 +1725,19 @@ class Normalizer:
             decl_name = getattr(decl, "name", "")
             initializer = getattr(decl, "initializer", None)
 
+            id_attrs: dict = {
+                "type": IdentifierType.VARIABLE.value,
+                "raw_type": "VariableDeclarator",
+            }
+            if decl_type:
+                id_attrs["java_type"] = decl_type
+
             id_pos = add_node({
                 "label": NodeLabel.IDENTIFIER.value,
                 "name": decl_name,
                 "lineno": lineno,
                 "language": self.language,
-                "attrs": {
-                    "type": IdentifierType.VARIABLE.value,
-                    "raw_type": "VariableDeclarator",
-                },
+                "attrs": id_attrs,
             })
 
             # assign → identifier (LHS) — DFG builder 需要 LHS/RHS 才能串联
@@ -1746,20 +1760,25 @@ class Normalizer:
                           ctx_stack, file_path, depth) -> int:
         lineno, _ = self._loc(node)
         declarators = getattr(node, "declarators", []) or []
+        decl_type = self._type_text(getattr(node, "type", None))
 
         for decl in declarators:
             decl_name = getattr(decl, "name", "")
             initializer = getattr(decl, "initializer", None)
+
+            id_attrs: dict = {
+                "type": IdentifierType.FIELD.value,
+                "raw_type": "FieldDeclaration",
+            }
+            if decl_type:
+                id_attrs["java_type"] = decl_type
 
             id_pos = add_node({
                 "label": NodeLabel.IDENTIFIER.value,
                 "name": decl_name,
                 "lineno": lineno,
                 "language": self.language,
-                "attrs": {
-                    "type": IdentifierType.FIELD.value,
-                    "raw_type": "FieldDeclaration",
-                },
+                "attrs": id_attrs,
             })
 
             self._own_edge(add_edge, ctx_stack, id_pos, depth)
