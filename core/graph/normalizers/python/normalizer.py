@@ -1629,31 +1629,9 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        # Handle different func types
-        if isinstance(node.func, ast.Name):
-            # Simple function call → use edge to function
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": callee_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": callee_name,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({
-                "label": EdgeLabel.USE.value,
-                "source": pos,
-                "target": target_pos,
-                "attrs": {
-                    "call_type": call_type.value,
-                    "lineno": lineno,
-                },
-            })
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
-        elif isinstance(node.func, ast.Attribute):
+        if isinstance(node.func, ast.Attribute):
             # Method call: walk value, create identifier for attr, member edge
             obj_pos = self._walk_node(
                 node.func.value, add_node, add_edge, ctx_stack, file_path, 0,

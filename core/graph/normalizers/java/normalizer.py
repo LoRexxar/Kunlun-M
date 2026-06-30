@@ -1214,24 +1214,8 @@ class Normalizer:
         for sel in selectors:
             self._walk_node(sel, add_node, add_edge, ctx_stack, file_path, 0)
 
-        # use edge to function (callee target, may be external)
-        if func_name and isinstance(func_name, str):
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": func_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": func_fullname,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
-                       "attrs": {
-                           "call_type": cg_call_type.value,
-                           "lineno": lineno,
-                       }})
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
+        # It runs after DFG builder, enabling receiver type resolution.
 
         return pos
 
@@ -1322,23 +1306,7 @@ class Normalizer:
                 "attrs": {"type": "class_name"},
             })
             self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
-            # use edge to function (may be external)
-            func_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": type_text,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": type_text,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({
-                "label": EdgeLabel.USE.value,
-                "source": pos, "target": func_pos,
-                "attrs": {"call_type": CgCallType.DIRECT.value, "lineno": lineno},
-            })
+            # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
         # arguments
         for idx, arg in enumerate(arguments):

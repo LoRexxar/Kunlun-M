@@ -1345,27 +1345,7 @@ class Normalizer:
                     self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
                                    extra={"index": idx})
 
-        # use edge to function (callee target, may be external)
-        if callee_name and isinstance(callee_name, str) and callee_name != "<call>":
-            func_name = callee_name.rsplit(".", 1)[-1]
-            if "::" in func_name:
-                func_name = func_name.rsplit("::", 1)[-1]
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": func_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": callee_name,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
-                       "attrs": {
-                           "call_type": cg_call_type.value,
-                           "lineno": lineno,
-                       }})
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
         return pos
 

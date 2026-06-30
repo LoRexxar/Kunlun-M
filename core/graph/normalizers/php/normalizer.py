@@ -728,25 +728,7 @@ class Normalizer:
             add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
                        "attrs": {"index": depth}})
 
-        # use edge to function (if callee is a simple name)
-        if callee_name and isinstance(callee_name, str):
-            # Create target function node (may be external)
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": callee_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": callee_name,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
-                       "attrs": {
-                           "call_type": call_type.value,
-                           "lineno": lineno,
-                       }})
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
         # member edge: for method calls, the object is on the left
         if node_type_name in ("MethodCall", "NullsafeMethodCall"):

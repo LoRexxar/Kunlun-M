@@ -1286,33 +1286,7 @@ class Normalizer:
                                    extra={"arg_index": arg_idx})
                 arg_idx += 1
 
-        # use edge to function (callee target, may be external)
-        if callee_text and isinstance(callee_text, str) and callee_text != "<call>":
-            func_name = callee_text.rsplit(".", 1)[-1]
-            if "::" in func_name:
-                func_name = func_name.rsplit("::", 1)[-1]
-            if "static" in call_type:
-                cg_call_type = CgCallType.STATIC
-            elif call_type == OperatorType.METHOD_CALL.value:
-                cg_call_type = CgCallType.METHOD
-            else:
-                cg_call_type = CgCallType.DIRECT
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": func_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": callee_text,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
-                       "attrs": {
-                           "call_type": cg_call_type.value,
-                           "lineno": lineno,
-                       }})
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
         return pos
 

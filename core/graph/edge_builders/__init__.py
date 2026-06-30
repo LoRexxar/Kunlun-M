@@ -11,14 +11,22 @@ if TYPE_CHECKING:
     import igraph as ig
 
 from core.graph.edge_builders.dfg import DataFlowBuilder
+from core.graph.edge_builders.use import UseEdgeBuilder
 from core.graph.edge_builders.cg import CallGraphBuilder
 from core.graph.edge_builders.alias import AliasBuilder
 
-__all__ = ["run_all", "DataFlowBuilder", "CallGraphBuilder", "AliasBuilder"]
+__all__ = [
+    "run_all", "DataFlowBuilder", "UseEdgeBuilder",
+    "CallGraphBuilder", "AliasBuilder",
+]
 
 # Builder execution order
+# dfg  → use → cg → alias
+# Use needs DFG edges for receiver type resolution.
+# CG needs use edges to derive function→function call graph.
 _BUILDERS = [
     ("dfg", DataFlowBuilder),
+    ("use", UseEdgeBuilder),
     ("cg", CallGraphBuilder),
     ("alias", AliasBuilder),
 ]

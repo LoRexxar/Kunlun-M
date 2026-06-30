@@ -1380,27 +1380,7 @@ class Normalizer:
                     self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
                                    extra={"index": idx})
 
-        # use edge to function (callee target, may be external)
-        func_name = callee_name.rsplit("::", 1)[-1] if callee_name else ""
-        func_fullname = callee_name
-        cg_call_type = CgCallType.DIRECT
-        if func_name and isinstance(func_name, str) and func_name != "<call>":
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": func_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": func_fullname,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
-                       "attrs": {
-                           "call_type": cg_call_type.value,
-                           "lineno": lineno,
-                       }})
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
         return pos
 
@@ -1462,27 +1442,7 @@ class Normalizer:
                     self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
                                    extra={"index": idx})
 
-        # use edge to function (callee target, may be external)
-        if method_name and isinstance(method_name, str) and method_name != "<method>":
-            func_name = method_name.rsplit(".", 1)[-1]
-            if "::" in func_name:
-                func_name = func_name.rsplit("::", 1)[-1]
-            target_pos = add_node({
-                "label": NodeLabel.FUNCTION.value,
-                "name": func_name,
-                "lineno": 0,
-                "language": self.language,
-                "attrs": {
-                    "fullname": method_name,
-                    "type": FunctionType.FUNCTION.value,
-                    "is_external": True,
-                },
-            })
-            add_edge({"label": EdgeLabel.USE.value, "source": pos, "target": target_pos,
-                       "attrs": {
-                           "call_type": CgCallType.METHOD.value,
-                           "lineno": lineno,
-                       }})
+        # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
         return pos
 
