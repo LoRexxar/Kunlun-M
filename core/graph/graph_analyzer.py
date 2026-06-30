@@ -175,8 +175,6 @@ class GraphAnalyzer:
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._call_stack: list[str] = []
         self._source_registry = source_registry
-        # Lazy-built name index for fast identifier lookup
-        self._name_index: dict[str, list[int]] | None = None
 
     # --- Sink discovery ---------------------------------------------------
 
@@ -192,20 +190,6 @@ class GraphAnalyzer:
         name_set = set(sink_names)
         normalized_set = {sn.replace("::", ".") for sn in name_set}
         results: list[dict] = []
-
-        # Pre-check: does the sink set contain qualified names (with dots)?
-        # Receiver type resolution is only useful when the set has entries
-        # like "Unmarshaller.unmarshal", not bare names like "parse".
-        has_qualified_sinks = any("." in sn for sn in normalized_set)
-        # For quick pre-check in receiver type resolution: build a set of
-        # method-name suffixes from qualified sink names (e.g., "unmarshal"
-        # from "Unmarshaller.unmarshal") to skip resolution when the callee
-        # name can't possibly match any qualified entry.
-        _qualified_suffixes: set[str] = set()
-        if has_qualified_sinks:
-            for sn in normalized_set:
-                if "." in sn:
-                    _qualified_suffixes.add(sn.rsplit(".", 1)[-1])
 
         # 收集所有作为 callee 的节点 vid（MemberExpression 等），用于去重
         # JS/PHP 中 method_call 的 callee MemberExpression 也会被标记为 operator+method_call
@@ -235,66 +219,20 @@ class GraphAnalyzer:
             # Normalize: Rust uses :: but sink names use .
             normalized_callee = callee_name.replace("::", ".")
             matched_name = None
-            # Prefer operator's own qualified name (e.g. "YAML.load") over short callee name ("load")
-            # when the qualified name is in the sink set. This ensures CVI-9414 ("YAML.load")
-            # matches before CVI-9405 ("load").
-            op_name = _vattr(v, "name", "")
-            if op_name:
-                normalized_op = op_name.replace("::", ".")
-                # Only match when op_name is MORE specific than set entries
-                # (e.g., op="os.execute" matches sn="execute").
-                # Reverse endswith (sn more specific than op) is NOT auto-matched
-                # — it should go to receiver type resolution instead.
-                if "." in normalized_op and (normalized_op in normalized_set or
-                    any(normalized_op.endswith("." + sn) for sn in normalized_set)):
-                    matched_name = normalized_op
-                    callee_name = op_name
+
+            # Path 1: short name match (e.g. "unmarshal" in sink_set)
+            if normalized_callee in normalized_set:
+                matched_name = normalized_callee
+                callee_name = normalized_callee
+
+            # Path 2: fullname match via use edge target function node.
+            # UseEdgeBuilder resolves receiver type at graph build time,
+            # so external function fullname may be a qualified name like
+            # "Unmarshaller.unmarshal" rather than source text.
+            # Only attempt when fullname differs from short name (qualified
+            # names contain a dot), to avoid double-matching bare calls
+            # that path 1 already handles.
             if not matched_name:
-                if normalized_callee in normalized_set:
-                    matched_name = normalized_callee
-                elif any(normalized_callee.endswith("." + sn) for sn in normalized_set):
-                    matched_name = normalized_callee
-                else:
-                    # Fallback: try operator's own name (e.g. "os.execute" when
-                    # _resolve_callee_name returns only "os" from callee edge)
-                    if op_name:
-                        normalized_op = op_name.replace("::", ".")
-                        if normalized_op in normalized_set:
-                            matched_name = normalized_op
-                            callee_name = op_name
-                        elif any(normalized_op.endswith("." + sn) for sn in normalized_set):
-                            matched_name = normalized_op
-                            callee_name = op_name
-            if not matched_name:
-                # Receiver type resolution: for instance method calls like
-                # unmarshaller.unmarshal(), trace the receiver variable through
-                # DFG/field lookup to find its declared type (java_type/dtype),
-                # then build a qualified name like "Unmarshaller.unmarshal"
-                # for matching against the sink set.
-                # Pre-check: only attempt if sink set has qualified names AND
-                # the callee method name appears as a suffix in some entry.
-                if (has_qualified_sinks and op_name and "." in op_name
-                        and normalized_callee
-                        and normalized_callee in _qualified_suffixes):
-                    receiver_type = self._resolve_receiver_type(v.index)
-                    if receiver_type:
-                        qualified = receiver_type + "." + normalized_callee
-                        qualified_norm = qualified.replace("::", ".")
-                        if qualified_norm in normalized_set:
-                            matched_name = qualified_norm
-                            callee_name = qualified
-                        elif any(
-                            qualified_norm.endswith("." + sn)
-                            for sn in normalized_set
-                        ):
-                            matched_name = qualified_norm
-                            callee_name = qualified
-            if not matched_name:
-                # Fallback: check use-edge target function node's fullname.
-                # External function nodes may have fullname set to the
-                # callee text (e.g. "Runtime.getRuntime().execute") or to
-                # a real qualified name if resolved.  Declaration function
-                # nodes always have "ClassName.methodName" fullname.
                 for ue in self.graph.es.select(_source=v.index, label="use"):
                     tgt = self.graph.vs[ue.target]
                     if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
@@ -303,14 +241,14 @@ class GraphAnalyzer:
                     if not tgt_fullname:
                         continue
                     norm_fn = tgt_fullname.replace("::", ".")
+                    # Skip if fullname equals short name — path 1 already matched
+                    if norm_fn == normalized_callee:
+                        continue
                     if norm_fn in normalized_set:
                         matched_name = norm_fn
                         callee_name = tgt_fullname
                         break
-                    if any(norm_fn.endswith("." + sn) for sn in normalized_set):
-                        matched_name = norm_fn
-                        callee_name = tgt_fullname
-                        break
+
             if not matched_name:
                 continue
             # Collect argument vids via ast[role=arg] edges
@@ -1452,137 +1390,9 @@ class GraphAnalyzer:
 
         return False, ""
 
-    def _resolve_receiver_type(self, call_vid: int) -> str | None:
-        """Resolve the declared type of a method call's receiver.
-
-        For ``unmarshaller.unmarshal()``, extracts receiver identifier
-        name from the callee chain, then looks up same-name identifiers
-        in the graph (prefer field declarations with ``java_type``/
-        ``dtype``), falling back to DFG backward tracing.
-
-        For ``this.field.method()``, follows the callee member edges to
-        find the field identifier name, then searches class fields.
-
-        Returns the type name (e.g. "Unmarshaller") or None.
-        """
-        # Step 1: Extract receiver identifier name(s) from callee chain
-        receiver_names: list[str] = self._get_receiver_ident_names(call_vid)
-        if not receiver_names:
-            # Fallback: parse op_name to extract receiver identifier.
-            # For "unmarshaller.unmarshal()" the callee is directly an
-            # identifier node (no MemberReference operator), so the receiver
-            # name is only available in the operator's name attribute.
-            op_name = _vattr(self.graph.vs[call_vid], "name", "")
-            if op_name and "." in op_name:
-                parts = op_name.rsplit(".", 1)
-                # Skip if the prefix looks like a package/qualifier keyword
-                prefix = parts[0].rsplit(".", 1)[-1]  # last segment
-                if prefix and prefix not in ("this", "self", "super", "cls"):
-                    receiver_names = [prefix]
-        if not receiver_names:
-            return None
-
-        call_file = _vattr(self.graph.vs[call_vid], "file_path", "")
-
-        # Step 2: For each receiver name, search for java_type
-        for qualifier_name in receiver_names:
-            # Fast lookup via name index
-            all_candidates = self._lookup_identifiers(qualifier_name)
-            # Sort: same-file first
-            candidates: list[int] = []
-            for vid in all_candidates:
-                vfile = _vattr(self.graph.vs[vid], "file_path", "")
-                if vfile == call_file:
-                    candidates.insert(0, vid)
-                else:
-                    candidates.append(vid)
-
-            for vid in candidates:
-                # Check this identifier itself for java_type/dtype
-                dtype = _vattr(self.graph.vs[vid], "java_type", "") or \
-                        _vattr(self.graph.vs[vid], "dtype", "")
-                if dtype:
-                    return dtype
-
-                # Trace DFG backward to find the definition site
-                visited: set[int] = set()
-                current = vid
-                for _ in range(5):  # max 5 hops
-                    if current in visited:
-                        break
-                    visited.add(current)
-                    for src_vid in self._get_dfg_sources(current):
-                        sv = self.graph.vs[src_vid]
-                        dtype = _vattr(sv, "java_type", "") or \
-                                _vattr(sv, "dtype", "")
-                        if dtype:
-                            return dtype
-                        # Follow chain (multi-level assignment)
-                        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
-                            current = src_vid
-                            break
-                    else:
-                        break
-
-        return None
-
-    def _get_receiver_ident_names(self, call_vid: int) -> list[str]:
-        """Extract receiver identifier names from a method call's callee chain.
-
-        For ``this.unmarshaller.unmarshal()``, follows callee member edges
-        to find ``unmarshaller`` (skipping ``this`` and method name).
-        """
-        _CALL_TYPES = {
-            OperatorType.CALL.value, OperatorType.STATIC_CALL.value,
-            OperatorType.METHOD_CALL.value,
-        }
-        callee_vids: list[int] = []
-        for e in self.graph.es.select(_source=call_vid, label="ast"):
-            if _vattr(e, "role") == "callee":
-                callee_vids.append(e.target)
-
-        names: list[str] = []
-        for cvid in callee_vids:
-            cv = self.graph.vs[cvid]
-            if _vattr(cv, "label") == NodeLabel.IDENTIFIER.value:
-                continue  # This is the method name identifier
-            # Follow the receiver expression to find identifier names
-            for e2 in self.graph.es.select(_source=cvid, label="ast"):
-                role = _vattr(e2, "role", "")
-                child = self.graph.vs[e2.target]
-                child_name = _vattr(child, "name", "")
-                child_label = _vattr(child, "label", "")
-                if (role == "right" or role == AstRole.CALLEE.value) \
-                        and child_label == NodeLabel.IDENTIFIER.value \
-                        and child_name and child_name not in ("this", "self"):
-                    names.append(child_name)
-            # Recurse into nested method calls (method chains)
-            if _vattr(cv, "label") == NodeLabel.OPERATOR.value \
-                    and _vattr(cv, "type") in _CALL_TYPES:
-                sub = self._get_receiver_ident_names(cvid)
-                names.extend(sub)
-
-        return names
-
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
         return [e.source for e in self.graph.es.select(_target=vid, label="dfg")]
-
-    def _build_name_index(self) -> None:
-        """Build name→vid index for identifier nodes (lazy, called once)."""
-        if self._name_index is not None:
-            return
-        self._name_index = {}
-        for v in self.graph.vs:
-            if _vattr(v, "label") == NodeLabel.IDENTIFIER.value:
-                name = _vattr(v, "name", "")
-                if name:
-                    self._name_index.setdefault(name, []).append(v.index)
-
-    def _lookup_identifiers(self, name: str) -> list[int]:
-        """Fast lookup: return all identifier vid with given name."""
-        self._build_name_index()
-        return self._name_index.get(name, [])
 
     def _get_context(self, vid: int) -> int | None:
         """Walk up own edges to find enclosing function/file vid."""
