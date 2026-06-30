@@ -1,8 +1,23 @@
 # -*- coding: utf-8 -*-
 
 """
-    Java Reflected XSS Rule (AST-enhanced)
+    Java Reflected XSS Rule — PrintWriter / Servlet Response Output
     ~~~~
+    Detects user input written directly to HTTP response via
+    PrintWriter.write() / println() / print() without encoding.
+
+    Coverage:
+      - response.getWriter().write(userInput)
+      - PrintWriter out = response.getWriter(); out.write(userInput)
+      - out.println(userInput)  (PrintWriter from getWriter())
+
+    Exclusions (in main):
+      - System.out / System.err  (stdout/stderr logging)
+      - FileWriter / FileOutputStream / BufferedWriter  (file I/O)
+      - Files.write()  (NIO file operations)
+      - os.write()  (low-level file descriptor)
+      - Lines containing escape/sanitize keywords
+
     :author:    KunLun-M
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
@@ -17,25 +32,14 @@ class CVI_6002(SingleRuleMixin):
     def __init__(self):
         self.svid = 6002
         self.language = "java"
-        self.vulnerability = "Reflected XSS"
-        self.description = "直接将用户输入输出到HTTP响应中，未进行编码转义。通过AST分析追踪数据流，结合精确grep定位response输出上下文。"
+        self.vulnerability = "Reflected XSS (PrintWriter Output)"
+        self.description = "将用户输入通过PrintWriter直接写入HTTP响应，未进行编码转义。"
         self.level = 3
 
-        # 部分配置
-        self.match_mode = "function-param-regex"
-        self.match = r"print|write|println|addObject|ModelAndView"
+        self.match_mode = "function-param-controllable"
+        self.match = r"write|println|print"
 
-        # for regex
-        self.unmatch = [
-            r"encodeURL",
-            r"encodeForHTML",
-            r"escapeHtml",
-            r"ESAPI\.encoder",
-            r"StringEscapeUtils",
-            r"URLEncoder\.encode",
-        ]
-
-        self.vul_function = ["print", "write", "println"]
+        self.vul_function = ["write", "println", "print"]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):
@@ -43,11 +47,13 @@ class CVI_6002(SingleRuleMixin):
         # 排除 import 语句
         if regex_string.lstrip().startswith("import "):
             return False
-        # 排除文件操作
-        if re.search(r"Files\.write|FileOutputStream|FileWriter|System\.out|System\.err", regex_string):
+        # 排除 System.out/System.err (标准输出/错误，非HTTP响应)
+        if re.search(r"System\.out\.|System\.err\.", regex_string):
+            return False
+        # 排除文件写入操作 (变量名如 fileWriter/outputStream 也是文件操作)
+        if re.search(r"[Ff]ile[Ww]riter|FileOutputStream|BufferedWriter|Files\.write|os\.write|OutputStream", regex_string):
             return False
         # 排除经过转义的安全输出
-        if re.search(r"escapeHtml|htmlEscape|escapeHtml4|HtmlUtils|encode|sanitize", regex_string, re.I):
+        if re.search(r"escapeHtml|htmlEscape|escapeHtml4|HtmlUtils|encode|sanitize|ESAPI|StringEscapeUtils|URLEncoder", regex_string, re.I):
             return False
         return None
-
