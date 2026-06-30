@@ -290,6 +290,28 @@ class GraphAnalyzer:
                             matched_name = qualified_norm
                             callee_name = qualified
             if not matched_name:
+                # Fallback: check use-edge target function node's fullname.
+                # External function nodes may have fullname set to the
+                # callee text (e.g. "Runtime.getRuntime().execute") or to
+                # a real qualified name if resolved.  Declaration function
+                # nodes always have "ClassName.methodName" fullname.
+                for ue in self.graph.es.select(_source=v.index, label="use"):
+                    tgt = self.graph.vs[ue.target]
+                    if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                        continue
+                    tgt_fullname = _vattr(tgt, "fullname", "")
+                    if not tgt_fullname:
+                        continue
+                    norm_fn = tgt_fullname.replace("::", ".")
+                    if norm_fn in normalized_set:
+                        matched_name = norm_fn
+                        callee_name = tgt_fullname
+                        break
+                    if any(norm_fn.endswith("." + sn) for sn in normalized_set):
+                        matched_name = norm_fn
+                        callee_name = tgt_fullname
+                        break
+            if not matched_name:
                 continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
