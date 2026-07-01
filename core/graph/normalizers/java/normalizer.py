@@ -1052,6 +1052,43 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
+        # try-with-resources: 处理 resource 变量声明
+        # 每个资源如 try (Response response = client.newCall(request).execute())
+        # 需要生成图节点以便 sink 检测能找到这些调用
+        resources = getattr(node, "resources", None) or []
+        for res in resources:
+            res_name = getattr(res, "name", "")
+            res_type = self._type_text(getattr(res, "type", None))
+            res_value = getattr(res, "value", None)
+            if res_value is None:
+                continue
+            # 用 _walk_node 处理初始化表达式（生成 operator/call 节点 + ast 边）
+            val_pos = self._walk_node(res_value, add_node, add_edge,
+                                     ctx_stack, file_path, 0)
+            if val_pos is not None and res_name:
+                # 生成 resource 变量的 identifier 节点
+                id_attrs = {
+                    "type": IdentifierType.VARIABLE.value,
+                    "raw_type": "TryResource",
+                }
+                if res_type:
+                    id_attrs["java_type"] = res_type
+                id_pos = add_node({
+                    "label": NodeLabel.IDENTIFIER.value,
+                    "name": res_name,
+                    "lineno": 0,
+                    "language": self.language,
+                    "attrs": id_attrs,
+                })
+                # value → identifier 的 dfg 边（数据流）
+                add_edge({
+                    "label": EdgeLabel.DFG.value,
+                    "source": val_pos,
+                    "target": id_pos,
+                    "attrs": {"raw_type": "resource_decl"},
+                })
+
+
         # try body
         ctx_stack.append((pos, NodeLabel.BRANCH.value))
         if block is not None:
