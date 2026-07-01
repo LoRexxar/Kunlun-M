@@ -160,6 +160,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             OperatorType.CALL.value,
             OperatorType.STATIC_CALL.value,
             OperatorType.METHOD_CALL.value,
+            OperatorType.NEW.value,
         }
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.OPERATOR.value:
@@ -261,19 +262,69 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if parent_vid is None:
                 continue
 
-            # 在 parent 的 own/ast 直接子节点中查找同名 parameter/identifier
-            for eid in self.graph.incident(parent_vid, mode="out"):
-                e = self.graph.es[eid]
-                if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
-                    continue
-                child = self.graph.vs[e.target]
-                child_name = _vattr(child, "name", "") or ""
-                child_label = _vattr(child, "label", "")
-                if child_name == receiver_name and child_label in (
-                    NodeLabel.PARAMETER.value,
-                    NodeLabel.IDENTIFIER.value,
-                ):
-                    receiver_vid = e.target
+            # 沿作用域链（own/ast 父链）向上查找同名 parameter/identifier。
+            # 处理方法调用在 if/for/try body 内的场景：parent 是 branch 而非
+            # function，receiver（如 Optional）parameter 在上层 method 节点中。
+            scope_chain = [parent_vid]
+            visited_scopes = {parent_vid}
+            current_scope = parent_vid
+            while True:
+                found_parent = False
+                for eid in self.graph.incident(current_scope, mode="in"):
+                    e = self.graph.es[eid]
+                    if _vattr(e, "label") not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                        continue
+                    ancestor_vid = e.source
+                    if ancestor_vid in visited_scopes:
+                        continue
+                    ancestor_label = _vattr(
+                        self.graph.vs[ancestor_vid], "label", ""
+                    )
+                    visited_scopes.add(ancestor_vid)
+                    scope_chain.append(ancestor_vid)
+                    current_scope = ancestor_vid
+                    found_parent = True
+                    if ancestor_label in (
+                        NodeLabel.FUNCTION.value,
+                        NodeLabel.FILE.value,
+                    ):
+                        break
+                if not found_parent:
+                    break
+
+            for scope_vid in scope_chain:
+                for eid in self.graph.incident(scope_vid, mode="out"):
+                    e = self.graph.es[eid]
+                    if _vattr(e, "label") not in (
+                        EdgeLabel.OWN.value, EdgeLabel.AST.value
+                    ):
+                        continue
+                    child = self.graph.vs[e.target]
+                    child_name = _vattr(child, "name", "") or ""
+                    child_label = _vattr(child, "label", "")
+                    if child_name == receiver_name and child_label in (
+                        NodeLabel.PARAMETER.value,
+                        NodeLabel.IDENTIFIER.value,
+                    ):
+                        receiver_vid = e.target
+                        break
+                    # 搜索 assign/var 子节点的 lhs identifier
+                    # （如 var template = new Template(...) → template 在
+                    # assign 的 lhs 中而非 function 的直接子节点）
+                    if child_label == NodeLabel.OPERATOR.value and _vattr(
+                        child, "type", ""
+                    ) == OperatorType.ASSIGN.value:
+                        lhs_nodes = self._get_ast_children(
+                            e.target, role=AstRole.LHS.value
+                        )
+                        for lhs_vid in lhs_nodes:
+                            lhs_v = self.graph.vs[lhs_vid]
+                            if _vattr(lhs_v, "name", "") == receiver_name:
+                                receiver_vid = lhs_vid
+                                break
+                        if receiver_vid is not None:
+                            break
+                if receiver_vid is not None:
                     break
 
             if receiver_vid is None:

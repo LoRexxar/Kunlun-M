@@ -431,14 +431,16 @@ class Normalizer:
                     "attrs": {"type": CrgType.IMPLEMENTS.value},
                 })
 
-        # Annotations
+        # Body (methods, fields, inner classes)
+        body = getattr(node, "body", []) or []
+        ctx_stack.append((pos, NodeLabel.CLASS.value, name))
+
+        # Annotations — must be after class push so annotation own edges
+        # point to the class node (find_sinks a: prefix relies on this)
         annotations = getattr(node, "annotations", []) or []
         for ann in annotations:
             self._walk_node(ann, add_node, add_edge, ctx_stack, file_path, 0)
 
-        # Body (methods, fields, inner classes)
-        body = getattr(node, "body", []) or []
-        ctx_stack.append((pos, NodeLabel.CLASS.value, name))
         for idx, child in enumerate(body):
             self._walk_node(child, add_node, add_edge, ctx_stack, file_path,
                            idx)
@@ -524,13 +526,14 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
+        # Push context first — annotations must be after function push
+        # so annotation own edges point to the function node
+        ctx_stack.append((pos, NodeLabel.FUNCTION.value, name))
+
         # Annotations
         annotations = getattr(node, "annotations", []) or []
         for ann in annotations:
             self._walk_node(ann, add_node, add_edge, ctx_stack, file_path, 0)
-
-        # Push context
-        ctx_stack.append((pos, NodeLabel.FUNCTION.value, name))
 
         # Parameters
         for idx, param in enumerate(params):
