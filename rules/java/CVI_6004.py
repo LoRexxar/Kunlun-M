@@ -33,33 +33,21 @@ class CVI_6004(SingleRuleMixin):
         self.unmatch = [r"normalize\(\)", r"getCanonicalPath"]
 
         self.vul_function = [
-
-            "java.io.File",
-
-            "java.io.FileInputStream",
-
-            "java.io.FileOutputStream",
-
-            "java.io.FileReader",
-
-            "java.io.FileWriter",
-
+            # 构造函数: 图引擎中callee是短名(无use edge), 保持短名
+            "File",
+            "FileInputStream",
+            "FileOutputStream",
+            "FileReader",
+            "FileWriter",
+            # 静态方法: Files.xxx 是限定类名的半fullname
             "Files.readAllBytes",
-
             "Files.readAllLines",
-
             "Files.lines",
-
             "Files.write",
-
             "Files.copy",
-
             "Files.move",
-
             "RandomAccessFile",
-
             "File.delete",
-
         ]
 
     def main(self, regex_string):

@@ -33,25 +33,20 @@ class CVI_6006(SingleRuleMixin):
         self.unmatch = []
 
         self.vul_function = [
-
+            # 方法: 图引擎有use edge, 可用fullname
             "URL.openConnection",
-
             "URL.openStream",
-
             "HttpURLConnection",
-
+            # 构造函数: callee是短名(无use edge), 保持短名
+            "URL",
             "RestTemplate",
-
             "OkHttpClient",
-
             "DefaultHttpClient",
-
             "HttpClient",
-
+            # 短名fallback: 链式调用如 new URL().openStream 的callee解析为短名
+            "openStream",
             "Request.Get",
-
             "Request.Post",
-
         ]
 
     def main(self, regex_string):
