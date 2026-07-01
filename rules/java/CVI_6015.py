@@ -33,4 +33,12 @@ class CVI_6015(SingleRuleMixin):
         # Content-Disposition 不是 URL 重定向
         if re.search(r"Content-Disposition", regex_string):
             return False
+        # ModelAndView 无参构造 + 随后 setViewName("redirect:...") 模式:
+        # 单行 new ModelAndView() 不含 redirect 语义 → 无重定向风险
+        if "ModelAndView" in regex_string:
+            # 有 redirect: / RedirectView → 真正的重定向
+            if re.search(r"redirect:|RedirectView|setViewName\s*\(\s*\"redirect:", regex_string):
+                return None
+            # 无 redirect 语义的 ModelAndView 构造 → FP
+            return False
         return None

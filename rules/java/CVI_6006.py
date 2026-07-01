@@ -55,5 +55,9 @@ class CVI_6006(SingleRuleMixin):
         # 排除有白名单校验的写法
         if re.search(r"allowedHosts|ALLOWED_HOSTS|isUrlAllowed|whitelist|urlWhitelist|allowedDomains", regex_string, re.I):
             return False
+        # 排除无参构造：new RestTemplate(), new OkHttpClient() 等仅创建client对象，
+        # 不涉及用户可控URL → FP
+        if re.search(r"new\s+(RestTemplate|OkHttpClient|DefaultHttpClient|HttpClient)\s*\(\s*\)", regex_string):
+            return False
         return None
 

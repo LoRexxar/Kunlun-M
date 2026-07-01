@@ -110,6 +110,7 @@ _FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
     "Model", "ModelMap", "RedirectAttributes",
     "BindingResult", "WebDataBinder",
     "MultipartFile[]", "MultipartFile",
+    "ApplicationContext", "Environment", "WebGoatUser",
 })
 
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({

@@ -612,6 +612,31 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             idx = int(sink_lineno) - 1
                             if 0 <= idx < len(source_lines):
                                 main_input = source_lines[idx].strip()
+                            elif sink_lineno == 0 and sink_name:
+                                # lineno=0 (e.g. class_name identifier): fallback
+                                # to scanning the file for a line containing sink_name
+                                # Prefer operator patterns (new X, X.method) over declarations
+                                fallback_candidates = []
+                                for line in source_lines:
+                                    stripped = line.strip()
+                                    if (not stripped or
+                                            stripped.startswith('import ') or
+                                            stripped.startswith('package ') or
+                                            stripped.startswith('//') or stripped.startswith('*')):
+                                        continue
+                                    if sink_name in stripped:
+                                        fallback_candidates.append(stripped)
+                                # If multiple candidates, prefer lines with "new" or "."
+                                if len(fallback_candidates) > 1:
+                                    operator_lines = [l for l in fallback_candidates
+                                                      if 'new ' + sink_name in l or
+                                                      sink_name + '.' in l]
+                                    if operator_lines:
+                                        main_input = operator_lines[0]
+                                    else:
+                                        main_input = fallback_candidates[0]
+                                elif fallback_candidates:
+                                    main_input = fallback_candidates[0]
                         except Exception:
                             pass
 
@@ -633,12 +658,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # All candidate rules' main() returned False
                         continue
 
-                    # 文件路径过滤：vendor/test 目录
+                    # 文件路径过滤：vendor/test/third-party 目录
                     vuln_file_path = _vattr(graph.vs[sink['vid']], 'path', '')
                     if vuln_file_path:
                         vuln_file_norm = os.path.normpath(vuln_file_path)
                         # vendor 目录
                         if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
+                            continue
+                        # .mvn/wrapper (Maven wrapper, third-party code)
+                        if '.mvn' in vuln_file_norm:
+                            continue
+                        # jar_decompiled (decompiled JAR files, third-party)
+                        if 'jar_decompiled' in vuln_file_norm:
                             continue
                         # test 目录
                         for test_path in ['/test/', '/tests/', '/unitTests/']:
