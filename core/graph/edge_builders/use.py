@@ -67,6 +67,19 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             if _vattr(e, "role") == "callee":
                 callee_targets.add(e.target)
 
+        # Identify callee_targets that have their own args — these are
+        # intermediate call sites in method chains (e.g. Request.Get in
+        # Request.Get(url).execute().asString()).  They must NOT be skipped
+        # because they are real sink candidates with user-controlled args.
+        callee_with_args: set[int] = set()
+        for ct_vid in callee_targets:
+            has_arg = any(
+                _vattr(e, "role") == "arg"
+                for e in graph.es.select(_source=ct_vid, label="ast")
+            )
+            if has_arg:
+                callee_with_args.add(ct_vid)
+
         # Build name → [vid] index for identifier/parameter lookup
         # (parameters carry java_type for receiver type resolution)
         name_index: dict[str, list[int]] = {}
@@ -83,8 +96,9 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 continue
             if _vattr(v, "type") not in _CALL_TYPES:
                 continue
-            # Skip intermediate callee expressions
-            if v.index in callee_targets:
+            # Skip intermediate callee expressions (nested in method chains)
+            # but NOT those that have their own args — they are real call sites
+            if v.index in callee_targets and v.index not in callee_with_args:
                 continue
 
             vid = v.index

@@ -194,10 +194,20 @@ class GraphAnalyzer:
         # 收集所有作为 callee 的节点 vid（MemberExpression 等），用于去重
         # JS/PHP 中 method_call 的 callee MemberExpression 也会被标记为 operator+method_call
         # 我们只保留真正的调用点（有 ast[role=arg] 的 operator），跳过 callee 表达式
+        # 但方法链中间有自身 arg 的节点是真正的调用点，不应跳过
         callee_targets: set[int] = set()
+        callee_with_args: set[int] = set()
         for e in self.graph.es.select(label="ast"):
             if _vattr(e, "role") == "callee":
                 callee_targets.add(e.target)
+        # Identify callee_targets with their own args
+        for ct_vid in callee_targets:
+            has_arg = any(
+                _vattr(e, "role") == "arg"
+                for e in self.graph.es.select(_source=ct_vid, label="ast")
+            )
+            if has_arg:
+                callee_with_args.add(ct_vid)
 
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.OPERATOR.value:
@@ -205,7 +215,8 @@ class GraphAnalyzer:
             if _vattr(v, "type") not in _CALL_TYPES:
                 continue
             # 跳过 callee 表达式节点（如 MemberExpression），只保留真正的调用 operator
-            if v.index in callee_targets:
+            # 但方法链中间有自身 arg 的节点是真正的调用点，不应跳过
+            if v.index in callee_targets and v.index not in callee_with_args:
                 continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
