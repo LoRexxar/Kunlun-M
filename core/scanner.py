@@ -266,12 +266,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     _skip_modes = {'only-regex', 'only-keyword', 'file-path-regex-match', 'regex-return-regex', 'vustomize-match'}
     _skip_count = 0
     _fw_dep_rules = []
+    _xml_pattern_rules = []
     for _lang, _rules in lang_rules.items():
         _remaining = []
         for _rule in _rules:
             _mm = getattr(_rule, 'match_mode', '')
             if _mm == _MM_FW_DEP:
                 _fw_dep_rules.append(_rule)
+                continue
+            if _mm == 'xml-pattern':
+                _xml_pattern_rules.append(_rule)
                 continue
             if _mm in _skip_modes:
                 _skip_count += 1
@@ -284,6 +288,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         logger.info('[SCAN] Skipped %d non-sink-compatible rules', _skip_count)
     if _fw_dep_rules:
         logger.info('[SCAN] %d framework-dependency rules will be processed separately', len(_fw_dep_rules))
+    if _xml_pattern_rules:
+        logger.info('[SCAN] %d xml-pattern rules will be processed separately', len(_xml_pattern_rules))
 
     # ── Sink-based scan (requires valid graph) ──
     if graph is not None and graph.vcount() > 0:
@@ -661,6 +667,68 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         logger.debug('[CVI-%s] [FRAMEWORK] Error: %s', rule.svid, e)
         except Exception as e:
             logger.warning('[SCAN] [FRAMEWORK] Framework-dependency scan failed: %s', e)
+
+    # ── XML-pattern rules (independent of graph — MyBatis mapper ${} etc.) ──
+    if _xml_pattern_rules:
+        _xml_scan_count = 0
+        for root_dir, dirs, files in os.walk(target_directory):
+            dirs[:] = [d for d in dirs if d.lower() not in ('vendor', 'node_modules', '.git', '__pycache__', 'build', 'target', '.idea')]
+            for fn in files:
+                if not fn.endswith('.xml') and not fn.endswith('.java'):
+                    continue
+                xml_path = os.path.join(root_dir, fn)
+                try:
+                    with open(xml_path, 'r', encoding='utf-8', errors='replace') as xf:
+                        content = xf.read()
+                except Exception:
+                    continue
+                for rule in _xml_pattern_rules:
+                    if rule.status is False:
+                        continue
+                    pattern = getattr(rule, 'match', None)
+                    if not pattern:
+                        continue
+                    try:
+                        compiled = re.compile(pattern)
+                    except Exception:
+                        continue
+                    for m in compiled.finditer(content):
+                        lineno = content[:m.start()].count('\n') + 1
+                        matched_text = m.group(0)
+                        # main() 二次筛选
+                        main_input = matched_text
+                        try:
+                            source_lines = content.split('\n')
+                            if 0 < lineno <= len(source_lines):
+                                main_input = source_lines[lineno - 1].strip()
+                        except Exception:
+                            pass
+                        if hasattr(rule, 'main') and callable(rule.main):
+                            try:
+                                mr = rule.main(main_input)
+                                if mr is False:
+                                    continue
+                            except Exception:
+                                pass
+                        # vendor/test 路径过滤
+                        norm_path = os.path.normpath(xml_path)
+                        if '/vendor/' in norm_path or '/test/' in norm_path or '/tests/' in norm_path:
+                            continue
+                        vuln = VulnerabilityResult.from_match(
+                            (xml_path, lineno, matched_text),
+                            svid=rule.svid,
+                            language=rule.language,
+                            rule_name=rule.vulnerability,
+                            author=getattr(rule, 'author', 'KunLun-M')
+                        )
+                        vuln.analysis = f'XML pattern: {matched_text}'
+                        vuln.chain = [('Pattern', matched_text, xml_path, lineno, None)]
+                        find_vulnerabilities.append(vuln)
+                        _xml_scan_count += 1
+                        logger.info('[CVI-%s] [XML] Found: %s:%d - %s', rule.svid, xml_path, lineno, matched_text)
+        if _xml_scan_count:
+            logger.info('[SCAN] [XML] Found %d XML pattern matches', _xml_scan_count)
+
     # 写入数据库（复用旧逻辑）
     data = []
     data2 = []

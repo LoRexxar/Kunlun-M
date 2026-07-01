@@ -32,7 +32,12 @@ class CVI_6006(SingleRuleMixin):
         # for regex
         self.unmatch = []
 
-        self.vul_function = ["openConnection", "URL", "RestTemplate"]
+        self.vul_function = [
+            "openConnection", "URL", "RestTemplate",
+            "openStream",
+            "Request.Get", "Request.Post",
+            "OkHttpClient", "DefaultHttpClient", "HttpClient",
+        ]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):
