@@ -93,6 +93,25 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "loadstring", "dofile", "require",
 })
 
+# Java parameter annotations that indicate user-controlled input
+_USER_INPUT_PARAM_ANNOTATIONS: frozenset[str] = frozenset({
+    "RequestParam", "RequestBody", "PathVariable", "CookieValue",
+    "RequestHeader", "ModelAttribute", "CurrentUsername",
+    "AuthenticationPrincipal",  # Spring: @AuthenticationPrincipal → controllable
+})
+
+# Java parameter types that are framework-injected (not user-controlled)
+# These are resolved from Spring MVC / Servlet API arguments.
+_FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
+    "Authentication", "Principal",
+    "HttpServletRequest", "HttpServletResponse",
+    "HttpSession", "ServletContext", "ServletContextAware",
+    "Locale", "LocaleResolver", "TimeZone",
+    "Model", "ModelMap", "RedirectAttributes",
+    "BindingResult", "WebDataBinder",
+    "MultipartFile[]", "MultipartFile",
+})
+
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     # PHP
     "is_numeric", "is_int", "is_integer", "is_float", "is_double",
@@ -680,15 +699,35 @@ class GraphAnalyzer:
                 utype = _vattr(uv, "type", "")
                 new_path = path + [up_vid]
 
-                # Rule 0: function parameter (entry point) — assume controllable
+                # Rule 0: function parameter (entry point)
                 if ulabel == "parameter":
                     # If this parameter has no DFG upstream, it's an entry point
                     if not list(self._get_dfg_sources(up_vid)):
+                        # For Java/Kotlin: check if this is a framework-injected
+                        # parameter type (e.g. Authentication, HttpServletRequest).
+                        # These are NOT user-controlled and should be treated as
+                        # uncontrollable to avoid false positives.
+                        if self.language in ("java", "kotlin"):
+                            java_type = _vattr(uv, "java_type", "")
+                            if java_type in _FRAMEWORK_INJECTED_TYPES:
+                                logger.debug(
+                                    "entry parameter '%s' vid=%d (framework type '%s', uncontrollable)",
+                                    uname, up_vid, java_type,
+                                )
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"entry parameter '{uname}' (framework type: {java_type})",
+                                    chain=[{"step": "entry_param", "vid": up_vid,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0)))
                         logger.debug("entry parameter '%s' vid=%d", uname, up_vid)
                         return self._cached(cache_key, AnalysisResult(
                             code=4, reason=f"entry parameter '{uname}'",
-                            chain=[{"step": "entry_param", "vid": up_vid, "name": uname, "code": 4}],
-                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                            chain=[{"step": "entry_param", "vid": up_vid,
+                                    "name": uname, "code": 4}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 1: superglobal
                 if self._is_source_variable(uname):
@@ -1508,6 +1547,19 @@ class GraphAnalyzer:
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
         return [e.source for e in self.graph.es.select(_target=vid, label="dfg")]
+
+    def _has_user_input_annotation(self, param_vid: int) -> bool:
+        """Check if a parameter node has a user-input annotation (e.g. @RequestParam).
+
+        Looks for own edges from param to annotation nodes whose name is in
+        _USER_INPUT_PARAM_ANNOTATIONS.
+        """
+        for e in self.graph.es.select(_source=param_vid, label="own"):
+            ann = self.graph.vs[e.target]
+            ann_name = _vattr(ann, "name", "")
+            if ann_name in _USER_INPUT_PARAM_ANNOTATIONS:
+                return True
+        return False
 
     def _get_context(self, vid: int) -> int | None:
         """Walk up own edges to find enclosing function/file vid."""

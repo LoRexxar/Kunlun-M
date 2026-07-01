@@ -537,7 +537,7 @@ class Normalizer:
 
         # Parameters
         for idx, param in enumerate(params):
-            p_pos = self._walk_parameter(param, add_node, file_path)
+            p_pos = self._walk_parameter(param, add_node, add_edge, file_path)
             if p_pos is not None:
                 add_edge({
                     "label": EdgeLabel.OWN.value,
@@ -566,7 +566,8 @@ class Normalizer:
         ctx_stack.pop()
         return pos
 
-    def _walk_parameter(self, param_node, add_node, file_path) -> int | None:
+    def _walk_parameter(self, param_node, add_node, add_edge,
+                       file_path) -> int | None:
         if param_node is None:
             return None
         lineno, _ = self._loc(param_node)
@@ -576,7 +577,10 @@ class Normalizer:
         ptype = getattr(param_node, "type", None)
         type_text = self._type_text(ptype) if ptype else ""
 
-        return add_node({
+        # Collect parameter-level annotations (e.g. @RequestParam)
+        param_annotations = getattr(param_node, "annotations", []) or []
+
+        p_pos = add_node({
             "label": NodeLabel.PARAMETER.value,
             "name": name,
             "lineno": lineno,
@@ -587,6 +591,26 @@ class Normalizer:
                 "file_path": file_path,
             },
         })
+
+        # Create annotation nodes with own edges: parameter → annotation
+        for ann in param_annotations:
+            ann_name = getattr(ann, "name", "") or "<annotation>"
+            ann_lineno, _ = self._loc(ann)
+            a_pos = add_node({
+                "label": NodeLabel.ANNOTATION.value,
+                "name": ann_name,
+                "lineno": ann_lineno,
+                "language": self.language,
+                "attrs": {"raw_type": "Annotation"},
+            })
+            add_edge({
+                "label": EdgeLabel.OWN.value,
+                "source": p_pos,
+                "target": a_pos,
+                "attrs": {"scope": "param-annotation"},
+            })
+
+        return p_pos
 
     # ===================================================================
     # Type text helper
