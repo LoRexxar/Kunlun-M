@@ -1553,6 +1553,19 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
+        # Add own edge from enclosing function to return node
+        for ctx_item in reversed(ctx_stack):
+            ctx_vid = ctx_item[0]
+            ctx_label = ctx_item[1] if len(ctx_item) > 1 else ''
+            if ctx_label == NodeLabel.FUNCTION.value:
+                add_edge({
+                    "label": EdgeLabel.OWN.value,
+                    "source": ctx_vid,
+                    "target": pos,
+                    "attrs": {"index": depth, "scope": "function-return"},
+                })
+                break
+
         if expression is not None:
             expr_pos = self._walk_node(expression, add_node, add_edge,
                                         ctx_stack, file_path, 0)
