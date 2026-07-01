@@ -427,12 +427,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             result: list[str] = []
             for sn in parse_sink_names(join_str):
                 if sn.class_:
-                    name_str = f"{sn.class_}.{sn.method}"
+                    # 前缀标志 (a:, r:) 保持冒号分隔，非前缀用点分隔
+                    if sn.class_.endswith(':'):
+                        name_str = f"{sn.class_}{sn.method}"
+                    else:
+                        name_str = f"{sn.class_}.{sn.method}"
                 else:
                     name_str = sn.method
-                name_str = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
-                if name_str:
-                    result.append(name_str)
+                # 清理但保留 a: 和 r: 前缀中的冒号
+                if name_str.startswith(('a:', 'r:')):
+                    cleaned = re.sub(r'[^a-zA-Z0-9_.:]', '', name_str)
+                else:
+                    cleaned = re.sub(r'[^a-zA-Z0-9_.]', '', name_str)
+                if cleaned:
+                    result.append(cleaned)
             return result
 
         def _get_rule_sink_names_list(rule):
@@ -545,7 +553,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 chain=[], path=[sink_vid],
                             )
                         else:
-                            continue
+                            # receiver 追溯：sink 的 arg 都不可控时，
+                            # 检查 sink operator 本身是否通过 receiver 链路可控。
+                            # 场景：template.process(rootMap, sw) — 参数不可控，
+                            # 但 template 对象来自 new Template(userInput, ...).
+                            recv_result = analyzer.parameters_back(sink['vid'])
+                            if recv_result is not None and recv_result.is_controllable:
+                                found_controllable = True
+                                result = recv_result
+                                sink_vid = sink['vid']
+                            else:
+                                continue
 
                     sink_name = sink.get('name', '')
                     # Multi-rule matching per sink:
@@ -741,6 +759,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         except Exception:
                             pass
                         if hasattr(rule, 'main') and callable(rule.main):
+                            # Set scan context for rule main() to use
+                            rule._scan_filepath = xml_path
+                            rule._scan_content = content
+                            rule._scan_lineno = lineno
                             try:
                                 mr = rule.main(main_input)
                                 if mr is False:

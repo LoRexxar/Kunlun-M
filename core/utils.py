@@ -63,15 +63,32 @@ def parse_sink_names(match_string):
         if not name:
             continue
 
+        # 前缀标志: a:ClassName (注解匹配), r: (return节点匹配)
+        prefix = None
+        if name.startswith('a:'):
+            prefix = 'a'
+            name = name[2:]
+        elif name.startswith('r:'):
+            prefix = 'r'
+            name = name[2:]
+        if not name:
+            continue
+
         for sep in ['::', '.']:
             if sep in name:
                 parts = name.split(sep, 1)
                 cls = parts[0].strip()
                 method = parts[1].strip()
                 if cls and method:
-                    result.append(SinkName(class_=cls, method=method))
+                    if prefix:
+                        result.append(SinkName(class_=f'{prefix}:{cls}', method=method))
+                    else:
+                        result.append(SinkName(class_=cls, method=method))
                     break
         else:
-            result.append(SinkName(class_=None, method=name))
+            if prefix:
+                result.append(SinkName(class_=f'{prefix}:', method=name))
+            else:
+                result.append(SinkName(class_=None, method=name))
 
     return result

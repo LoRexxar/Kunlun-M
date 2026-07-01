@@ -384,6 +384,90 @@ class GraphAnalyzer:
                 "type": _vattr(v, "type", ""),
                 "arg_vids": rhs_vids,
             })
+        # 第四轮：前缀标志匹配（a: 注解, r: return 节点）
+        annotation_sinks = {sn for sn in name_set if sn.startswith('a:')}
+        return_sinks = {sn for sn in name_set if sn.startswith('r:')}
+        if annotation_sinks or return_sinks:
+            # 收集所有 annotation 节点
+            annotation_vids = {
+                v.index for v in self.graph.vs
+                if _vattr(v, 'label') == 'annotation'
+            }
+            # 预建 annotation -> class own 映射（annotation 是 target, class 是 source）
+            anno_to_class: dict[int, int] = {}
+            for anno_vid in annotation_vids:
+                for e in self.graph.es.select(_target=anno_vid, label='own'):
+                    src_label = _vattr(self.graph.vs[e.source], 'label', '')
+                    if src_label == NodeLabel.CLASS.value:
+                        anno_to_class[anno_vid] = e.source
+                        break
+            # 预建 class -> function own 映射
+            class_to_funcs: dict[int, list[int]] = {}
+            for v in self.graph.vs:
+                if _vattr(v, 'label') != NodeLabel.CLASS.value:
+                    continue
+                funcs = []
+                for e in self.graph.es.select(_source=v.index, label='own'):
+                    if _vattr(self.graph.vs[e.target], 'label') == NodeLabel.FUNCTION.value:
+                        funcs.append(e.target)
+                if funcs:
+                    class_to_funcs[v.index] = funcs
+
+            for anno_vid, class_vid in anno_to_class.items():
+                anno_name = _vattr(self.graph.vs[anno_vid], 'name', '')
+                # 匹配 a:AnnotationName
+                for asink in annotation_sinks:
+                    target_anno = asink[2:]  # strip 'a:'
+                    if anno_name == target_anno:
+                        # 找到该 class 下所有 function
+                        for func_vid in class_to_funcs.get(class_vid, []):
+                            # 找 function 的所有 return 节点（via function-return scope own edge）
+                            for fe in self.graph.es.select(_source=func_vid, label='own'):
+                                if _vattr(fe, 'scope') != 'function-return':
+                                    continue
+                                ret_vid = fe.target
+                                ret_label = _vattr(self.graph.vs[ret_vid], 'label', '')
+                                if ret_label != 'return':
+                                    continue
+                                # 取 return 的 ast[value] 子节点作为 sink arg
+                                ret_arg_vids = [
+                                    e.target for e in self.graph.es.select(_source=ret_vid, label='ast')
+                                    if _vattr(e, 'role') == 'value'
+                                ]
+                                results.append({
+                                    'vid': ret_vid,
+                                    'name': asink,
+                                    'lineno': _vattr(self.graph.vs[ret_vid], 'lineno', 0),
+                                    'file_path': _vattr(self.graph.vs[ret_vid], 'file_path', '') or _vattr(self.graph.vs[ret_vid], 'path', ''),
+                                    'type': 'annotation-return',
+                                    'arg_vids': ret_arg_vids,
+                                })
+                        break  # 每个 annotation 只匹配一次
+
+            # r: 前缀：匹配所有 function 的 return 节点
+            if return_sinks:
+                for v in self.graph.vs:
+                    if _vattr(v, 'label') != NodeLabel.RETURN.value:
+                        continue
+                    # 只处理有 function-return scope own 边的 return 节点
+                    has_func_scope = any(
+                        _vattr(e, 'scope') == 'function-return' and _vattr(self.graph.vs[e.source], 'label') == NodeLabel.FUNCTION.value
+                        for e in self.graph.es.select(_target=v.index, label='own')
+                    )
+                    if not has_func_scope:
+                        continue
+                    ret_arg_vids = [
+                        e.target for e in self.graph.es.select(_source=v.index, label='ast')
+                        if _vattr(e, 'role') == 'value'
+                    ]
+                    results.append({
+                        'vid': v.index,
+                        'name': 'r:',
+                        'lineno': _vattr(v, 'lineno', 0),
+                        'file_path': _vattr(v, 'file_path', '') or _vattr(v, 'path', ''),
+                        'type': 'return',
+                        'arg_vids': ret_arg_vids,
+                    })
         logger.debug("find_sinks found %d sink node(s)", len(results))
         return results
 
