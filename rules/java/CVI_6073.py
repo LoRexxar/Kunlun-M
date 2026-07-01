@@ -35,6 +35,7 @@ class CVI_6073(SingleRuleMixin):
         self.vul_function = [
             "evaluate",
             "merge",
+            "Template.process",
         ]
 
     def main(self, regex_string):

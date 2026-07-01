@@ -39,6 +39,9 @@ class CVI_6070(SingleRuleMixin):
             "createXMLReader",
             "parseText",
             "transform",
+            "SAXBuilder.build",
+            "SAXReader.read",
+            "DocumentBuilder.parse",
         ]
 
     def main(self, regex_string):

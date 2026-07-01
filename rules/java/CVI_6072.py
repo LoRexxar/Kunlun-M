@@ -27,7 +27,7 @@ class CVI_6072(SingleRuleMixin):
         self.level = 7
 
         # 部分配置
-        self.match_mode = "function-param-regex"
+        self.match_mode = "xml-pattern"
         self.match = r'return\s+.*["\x27]<.*>["\x27]\s*\+'
 
         # for regex

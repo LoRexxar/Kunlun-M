@@ -18,7 +18,7 @@ class CVI_6015(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r'\.sendRedirect\s*\(|redirect:|\.setHeader\s*\(\s*["\x27]Location'
         self.unmatch = [r"isValidRedirect", r"whitelist", r"allowedDomains"]
-        self.vul_function = ["sendRedirect", "setHeader"]
+        self.vul_function = ["sendRedirect", "setHeader", "ModelAndView"]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):
