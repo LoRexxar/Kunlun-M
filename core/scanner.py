@@ -501,6 +501,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     sub_label = _vattr(graph.vs[sub_vid], 'label', '')
                                     if sub_label == 'function':
                                         continue
+                                    u = None
                                     if sub_label == 'operator':
                                         r, u = _deep_trace_args(sub_vid, depth + 1, max_depth)
                                         if r is not None:
