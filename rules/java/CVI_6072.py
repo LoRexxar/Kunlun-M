@@ -28,7 +28,7 @@ class CVI_6072(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "xml-pattern"
-        self.match = r'return\s+.*["\x27]<.*>["\x27]\s*\+'
+        self.match = r'return\s+["\x27].*<[a-zA-Z]'
 
         # for regex
         self.unmatch = []
@@ -44,5 +44,7 @@ class CVI_6072(SingleRuleMixin):
             # 排除使用转义函数的安全写法
             if re.search(r'escapeHtml|htmlEscape|Encode\.forHtml|URLEncoder', regex_string):
                 return False
-            return True
-        return None
+            # 必须包含变量拼接（+ identifier），排除纯字符串常量拼接
+            if re.search(r'\+\s*\w+\s*\+', regex_string):
+                return True
+        return False
