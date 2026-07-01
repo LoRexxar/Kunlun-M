@@ -486,6 +486,39 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
                             continue
+                        # If arg is an operator (e.g. new InputSource(...)),
+                        # recursively trace sub-args for controllable data
+                        if arg_label == 'operator':
+                            def _deep_trace_args(op_vid, depth=0, max_depth=3):
+                                """Recursively trace operator sub-args for controllable data."""
+                                if depth >= max_depth:
+                                    return None, None
+                                sub_arg_vids = [
+                                    e.target for e in graph.es.select(_source=op_vid, label="ast")
+                                    if _vattr(e, "role") == "arg"
+                                ]
+                                for sub_vid in sub_arg_vids:
+                                    sub_label = _vattr(graph.vs[sub_vid], 'label', '')
+                                    if sub_label == 'function':
+                                        continue
+                                    if sub_label == 'operator':
+                                        r, u = _deep_trace_args(sub_vid, depth + 1, max_depth)
+                                        if r is not None:
+                                            return r, u
+                                    else:
+                                        sr = analyzer.parameters_back(sub_vid)
+                                        if sr is not None and sr.is_controllable:
+                                            return sr, None
+                                        if sr is not None and not sr.is_uncontrollable and u is None:
+                                            u = sr
+                                return None, None
+
+                            r, u = _deep_trace_args(arg_vid)
+                            if r is not None:
+                                found_controllable = True
+                                result = r
+                                break
+                            continue
                         r = analyzer.parameters_back(arg_vid)
                         if r is not None:
                             if r.is_controllable:
@@ -534,7 +567,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     matched_rules.append(rule)
                                     continue
                             else:
-                                # Suffix/fallback match
+                                # Suffix/fallback match — only for short-name sinks
+                                # (qualified-name sinks already matched in exact pass)
+                                if "." in sn_lower:
+                                    continue
                                 if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
                                     matched_rules.append(rule)
                                     continue

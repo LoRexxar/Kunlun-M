@@ -229,25 +229,23 @@ class GraphAnalyzer:
             # UseEdgeBuilder resolves receiver type at graph build time,
             # so external function fullname may be a qualified name like
             # "Unmarshaller.unmarshal" rather than source text.
-            # Only attempt when fullname differs from short name (qualified
-            # names contain a dot), to avoid double-matching bare calls
-            # that path 1 already handles.
-            if not matched_name:
-                for ue in self.graph.es.select(_source=v.index, label="use"):
-                    tgt = self.graph.vs[ue.target]
-                    if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
-                        continue
-                    tgt_fullname = _vattr(tgt, "fullname", "")
-                    if not tgt_fullname:
-                        continue
-                    norm_fn = tgt_fullname.replace("::", ".")
-                    # Skip if fullname equals short name — path 1 already matched
-                    if norm_fn == normalized_callee:
-                        continue
-                    if norm_fn in normalized_set:
-                        matched_name = norm_fn
-                        callee_name = tgt_fullname
-                        break
+            # Always attempt: if a qualified name matches, it is more
+            # specific than a short name from Path 1 and should win.
+            for ue in self.graph.es.select(_source=v.index, label="use"):
+                tgt = self.graph.vs[ue.target]
+                if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                    continue
+                tgt_fullname = _vattr(tgt, "fullname", "")
+                if not tgt_fullname:
+                    continue
+                norm_fn = tgt_fullname.replace("::", ".")
+                # Skip if fullname equals short name — no gain
+                if norm_fn == normalized_callee:
+                    continue
+                if norm_fn in normalized_set:
+                    matched_name = norm_fn
+                    callee_name = tgt_fullname
+                    break
 
             if not matched_name:
                 continue

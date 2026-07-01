@@ -197,17 +197,27 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
         call_file = _vattr(graph.vs[op_vid], "file_path", "")
 
+        # Determine operator's enclosing function lineno range (for scoped lookup)
+        op_scope = self._enclosing_function_lineno(graph, op_vid)
+
         # Step 2: For each receiver name, search for java_type/dtype
         for qualifier_name in receiver_names:
             candidates = name_index.get(qualifier_name, [])
-            # Sort: same-file first
-            sorted_candidates: list[int] = []
+            # Sort: same-scope first, then same-file, then others
+            same_scope: list[int] = []
+            same_file: list[int] = []
+            other_file: list[int] = []
             for vid in candidates:
-                vfile = _vattr(graph.vs[vid], "file_path", "")
-                if vfile == call_file:
-                    sorted_candidates.insert(0, vid)
+                cand_scope = self._enclosing_function_lineno(graph, vid)
+                if op_scope and cand_scope and op_scope[0] == cand_scope[0]:
+                    same_scope.append(vid)
                 else:
-                    sorted_candidates.append(vid)
+                    vfile = _vattr(graph.vs[vid], "file_path", "")
+                    if vfile == call_file:
+                        same_file.append(vid)
+                    else:
+                        other_file.append(vid)
+            sorted_candidates = same_scope + same_file + other_file
 
             for vid in sorted_candidates:
                 dtype = _vattr(graph.vs[vid], "java_type", "") or \
@@ -389,10 +399,15 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         # Try name match (reuse existing external function node)
         for v in graph.vs.select(label="function"):
             if _vattr(v, "name") == func_name:
-                # Only reuse external nodes by name; non-external nodes
-                # have specific class context and must match by fullname.
+                # Only reuse external nodes by name when the receiver type
+                # matches — prevents cross-type dedup (e.g. SAXParser.parse
+                # vs DocumentBuilder.parse).
                 if _vattr(v, "is_external", False):
-                    return v.index
+                    existing_fn = _vattr(v, "fullname", "")
+                    existing_type = existing_fn.rsplit(".", 1)[0] if "." in existing_fn else ""
+                    new_type = fullname.rsplit(".", 1)[0] if "." in fullname else ""
+                    if not existing_type or not new_type or existing_type == new_type:
+                        return v.index
 
         # Create new external function node
         new_vid = graph.add_vertex(
@@ -405,3 +420,61 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             is_external=True,
         )
         return new_vid
+
+    @staticmethod
+    def _enclosing_function(graph: "ig.Graph", vid: int) -> int | None:
+        """Find the ancestor function node of *vid* via ``own`` edges."""
+        visited: set[int] = set()
+        current = vid
+        for _ in range(10):
+            if current in visited:
+                break
+            visited.add(current)
+            for e in graph.es.select(_target=current, label="own"):
+                parent = graph.vs[e.source]
+                if _vattr(parent, "label") == NodeLabel.FUNCTION.value:
+                    return e.source
+                current = e.source
+                break
+            else:
+                break
+        return None
+
+    @staticmethod
+    def _enclosing_function_lineno(graph: "ig.Graph", vid: int) -> tuple[int, int] | None:
+        """Find the enclosing function's lineno range for *vid*.
+
+        Walks ``own`` edges from *vid* upward.  Returns ``(start, end)`` or
+        ``None``.  ``end`` is set to ``start + 200`` as a rough upper bound
+        (AST doesn't record end_lineno).
+        """
+        fn_vid = UseEdgeBuilder._enclosing_function(graph, vid)
+        if fn_vid is None:
+            # Try walking both own and ast edges (identifiers may only have
+            # ast edges to intermediate operator nodes).
+            visited: set[int] = set()
+            current = vid
+            for _ in range(15):
+                if current in visited:
+                    break
+                visited.add(current)
+                found = False
+                for e in graph.es.select(_target=current):
+                    parent = graph.vs[e.source]
+                    if _vattr(parent, "label") == NodeLabel.FUNCTION.value:
+                        fn_vid = e.source
+                        found = True
+                        break
+                if found:
+                    break
+                # Move up one level via own/ast
+                for e in graph.es.select(_target=current):
+                    if _vattr(e, "label") in ("own", "ast"):
+                        current = e.source
+                        break
+                else:
+                    break
+        if fn_vid is None:
+            return None
+        start = int(_vattr(graph.vs[fn_vid], "lineno", 0) or 0)
+        return (start, start + 200)
