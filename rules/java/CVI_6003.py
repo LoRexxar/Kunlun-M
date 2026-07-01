@@ -32,7 +32,7 @@ class CVI_6003(SingleRuleMixin):
         # for regex
         self.unmatch = []
 
-        self.vul_function = ["exec", "start", "ProcessBuilder"]
+        self.vul_function = ["Runtime.exec", "Process.start", "ProcessBuilder"]
 
     def main(self, regex_string):
         """二次筛选：确认 Runtime.exec 或 ProcessBuilder.start 调用"""

@@ -22,7 +22,7 @@ class CVI_6045(SingleRuleMixin):
 
         self.match_mode = "java-function-param-regex"
         self.match = "setAutoTypeSupport"
-        self.vul_function = ["setAutoTypeSupport"]
+        self.vul_function = ["ParserConfig.setAutoTypeSupport"]
         self.is_config_vuln = True
 
         # 危险配置参数声明：当参数值匹配这些正则时，视为漏洞（配置型漏洞）

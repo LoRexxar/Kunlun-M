@@ -39,7 +39,19 @@ class CVI_6002(SingleRuleMixin):
         self.match_mode = "function-param-controllable"
         self.match = r"write|println|print"
 
-        self.vul_function = ["write", "println", "print"]
+        self.vul_function = [
+
+            "PrintWriter.write",
+
+            "PrintWriter.println",
+
+            "PrintWriter.print",
+
+            "ServletOutputStream.write",
+
+            "ServletOutputStream.println",
+
+        ]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):

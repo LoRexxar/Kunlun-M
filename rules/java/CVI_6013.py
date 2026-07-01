@@ -18,7 +18,7 @@ class CVI_6013(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = "search"
         self.unmatch = [r"encodeForLDAP", r"escapeLDAPSearchFilter", r"LdapEncoder"]
-        self.vul_function = ["search"]
+        self.vul_function = ["DirContext.search", "LdapContext.search"]
 
     def main(self, regex_string):
         """二次筛选：只保留 DirContext/LdapContext 上下文"""

@@ -33,10 +33,25 @@ class CVI_6006(SingleRuleMixin):
         self.unmatch = []
 
         self.vul_function = [
-            "openConnection", "URL", "RestTemplate",
-            "openStream",
-            "Request.Get", "Request.Post",
-            "OkHttpClient", "DefaultHttpClient", "HttpClient",
+
+            "URL.openConnection",
+
+            "URL.openStream",
+
+            "HttpURLConnection",
+
+            "RestTemplate",
+
+            "OkHttpClient",
+
+            "DefaultHttpClient",
+
+            "HttpClient",
+
+            "Request.Get",
+
+            "Request.Post",
+
         ]
 
     def main(self, regex_string):

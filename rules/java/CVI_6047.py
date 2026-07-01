@@ -22,7 +22,7 @@ class CVI_6047(SingleRuleMixin):
 
         self.match_mode = "java-function-param-regex"
         self.match = "enableDefaultTyping"
-        self.vul_function = ["enableDefaultTyping"]
+        self.vul_function = ["ObjectMapper.enableDefaultTyping"]
         self.is_config_vuln = True
 
     def main(self, regex_string):

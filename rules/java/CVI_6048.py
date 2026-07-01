@@ -17,7 +17,7 @@ class CVI_6048(SingleRuleMixin):
         self.unmatch = []
         self.black_list = []
         # AST 搜索 sink 函数名
-        self.vul_function = ["createQuery"]
+        self.vul_function = ["EntityManager.createQuery", "Session.createQuery"]
 
     def main(self, regex_string):
         """二次筛选：确认是 createQuery 调用上下文"""

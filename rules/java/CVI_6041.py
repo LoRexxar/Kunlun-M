@@ -19,7 +19,7 @@ class CVI_6041(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = "process|evaluate"
         self.unmatch = [r"AutoEscaping", r"sandbox", r"SecurityManager"]
-        self.vul_function = ["process", "evaluate"]
+        self.vul_function = ["Template.process", "VelocityEngine.evaluate"]
 
     def main(self, regex_string):
         """二次筛选：交给 AST 分析判断"""

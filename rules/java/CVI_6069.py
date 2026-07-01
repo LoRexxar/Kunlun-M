@@ -39,10 +39,15 @@ class CVI_6069(SingleRuleMixin):
         ]
 
         self.vul_function = [
-            "write",
-            "getSubmittedFileName",
-            "transferTo",
-            "getOriginalFilename",
+
+            "Part.write",
+
+            "Part.getSubmittedFileName",
+
+            "MultipartFile.transferTo",
+
+            "MultipartFile.getOriginalFilename",
+
         ]
 
     def main(self, regex_string):

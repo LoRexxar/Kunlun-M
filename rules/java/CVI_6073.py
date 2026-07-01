@@ -33,9 +33,15 @@ class CVI_6073(SingleRuleMixin):
         self.unmatch = []
 
         self.vul_function = [
-            "evaluate",
-            "merge",
+
+            "VelocityEngine.evaluate",
+
+            "VelocityEngine.merge",
+
             "Template.process",
+
+            "FreeMarkerTemplate.process",
+
         ]
 
     def main(self, regex_string):

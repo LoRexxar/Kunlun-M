@@ -18,7 +18,7 @@ class CVI_6011(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"transferTo\s*\(|\.getOriginalFilename\(\)|MultipartFile|\.transferTo\s*\("
         self.unmatch = [r"isValidExtension", r"checkFileType", r"MimeTypeUtils"]
-        self.vul_function = ["transferTo", "getOriginalFilename", "MultipartFile.write"]
+        self.vul_function = ["MultipartFile.transferTo", "MultipartFile.getOriginalFilename", "MultipartFile.write"]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):

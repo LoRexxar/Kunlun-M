@@ -35,7 +35,7 @@ class CVI_6002_spring(SingleRuleMixin):
         self.match_mode = "function-param-controllable"
         self.match = r"addObject"
 
-        self.vul_function = ["addObject"]
+        self.vul_function = ["ModelAndView.addObject"]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):

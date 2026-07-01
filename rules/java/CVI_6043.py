@@ -18,7 +18,21 @@ class CVI_6043(SingleRuleMixin):
         self.unmatch = []
         self.black_list = []
         # AST 搜索 sink 函数名
-        self.vul_function = ["query", "queryForObject", "queryForList", "queryForMap", "queryForRowSet", "execute", "update"]
+        self.vul_function = [
+            "JdbcTemplate.query",
+            "JdbcTemplate.queryForObject",
+            "JdbcTemplate.queryForList",
+            "JdbcTemplate.queryForMap",
+            "JdbcTemplate.queryForRowSet",
+            "JdbcTemplate.execute",
+            "JdbcTemplate.update",
+            "NamedParameterJdbcTemplate.query",
+            "NamedParameterJdbcTemplate.queryForObject",
+            "NamedParameterJdbcTemplate.queryForList",
+            "NamedParameterJdbcTemplate.queryForMap",
+            "NamedParameterJdbcTemplate.execute",
+            "NamedParameterJdbcTemplate.update",
+        ]
 
     def main(self, regex_string):
         """二次筛选：确认是 JdbcTemplate 调用上下文"""

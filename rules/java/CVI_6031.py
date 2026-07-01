@@ -12,7 +12,12 @@ class CVI_6031(SingleRuleMixin):
         self.match = "executeQuery|executeUpdate"
         self.unmatch = []
         self.black_list = []
-        self.vul_function = ["executeQuery", "executeUpdate"]
+        self.vul_function = [
+            "Statement.executeQuery",
+            "Statement.executeUpdate",
+            "PreparedStatement.executeQuery",
+            "PreparedStatement.executeUpdate",
+        ]
 
     def main(self, regex_string):
         pass

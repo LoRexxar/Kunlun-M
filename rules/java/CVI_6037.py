@@ -18,7 +18,7 @@ class CVI_6037(SingleRuleMixin):
         self.match_mode = "java-function-param-regex"
         self.match = "parseObject|parse"
         self.unmatch = [r"SafeMode", r"autoTypeFilter", r"ParserConfig.getGlobalInstance\\(\\).setAutoTypeSupport"]
-        self.vul_function = ["parseObject", "parse"]
+        self.vul_function = ["JSON.parseObject", "JSON.parse", "JSON.parseArray"]
 
     def main(self, regex_string):
         """二次筛选：只保留 JSON/Fastjson 上下文"""

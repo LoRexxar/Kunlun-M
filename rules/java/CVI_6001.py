@@ -40,7 +40,21 @@ class CVI_6001(SingleRuleMixin):
             r"DefaultHttpClient",    # Apache HttpClient context
         ]
 
-        self.vul_function = ["executeQuery", "executeUpdate", "addBatch"]
+        self.vul_function = [
+
+            "Statement.executeQuery",
+
+            "Statement.executeUpdate",
+
+            "Statement.addBatch",
+
+            "PreparedStatement.executeQuery",
+
+            "PreparedStatement.executeUpdate",
+
+            "PreparedStatement.addBatch",
+
+        ]
 
     def main(self, regex_string):
         """

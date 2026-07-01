@@ -26,7 +26,7 @@ class CVI_6044(SingleRuleMixin):
             r"addPermission",
             r"allowTypes",
         ]
-        self.vul_function = ["fromXML"]
+        self.vul_function = ["XStream.fromXML"]
 
     def main(self, regex_string):
         """二次筛选：只保留 XStream 上下文"""

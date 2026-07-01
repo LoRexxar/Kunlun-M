@@ -32,6 +32,7 @@ class CVI_6036(SingleRuleMixin):
 
         # for regex
         self.unmatch = []
+        self.vul_function = ["InitialContext.lookup", "Context.lookup"]
 
     def main(self, regex_string):
         pass

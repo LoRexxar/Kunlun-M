@@ -35,13 +35,21 @@ class CVI_6070(SingleRuleMixin):
         self.unmatch = []
 
         self.vul_function = [
-            "newSAXParser",
-            "createXMLReader",
-            "parseText",
-            "transform",
+
+            "SAXParserFactory.newSAXParser",
+
+            "XMLReaderFactory.createXMLReader",
+
+            "groovy.xml.XmlSlurper.parseText",
+
             "SAXBuilder.build",
+
             "SAXReader.read",
+
             "DocumentBuilder.parse",
+
+            "TransformerFactory.newTransformer",
+
         ]
 
     def main(self, regex_string):

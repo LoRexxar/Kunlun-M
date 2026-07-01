@@ -37,7 +37,17 @@ class CVI_6071(SingleRuleMixin):
         """二次筛选：确认匹配的${}在SQL上下文中（排除#{}）"""
         if not isinstance(match_string, str):
             match_string = str(match_string)
-        # 确认是${}而非#{}（main_input已经是${}匹配结果）
-        if re.search(r'\$\{', match_string):
-            return True
-        return None
+        if not re.search(r'\$\{', match_string):
+            return None
+        # For .java files, verify ${} is in MyBatis SQL annotation context
+        filepath = getattr(self, '_scan_filepath', '')
+        if filepath.endswith('.java'):
+            content = getattr(self, '_scan_content', '')
+            lineno = getattr(self, '_scan_lineno', 0)
+            # Check current line and up to 5 lines above for SQL annotation markers
+            lines = content.split('\n') if content else []
+            start = max(0, lineno - 6)
+            context_block = '\n'.join(lines[start:lineno])
+            if not re.search(r'@Select|@Insert|@Update|@Delete', context_block, re.IGNORECASE):
+                return False
+        return True

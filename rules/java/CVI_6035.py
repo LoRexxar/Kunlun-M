@@ -32,6 +32,7 @@ class CVI_6035(SingleRuleMixin):
 
         # for regex
         self.unmatch = []
+        self.vul_function = ["ObjectInputStream.readObject"]
 
     def main(self, regex_string):
         pass

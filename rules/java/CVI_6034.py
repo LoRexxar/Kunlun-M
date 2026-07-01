@@ -32,6 +32,7 @@ class CVI_6034(SingleRuleMixin):
 
         # for regex
         self.unmatch = []
+        self.vul_function = ["URL.openConnection"]
 
     def main(self, regex_string):
         pass

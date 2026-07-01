@@ -22,7 +22,14 @@ class CVI_6046(SingleRuleMixin):
         self.match_mode = "java-function-param-regex"
         # 匹配 logger.error/info/debug/warn/trace/fatal 调用
         self.match = r'(?<!\w)(?:error|info|debug|warn|trace|fatal)\s*\('
-        self.vul_function = ["error", "info", "debug", "warn", "trace", "fatal"]
+        self.vul_function = [
+            "Logger.error",
+            "Logger.info",
+            "Logger.debug",
+            "Logger.warn",
+            "Logger.trace",
+            "Logger.fatal",
+        ]
 
     def main(self, regex_string):
         """二次筛选：排除非 logger 调用，只保留日志上下文"""

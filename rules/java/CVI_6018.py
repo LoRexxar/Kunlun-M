@@ -17,7 +17,7 @@ class CVI_6018(SingleRuleMixin):
 
         self.match_mode = "function-param-regex"
         self.match = "forName|getDeclaredMethod|getMethod"
-        self.vul_function = ["forName", "getDeclaredMethod", "getMethod"]
+        self.vul_function = ["Class.forName", "Class.getDeclaredMethod", "Class.getMethod"]
 
     def main(self, regex_string):
         """函数名足够精确，不做额外筛选"""

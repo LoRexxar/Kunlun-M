@@ -32,10 +32,35 @@ class CVI_6004(SingleRuleMixin):
         # for regex
         self.unmatch = [r"normalize\(\)", r"getCanonicalPath"]
 
-        self.vul_function = ["File", "FileInputStream", "FileOutputStream", "FileReader", "FileWriter",
-                              "Files.readAllBytes", "Files.readAllLines", "Files.lines",
-                              "Files.write", "Files.copy", "Files.move",
-                              "RandomAccessFile", "delete"]
+        self.vul_function = [
+
+            "java.io.File",
+
+            "java.io.FileInputStream",
+
+            "java.io.FileOutputStream",
+
+            "java.io.FileReader",
+
+            "java.io.FileWriter",
+
+            "Files.readAllBytes",
+
+            "Files.readAllLines",
+
+            "Files.lines",
+
+            "Files.write",
+
+            "Files.copy",
+
+            "Files.move",
+
+            "RandomAccessFile",
+
+            "File.delete",
+
+        ]
 
     def main(self, regex_string):
         """File 等构造函数已足够精确，不需要额外筛选"""

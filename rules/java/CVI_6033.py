@@ -13,6 +13,7 @@ class CVI_6033(SingleRuleMixin):
         self.match = "FileInputStream|FileOutputStream"
         self.unmatch = []
         self.black_list = []
+        self.vul_function = ["FileInputStream", "FileOutputStream"]
 
     def main(self, regex_string):
         pass

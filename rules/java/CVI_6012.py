@@ -18,7 +18,7 @@ class CVI_6012(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = "parseExpression|getValue"
         self.unmatch = [r"SimpleEvaluationContext"]
-        self.vul_function = ["parseExpression", "getValue"]
+        self.vul_function = ["ExpressionParser.parseExpression", "StandardEvaluationContext.getValue", "SpelExpression.getValue"]
 
     def main(self, regex_string):
         """函数名足够精确，不做额外筛选"""

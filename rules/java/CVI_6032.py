@@ -12,6 +12,7 @@ class CVI_6032(SingleRuleMixin):
         self.match = "exec"
         self.unmatch = []
         self.black_list = []
+        self.vul_function = ["Runtime.exec"]
 
     def main(self, regex_string):
         if not isinstance(regex_string, str):

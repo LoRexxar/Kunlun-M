@@ -28,7 +28,21 @@ class CVI_6010(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = "info|debug|warn|error|fatal"
 
-        self.vul_function = ["info", "debug", "warn", "error", "fatal"]
+        self.vul_function = [
+
+            "Logger.info",
+
+            "Logger.debug",
+
+            "Logger.warn",
+
+            "Logger.error",
+
+            "Logger.fatal",
+
+            "Logger.trace",
+
+        ]
 
     def main(self, regex_string):
         """log 方法交给 AST 分析判断上下文"""

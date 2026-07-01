@@ -34,10 +34,15 @@ class CVI_6075(SingleRuleMixin):
         self.unmatch = []
 
         self.vul_function = [
-            "setHeader",
-            "addHeader",
-            "addCookie",
-            "set",
+
+            "HttpServletResponse.setHeader",
+
+            "HttpServletResponse.addHeader",
+
+            "HttpServletResponse.addCookie",
+
+            "HttpServletResponse.setIntHeader",
+
         ]
 
     def main(self, regex_string):
