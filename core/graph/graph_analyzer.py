@@ -393,13 +393,15 @@ class GraphAnalyzer:
                 v.index for v in self.graph.vs
                 if _vattr(v, 'label') == 'annotation'
             }
-            # 预建 annotation -> class own 映射（annotation 是 target, class 是 source）
-            anno_to_class: dict[int, int] = {}
+            # 预建 annotation -> parent 映射（支持 class 和 function 两种 parent）
+            # 方法级别注解（如 @ResponseBody）挂在 function 上
+            # 类级别注解（如 @RestController）挂在 class 上
+            anno_to_parent: dict[int, tuple[str, int]] = {}  # anno_vid -> (parent_label, parent_vid)
             for anno_vid in annotation_vids:
                 for e in self.graph.es.select(_target=anno_vid, label='own'):
                     src_label = _vattr(self.graph.vs[e.source], 'label', '')
-                    if src_label == NodeLabel.CLASS.value:
-                        anno_to_class[anno_vid] = e.source
+                    if src_label in (NodeLabel.CLASS.value, NodeLabel.FUNCTION.value):
+                        anno_to_parent[anno_vid] = (src_label, e.source)
                         break
             # 预建 class -> function own 映射
             class_to_funcs: dict[int, list[int]] = {}
@@ -413,36 +415,26 @@ class GraphAnalyzer:
                 if funcs:
                     class_to_funcs[v.index] = funcs
 
-            for anno_vid, class_vid in anno_to_class.items():
+            for anno_vid, (parent_label, parent_vid) in anno_to_parent.items():
                 anno_name = _vattr(self.graph.vs[anno_vid], 'name', '')
                 # 匹配 a:AnnotationName
                 for asink in annotation_sinks:
                     target_anno = asink[2:]  # strip 'a:'
-                    if anno_name == target_anno:
-                        # 找到该 class 下所有 function
-                        for func_vid in class_to_funcs.get(class_vid, []):
-                            # 找 function 的所有 return 节点（via function-return scope own edge）
-                            for fe in self.graph.es.select(_source=func_vid, label='own'):
-                                if _vattr(fe, 'scope') != 'function-return':
-                                    continue
-                                ret_vid = fe.target
-                                ret_label = _vattr(self.graph.vs[ret_vid], 'label', '')
-                                if ret_label != 'return':
-                                    continue
-                                # 取 return 的 ast[value] 子节点作为 sink arg
-                                ret_arg_vids = [
-                                    e.target for e in self.graph.es.select(_source=ret_vid, label='ast')
-                                    if _vattr(e, 'role') == 'value'
-                                ]
-                                results.append({
-                                    'vid': ret_vid,
-                                    'name': asink,
-                                    'lineno': _vattr(self.graph.vs[ret_vid], 'lineno', 0),
-                                    'file_path': _vattr(self.graph.vs[ret_vid], 'file_path', '') or _vattr(self.graph.vs[ret_vid], 'path', ''),
-                                    'type': 'annotation-return',
-                                    'arg_vids': ret_arg_vids,
-                                })
-                        break  # 每个 annotation 只匹配一次
+                    if anno_name != target_anno:
+                        continue
+                    if parent_label == NodeLabel.FUNCTION.value:
+                        # 方法级别注解：直接处理该 function 的 return 节点
+                        func_vid = parent_vid
+                        self._collect_annotation_return_sinks(
+                            func_vid, asink, results
+                        )
+                    elif parent_label == NodeLabel.CLASS.value:
+                        # 类级别注解：遍历该 class 下所有 function
+                        for func_vid in class_to_funcs.get(parent_vid, []):
+                            self._collect_annotation_return_sinks(
+                                func_vid, asink, results
+                            )
+                    break  # 每个 annotation 只匹配一次
 
             # r: 前缀：匹配所有 function 的 return 节点
             if return_sinks:
@@ -470,6 +462,36 @@ class GraphAnalyzer:
                     })
         logger.debug("find_sinks found %d sink node(s)", len(results))
         return results
+
+    def _collect_annotation_return_sinks(self, func_vid: int, sink_name: str,
+                                          results: list[dict]) -> None:
+        """Collect return nodes of a function as annotation-driven sinks.
+
+        Walks func → own(function-return) → return → ast[value] to build
+        sink entries with the return expression as the controllable arg.
+        """
+        for fe in self.graph.es.select(_source=func_vid, label='own'):
+            if _vattr(fe, 'scope') != 'function-return':
+                continue
+            ret_vid = fe.target
+            ret_label = _vattr(self.graph.vs[ret_vid], 'label', '')
+            if ret_label != NodeLabel.RETURN.value:
+                continue
+            ret_arg_vids = [
+                e.target for e in self.graph.es.select(_source=ret_vid, label='ast')
+                if _vattr(e, 'role') == 'value'
+            ]
+            results.append({
+                'vid': ret_vid,
+                'name': sink_name,
+                'lineno': _vattr(self.graph.vs[ret_vid], 'lineno', 0),
+                'file_path': (
+                    _vattr(self.graph.vs[ret_vid], 'file_path', '')
+                    or _vattr(self.graph.vs[ret_vid], 'path', '')
+                ),
+                'type': 'annotation-return',
+                'arg_vids': ret_arg_vids,
+            })
 
     # --- Controllability backtracking (core) ------------------------------
 
