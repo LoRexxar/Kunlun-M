@@ -34,9 +34,13 @@ class CVI_6001(SingleRuleMixin):
             r"PreparedStatement",
             r"prepareStatement",
             r"@Query",
+            r"\.newCall\s*\(",      # OkHttp: client.newCall(request).execute()
+            r"HttpResponse",       # Apache HttpClient: response.execute()
+            r"CloseableHttpClient",  # Apache HttpClient context
+            r"DefaultHttpClient",    # Apache HttpClient context
         ]
 
-        self.vul_function = ["executeQuery", "executeUpdate", "execute", "addBatch"]
+        self.vul_function = ["executeQuery", "executeUpdate", "addBatch"]
 
     def main(self, regex_string):
         """
@@ -51,6 +55,10 @@ class CVI_6001(SingleRuleMixin):
             r"PreparedStatement",
             r"prepareStatement",
             r"@Query",
+            r"\.newCall\s*\(",         # OkHttp: client.newCall(request).execute()
+            r"HttpResponse\.execute",  # Apache HttpClient response
+            r"CloseableHttpClient",    # Apache HttpClient context
+            r"DefaultHttpClient",       # Apache HttpClient context
         ]
         for safe_pat in safe_patterns:
             if re.search(safe_pat, regex_string):
