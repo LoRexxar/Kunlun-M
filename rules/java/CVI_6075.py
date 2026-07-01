@@ -37,6 +37,7 @@ class CVI_6075(SingleRuleMixin):
             "setHeader",
             "addHeader",
             "addCookie",
+            "set",
         ]
 
     def main(self, regex_string):

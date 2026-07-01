@@ -32,10 +32,10 @@ class CVI_6003(SingleRuleMixin):
         # for regex
         self.unmatch = []
 
-        self.vul_function = ["exec"]
+        self.vul_function = ["exec", "start", "ProcessBuilder"]
 
     def main(self, regex_string):
-        """二次筛选：确认 Runtime.exec 调用"""
+        """二次筛选：确认 Runtime.exec 或 ProcessBuilder.start 调用"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除 Playground scenario 字符串
@@ -46,4 +46,7 @@ class CVI_6003(SingleRuleMixin):
             if not re.search(r'Thread|Executor|pool|execute', regex_string, re.I):
                 return True
             return False
+        # ProcessBuilder.start 上下文
+        if re.search(r'ProcessBuilder|processBuilder', regex_string, re.I):
+            return True
         return None

@@ -495,7 +495,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     return None, None
                                 sub_arg_vids = [
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
-                                    if _vattr(e, "role") == "arg"
+                                    if _vattr(e, "role") in ("arg", "left", "right")
                                 ]
                                 for sub_vid in sub_arg_vids:
                                     sub_label = _vattr(graph.vs[sub_vid], 'label', '')
