@@ -612,15 +612,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             idx = int(sink_lineno) - 1
                             if 0 <= idx < len(source_lines):
                                 main_input = source_lines[idx].strip()
-                                # 如果当前行不完整（缺少分号/右括号），
-                                # 向后合并更多行以获取完整表达式
-                                if main_input and ';' not in main_input and '(' in main_input:
-                                    merged = main_input
-                                    for j in range(idx + 1, min(idx + 10, len(source_lines))):
-                                        merged += ' ' + source_lines[j].strip()
-                                        if ';' in merged:
-                                            break
-                                    main_input = merged
                             elif sink_lineno == 0 and sink_name:
                                 # lineno=0 (e.g. class_name identifier): fallback
                                 # to scanning the file for a line containing sink_name
