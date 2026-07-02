@@ -688,6 +688,13 @@ class GraphAnalyzer:
         # constraint, not against the assignment's location.
         sink_branch_chain = self.get_branch_chain(start_vid)
         sink_branch_set: set[int] = set(sink_branch_chain)
+        # Fallback: if BFS exhausts but visited a parameter node,
+        # treat it as entry point (code=4).  This handles the case where
+        # _analyze_parameter_passing creates cross-file arg→param DFG
+        # edges (e.g. test file caller → source file parameter), making
+        # the parameter appear "defined" even though it's still a function
+        # boundary entry.
+        param_fallback: AnalysisResult | None = None
 
         while queue:
             cur_vid, depth, path = queue.popleft()
@@ -730,6 +737,16 @@ class GraphAnalyzer:
                                     "name": uname, "code": 4}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Parameter has DFG upstream (e.g. from cross-file caller).
+                    # Record as fallback entry point — if BFS exhausts, treat
+                    # as entry parameter since it's still a function boundary.
+                    if param_fallback is None:
+                        param_fallback = AnalysisResult(
+                            code=4, reason=f"entry parameter '{uname}'",
+                            chain=[{"step": "entry_param", "vid": up_vid,
+                                    "name": uname, "code": 4}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0))
 
                 # Rule 1: superglobal
                 if self._is_source_variable(uname):
@@ -1053,6 +1070,8 @@ class GraphAnalyzer:
                                 expr_lineno=r.expr_lineno))
 
         # Exhausted
+        if param_fallback is not None:
+            return self._cached(cache_key, param_fallback)
         return self._cached(cache_key, AnalysisResult(
             code=3,
             reason=f"Inconclusive for vid={start_vid} ('{sname}') after {max_depth} hops",
