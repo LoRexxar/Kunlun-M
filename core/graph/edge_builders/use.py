@@ -40,6 +40,7 @@ _CALL_TYPES = {
     OperatorType.CALL.value,
     OperatorType.STATIC_CALL.value,
     OperatorType.METHOD_CALL.value,
+    OperatorType.NEW.value,
 }
 
 
@@ -130,6 +131,9 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             # Build fullname
             if resolved_type:
                 fullname = f"{resolved_type}.{callee_name}"
+            elif op_type == OperatorType.NEW.value:
+                # Constructor call: fullname is the class name itself
+                fullname = callee_name
             elif op_name:
                 fullname = op_name
             else:

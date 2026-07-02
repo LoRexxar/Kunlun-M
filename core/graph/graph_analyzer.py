@@ -510,6 +510,7 @@ class GraphAnalyzer:
                     or _vattr(self.graph.vs[ret_vid], 'path', '')
                 ),
                 'type': 'annotation-return',
+                'func_vid': func_vid,
                 'arg_vids': ret_arg_vids,
             })
 
