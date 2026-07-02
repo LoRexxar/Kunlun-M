@@ -266,7 +266,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     _skip_modes = {'only-regex', 'only-keyword', 'file-path-regex-match', 'regex-return-regex', 'vustomize-match'}
     _skip_count = 0
     _fw_dep_rules = []
-    _xml_pattern_rules = []
+    _file_pattern_rules = []
     for _lang, _rules in lang_rules.items():
         _remaining = []
         for _rule in _rules:
@@ -274,8 +274,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             if _mm == _MM_FW_DEP:
                 _fw_dep_rules.append(_rule)
                 continue
-            if _mm == 'xml-pattern':
-                _xml_pattern_rules.append(_rule)
+            if _mm == 'file-pattern':
+                _file_pattern_rules.append(_rule)
                 continue
             if _mm in _skip_modes:
                 _skip_count += 1
@@ -288,8 +288,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         logger.info('[SCAN] Skipped %d non-sink-compatible rules', _skip_count)
     if _fw_dep_rules:
         logger.info('[SCAN] %d framework-dependency rules will be processed separately', len(_fw_dep_rules))
-    if _xml_pattern_rules:
-        logger.info('[SCAN] %d xml-pattern rules will be processed separately', len(_xml_pattern_rules))
+    if _file_pattern_rules:
+        logger.info('[SCAN] %d file-pattern rules will be processed separately', len(_file_pattern_rules))
 
     # ── Sink-based scan (requires valid graph) ──
     if graph is not None and graph.vcount() > 0:
@@ -754,23 +754,30 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         except Exception as e:
             logger.warning('[SCAN] [FRAMEWORK] Framework-dependency scan failed: %s', e)
 
-    # ── XML-pattern rules (independent of graph — MyBatis mapper ${} etc.) ──
-    if _xml_pattern_rules:
-        _xml_scan_count = 0
+    # ── File-pattern rules (independent of graph — file name + content match) ──
+    if _file_pattern_rules:
+        _fp_scan_count = 0
         for root_dir, dirs, files in os.walk(target_directory):
             dirs[:] = [d for d in dirs if d.lower() not in ('vendor', 'node_modules', '.git', '__pycache__', 'build', 'target', '.idea')]
             for fn in files:
-                if not fn.endswith('.xml') and not fn.endswith('.java'):
-                    continue
-                xml_path = os.path.join(root_dir, fn)
+                fp_path = os.path.join(root_dir, fn)
                 try:
-                    with open(xml_path, 'r', encoding='utf-8', errors='replace') as xf:
-                        content = xf.read()
+                    with open(fp_path, 'r', encoding='utf-8', errors='replace') as fp_file:
+                        content = fp_file.read()
                 except Exception:
                     continue
-                for rule in _xml_pattern_rules:
+                for rule in _file_pattern_rules:
                     if rule.status is False:
                         continue
+                    # File name matching (rule.file_pattern regex against filename)
+                    file_pattern = getattr(rule, 'file_pattern', None)
+                    if file_pattern:
+                        try:
+                            if not re.search(file_pattern, fn):
+                                continue
+                        except Exception:
+                            continue
+                    # Content matching
                     pattern = getattr(rule, 'match', None)
                     if not pattern:
                         continue
@@ -790,10 +797,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         except Exception:
                             pass
                         if hasattr(rule, 'main') and callable(rule.main):
-                            # Set scan context for rule main() to use
-                            rule._scan_filepath = xml_path
-                            rule._scan_content = content
-                            rule._scan_lineno = lineno
                             try:
                                 mr = rule.main(main_input)
                                 if mr is False:
@@ -801,23 +804,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             except Exception:
                                 pass
                         # vendor/test 路径过滤
-                        norm_path = os.path.normpath(xml_path)
+                        norm_path = os.path.normpath(fp_path)
                         if '/vendor/' in norm_path or '/test/' in norm_path or '/tests/' in norm_path:
                             continue
                         vuln = VulnerabilityResult.from_match(
-                            (xml_path, lineno, matched_text),
+                            (fp_path, lineno, matched_text),
                             svid=rule.svid,
                             language=rule.language,
                             rule_name=rule.vulnerability,
                             author=getattr(rule, 'author', 'KunLun-M')
                         )
-                        vuln.analysis = f'XML pattern: {matched_text}'
-                        vuln.chain = [('Pattern', matched_text, xml_path, lineno, None)]
+                        vuln.analysis = f'File pattern: {matched_text}'
+                        vuln.chain = [('Pattern', matched_text, fp_path, lineno, None)]
                         find_vulnerabilities.append(vuln)
-                        _xml_scan_count += 1
-                        logger.info('[CVI-%s] [XML] Found: %s:%d - %s', rule.svid, xml_path, lineno, matched_text)
-        if _xml_scan_count:
-            logger.info('[SCAN] [XML] Found %d XML pattern matches', _xml_scan_count)
+                        _fp_scan_count += 1
+                        logger.info('[CVI-%s] [FILE-PATTERN] Found: %s:%d - %s', rule.svid, fp_path, lineno, matched_text)
+        if _fp_scan_count:
+            logger.info('[SCAN] [FILE-PATTERN] Found %d file pattern matches', _fp_scan_count)
 
     # 写入数据库（复用旧逻辑）
     data = []
