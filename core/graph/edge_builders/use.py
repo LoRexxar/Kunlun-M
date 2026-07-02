@@ -236,7 +236,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             for vid in sorted_candidates:
                 dtype = _vattr(graph.vs[vid], "java_type", "") or \
                         _vattr(graph.vs[vid], "dtype", "")
-                if dtype:
+                if dtype and dtype != "var":
                     return dtype
 
                 # Trace DFG backward to find definition site

@@ -529,6 +529,8 @@ class Normalizer:
         # Push context first — annotations must be after function push
         # so annotation own edges point to the function node
         ctx_stack.append((pos, NodeLabel.FUNCTION.value, name))
+        # Reset per-function local variable type tracking (for var inference)
+        self._local_var_types: dict[str, str] = {}
 
         # Annotations
         annotations = getattr(node, "annotations", []) or []
@@ -1748,6 +1750,48 @@ class Normalizer:
     # Variable declarations
     # ===================================================================
 
+    def _infer_var_type_from_init(self, initializer) -> str:
+        """Infer actual type for a Java 10+ ``var`` declaration from its
+        initializer expression.
+
+        Handles:
+        - ``var x = SomeClass.staticMethod()`` → ``SomeClass``
+        - ``var x = new SomeClass()`` → ``SomeClass``
+        - ``var x = (SomeType) expr`` → ``SomeType``
+        - ``var x = y.method()`` where *y* is a previously inferred ``var``
+          → look up *y*'s resolved type from ``self._local_var_types``
+        """
+        init_type = type(initializer).__name__
+
+        if init_type == "MethodInvocation":
+            qualifier = getattr(initializer, "qualifier", None)
+            # Case 1: Static/qualified call — qualifier is a class name
+            if isinstance(qualifier, str) and qualifier and qualifier[0:1].isupper():
+                return qualifier
+            # Case 2: Instance call — qualifier is a local var (possibly another var)
+            if isinstance(qualifier, str) and qualifier:
+                resolved = getattr(self, "_local_var_types", {}).get(qualifier, "")
+                if resolved:
+                    return resolved
+
+        elif init_type == "ClassCreator":
+            tname = self._type_text(getattr(initializer, "type", None))
+            if tname and tname[0:1].isupper():
+                return tname
+
+        elif init_type == "CastExpression":
+            tname = self._type_text(getattr(initializer, "type", None))
+            if tname:
+                return tname
+
+        elif init_type == "Assignment":
+            # var x = y; (rare but possible)
+            rhs = getattr(initializer, "expression", None)
+            if rhs is not None:
+                return self._infer_var_type_from_init(rhs)
+
+        return ""
+
     def _walk_var_decl(self, node, add_node, add_edge,
                        ctx_stack, file_path, depth) -> int:
         lineno, _ = self._loc(node)
@@ -1775,8 +1819,14 @@ class Normalizer:
                 "type": IdentifierType.VARIABLE.value,
                 "raw_type": "VariableDeclarator",
             }
-            if decl_type:
-                id_attrs["java_type"] = decl_type
+            effective_type = decl_type
+            if decl_type == "var" and initializer is not None:
+                inferred = self._infer_var_type_from_init(initializer)
+                if inferred:
+                    effective_type = inferred
+                    self._local_var_types[decl_name] = inferred
+            if effective_type:
+                id_attrs["java_type"] = effective_type
 
             id_pos = add_node({
                 "label": NodeLabel.IDENTIFIER.value,
