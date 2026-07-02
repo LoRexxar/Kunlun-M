@@ -241,6 +241,16 @@ class GraphAnalyzer:
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
                 callee_name = _vattr(v, "callee", "")
+            # Fallback: use operator's full name (e.g. "document.write")
+            # when _resolve_callee_name only returned the short method name.
+            # The operator name attribute contains the complete dotted expression
+            # from the source (set by normalizer), which is the correct match
+            # target for qualified sink names like "document.write".
+            op_name = _vattr(v, "name", "")
+            if (op_name and callee_name and
+                    op_name.endswith(callee_name) and op_name != callee_name and
+                    "." in op_name):
+                callee_name = op_name
             if not callee_name:
                 continue
             if not isinstance(callee_name, str):
