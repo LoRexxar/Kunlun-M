@@ -12,7 +12,7 @@ class CVI_6043(SingleRuleMixin):
         self.vulnerability = "JdbcTemplate SQL Injection"
         self.description = "检测Spring JdbcTemplate的query/queryForObject等方法参数是否为用户可控的拼接SQL"
         self.level = 9
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         # 精确匹配 JdbcTemplate 方法名（避免匹配其他 query 调用）
         self.match = r"jdbcTemplate\.query\b|jdbcTemplate\.queryForObject|jdbcTemplate\.queryForList|jdbcTemplate\.queryForMap|jdbcTemplate\.queryForRowSet|jdbcTemplate\.execute\b|jdbcTemplate\.update\b"
         self.unmatch = []

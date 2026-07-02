@@ -31,7 +31,7 @@ class CVI_6078(SingleRuleMixin):
         self.description = "Spring MVC @ResponseBody或@RestController注解方法直接返回用户可控数据，未经HTML转义输出到HTTP响应体。"
         self.level = 3
 
-        self.match_mode = "function-param-controllable"
+        self.match_mode = "function-param-regex"
         self.match = r"a:ResponseBody"
 
         self.vul_function = ["a:ResponseBody"]

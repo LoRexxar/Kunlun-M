@@ -36,7 +36,7 @@ class CVI_6002(SingleRuleMixin):
         self.description = "将用户输入通过PrintWriter直接写入HTTP响应，未进行编码转义。"
         self.level = 3
 
-        self.match_mode = "function-param-controllable"
+        self.match_mode = "function-param-regex"
         self.match = r"write|println|print"
 
         self.vul_function = [

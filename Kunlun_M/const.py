@@ -13,17 +13,18 @@
 """
 
 # Match-Mode
-mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配
-mm_java_function_param_controllable = 'java-function-param-regex'  # Java 专用：纯文本 grep + AST 污点分析
-mm_go_function_param_controllable = 'go-function-param-regex'     # Go 专用：Go AST 解析 + 污点追踪
-mm_c_function_param_controllable = 'c-function-param-regex'      # C/C++ 专用：C AST 解析 + 污点追踪
-mm_regex_param_controllable = 'vustomize-match'  # 自定义匹配
-mm_regex_only_match = 'only-regex'
-mm_regex_return_regex = 'regex-return-regex'
-sp_crx_keyword_match = 'special-crx-keyword-match'  # crx特殊匹配
-file_path_regex_match = 'file-path-regex-match'  # 文件名或者路径匹配
+mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配（主路径）
+mm_java_function_param_controllable = 'java-function-param-regex'  # LEGACY: all rules migrated to function-param-regex
+mm_go_function_param_controllable = 'go-function-param-regex'     # LEGACY: all rules migrated to function-param-regex
+mm_c_function_param_controllable = 'c-function-param-regex'      # LEGACY: all rules migrated to function-param-regex
+mm_regex_param_controllable = 'vustomize-match'  # LEGACY: no rules use this anymore
+mm_regex_only_match = 'only-regex'  # LEGACY: rules using this mode are skipped
+mm_regex_return_regex = 'regex-return-regex'  # LEGACY: rules using this mode are skipped
+sp_crx_keyword_match = 'special-crx-keyword-match'  # LEGACY: migrated to file-pattern
+file_path_regex_match = 'file-path-regex-match'  # LEGACY: migrated to file-pattern
 vendor_source_match = 'vendor_source_match'  # sca
 mm_framework_dependency = 'framework-dependency'  # 框架依赖版本检测 (pom.xml/build.gradle)
+mm_file_pattern = 'file-pattern'  # 文件名+内容双重匹配
 
 match_modes = [
     mm_regex_only_match,

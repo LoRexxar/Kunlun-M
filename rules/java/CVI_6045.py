@@ -20,7 +20,7 @@ class CVI_6045(SingleRuleMixin):
         self.description = "Fastjson启用了setAutoTypeSupport(true)，允许任意类反序列化，可能绕过AutoType安全检查导致远程代码执行"
         self.level = 3
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "setAutoTypeSupport"
         self.vul_function = ["ParserConfig.setAutoTypeSupport"]
         self.is_config_vuln = True

@@ -23,17 +23,12 @@ class CVI_5004(SingleRuleMixin):
         self.description = "要检查开源项目的git/svn文件是否存在内网敏感信息"
         self.level = 2
 
-        # 部分配置
-        self.match_mode = "file-path-regex-match"
-        self.match = ['.git/config']
+        self.match_mode = "file-pattern"
+        self.file_pattern = r'\.git/config$'
+        self.match = None
+        self.vul_function = []
 
-        # for regex
         self.unmatch = []
 
     def main(self, regex_string):
-        """
-        regex string input
-        :regex_string: regex match string
-        :return:
-        """
         pass

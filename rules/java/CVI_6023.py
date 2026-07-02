@@ -10,7 +10,7 @@ class CVI_6023(SingleRuleMixin):
         self.description = "请求参数直接传入ProcessBuilder构建命令，存在命令注入风险"
         self.level = 9
         # Graph engine: function-param-controllable + vul_function
-        self.match_mode = "function-param-controllable"
+        self.match_mode = "function-param-regex"
         self.match = r"new\s+ProcessBuilder"
         self.unmatch = []
         self.black_list = []

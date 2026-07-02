@@ -41,7 +41,7 @@ class autorule:
         self.vulnerability = "Auto Rule"
         self.description = "Auto Rule"
         self.status = True
-        self.match_mode = "vustomize-match"
+        self.match_mode = "function-param-regex"
         self.match = ""
         self.vul_function = None
         self.is_eval_object = is_eval_object

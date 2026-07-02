@@ -25,7 +25,8 @@ class CVI_4004(SingleRuleMixin):
         self.level = 3
 
         # 部分配置
-        self.match_mode = "special-crx-keyword-match"
+        self.match_mode = "file-pattern"
+        self.file_pattern = r"manifest.json$"
         self.match = ['bookmarks', 'history', 'topSites', 'tabs', 'webNavigation', 'contentSettings', 'debugger', 'pageCapture', 'proxy', 'devtools_page', 'http://\\*/\\*', 'https://\\*/\\*', '\\*://\\*/\\*', '<all_urls>', 'http://\\*/', 'https://\\*/', 'management', 'mdns', 'geolocation', 'clipboardRead', 'privacy', 'signedInDevices', 'ttsEngine']
 
         # for chrome ext

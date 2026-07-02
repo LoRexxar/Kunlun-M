@@ -25,7 +25,7 @@ class CVI_6038(SingleRuleMixin):
 
         # 部分配置
         # ProcessBuilder 通过 ClassCreator 匹配，match 为精确正则避免匹配注释
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = r"new\s+ProcessBuilder\s*\("
 
         # for solidity

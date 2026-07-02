@@ -15,7 +15,7 @@ class CVI_6037(SingleRuleMixin):
         self.description = "Fastjson反序列化用户可控JSON可能导致远程代码执行"
         self.level = 4
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "parseObject|parse"
         self.unmatch = [r"SafeMode", r"autoTypeFilter", r"ParserConfig.getGlobalInstance\\(\\).setAutoTypeSupport"]
         self.vul_function = ["JSON.parseObject", "JSON.parse", "JSON.parseArray"]

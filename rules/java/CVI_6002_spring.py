@@ -32,7 +32,7 @@ class CVI_6002_spring(SingleRuleMixin):
         self.description = "用户输入通过Spring MVC ModelAndView.addObject传入模板渲染，可能未经转义。"
         self.level = 3
 
-        self.match_mode = "function-param-controllable"
+        self.match_mode = "function-param-regex"
         self.match = r"addObject"
 
         self.vul_function = ["ModelAndView.addObject"]

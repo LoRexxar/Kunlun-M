@@ -25,7 +25,8 @@ class CVI_4002(SingleRuleMixin):
         self.level = 3
 
         # 部分配置
-        self.match_mode = "special-crx-keyword-match"
+        self.match_mode = "file-pattern"
+        self.file_pattern = r"manifest.json$"
         self.match = ["'unsafe-inline'", "'unsafe-eval'", '*', None]
 
         # for chrome ext

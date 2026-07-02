@@ -20,7 +20,7 @@ class CVI_6047(SingleRuleMixin):
         self.description = "Jackson ObjectMapper启用了enableDefaultTyping，允许多态反序列化，可能导致远程代码执行"
         self.level = 6
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "enableDefaultTyping"
         self.vul_function = ["ObjectMapper.enableDefaultTyping"]
         self.is_config_vuln = True

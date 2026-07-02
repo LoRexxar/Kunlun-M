@@ -23,17 +23,12 @@ class CVI_5005(SingleRuleMixin):
         self.description = "密码文件不应该被放在项目代码当中。"
         self.level = 7
 
-        # 部分配置
-        self.match_mode = "file-path-regex-match"
-        self.match = ['pass.txt', 'password.txt']
+        self.match_mode = "file-pattern"
+        self.file_pattern = r'(pass|password)\.txt$'
+        self.match = None
+        self.vul_function = []
 
-        # for regex
         self.unmatch = []
 
     def main(self, regex_string):
-        """
-        regex string input
-        :regex_string: regex match string
-        :return:
-        """
         pass

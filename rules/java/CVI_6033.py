@@ -9,7 +9,7 @@ class CVI_6033(SingleRuleMixin):
         self.description = "通过AST分析检测FileInputStream/FileOutputStream参数是否来自用户可控输入"
         self.level = 8
         self.status = False
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "FileInputStream|FileOutputStream"
         self.unmatch = []
         self.black_list = []

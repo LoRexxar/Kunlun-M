@@ -12,7 +12,7 @@ class CVI_6048(SingleRuleMixin):
         self.vulnerability = "Hibernate HQL Injection"
         self.description = "检测Hibernate EntityManager.createQuery/Session.createQuery参数是否为用户可控的拼接HQL"
         self.level = 9
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = r"\.createQuery\("
         self.unmatch = []
         self.black_list = []

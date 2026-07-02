@@ -19,7 +19,7 @@ class CVI_6046(SingleRuleMixin):
         self.description = "Log4j日志方法调用了用户可控的参数，可能通过JNDI Lookup机制触发远程代码执行（Log4Shell CVE-2021-44228）"
         self.level = 10
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         # 匹配 logger.error/info/debug/warn/trace/fatal 调用
         self.match = r'(?<!\w)(?:error|info|debug|warn|trace|fatal)\s*\('
         self.vul_function = [

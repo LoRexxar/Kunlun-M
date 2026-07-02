@@ -25,7 +25,8 @@ class CVI_4003(SingleRuleMixin):
         self.level = 3
 
         # 部分配置
-        self.match_mode = "special-crx-keyword-match"
+        self.match_mode = "file-pattern"
+        self.file_pattern = r"manifest.json$"
         self.match = ['ajax\\.googleapis\\.com', 'raw\\.githubusercontent\\.com', 'github\\.io', '\\*\\.s3\\.amazonaws\\.com', '\\*\\.cloudfront\\.com', '\\*\\.herokuapp\\.com', 'dl\\.dropboxusercontent\\.com', '\\*\\.appspot\\.com', '\\*\\.googleusercontent\\.com', 'cdn\\.jsdelivr\\.net', 'cdnjs\\.cloudflare\\.com', 'code\\.angularjs\\.org', 'd\\.yimg\\.com', 'www\\.linkedin\\.com', '\\*\\.wikipedia\\.org']
 
         # for chrome ext

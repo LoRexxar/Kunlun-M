@@ -19,7 +19,7 @@ class CVI_6044(SingleRuleMixin):
         self.description = "XStream.fromXML()反序列化用户可控XML可能导致远程代码执行。建议配置XStream安全框架：XStream.addPermission()限制允许的类型。"
         self.level = 9
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = r"fromXML"
         self.unmatch = [
             r"XStream\.setupDefaultSecurity",
