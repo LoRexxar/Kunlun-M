@@ -45,6 +45,18 @@ class CVI_6010(SingleRuleMixin):
         ]
 
     def main(self, regex_string):
-        """log 方法交给 AST 分析判断上下文"""
+        """过滤非用户直接控制的日志调用"""
+        if not isinstance(regex_string, str):
+            return None
+        import re
+        # SLF4J 参数化日志（log.debug("msg {}", arg)）是安全的
+        if '{}' in regex_string:
+            return False
+        # 异常消息拼接（log.error("..." + e.getMessage())）不是用户直接输入
+        if re.search(r'\+\s*\w+\.getMessage\(\)', regex_string):
+            return False
+        # 纯变量传入（log.debug(variable)）不含字符串拼接 → 非典型注入模式
+        if re.match(r'\s*log\.\w+\(\w+\)\s*;', regex_string):
+            return False
         return None
 

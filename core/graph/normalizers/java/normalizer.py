@@ -1342,6 +1342,35 @@ class Normalizer:
         creator_type = getattr(node, "type", None)
         arguments = getattr(node, "arguments", []) or []
 
+        # javalang ClassCreator and BinaryOperation have no position —
+        # fallback: recursively find first child AST node with a valid lineno
+        if lineno == 0:
+            def _deep_lineno(n, depth=0):
+                if depth > 4:
+                    return 0
+                ln, _ = self._loc(n)
+                if ln > 0:
+                    return ln
+                # javalang children is a list of raw attribute values, not callable
+                raw_children = getattr(n, 'children', None)
+                if raw_children and isinstance(raw_children, list):
+                    for item in raw_children:
+                        if item is None:
+                            continue
+                        # item can be an AST node or a list of AST nodes
+                        if hasattr(item, 'position'):
+                            result = _deep_lineno(item, depth + 1)
+                            if result > 0:
+                                return result
+                        elif isinstance(item, list):
+                            for child in item:
+                                if child is not None and hasattr(child, 'position'):
+                                    result = _deep_lineno(child, depth + 1)
+                                    if result > 0:
+                                        return result
+                return 0
+            lineno = _deep_lineno(node)
+
         type_text = ""
         if creator_type is not None:
             type_text = getattr(creator_type, "name", "") or ""
