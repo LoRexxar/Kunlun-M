@@ -51,6 +51,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         self._dfg_edges: list[tuple[int, int, str]] = []  # (src, tgt, dfg_type)
         # 函数名→vid列表索引（build() 中预构建，用于 _resolve_function O(1) 查找）
         self._func_name_index: dict[str, list[int]] = {}
+        self._func_fullname_index: dict[str, list[int]] = {}
 
     # -- 公共接口 ------------------------------------------------------------
 
@@ -81,13 +82,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # 预构建函数名索引：name → [vid1, vid2, ...]
         # 避免在 _resolve_function 中对每个函数调用做 O(V) 全图遍历
         self._func_name_index = {}
+        self._func_fullname_index = {}
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.FUNCTION.value:
                 continue
+            # fullname 索引（精确匹配）
+            fullname = _vattr(v, "fullname", "")
+            if fullname:
+                self._func_fullname_index.setdefault(fullname, []).append(v.index)
+            # 短名索引（仅用于无 fullname 的局部函数）
             fname = _vattr(v, "name", "")
-            if not fname:
-                continue
-            self._func_name_index.setdefault(fname, []).append(v.index)
+            if fname and not fullname:
+                self._func_name_index.setdefault(fname, []).append(v.index)
 
         # 依次执行各分析步骤（分两阶段）
         # Phase 1: 不依赖 use 边的分析步骤
@@ -1394,8 +1400,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def _resolve_function(self, func_vid: int) -> int:
         """尝试将函数节点/identifier callee 解析到真正的定义。
 
-        若 func_vid 对应的节点没有 own 子节点（占位/identifier callee），
-        则在图中搜索同名且有 own 子节点的 function 节点。
+        优先使用 fullname 精确匹配；fullname 无匹配时，仅在同作用域内
+        用短名匹配，不做全局短名回退。
 
         Args:
             func_vid: 函数节点或 identifier callee 节点索引。
@@ -1407,53 +1413,40 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if self._has_function_body(func_vid):
             return func_vid
 
-        func_name = _vattr(self.graph.vs[func_vid], "name", "")
-        if not func_name:
-            return func_vid
+        node = self.graph.vs[func_vid]
+        func_fullname = _vattr(node, "fullname", "")
+        func_name = _vattr(node, "name", "")
 
-        # 通过预构建的函数名索引做 O(1) 查找，替代原 O(V) 全图遍历
-        candidates = self._func_name_index.get(func_name, [])
-        if not candidates:
-            return func_vid
-
-        # 查找 func_vid 所在的父作用域（用于优先同作用域匹配）
+        # 查找 func_vid 所在的父作用域
         parent_vid = None
         for eid in self.graph.incident(func_vid, mode="in"):
             e = self.graph.es[eid]
             elabel = _vattr(e, "label")
-            if elabel == EdgeLabel.OWN.value or elabel == EdgeLabel.AST.value:
+            if elabel in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
                 parent_vid = e.source
                 break
 
-        best_match = func_vid  # 默认返回自身
-        first_global = None  # 记录第一个全局匹配（用于 parent 不匹配时回退）
-        for vid in candidates:
-            if vid == func_vid:
-                continue
+        # 优先 fullname 精确匹配
+        if func_fullname:
+            candidates = self._func_fullname_index.get(func_fullname, [])
+            for vid in candidates:
+                if vid != func_vid and self._has_function_body(vid):
+                    return vid
 
-            if not self._has_function_body(vid):
-                continue
-
-            if first_global is None:
-                first_global = vid
-            # 优先选择同文件/同作用域的
+        # fullname 无匹配时，仅在同作用域内用短名匹配（不做全局回退）
+        if func_name:
+            candidates = self._func_name_index.get(func_name, [])
             if parent_vid is not None:
-                for eid2 in self.graph.incident(vid, mode="in"):
-                    e2 = self.graph.es[eid2]
-                    if _vattr(e2, "label") in (EdgeLabel.OWN.value, EdgeLabel.AST.value) and e2.source == parent_vid:
-                        best_match = vid
-                        break
-                if best_match != func_vid:
-                    break
-            else:
-                best_match = vid
-                break
+                for vid in candidates:
+                    if vid != func_vid and self._has_function_body(vid):
+                        for eid2 in self.graph.incident(vid, mode="in"):
+                            e2 = self.graph.es[eid2]
+                            if _vattr(e2, "label") in (
+                                EdgeLabel.OWN.value, EdgeLabel.AST.value
+                            ) and e2.source == parent_vid:
+                                return vid
 
-        # 同作用域未匹配到，回退到全局匹配
-        if best_match == func_vid and first_global is not None:
-            best_match = first_global
-
-        return best_match
+        return func_vid
 
     def _find_assign_lhs_for_callee(self, caller_vid: int) -> Optional[int]:
         """找到调用 operator 作为某个赋值语句 RHS 时的 LHS 顶点。
