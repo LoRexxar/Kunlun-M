@@ -912,7 +912,9 @@ class GraphAnalyzer:
                                 arg_counter += 1
 
                     # 4d: graph-based function trace (unknown or no taint attribute)
-                    if callee and callee not in self._call_stack:
+                    # Skip if use-edge already resolved the callee — re-searching by
+                    # short name would match unrelated same-named methods across classes.
+                    if callee and callee not in self._call_stack and func_vid is None:
                         func_vids = self.find_function_def(callee, from_vid=up_vid)
                         if func_vids:
                             self._call_stack.append(callee)
@@ -2076,7 +2078,12 @@ class GraphAnalyzer:
 
     def _find_identifier_by_name(self, name: str,
                                   context_vid: int | None = None) -> int | None:
-        """Find identifier vertex by name, preferring same-file matches."""
+        """Find identifier vertex by name, preferring same-file matches.
+
+        When *context_vid* is None (no scope restriction), candidates without
+        a real *file_path* (library stubs, decompiled helpers) are excluded to
+        avoid cross-project false positives.
+        """
         scope = None
         if context_vid is not None:
             scope = _vattr(self.graph.vs[context_vid], "file_path", None)
@@ -2085,8 +2092,13 @@ class GraphAnalyzer:
             if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
                 continue
             if _vattr(v, "name") == name:
-                if scope and _vattr(v, "file_path") == scope:
+                fp = _vattr(v, "file_path", "")
+                # Same-file match (when scope is known) → return immediately
+                if scope and fp == scope:
                     return v.index
+                # No scope: skip candidates without a real file_path (library stubs)
+                if not scope and not fp:
+                    continue
                 candidates.append(v.index)
         return candidates[0] if candidates else None
 
