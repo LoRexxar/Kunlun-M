@@ -143,8 +143,10 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             func_name = callee_name
 
             # Find existing function node or create external one
+            caller_file = _vattr(graph.vs[vid], "file_path", "")
             target_vid = self._find_or_create_function(
-                graph, func_name, fullname, lineno
+                graph, func_name, fullname, lineno,
+                caller_file=caller_file
             )
 
             if target_vid is not None:
@@ -400,7 +402,8 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
     def _find_or_create_function(self, graph: "ig.Graph",
                                 func_name: str, fullname: str,
-                                lineno: int = 0) -> int | None:
+                                lineno: int = 0,
+                                caller_file: str = "") -> int | None:
         """Find an existing function node or create an external one.
 
         Prefers:
@@ -413,6 +416,16 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             existing_fn = _vattr(v, "fullname", "")
             if existing_fn == fullname:
                 return v.index
+
+        # Try same-file name match (for same-class method calls where
+        # fullname may not match exactly, e.g. ".injectableQuery" vs
+        # "SqlInjectionLesson5a.injectableQuery")
+        if caller_file:
+            for v in graph.vs.select(label="function"):
+                if _vattr(v, "name") == func_name and not _vattr(v, "is_external", False):
+                    vfile = _vattr(v, "file_path", "")
+                    if vfile == caller_file:
+                        return v.index
 
         # Try name match (reuse existing external function node)
         for v in graph.vs.select(label="function"):

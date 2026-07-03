@@ -54,7 +54,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     # -- 公共接口 ------------------------------------------------------------
 
-    def build(self, graph: "ig.Graph", language: str = "php", **kwargs) -> int:
+    def build(self, graph: "ig.Graph", language: str = "php", phase: int = 1, **kwargs) -> int:
         """主入口：生成所有 dfg 边并添加到图中。
 
         执行顺序：
@@ -89,25 +89,30 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 continue
             self._func_name_index.setdefault(fname, []).append(v.index)
 
-        # 依次执行各分析步骤
-        self._analyze_operator_flows()
-        self._analyze_method_receiver_flows()
-        self._analyze_assignments()
-        self._analyze_parameter_passing()
-        self._analyze_return_values()
-        # NOTE: builtin_and_summary (step 5) must run BEFORE same_variables
-        # (step 4) so that param_flow DFG edges (e.g. snprintf output params)
-        # are already accumulated in _dfg_edges when same_variables checks
-        # for DFG incoming edges on output param identifiers.
-        self._analyze_builtin_and_summary(language)
-        self._analyze_same_variables()
-        try:
-            self._analyze_cross_file_variables(language)
-        except Exception:
-            logger.exception(
-                "[DataFlowBuilder] _analyze_cross_file_variables failed, "
-                "skipping cross-file DFG links"
-            )
+        # 依次执行各分析步骤（分两阶段）
+        # Phase 1: 不依赖 use 边的分析步骤
+        # Phase 2: 依赖 use 边的分析步骤（参数传递、返回值传播、fluent API）
+        if phase == 1:
+            self._analyze_operator_flows()
+            self._analyze_method_receiver_flows()
+            self._analyze_assignments()
+            # NOTE: builtin_and_summary (step 5) must run BEFORE same_variables
+            # (step 4) so that param_flow DFG edges (e.g. snprintf output params)
+            # are already accumulated in _dfg_edges when same_variables checks
+            # for DFG incoming edges on output param identifiers.
+            self._analyze_builtin_and_summary(language)
+            self._analyze_same_variables()
+            try:
+                self._analyze_cross_file_variables(language)
+            except Exception:
+                logger.exception(
+                    "[DataFlowBuilder] _analyze_cross_file_variables failed, "
+                    "skipping cross-file DFG links"
+                )
+        elif phase == 2:
+            self._analyze_parameter_passing()
+            self._analyze_return_values()
+            self._analyze_fluent_api_returns()
 
         # 批量写入
         self._apply_dfg_edges()
@@ -537,6 +542,88 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     self._add_dfg_edge(
                         return_value_vid, assign_lhs, DfgType.FORWARD_SLICE.value
                     )
+
+    # -- 分析步骤 3b：Fluent API / Builder 模式 DFG 回传 -------------------------
+
+    def _analyze_fluent_api_returns(self) -> None:
+        """#3b: Fluent API — method_call 返回值回传到 receiver 对象。
+
+        对于 mutable builder 模式（如 StringBuilder.append、StringBuilder.insert），
+        method_call 会修改 receiver 对象并返回 this。数据流应从 call 回传到 receiver，
+        使得后续对同一 receiver 的调用能追踪到之前传入的数据。
+
+        规则：
+        - 遍历所有 method_call/static_call operator
+        - 如果已有 DFG 入边来自某个 receiver identifier/variable
+        - 且该 receiver 在同一作用域内多次作为相同或不同方法的 receiver
+        - 则创建 dfg(call → receiver) 边，表示 call 的返回值回到 receiver
+
+        例: cart.append("..." + field1 + "...")
+            图上: field1 → dfg → cart.append → dfg → cart
+            效果: cart.toString() → dfg → output() 时，可回溯到 field1
+        """
+        call_types = {
+            OperatorType.METHOD_CALL.value,
+            OperatorType.STATIC_CALL.value,
+        }
+
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") not in call_types:
+                continue
+
+            vid = v.index
+
+            # 找到流入此 call 的 DFG receiver 来源
+            receiver_vid = None
+            for eid in self.graph.incident(vid, mode="in"):
+                e = self.graph.es[eid]
+                if _vattr(e, "label") != EdgeLabel.DFG.value:
+                    continue
+                src = self.graph.vs[e.source]
+                src_label = _vattr(src, "label", "")
+                if src_label in (
+                    NodeLabel.IDENTIFIER.value,
+                    NodeLabel.PARAMETER.value,
+                ):
+                    # 确认此来源确实是 receiver（同名检查）
+                    src_name = _vattr(src, "name", "")
+                    op_name = _vattr(v, "name", "")
+                    # receiver name 是 op_name 的第一段（如 "cart" in "cart.append"）
+                    dot_pos = op_name.find(".")
+                    if dot_pos > 0:
+                        receiver_name = op_name[:dot_pos]
+                        if src_name == receiver_name:
+                            receiver_vid = src.index
+                            break
+
+            if receiver_vid is None:
+                continue
+
+            # 检查此 receiver 是否在同作用域内有其他 method_call（多次使用）
+            receiver_name = _vattr(self.graph.vs[receiver_vid], "name", "")
+            other_calls = 0
+            for eid2 in self.graph.incident(receiver_vid, mode="out"):
+                e2 = self.graph.es[eid2]
+                if _vattr(e2, "label") == EdgeLabel.DFG.value:
+                    tgt = self.graph.vs[e2.target]
+                    if (tgt.index != vid
+                            and _vattr(tgt, "label") == NodeLabel.OPERATOR.value
+                            and _vattr(tgt, "type") in call_types):
+                        other_calls += 1
+
+            # 只有当 receiver 被多次使用时才回传（避免对单次调用过度传播）
+            if other_calls == 0:
+                continue
+
+            # 检查是否已有此 DFG 边（避免重复）
+            for eid3 in self.graph.es.select(_source=vid, _target=receiver_vid,
+                                              label=EdgeLabel.DFG.value):
+                return  # 已存在
+
+            # 创建 call → receiver 的 DFG 回传边
+            self._add_dfg_edge(vid, receiver_vid, DfgType.FORWARD_SLICE.value)
 
     # -- 分析步骤 4：同名变量链接 ---------------------------------------------
 

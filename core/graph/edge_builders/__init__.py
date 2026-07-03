@@ -21,12 +21,16 @@ __all__ = [
 ]
 
 # Builder execution order
-# dfg  → use → cg → alias
-# Use needs DFG edges for receiver type resolution.
-# CG needs use edges to derive function→function call graph.
+# dfg_phase1  → use → dfg_phase2 → cg → alias
+# DFG split into two phases: phase 1 builds basic DFG edges; use edges built
+# after phase 1 so receiver type resolution can leverage them; phase 2 runs
+# analyses that depend on use edges (param passing, return propagation,
+# fluent API returns). CG needs use edges to derive function→function call
+# graph; alias runs last.
 _BUILDERS = [
-    ("dfg", DataFlowBuilder),
+    ("dfg_phase1", DataFlowBuilder),
     ("use", UseEdgeBuilder),
+    ("dfg_phase2", DataFlowBuilder),
     ("cg", CallGraphBuilder),
     ("alias", AliasBuilder),
 ]
@@ -46,6 +50,11 @@ def run_all(graph: "ig.Graph", language: str, **kwargs) -> dict[str, int]:
     results = {}
     for name, builder_cls in _BUILDERS:
         builder = builder_cls()
-        count = builder.build(graph, language, **kwargs)
+        if name == "dfg_phase1":
+            count = builder.build(graph, language, phase=1, **kwargs)
+        elif name == "dfg_phase2":
+            count = builder.build(graph, language, phase=2, **kwargs)
+        else:
+            count = builder.build(graph, language, **kwargs)
         results[name] = count
     return results
