@@ -1425,7 +1425,7 @@ class Normalizer:
         # In javalang, assignment is part of MemberReference or VariableDeclarator
         # Check for expressionl, expressionr
         expressionl = getattr(node, "expressionl", None)
-        expressionr = getattr(node, "expressionr", None)
+        expressionr = getattr(node, "expressionr", None) or getattr(node, "value", None)
 
         pos = add_node({
             "label": NodeLabel.OPERATOR.value,
@@ -1815,7 +1815,7 @@ class Normalizer:
 
         elif init_type == "Assignment":
             # var x = y; (rare but possible)
-            rhs = getattr(initializer, "expression", None)
+            rhs = getattr(initializer, "expressionr", None) or getattr(initializer, "value", None)
             if rhs is not None:
                 return self._infer_var_type_from_init(rhs)
 
@@ -2141,7 +2141,7 @@ class Normalizer:
             return getattr(node, "name", "")
         if ntype == "Assignment":
             l = self._expr_text(getattr(node, "expressionl", None))
-            r = self._expr_text(getattr(node, "expressionr", None))
+            r = self._expr_text(getattr(node, "expressionr", None) or getattr(node, "value", None))
             return f"{l} = {r}"
         if ntype == "LambdaExpression":
             params = getattr(node, "parameters", []) or []
