@@ -620,7 +620,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # 检查是否已有此 DFG 边（避免重复）
             for eid3 in self.graph.es.select(_source=vid, _target=receiver_vid,
                                               label=EdgeLabel.DFG.value):
-                return  # 已存在
+                continue  # 已存在，跳过当前 call 继续下一个
 
             # 创建 call → receiver 的 DFG 回传边
             self._add_dfg_edge(vid, receiver_vid, DfgType.FORWARD_SLICE.value)
