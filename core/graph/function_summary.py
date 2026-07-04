@@ -45,6 +45,23 @@ _MAX_ITERATIONS = 5
 _CALL_TYPES = frozenset({"call", "method_call", "static_call"})
 
 
+def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int]):
+    """递归收集 start_vid 通过 ast 边可达的所有后代节点（BFS）。
+
+    用于将 function 的 own 直接子节点展开为完整的 ast 子树。
+    例如 `own → operator(+)` 的 ast[left] → identifier `name` 也会被收集。
+    """
+    from collections import deque
+    queue = deque([start_vid])
+    result.add(start_vid)
+    while queue:
+        vid = queue.popleft()
+        for e in graph.es.select(_source=vid, label="ast"):
+            if e.target not in result:
+                result.add(e.target)
+                queue.append(e.target)
+
+
 def build_function_summaries(
     graph: ig.Graph,
     languages: list[str] | None = None,
@@ -77,14 +94,20 @@ def build_function_summaries(
         param_idx: dict[int, int] = {}  # param_vid → param index
         return_vids: list[int] = []
         for e in graph.es.select(_source=vid, label="own"):
-            own_vids.add(e.target)
-            child_label = _vattr(graph.vs[e.target], "label", "")
+            child_vid = e.target
+            child_label = _vattr(graph.vs[child_vid], "label", "")
             if child_label == NodeLabel.PARAMETER.value:
                 idx = _vattr(e, "index")
                 if idx is not None and idx != "":
-                    param_idx[e.target] = int(idx)
+                    param_idx[child_vid] = int(idx)
+                # parameter 不展开 ast 子树（无意义）
+                own_vids.add(child_vid)
             elif child_label == NodeLabel.RETURN.value:
-                return_vids.append(e.target)
+                return_vids.append(child_vid)
+                own_vids.add(child_vid)
+            else:
+                # 其他 own 子节点：递归展开 ast 子树
+                _collect_ast_descendants(graph, child_vid, own_vids)
         func_data[vid] = {
             "own_vids": own_vids,
             "param_idx": param_idx,
