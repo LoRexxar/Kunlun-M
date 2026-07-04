@@ -429,7 +429,14 @@ def _trace_call_to_function(
             vname = _vattr(graph.vs[call_vid], "name", "")
             return {"origin": vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
 
-        # 目标无摘要 → 返回 None，让调用方继续 DFG 追踪
+        # 目标无 func_summary_type → fallback 检查 enrich_taint 标注的 taint_type
+        # （内置 source/safe 函数由 source_registry 通过 enrich_taint 标注）
+        target_taint = _vattr(target, "taint_type", "")
+        if target_taint in ("source", "safe"):
+            vname = _vattr(graph.vs[call_vid], "name", "")
+            return {"origin": vname, "origin_type": target_taint, "dep_params": [], "has_unresolved_call": False}
+
+        # 目标完全未知 → 返回 None，让调用方继续 DFG 追踪
         return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
 
     return None  # 无 use 边，让调用方继续
