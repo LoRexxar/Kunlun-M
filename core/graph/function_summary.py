@@ -308,6 +308,20 @@ def _trace_return_value(
     if vlabel == NodeLabel.CONST.value:
         return {"origin": vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
 
+    # ── 2.5. 节点自身已有 taint_type 注解（由 enrich_taint 或 _enrich_source_variables 标注） ──
+    #     适用于 identifier/function/statement 等非 operator 节点。
+    #     例如: return \$_GET (identifier 被标注为 source)
+    #     operator 节点在 step 3 中单独处理（因为 call 还需要追踪 use→function）。
+    self_taint = _vattr(v, "taint_type", "")
+    if self_taint == "source":
+        return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+    if self_taint == "safe":
+        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+    if self_taint == "passthrough":
+        pt = _vattr(v, "taint_passthrough", [])
+        if pt:
+            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, depth)
+
     # ── 3. Operator（call, method_call, static_call 等） ──
     if vlabel == NodeLabel.OPERATOR.value:
         # 3a. 已有 taint_type 注解（builtin 函数，由 enrich_taint 标注）
