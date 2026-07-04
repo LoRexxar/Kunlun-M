@@ -46,7 +46,6 @@ def enrich_taint(
     language: str,
     trace_cache=None,
     source_registry=None,
-    summary_lookup=None,
 ) -> int:
     """遍历图中所有 function 节点，查询知识库并标注 taint 属性。
 
@@ -55,7 +54,9 @@ def enrich_taint(
         language: 语言标识 ("php", "python", ...)
         trace_cache: TraceCache 实例（可选），提供 lookup_builtin(name) 方法
         source_registry: SourceRegistry 实例（可选）
-        summary_lookup: 可调用对象 summary_lookup(name) → FunctionSummary | None
+
+    函数摘要已迁移到 core/graph/function_summary.py（图原生摘要），
+    不再通过 summary_lookup 参数传入。
 
     Returns:
         标注的 function 节点数量
@@ -101,12 +102,6 @@ def enrich_taint(
         #    仅在 source_registry 未匹配时使用。先短名查，再完整名查。
         if trace_cache is not None:
             if _enrich_from_builtin(graph, func_vid, lookup_name, full_lookup, trace_cache):
-                count += 1
-                continue
-
-        # 3. 函数摘要（用户自定义函数的返回值数据流）
-        if summary_lookup is not None:
-            if _enrich_from_summary(graph, func_vid, lookup_name, summary_lookup):
                 count += 1
                 continue
 
@@ -177,54 +172,7 @@ def _enrich_from_source_registry(
     return False
 
 
-def _enrich_from_summary(
-    graph: ig.Graph, func_vid: int, func_name: str, summary_lookup,
-) -> bool:
-    """从函数摘要标注。
-
-    函数摘要记录了返回值的数据流来源（param/global/call/literal）。
-    - param 来源 → function 标为 passthrough，对应 parameter 标为 passthrough_arg
-    - global/call 来源且为 source → function 标为 source
-    - literal 来源 → function 标为 safe
-    """
-    summary = summary_lookup(func_name)
-    if not summary or not summary.return_flow:
-        return False
-
-    passthrough_indices: set[int] = set()
-    # summary 一般只产出 int 索引，但为保险起见也检测 receiver 标记
-    has_receiver_pt = False
-
-    for rf in summary.return_flow:
-        if rf.origin_type == "param":
-            for param_idx in rf.dep_params:
-                if isinstance(param_idx, str) and param_idx in _RECEIVER_PT_NAMES:
-                    has_receiver_pt = True
-                elif isinstance(param_idx, int):
-                    passthrough_indices.add(param_idx)
-        elif rf.origin_type == "global":
-            if _is_source_var(rf.origin):
-                graph.vs[func_vid]["taint_type"] = "source"
-                return True
-        elif rf.origin_type == "call":
-            simple = _get_simple_name(rf.origin)
-            if simple and _is_source_var(simple):
-                graph.vs[func_vid]["taint_type"] = "source"
-                return True
-
-    if passthrough_indices or has_receiver_pt:
-        graph.vs[func_vid]["taint_type"] = "passthrough"
-        sorted_indices = sorted(passthrough_indices)
-        graph.vs[func_vid]["taint_passthrough"] = sorted_indices
-        if has_receiver_pt:
-            graph.vs[func_vid]["taint_receiver_pt"] = True
-        if sorted_indices:
-            _mark_passthrough_params(graph, func_vid, sorted_indices)
-        return True
-
-    # 有摘要但无可透传来源
-    graph.vs[func_vid]["taint_type"] = "safe"
-    return True
+# LEGACY: _enrich_from_summary 已迁移到 core/graph/function_summary.py（图原生摘要）
 
 
 # ---------------------------------------------------------------------------

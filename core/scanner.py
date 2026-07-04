@@ -381,6 +381,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 )
                 if count:
                     logger.info('[SCAN] [GRAPH] Enriched %d function taint annotations for %s', count, lang)
+
+            # ── 用户自定义函数摘要（DFG 反向追踪 return → parameter） ──
+            # 在 enrich_taint 之后运行：读取 builtin 函数的 taint_type 注解，
+            # 写入 func_summary_type / func_summary_pt，并同步到 taint 属性，
+            # 供 GraphAnalyzer Rule 4c 消费。
+            try:
+                from core.graph.function_summary import build_function_summaries
+                summary_stats = build_function_summaries(
+                    graph, languages=list(lang_rules.keys())
+                )
+                if summary_stats.get("annotated"):
+                    logger.info(
+                        '[SCAN] [GRAPH] Function summaries: %d annotated (pt=%d, source=%d, safe=%d, literal=%d, unknown=%d)',
+                        summary_stats["annotated"],
+                        summary_stats.get("passthrough", 0),
+                        summary_stats.get("source", 0),
+                        summary_stats.get("safe", 0),
+                        summary_stats.get("literal", 0),
+                        summary_stats.get("unknown", 0),
+                    )
+            except Exception as e:
+                logger.warning('[SCAN] [GRAPH] Function summary building failed: %s', e)
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 
