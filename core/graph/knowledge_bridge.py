@@ -105,7 +105,12 @@ def enrich_taint(
                 count += 1
                 continue
 
-    logger.debug("enrich_taint: annotated %d function nodes", count)
+    # 3. Source variable 标注（PHP superglobals: $_GET, $_POST, $_COOKIE 等）
+    #    这些是 identifier 节点而非 function/call，需要在 function/call 循环外处理
+    source_var_count = _enrich_source_variables(graph)
+    count += source_var_count
+
+    logger.debug("enrich_taint: annotated %d function nodes, %d source variables", count, source_var_count)
     return count
 
 
@@ -192,6 +197,27 @@ def _mark_passthrough_params(graph: ig.Graph, func_vid: int, passthrough_indices
         pidx = _vattr(target, "index")
         if pidx is not None and int(pidx) in idx_set:
             graph.vs[e.target]["taint_type"] = "passthrough_arg"
+
+
+def _enrich_source_variables(graph: ig.Graph) -> int:
+    """标注图中的 source variable 节点（PHP superglobals、JS source roots 等）。
+
+    这些变量是用户可控的 source，但在图中以 identifier 节点表示，
+    不经过 function/call 路径，需要单独标注。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
+            continue
+        if _vattr(v, "taint_type"):  # 已标注，跳过
+            continue
+        name = _vattr(v, "name", "")
+        if _is_source_var(name):
+            graph.vs[v.index]["taint_type"] = "source"
+            count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------

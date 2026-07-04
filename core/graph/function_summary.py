@@ -45,21 +45,44 @@ _MAX_ITERATIONS = 5
 _CALL_TYPES = frozenset({"call", "method_call", "static_call"})
 
 
-def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int]):
-    """递归收集 start_vid 通过 ast 边可达的所有后代节点（BFS）。
+def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
+                               return_vids: list[int] | None = None):
+    """递归收集 start_vid 通过 ast/own 边可达的所有后代节点（BFS）。
 
-    用于将 function 的 own 直接子节点展开为完整的 ast 子树。
-    例如 `own → operator(+)` 的 ast[left] → identifier `name` 也会被收集。
+    同时追踪 ast 边和 own 边（own 边仅在 branch/control 节点下展开）。
+    因为 PHP 等语言的 if/else body 通过 branch → own → return 连接，
+    而非 ast 边。限制 own 边展开避免跨越到其他 function 节点。
+
+    Args:
+        return_vids: 如果提供，在展开过程中收集到的 return 节点也会追加到此列表。
     """
     from collections import deque
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    # 允许展开 own 子节点的节点类型（branch/control 结构）
+    _OWN_EXPAND_LABELS = {NodeLabel.BRANCH.value, "control"}
+
     queue = deque([start_vid])
     result.add(start_vid)
+    if return_vids is not None and _vattr(graph.vs[start_vid], "label", "") == NodeLabel.RETURN.value:
+        return_vids.append(start_vid)
     while queue:
         vid = queue.popleft()
-        for e in graph.es.select(_source=vid, label="ast"):
-            if e.target not in result:
-                result.add(e.target)
-                queue.append(e.target)
+        src_label = _vattr(graph.vs[vid], "label", "")
+        for e in graph.es.select(_source=vid):
+            el = _vattr(e, "label")
+            if el == "ast":
+                if e.target not in result:
+                    result.add(e.target)
+                    queue.append(e.target)
+            elif el == "own" and src_label in _OWN_EXPAND_LABELS:
+                # branch/control 节点的 own 子节点也展开
+                if e.target not in result:
+                    result.add(e.target)
+                    queue.append(e.target)
+                    if return_vids is not None and _vattr(graph.vs[e.target], "label", "") == NodeLabel.RETURN.value:
+                        return_vids.append(e.target)
 
 
 def build_function_summaries(
@@ -106,8 +129,8 @@ def build_function_summaries(
                 return_vids.append(child_vid)
                 own_vids.add(child_vid)
             else:
-                # 其他 own 子节点：递归展开 ast 子树
-                _collect_ast_descendants(graph, child_vid, own_vids)
+                # 其他 own 子节点：递归展开 ast 子树（同时收集嵌套 return）
+                _collect_ast_descendants(graph, child_vid, own_vids, return_vids)
         func_data[vid] = {
             "own_vids": own_vids,
             "param_idx": param_idx,
@@ -311,7 +334,16 @@ def _trace_return_value(
 
     for de in graph.es.select(_target=start_vid, label="dfg"):
         src_vid = de.source
-        # 约束在函数 own 子树内
+
+        # 4a. 检查 DFG 源节点自身是否是 source/safe（如 $_COOKIE、$_GET 等
+        #     不在函数 own 子树内的全局变量，由 enrich_taint 标注）
+        src_taint = _vattr(graph.vs[src_vid], "taint_type", "")
+        if src_taint == "source":
+            return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+        if src_taint == "safe":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+        # 4b. 约束在函数 own 子树内，递归追踪
         if src_vid not in own_vids:
             continue
         sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, depth + 1)
@@ -322,6 +354,22 @@ def _trace_return_value(
         all_dep_params.extend(sub.get("dep_params", []))
         if sub.get("has_unresolved_call"):
             any_unresolved = True
+
+    # ── 5. Member 边检查（$obj[$key] / obj.prop 等成员访问） ──
+    #    identifier 通过 member 边连接到容器对象，如果容器是 source，
+    #    则 member access 的结果也是 source。
+    #    e.g. $_COOKIE['theme'] → member ← $_COOKIE (source)
+    if vlabel == NodeLabel.IDENTIFIER.value:
+        for me in graph.es.select(_target=start_vid, label="member"):
+            container_vid = me.source
+            container_taint = _vattr(graph.vs[container_vid], "taint_type", "")
+            if container_taint == "source":
+                return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+            # 容器可能是 passthrough 函数的返回值——递归追踪
+            if container_vid in own_vids:
+                sub = _trace_return_value(graph, container_vid, own_vids, param_idx, visited, depth + 1)
+                if sub["origin_type"] in ("source", "param"):
+                    return sub
 
     if all_dep_params:
         unique = list(dict.fromkeys(all_dep_params))
