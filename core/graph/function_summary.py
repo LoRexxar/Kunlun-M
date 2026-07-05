@@ -356,6 +356,7 @@ def _trace_return_value(
     has_source = False
     has_safe = False
     any_unresolved = False
+    dfg_has_safe_source = False  # DFG 链中是否存在 safe/literal 源
 
     for de in graph.es.select(_target=start_vid, label="dfg"):
         src_vid = de.source
@@ -376,6 +377,9 @@ def _trace_return_value(
             return sub  # source 立即返回
         if sub["origin_type"] == "safe":
             return sub  # safe 立即返回（阻断）
+        if sub["origin_type"] == "literal":
+            dfg_has_safe_source = True
+            continue  # 字面量不传播污点，忽略此 DFG 源
         all_dep_params.extend(sub.get("dep_params", []))
         if sub.get("has_unresolved_call"):
             any_unresolved = True
@@ -425,6 +429,11 @@ def _trace_return_value(
             "dep_params": unique,
             "has_unresolved_call": any_unresolved,
         }
+
+    # 4c. DFG 链全部追溯到 safe/literal 但无 dep_params → safe
+    #     e.g. return $compiled; // $compiled = $a . $b . ' ' （DFG 链到 string literal）
+    if dfg_has_safe_source and not any_unresolved:
+        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": any_unresolved}
 
