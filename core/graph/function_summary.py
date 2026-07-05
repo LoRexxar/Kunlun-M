@@ -477,7 +477,8 @@ def _trace_passthrough_call(
     for ae in graph.es.select(_source=call_vid, label="ast"):
         if _vattr(ae, "role") != "arg":
             continue
-        idx = _vattr(ae, "index")
+        # NOTE: normalizer 用 "arg_index" 存参数索引，兼容 "index"（旧格式）
+        idx = _vattr(ae, "arg_index") or _vattr(ae, "index")
         actual_idx = int(idx) if idx is not None and idx != "" else arg_counter
         if actual_idx in pt_indices:
             arg_vid = ae.target
