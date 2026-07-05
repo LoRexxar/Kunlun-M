@@ -287,7 +287,7 @@ def _trace_return_value(
     from utils.igraph_compat import _vattr
 
     if start_vid in visited or depth > _MAX_TRACE_DEPTH:
-        return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": False}
+        return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
     visited = visited | {start_vid}
 
     v = graph.vs[start_vid]
@@ -401,6 +401,22 @@ def _trace_return_value(
                 if sub["origin_type"] in ("source", "param"):
                     return sub
 
+    # ── 6. AST 赋值 fallback（DFG 缺失时，通过 assignment AST 追踪） ──
+    #    当 identifier 无 DFG 且 member 追踪无果时，在 own subtree 内搜索
+    #    同名 identifier 作为 assignment LHS 的节点，追踪 RHS 表达式。
+    #    这弥补了 PHP normalizer 不生成 assignment DFG 边的缺陷。
+    #    e.g. $markup = $this->elements($Elements); return $markup;
+    if vlabel == NodeLabel.IDENTIFIER.value and depth < 3:
+        ret_name = _vattr(v, "name", "")
+        if ret_name:
+            assign_found = _trace_assign_fallback(
+                graph, ret_name, start_vid, own_vids, param_idx, visited, depth
+            )
+            if assign_found and assign_found["origin_type"] != "unknown":
+                return assign_found
+            if assign_found and assign_found.get("dep_params"):
+                return assign_found
+
     if all_dep_params:
         unique = list(dict.fromkeys(all_dep_params))
         return {
@@ -411,6 +427,56 @@ def _trace_return_value(
         }
 
     return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": any_unresolved}
+
+
+def _trace_assign_fallback(
+    graph: ig.Graph,
+    target_name: str,
+    origin_vid: int,
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    visited: set[int],
+    depth: int,
+) -> dict | None:
+    """在 own subtree 内搜索 assignment LHS 同名 identifier，追踪 RHS 表达式。
+
+    用于弥补 PHP/JS 等语言 normalizer 不生成 assignment DFG 边的缺陷。
+    e.g. $x = call($param); return $x; → 追踪 call 的返回值。
+
+    Returns: _trace_return_value 的结果 dict，或 None（未找到匹配赋值）。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    new_visited = visited | {origin_vid}
+    for n in own_vids:
+        if _vattr(graph.vs[n], "label") != NodeLabel.OPERATOR.value:
+            continue
+        if _vattr(graph.vs[n], "type") not in ("assign", "aug_assign"):
+            continue
+        for le in graph.es.select(_source=n, label="ast", role="left"):
+            lhs = graph.vs[le.target]
+            if _vattr(lhs, "label") == NodeLabel.IDENTIFIER.value and _vattr(lhs, "name", "") == target_name:
+                # 找到匹配的赋值，追踪 RHS
+                for re in graph.es.select(_source=n, label="ast", role="right"):
+                    rhs_vid = re.target
+                    if depth + 1 >= 3:
+                        return None
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
+                    return sub
+                return None  # RHS 不存在
+        # PHP normalizer 用 "lhs"/"rhs"，兼容
+        for le in graph.es.select(_source=n, label="ast", role="lhs"):
+            lhs = graph.vs[le.target]
+            if _vattr(lhs, "label") == NodeLabel.IDENTIFIER.value and _vattr(lhs, "name", "") == target_name:
+                for re in graph.es.select(_source=n, label="ast", role="rhs"):
+                    rhs_vid = re.target
+                    if depth + 1 >= 3:
+                        return None
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
+                    return sub
+                return None
+    return None  # 未找到同名赋值
 
 
 def _trace_call_to_function(
