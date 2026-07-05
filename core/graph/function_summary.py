@@ -322,6 +322,17 @@ def _trace_return_value(
         if pt:
             return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, depth)
 
+    # ── 2.6. $this / self（链式调用返回自身实例） ──
+    #     PHP/Java 中 `return $this` / `return self` 是链式调用模式，
+    #     返回的是当前对象实例，不是外部输入，视为 safe。
+    if vlabel == NodeLabel.IDENTIFIER.value:
+        iname = _vattr(v, "name", "")
+        if isinstance(iname, str) and iname in ("$this", "self"):
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        # phply 格式: Variable('$this')
+        if isinstance(iname, str) and ("$this" in iname or iname.strip("'\"") == "$this"):
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
     # ── 3. Operator（call, method_call, static_call 等） ──
     if vlabel == NodeLabel.OPERATOR.value:
         # 3a. 已有 taint_type 注解（builtin 函数，由 enrich_taint 标注）
@@ -376,7 +387,12 @@ def _trace_return_value(
     if vlabel == NodeLabel.IDENTIFIER.value:
         for me in graph.es.select(_target=start_vid, label="member"):
             container_vid = me.source
-            container_taint = _vattr(graph.vs[container_vid], "taint_type", "")
+            container = graph.vs[container_vid]
+            container_taint = _vattr(container, "taint_type", "")
+            # $this / self：链式调用或属性访问，返回对象实例，非外部输入
+            container_name = _vattr(container, "name", "")
+            if isinstance(container_name, str) and container_name in ("$this", "self"):
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             if container_taint == "source":
                 return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
             # 容器可能是 passthrough 函数的返回值——递归追踪
