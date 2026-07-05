@@ -738,21 +738,27 @@ class Normalizer:
             )
             self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
 
-        # member edge: for method calls, the object is on the left
+        # member + ast[callee] edge for MethodCall / NullsafeMethodCall
         if node_type_name in ("MethodCall", "NullsafeMethodCall"):
             obj_node = getattr(node, "node", None)
             if obj_node:
                 obj_pos = self._walk_node(obj_node, add_node, add_edge, ctx_stack, file_path, 0)
                 if obj_pos is not None:
-                    # The callee name is a member of the object
                     member_pos = self._emit_identifier(
                         add_node, name=callee_name, lineno=lineno,
                         id_type=IdentifierType.PROPERTY, file_path=file_path,
                     )
                     add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
                                "attrs": {"access_type": MemberAccessType.PROPERTY.value}})
-                    # ast[callee] edge for UseEdgeBuilder to resolve call→function
                     self._ast_edge(add_edge, pos, member_pos, AstRole.CALLEE.value)
+
+        # ast[callee] edge for StaticMethodCall (ClassName::method)
+        if node_type_name == "StaticMethodCall" and isinstance(callee_name, str) and callee_name:
+            callee_pos = self._emit_identifier(
+                add_node, name=callee_name, lineno=lineno,
+                id_type=IdentifierType.PROPERTY, file_path=file_path,
+            )
+            self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
 
         # ast edges for parameters
         for idx, param in enumerate(params):
