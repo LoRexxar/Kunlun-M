@@ -333,6 +333,12 @@ def _trace_return_value(
         if isinstance(iname, str) and ("$this" in iname or iname.strip("'\"") == "$this"):
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
+    # ── 2.7. 静态属性/常量（identifier type='static'） ──
+    #     self::$instance（name 含 Variable，可能从外部赋值）不安全；
+    #     ORM::LIMIT_STYLE_TOP_N（name 不含 Variable，静态常量）safe。
+    if vlabel == NodeLabel.IDENTIFIER.value and vtype == "static" and "Variable(" not in vname:
+        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
     # ── 3. Operator（call, method_call, static_call 等） ──
     if vlabel == NodeLabel.OPERATOR.value:
         # 3a. 已有 taint_type 注解（builtin 函数，由 enrich_taint 标注）
@@ -350,6 +356,31 @@ def _trace_return_value(
             result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, depth)
             if result:
                 return result
+
+    # ── 3.5. Branch/Ternary 追踪 ──
+    #    return $x ? $a : $b — 追踪 iftrue 和 iffalse 两个分支，
+    #    聚合结果（condition 不影响污点传播）。
+    if vlabel == NodeLabel.BRANCH.value:
+        branch_flows = []
+        for be in graph.es.select(_source=start_vid, label="ast"):
+            role = _vattr(be, "role", "")
+            if role in ("iftrue", "iffalse"):
+                sub = _trace_return_value(graph, be.target, own_vids, param_idx, visited, depth + 1)
+                branch_flows.append(sub)
+        if branch_flows:
+            # 用 _aggregate_flows 聚合所有分支
+            agg_type, agg_params = _aggregate_flows(branch_flows)
+            if agg_type in ("source", "param"):
+                return {"origin": vname, "origin_type": agg_type,
+                        "dep_params": list(agg_params), "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
+            if agg_type == "safe":
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            if agg_params:
+                return {"origin": vname, "origin_type": "param",
+                        "dep_params": list(agg_params), "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
+            # 所有分支都 unknown
+            return {"origin": vname, "origin_type": "unknown", "dep_params": [],
+                    "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
 
     # ── 4. 通用 DFG 反向追踪 ──
     all_dep_params: list[int] = []
@@ -543,6 +574,7 @@ def _trace_passthrough_call(
     depth: int,
 ) -> dict:
     """追踪 passthrough call 的参数——将 passthrough 索引映射到 call 的 ast[arg] 实参，递归追踪。"""
+    from core.graph.node_edge_schema import NodeLabel
     from utils.igraph_compat import _vattr
 
     all_dep_params: list[int] = []
@@ -557,6 +589,10 @@ def _trace_passthrough_call(
         actual_idx = int(idx) if idx is not None and idx != "" else arg_counter
         if actual_idx in pt_indices:
             arg_vid = ae.target
+            # 实参为字面量 const（如 str_repeat('<br>', $n)）→ 直接标 safe
+            if _vattr(graph.vs[arg_vid], "label") == NodeLabel.CONST.value:
+                vname = _vattr(graph.vs[call_vid], "name", "")
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, depth + 1)
             if sub["origin_type"] == "source":
                 return sub
