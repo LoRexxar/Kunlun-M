@@ -730,6 +730,14 @@ class Normalizer:
 
         # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
+        # ast[callee] edge for plain FunctionCall (e.g. strlen, array_key_exists)
+        if node_type_name == "FunctionCall" and isinstance(callee_name, str) and callee_name:
+            callee_pos = self._emit_identifier(
+                add_node, name=callee_name, lineno=lineno,
+                id_type=IdentifierType.VARIABLE, file_path=file_path,
+            )
+            self._ast_edge(add_edge, pos, callee_pos, AstRole.CALLEE.value)
+
         # member edge: for method calls, the object is on the left
         if node_type_name in ("MethodCall", "NullsafeMethodCall"):
             obj_node = getattr(node, "node", None)
@@ -743,6 +751,8 @@ class Normalizer:
                     )
                     add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
                                "attrs": {"access_type": MemberAccessType.PROPERTY.value}})
+                    # ast[callee] edge for UseEdgeBuilder to resolve call→function
+                    self._ast_edge(add_edge, pos, member_pos, AstRole.CALLEE.value)
 
         # ast edges for parameters
         for idx, param in enumerate(params):
@@ -1084,6 +1094,13 @@ class Normalizer:
         return pos
 
     # -- Identifier / Const helpers -------------------------------------------
+
+    def _ast_edge(self, add_edge, source, target, role: str, extra=None):
+        attrs = {"role": role}
+        if extra:
+            attrs.update(extra)
+        add_edge({"label": EdgeLabel.AST.value, "source": source,
+                   "target": target, "attrs": attrs})
 
     def _emit_identifier(self, add_node, name: str, lineno: int, id_type, file_path: str) -> int:
         pos = add_node({
