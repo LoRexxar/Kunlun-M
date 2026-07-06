@@ -48,12 +48,6 @@ class CVI_6001(SingleRuleMixin):
 
             "Statement.addBatch",
 
-            "PreparedStatement.executeQuery",
-
-            "PreparedStatement.executeUpdate",
-
-            "PreparedStatement.addBatch",
-
         ]
 
     def main(self, regex_string):

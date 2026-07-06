@@ -127,6 +127,14 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "isfinite", "isinf", "isnan",
 })
 
+# Java/Kotlin parameter annotations that indicate the parameter is
+# framework-injected and NOT user-controlled input.
+_SAFE_PARAM_ANNOTATIONS: frozenset[str] = frozenset({
+    "@CurrentUsername", "@AuthenticationPrincipal",
+    "@CurrentUser", "@LoginUser",
+    "@ActiveUser", "@AuthUser",
+})
+
 _SAFE_CONSTRAINT_OPS: frozenset[str] = frozenset({"==", "==="})
 
 _CALL_TYPES = {
@@ -736,6 +744,21 @@ class GraphAnalyzer:
                                 return self._cached(cache_key, AnalysisResult(
                                     code=-1,
                                     reason=f"entry parameter '{uname}' (framework type: {java_type})",
+                                    chain=[{"step": "entry_param", "vid": up_vid,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0)))
+                            # Check parameter-level annotations for
+                            # framework-injected identity markers (e.g. @CurrentUsername).
+                            safe_ann = self._check_safe_param_annotation(up_vid)
+                            if safe_ann:
+                                logger.debug(
+                                    "entry parameter '%s' vid=%d (safe annotation '%s')",
+                                    uname, up_vid, safe_ann,
+                                )
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"entry parameter '{uname}' (safe annotation: {safe_ann})",
                                     chain=[{"step": "entry_param", "vid": up_vid,
                                             "name": uname, "code": -1}],
                                     path=new_path,
@@ -1472,6 +1495,23 @@ class GraphAnalyzer:
                 # Continue BFS
                 if depth + 1 < max_depth:
                     queue.append((up_vid, depth + 1))
+        return None
+
+    def _check_safe_param_annotation(self, param_vid: int) -> str | None:
+        """Check if a parameter node has a safe annotation (e.g. @CurrentUsername).
+
+        Returns the annotation name if found safe, else None.
+        """
+        for e in self.graph.es.select(_source=param_vid, label="own"):
+            tgt = self.graph.vs[e.target]
+            if _vattr(tgt, "label") == "annotation":
+                ann_name = _vattr(tgt, "name", "")
+                # Check both with and without @ prefix
+                check = ann_name if not ann_name.startswith("@") else ann_name
+                for safe in _SAFE_PARAM_ANNOTATIONS:
+                    safe_check = safe.lstrip("@")
+                    if check == safe_check or ann_name == safe:
+                        return safe
         return None
 
     def _is_source_variable(self, name: str) -> bool:
