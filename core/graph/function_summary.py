@@ -336,8 +336,26 @@ def _trace_return_value(
     # ── 2.7. 静态属性/常量（identifier type='static'） ──
     #     self::$instance（name 含 Variable，可能从外部赋值）不安全；
     #     ORM::LIMIT_STYLE_TOP_N（name 不含 Variable，静态常量）safe。
-    if vlabel == NodeLabel.IDENTIFIER.value and vtype == "static" and "Variable(" not in vname:
-        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+    #     self::$_config[$key]（name 含 Variable('$key')，$key 是参数）→ passthrough。
+    if vlabel == NodeLabel.IDENTIFIER.value and vtype == "static":
+        if "Variable(" not in vname:
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        # 提取 name 中的所有 Variable('$xxx') 名，尝试与参数关联
+        import re as _re
+        var_names = _re.findall(r"Variable\('\$(\w+)'\)", vname)
+        if var_names:
+            matched_params = []
+            for vn in var_names:
+                for pvid, pidx in param_idx.items():
+                    pname = _vattr(graph.vs[pvid], "name", "")
+                    # 参数名可能是 $xxx 或 Variable('$xxx')
+                    if pname.endswith("$" + vn) or ("Variable('$" + vn + "'") in pname:
+                        matched_params.append(pidx)
+                        break
+            if matched_params:
+                unique = list(dict.fromkeys(matched_params))
+                return {"origin": vname, "origin_type": "param",
+                        "dep_params": unique, "has_unresolved_call": False}
 
     # ── 3. Operator（call, method_call, static_call 等） ──
     if vlabel == NodeLabel.OPERATOR.value:
@@ -363,6 +381,26 @@ def _trace_return_value(
         #     call 本身视为 safe 容器。
         callee = _vattr(v, "callee", "")
         if callee == "array":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+        # 3d. type_cast → 追踪内部表达式（passthrough）
+        #     (int)$x, (string)$x, (bool)$x — 类型转换不消除污点，
+        #     结果取决于内部表达式。递归追踪 ast 子节点。
+        if vtype == "type_cast":
+            for ae in graph.es.select(_source=start_vid, label="ast"):
+                inner = ae.target
+                sub = _trace_return_value(graph, inner, own_vids, param_idx, visited, depth + 1)
+                if sub["origin_type"] in ("source", "param", "safe"):
+                    return sub
+                # 内部是 unknown/literal → type_cast 也是 unknown
+                return sub
+            # 无子节点 → safe（如 return (int) 42 — 但正常不会被解析为 type_cast）
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+        # 3e. new → 安全构造（无外部输入）
+        #     new ClassName() 创建新实例，不传播外部污点。
+        #     TODO: 有参数时（new Foo($param)）应追踪构造函数。
+        if vtype == "new":
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     # ── 3.5. Branch/Ternary 追踪 ──
@@ -502,9 +540,28 @@ def _trace_assign_fallback(
             continue
         if _vattr(graph.vs[n], "type") not in ("assign", "aug_assign"):
             continue
+        # 检查 LHS —— 直接 identifier 或 ArrayOffset（映射为 identifier/property）
         for le in graph.es.select(_source=n, label="ast", role="left"):
             lhs = graph.vs[le.target]
-            if _vattr(lhs, "label") == NodeLabel.IDENTIFIER.value and _vattr(lhs, "name", "") == target_name:
+            lhs_label = _vattr(lhs, "label", "")
+            lhs_name = _vattr(lhs, "name", "")
+
+            matched_lhs = False
+            if lhs_label == NodeLabel.IDENTIFIER.value and lhs_name == target_name:
+                matched_lhs = True
+            elif lhs_label == NodeLabel.IDENTIFIER.value and _vattr(lhs, "type") == "property":
+                # ArrayOffset 返回 identifier/property
+                # 检查 member 边是否来自目标变量
+                # $arr[$key] = $val → member($arr → $key)，LHS 是 $key (property)
+                # 搜索 member 边的 source（container = $arr）
+                for me in graph.es.select(_target=le.target, label="member"):
+                    container = graph.vs[me.source]
+                    if (_vattr(container, "label") == NodeLabel.IDENTIFIER.value and
+                            _vattr(container, "name", "") == target_name):
+                        matched_lhs = True
+                        break
+
+            if matched_lhs:
                 # 找到匹配的赋值，追踪 RHS
                 for re in graph.es.select(_source=n, label="ast", role="right"):
                     rhs_vid = re.target
@@ -512,11 +569,32 @@ def _trace_assign_fallback(
                         return None
                     sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
                     return sub
+                # PHP normalizer 用 "lhs"/"rhs"，兼容
+                for re in graph.es.select(_source=n, label="ast", role="rhs"):
+                    rhs_vid = re.target
+                    if depth + 1 >= 3:
+                        return None
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
+                    return sub
                 return None  # RHS 不存在
-        # PHP normalizer 用 "lhs"/"rhs"，兼容
+        # PHP normalizer 兼容：lhs role
         for le in graph.es.select(_source=n, label="ast", role="lhs"):
             lhs = graph.vs[le.target]
-            if _vattr(lhs, "label") == NodeLabel.IDENTIFIER.value and _vattr(lhs, "name", "") == target_name:
+            lhs_label = _vattr(lhs, "label", "")
+            lhs_name = _vattr(lhs, "name", "")
+
+            matched_lhs = False
+            if lhs_label == NodeLabel.IDENTIFIER.value and lhs_name == target_name:
+                matched_lhs = True
+            elif lhs_label == NodeLabel.IDENTIFIER.value and _vattr(lhs, "type") == "property":
+                for me in graph.es.select(_target=le.target, label="member"):
+                    container = graph.vs[me.source]
+                    if (_vattr(container, "label") == NodeLabel.IDENTIFIER.value and
+                            _vattr(container, "name", "") == target_name):
+                        matched_lhs = True
+                        break
+
+            if matched_lhs:
                 for re in graph.es.select(_source=n, label="ast", role="rhs"):
                     rhs_vid = re.target
                     if depth + 1 >= 3:
