@@ -508,13 +508,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 try:
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(set(sink.get('arg_vids', [])))
+                    # call_user_func / call_user_func_array: RCE 风险仅存在于
+                    # 第一个参数（callable）可控的情况。数据参数即使可控也
+                    # 不构成 RCE——危险的是攻击者能控制调用哪个函数。
+                    _CALLABLE_ONLY_SINK = {
+                        "call_user_func", "call_user_func_array",
+                        "array_map", "array_filter", "array_walk",
+                        "array_reduce", "array_walk_recursive",
+                        "usort", "uasort", "uksort",
+                    }
+                    sink_name_lower = sink.get("name", "").lower()
+                    callable_only = sink_name_lower in _CALLABLE_ONLY_SINK
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
                     unconfirmed_result = None
-                    for arg_vid in arg_vids:
+                    for i, arg_vid in enumerate(arg_vids):
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
+                            continue
+                        # call_user_func/call_user_func_array: 只检查 callable 参数（第一个）
+                        # 数据参数（第二个及以后）不构成 RCE 风险
+                        if callable_only and i > 0:
                             continue
                         # If arg is an operator (e.g. new InputSource(...)),
                         # recursively trace sub-args for controllable data
@@ -553,6 +568,29 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         r = analyzer.parameters_back(arg_vid)
                         if r is not None:
                             if r.is_controllable:
+                                # callable_only sink: 检查 callable 参数是否有 null/空
+                                # 默认值。null 不是有效 callable，空数组 [] 也不是。
+                                # 有这些默认值意味着调用者可以不传参（安全）。
+                                if callable_only and i == 0:
+                                    # 从 arg 节点回溯到 parameter 声明节点
+                                    # 检查 default_value（arg 可能是 identifier 使用处，
+                                    # 不是 parameter 声明处）
+                                    _dv = _vattr(graph.vs[arg_vid], 'default_value', '')
+                                    if not _dv:
+                                        # parameter 通过 dfg 边指向 identifier（source→target）
+                                        # 所以从 arg 的 incoming dfg 边找 parameter
+                                        for _e in graph.es.select(_target=arg_vid):
+                                            _el = _vattr(_e, 'label', '')
+                                            if _el == 'dfg':
+                                                _sv = graph.vs[_e.source]
+                                                if _vattr(_sv, 'label') == 'parameter':
+                                                    _dv = _vattr(_sv, 'default_value', '')
+                                                    break
+                                    if _dv and ('null' in _dv or 'Array([])' in _dv):
+                                        # callable 有安全默认值，视为 inconclusive
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                        continue
                                 found_controllable = True
                                 result = r
                                 break
@@ -579,6 +617,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 检查 sink operator 本身是否通过 receiver 链路可控。
                             # 场景：template.process(rootMap, sw) — 参数不可控，
                             # 但 template 对象来自 new Template(userInput, ...).
+                            # 对 callable_only sink（call_user_func），不追踪 receiver——
+                            # 数据参数即使通过 receiver 链路可控也不构成 RCE。
+                            if callable_only:
+                                continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
                                 found_controllable = True
