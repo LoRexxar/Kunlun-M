@@ -866,7 +866,7 @@ class Normalizer:
                 if t_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": t_pos,
                                "attrs": {"role": AstRole.LHS.value}})
-            if expr:
+            if expr is not None:
                 e_pos = self._walk_node(expr, add_node, add_edge, ctx_stack, file_path, 0)
                 if e_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": e_pos,
@@ -880,7 +880,7 @@ class Normalizer:
                 if l_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": l_pos,
                                "attrs": {"role": AstRole.LHS.value}})
-            if right:
+            if right is not None:
                 r_pos = self._walk_node(right, add_node, add_edge, ctx_stack, file_path, 0)
                 if r_pos is not None:
                     add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": r_pos,
@@ -1072,6 +1072,46 @@ class Normalizer:
         return pos
 
     # -- Return ---------------------------------------------------------------
+
+    def _walk_array_literal(self, node, add_node, add_edge, ctx_stack, file_path, depth) -> int:
+        """Map PHP array() literal to an operator/call node.
+
+        phply's ``Array`` node has children of type ``ArrayElement`` (each with
+        optional ``key`` and ``value``).  We treat ``array()`` as a function
+        call so that DFG builder's assignment-propagation logic (step #0)
+        automatically creates dfg(array_call → lhs_identifier).
+        """
+        lineno = getattr(node, "lineno", 0)
+
+        pos = add_node({
+            "label": NodeLabel.OPERATOR.value,
+            "name": "array",
+            "lineno": lineno,
+            "language": self.language,
+            "attrs": {
+                "type": OperatorType.CALL.value,
+                "callee": "array",
+                "raw_type": "Array",
+            },
+        })
+
+        # own edge to enclosing function/class
+        if ctx_stack:
+            ctx = ctx_stack[-1]
+            add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
+                       "attrs": {"index": depth}})
+
+        children = getattr(node, "children", [])
+        if not isinstance(children, list):
+            children = list(children) if children else []
+
+        for idx, child in enumerate(children):
+            child_pos = self._walk_node(child, add_node, add_edge, ctx_stack, file_path, 0)
+            if child_pos is not None:
+                add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": child_pos,
+                           "attrs": {"role": AstRole.ARG.value, "arg_index": idx}})
+
+        return pos
 
     def _walk_return(self, node, add_node, add_edge, ctx_stack, file_path, depth) -> int:
         lineno = getattr(node, "lineno", 0)
@@ -1333,6 +1373,8 @@ class Normalizer:
             id_type = IdentifierType.THIS if name in ("$this", "$self") else IdentifierType.VARIABLE
             return self._emit_identifier(add_node, name=name, lineno=lineno,
                                           id_type=id_type, file_path=file_path)
+        if node_type_name == "Array":
+            return self._walk_array_literal(ast_node, add_node, add_edge, ctx_stack, file_path, depth)
         if node_type_name == "Constant":
             name = getattr(ast_node, "name", "")
             # 细分: true/false → BOOLEAN, null → NULL, 其余 → CONSTANT
