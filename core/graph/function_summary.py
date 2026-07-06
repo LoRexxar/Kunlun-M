@@ -357,6 +357,14 @@ def _trace_return_value(
             if result:
                 return result
 
+        # 3c. 内置安全构造函数——不传播外部污点
+        #     array() 是 PHP 数组字面量构造，返回值仅由参数决定，
+        #     但其参数（如果有的话）已经通过 arg DFG 被单独追踪。
+        #     call 本身视为 safe 容器。
+        callee = _vattr(v, "callee", "")
+        if callee == "array":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
     # ── 3.5. Branch/Ternary 追踪 ──
     #    return $x ? $a : $b — 追踪 iftrue 和 iffalse 两个分支，
     #    聚合结果（condition 不影响污点传播）。
