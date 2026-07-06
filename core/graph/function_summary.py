@@ -465,6 +465,7 @@ def _trace_return_value(
     #    identifier 通过 member 边连接到容器对象，如果容器是 source，
     #    则 member access 的结果也是 source。
     #    e.g. $_COOKIE['theme'] → member ← $_COOKIE (source)
+    #    e.g. $array[array_rand($array)] → member ← $array (parameter)
     if vlabel == NodeLabel.IDENTIFIER.value:
         for me in graph.es.select(_target=start_vid, label="member"):
             container_vid = me.source
@@ -476,6 +477,17 @@ def _trace_return_value(
                 return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             if container_taint == "source":
                 return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+            # 容器直接是函数参数 → 返回值与该参数关联
+            #   注意：normalizer 对同一变量名可能创建多个 vid，
+            #   所以需要按 name 匹配而非 vid。
+            container_name_raw = _vattr(container, "name", "")
+            if isinstance(container_name_raw, str) and container_name_raw.startswith("$"):
+                for pvid, pidx in param_idx.items():
+                    pname = _vattr(graph.vs[pvid], "name", "")
+                    if pname == container_name_raw:
+                        return {"origin": vname, "origin_type": "param",
+                                "dep_params": [pidx], "has_unresolved_call": False}
+                        break
             # 容器可能是 passthrough 函数的返回值——递归追踪
             if container_vid in own_vids:
                 sub = _trace_return_value(graph, container_vid, own_vids, param_idx, visited, depth + 1)
