@@ -79,13 +79,22 @@ def enrich_taint(
             continue
 
         # 对于 call/method_call 节点，提取短名和完整名
-        # e.g. "fmt.Sprintf" → lookup_name="Sprintf", full_lookup="fmt.Sprintf"
-        # TraceCache knowledge 中 key 是完整名（如 "fmt.Sprintf"），需同时尝试
+        # e.g. "Markdown.hashPart" (from normalizer fullname attr) → full_lookup="Markdown.hashPart"
         lookup_name = func_name
         full_lookup = func_name
         if is_call_node:
-            dot_pos = func_name.rfind(".")
-            lookup_name = func_name[dot_pos + 1:] if dot_pos >= 0 else func_name
+            # 优先使用 normalizer 设置的 fullname（ClassName.methodName）
+            node_fullname = _vattr(v, "fullname", "")
+            if node_fullname and "." in node_fullname:
+                full_lookup = node_fullname
+                lookup_name = node_fullname.rsplit(".", 1)[-1]
+            else:
+                dot_pos = func_name.rfind(".")
+                lookup_name = func_name[dot_pos + 1:] if dot_pos >= 0 else func_name
+        elif fullname and "." in fullname:
+            # function_def 节点：使用 fullname 做完整名查找
+            full_lookup = fullname
+            lookup_name = fullname.rsplit(".", 1)[-1]
 
         # 1. SourceRegistry（框架 source producer + builtin source member）
         #    source 标注优先级最高 — 如果函数本身就是 source（接收外部数据），

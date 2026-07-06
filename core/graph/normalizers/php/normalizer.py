@@ -158,6 +158,9 @@ class Normalizer:
         # Each entry: (node_position, node_label)
         ctx_stack: list[tuple[int, str]] = [(file_pos, NodeLabel.FILE.value)]
 
+        # Class name stack for fullname resolution (ClassName.MethodName)
+        self._class_stack: list[str] = []
+
         def current_ctx() -> tuple[int, str] | None:
             return ctx_stack[-1] if ctx_stack else None
 
@@ -242,11 +245,13 @@ class Normalizer:
                        "attrs": {"type": CrgType.EXTENDS.value}})
 
         # Walk child nodes (methods, properties, etc.)
+        self._class_stack.append(name)
         ctx_stack.append((pos, NodeLabel.CLASS.value))
         if cls_nodes:
             for child in cls_nodes:
                 self._walk_node(child, add_node, add_edge, ctx_stack, file_path, 0)
         ctx_stack.pop()
+        self._class_stack.pop()
 
         return pos
 
@@ -308,6 +313,11 @@ class Normalizer:
         lineno = getattr(node, "lineno", 0)
         end_lineno = getattr(node, "end_lineno", 0)
 
+        # 构造 fullname: ClassName.methodName（如果函数在类中）
+        fn_fullname = name
+        if self._class_stack:
+            fn_fullname = f"{self._class_stack[-1]}.{name}"
+
         pos = add_node({
             "label": NodeLabel.FUNCTION.value,
             "name": name,
@@ -315,7 +325,7 @@ class Normalizer:
             "end_lineno": end_lineno,
             "language": self.language,
             "attrs": {
-                "fullname": name,
+                "fullname": fn_fullname,
                 "type": func_type.value,
                 "signature": signature,
                 "modifiers": modifiers,
@@ -687,6 +697,7 @@ class Normalizer:
 
         callee_name = ""
         call_type = CgCallType.DIRECT
+        call_class_name = ""  # 用于构造 fullname
 
         if node_type_name == "FunctionCall":
             callee_name = getattr(node, "name", "")
@@ -695,9 +706,25 @@ class Normalizer:
         elif node_type_name in ("MethodCall", "NullsafeMethodCall"):
             callee_name = getattr(node, "name", "")
             call_type = CgCallType.METHOD
+            # 尝试获取类名：$this->method → 当前类，$obj->method → 未知
+            obj_node = getattr(node, "node", None)
+            if obj_node and isinstance(obj_node, phpast.Variable):
+                obj_name = getattr(obj_node, "name", "")
+                if isinstance(obj_name, phpast.Variable) and obj_name.name == "this":
+                    call_class_name = self._class_stack[-1] if self._class_stack else ""
+                elif isinstance(obj_name, str) and obj_name == "this":
+                    call_class_name = self._class_stack[-1] if self._class_stack else ""
         elif node_type_name == "StaticMethodCall":
             callee_name = getattr(node, "name", "")
             call_type = CgCallType.STATIC
+            # 从 AST 节点获取类名
+            class_node = getattr(node, "class_", None)
+            if class_node:
+                cn = getattr(class_node, "name", "")
+                if isinstance(cn, str):
+                    call_class_name = cn
+                elif isinstance(cn, phpast.Variable):
+                    call_class_name = cn.name
 
         # Determine operator type based on call kind
         if node_type_name == "FunctionCall":
@@ -719,6 +746,7 @@ class Normalizer:
                 "type": op_type.value,
                 "callee": callee_name,
                 "raw_type": node_type_name,
+                "fullname": f"{call_class_name}.{callee_name}" if call_class_name else callee_name,
             },
         })
 

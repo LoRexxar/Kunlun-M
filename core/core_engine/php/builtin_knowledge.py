@@ -2114,8 +2114,38 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "__set_state": {"passthrough": [], "safe": True},
     "__sleep": {"passthrough": [], "safe": True},
     "__toString": {"passthrough": [], "safe": True},
-    "__unset": {"passthrough": [], "safe": True},
-    "__wakeup": {"passthrough": [], "safe": True},}
+    "__wakeup": {"passthrough": [], "safe": True},
+
+    # ===== 第三方库方法（ fullname 匹配: ClassName.methodName ） =====
+    # Markdown 解析器内部 hash 方法（输入经过内部 hash 转换，不返回外部输入）
+    "Markdown.hashPart":     {"passthrough": [], "safe": True},
+    "Markdown.hashBlock":    {"passthrough": [], "safe": True},
+    "Markdown.unhash":       {"passthrough": [], "safe": True},
+    "Markdown.doItalicsAndBold": {"passthrough": [], "safe": True},
+    "Markdown.doHardBreaks": {"passthrough": [], "safe": True},
+    "Markdown.doAutoLinks":  {"passthrough": [], "safe": True},
+    "Markdown.doImages":     {"passthrough": [], "safe": True},
+    "Markdown.doAnchors":     {"passthrough": [], "safe": True},
+    "Markdown.detab":         {"passthrough": [], "safe": True},
+    "Markdown.backtrack":     {"passthrough": [], "safe": True},
+    "Markdown.parseSpan":     {"passthrough": [], "safe": True},
+    "Markdown.process":       {"passthrough": [], "safe": True},
+    "Parsedown.instance":     {"passthrough": [], "safe": True},
+    "Parsedown.parse":        {"passthrough": [], "safe": True},
+    "Parsedown.line":         {"passthrough": [], "safe": True},
+
+    # PHPMailer — 内部编码方法（返回 base64 签名，不直接透传用户输入）
+    "PHPMailer.DKIM_Sign":    {"passthrough": [], "safe": True},
+
+    # Idiorm ORM — 配置/连接管理
+    "ORM.get_config":         {"passthrough": [], "safe": True},
+    "ORM.get_db":             {"passthrough": [], "safe": True},
+    "ORM.get_connection_names": {"passthrough": [], "safe": True},
+
+    # 常见框架安全方法
+    "Arr.random":             {"passthrough": [0], "safe": True},
+    "Arr.subvalSort":          {"passthrough": [0, 1], "safe": False},
+}
 
 
 def lookup(func_name: str) -> Optional[Dict[str, Union[List[int], bool]]]:
