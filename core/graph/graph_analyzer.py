@@ -203,6 +203,7 @@ class GraphAnalyzer:
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._call_stack: list[str] = []
         self._source_registry = source_registry
+        self._mark_branch_safe_dfg()
 
     # --- Sink discovery ---------------------------------------------------
 
@@ -557,16 +558,19 @@ class GraphAnalyzer:
         if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value and sname:
             branch_chain = self.get_branch_chain(start_vid)
             if branch_chain:
-                innermost_branch = branch_chain[-1]
-                if self.check_branch_constraint(innermost_branch, sname):
-                    return self._cached(cache_key, AnalysisResult(
-                        code=-1,
-                        reason=f"branch constraint on '{sname}' in "
-                               f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
-                               f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
-                        chain=[{"step": "branch_constraint", "vid": innermost_branch,
-                                "name": sname, "code": -1}],
-                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+                # Check ALL branches in the chain, not just innermost/outermost.
+                # A variable can be protected by a parent branch even if the
+                # innermost branch doesn't constrain it.
+                for branch_vid in branch_chain:
+                    if self.check_branch_constraint(branch_vid, sname):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=-1,
+                            reason=f"branch constraint on '{sname}' in "
+                                   f"{_vattr(self.graph.vs[branch_vid], 'type', '')} "
+                                   f"('{_vattr(self.graph.vs[branch_vid], 'condition', '')}')",
+                            chain=[{"step": "branch_constraint", "vid": branch_vid,
+                                    "name": sname, "code": -1}],
+                            path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Quick checks on start node itself
         if self._is_source_variable(sname):
@@ -718,6 +722,11 @@ class GraphAnalyzer:
             cur_vid, depth, path = queue.popleft()
             for up_vid in self._get_dfg_sources(cur_vid):
                 if up_vid in visited:
+                    continue
+                # Skip DFG edges marked as branch-safe (pre-processed).
+                # These edges carry data that has been validated by a
+                # branch condition (e.g., is_numeric guard).
+                if self._is_dfg_branch_safe(up_vid, cur_vid):
                     continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
@@ -959,66 +968,41 @@ class GraphAnalyzer:
                                             return self._cached(cache_key, dep_res)
 
                 # Rule 6: branch constraint — identifier inside a branch
-                # whose condition constrains this variable to a safe value
-                # Use the sink arg's branch chain (pre-computed), not the
-                # current BFS node's chain, because constraints protect the
-                # sink location.
+                # whose condition constrains this variable to a safe value.
+                # Always use the current BFS node's branch chain (more precise
+                # than sink's chain for nested branch scenarios).
                 if ulabel == NodeLabel.IDENTIFIER.value and uname:
-                    # Branch constraint check.
-                    # If the sink arg is inside a branch, use sink's chain.
-                    # If not (empty chain), fall back to current BFS node's
-                    # chain — needed for ternary where the tainted identifier
-                    # is inside the ternary but the sink arg is outside.
-                    if sink_branch_chain:
-                        # Check if current node is inside a ternary iffalse
-                        cur_branch_chain = self.get_branch_chain(up_vid)
+                    cur_branch_chain = self.get_branch_chain(up_vid)
+                    if cur_branch_chain:
+                        # Skip if in ternary iffalse (not constrained)
                         in_ternary_false = False
-                        if cur_branch_chain:
-                            innermost_cur = cur_branch_chain[0]
-                            cbtype = _vattr(self.graph.vs[innermost_cur],
-                                           "type", "").lower()
-                            if cbtype == "ternary" and self._is_in_ternary_iffalse(
-                                    up_vid, innermost_cur):
-                                in_ternary_false = True
+                        innermost_cur = cur_branch_chain[0]
+                        cbtype = _vattr(self.graph.vs[innermost_cur],
+                                       "type", "").lower()
+                        if cbtype == "ternary" and self._is_in_ternary_iffalse(
+                                up_vid, innermost_cur):
+                            in_ternary_false = True
 
                         if not in_ternary_false:
-                            innermost_branch = sink_branch_chain[0]
-                            btype = _vattr(self.graph.vs[innermost_branch],
-                                           "type", "").lower()
-                            # Ternary: iffalse 分支不受 condition 约束
-                            if btype == "ternary" and self._is_in_ternary_iffalse(
-                                    up_vid, innermost_branch):
-                                pass  # 不阻断，继续 BFS
-                            elif self.check_branch_constraint(innermost_branch, uname):
-                                return self._cached(cache_key, AnalysisResult(
-                                    code=-1,
-                                    reason=f"branch constraint on '{uname}' in "
-                                           f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
-                                           f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
-                                    chain=[{"step": "branch_constraint", "vid": innermost_branch,
-                                            "name": uname, "code": -1}],
-                                    path=new_path,
-                                    expr_lineno=_vattr(uv, "lineno", 0)))
-                    else:
-                        # Fallback: use current BFS node's branch chain
-                        branch_chain = self.get_branch_chain(up_vid)
-                        if branch_chain:
-                            innermost_branch = branch_chain[0]
-                            btype = _vattr(self.graph.vs[innermost_branch],
-                                           "type", "").lower()
-                            if btype == "ternary" and self._is_in_ternary_iffalse(
-                                    up_vid, innermost_branch):
-                                pass  # 不阻断，继续 BFS
-                            elif self.check_branch_constraint(innermost_branch, uname):
-                                return self._cached(cache_key, AnalysisResult(
-                                    code=-1,
-                                    reason=f"branch constraint on '{uname}' in "
-                                           f"{_vattr(self.graph.vs[innermost_branch], 'type', '')} "
-                                           f"('{_vattr(self.graph.vs[innermost_branch], 'condition', '')}')",
-                                    chain=[{"step": "branch_constraint", "vid": innermost_branch,
-                                            "name": uname, "code": -1}],
-                                    path=new_path,
-                                    expr_lineno=_vattr(uv, "lineno", 0)))
+                            # Check ALL branches in the node's chain,
+                            # not just the innermost one. A variable can
+                            # be protected by a parent branch constraint.
+                            for branch_vid in cur_branch_chain:
+                                if self.check_branch_constraint(
+                                        branch_vid, uname):
+                                    return self._cached(cache_key,
+                                        AnalysisResult(
+                                            code=-1,
+                                            reason=f"branch constraint on "
+                                                   f"'{uname}' in "
+                                                   f"{_vattr(self.graph.vs[branch_vid], 'type', '')} "
+                                                   f"('{_vattr(self.graph.vs[branch_vid], 'condition', '')}')",
+                                            chain=[{"step": "branch_constraint",
+                                                    "vid": branch_vid,
+                                                    "name": uname,
+                                                    "code": -1}],
+                                            path=new_path,
+                                            expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Continue BFS
                 if ulabel in (NodeLabel.IDENTIFIER.value,
@@ -1091,6 +1075,19 @@ class GraphAnalyzer:
                     if cand_fp != start_fp:
                         continue
                     checked.add(cand.index)
+                    # Skip candidates that have branch-safe DFG edges
+                    # (their value is protected by a branch constraint).
+                    if self._has_branch_safe_dfg_in(cand.index):
+                        continue
+                    # Skip candidates that are NOT in the same branch scope
+                    # as the start_vid. Def-chaining should not cross branch
+                    # boundaries — a variable inside an if-branch should not
+                    # be linked to the same-named variable outside the branch.
+                    if sink_branch_chain:
+                        cand_chain = self.get_branch_chain(cand.index)
+                        # Candidate must share at least one ancestor branch
+                        if not set(cand_chain) & sink_branch_set:
+                            continue
                     # Check if this candidate has DFG sources to trace
                     if self._get_dfg_sources(cand.index):
                         # Use _trace_dfg_direct to avoid recursive
@@ -1616,6 +1613,63 @@ class GraphAnalyzer:
                     break
 
         return False, ""
+
+    # --- DFG branch-safe edge marking -------------------------------------
+
+    def _mark_branch_safe_dfg(self) -> None:
+        """Pre-process: mark DFG edges as branch_safe when the target
+        identifier is inside a branch whose condition constrains it.
+
+        For each identifier node, check its branch_chain. If any branch
+        in the chain has a check_branch_constraint match for this variable,
+        mark all incoming DFG edges as branch_safe=True.
+
+        Also mark identifiers that are re-assigned inside a branch that
+        has ANY constraint (even if not directly on this variable), since
+        the re-assignment creates a new value derived from constrained data.
+        """
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
+                continue
+            uname = _vattr(v, "name", "")
+            if not uname:
+                continue
+            vid = v.index
+            branch_chain = self.get_branch_chain(vid)
+            if not branch_chain:
+                continue
+
+            # Check if any branch in the chain constrains this variable
+            constrained = False
+            for bvid in branch_chain:
+                if self.check_branch_constraint(bvid, uname):
+                    constrained = True
+                    break
+
+            # Also mark if any branch in the chain constrains a related
+            # variable that this identifier's DFG upstream depends on.
+            # This is handled by BFS at runtime — no extra marking needed.
+
+            if constrained:
+                for e in self.graph.es.select(_target=vid, label="dfg"):
+                    e["branch_safe"] = True
+
+    def _is_dfg_branch_safe(self, source_vid: int, target_vid: int) -> bool:
+        """Check if the DFG edge from source_vid to target_vid is
+        marked as branch_safe."""
+        for e in self.graph.es.select(
+            _source=source_vid, _target=target_vid, label="dfg"
+        ):
+            if _vattr(e, "branch_safe"):
+                return True
+        return False
+
+    def _has_branch_safe_dfg_in(self, vid: int) -> bool:
+        """Check if vid has any incoming DFG edge marked branch_safe."""
+        for e in self.graph.es.select(_target=vid, label="dfg"):
+            if _vattr(e, "branch_safe"):
+                return True
+        return False
 
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
