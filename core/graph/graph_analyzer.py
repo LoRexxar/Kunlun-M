@@ -255,10 +255,16 @@ class GraphAnalyzer:
             # The operator name attribute contains the complete dotted expression
             # from the source (set by normalizer), which is the correct match
             # target for qualified sink names like "document.write".
+            # However, if the short name already matches a sink pattern (e.g.
+            # "exec" matching "exec" in the sink set), do NOT override it with
+            # a longer qualified name like "require().exec" that would fail to
+            # match.  Only override when the short name has no direct match.
             op_name = _vattr(v, "name", "")
+            _short_norm = callee_name.replace("::", ".") if callee_name else ""
             if (op_name and callee_name and
                     op_name.endswith(callee_name) and op_name != callee_name and
-                    "." in op_name):
+                    "." in op_name and
+                    _short_norm not in normalized_set and _short_norm not in name_set):
                 callee_name = op_name
             if not callee_name:
                 continue

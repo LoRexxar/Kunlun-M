@@ -761,7 +761,13 @@ class Normalizer:
                 self._ast_edge(add_edge, pos, cond_pos, AstRole.CONDITION.value)
 
         # Then body
+        # tree-sitter Ruby generates "body_statement" for multi-line if bodies
+        # (when no explicit "then" keyword is used), and "then" node when the
+        # "then" keyword is present (or as implicit then in some cases).
+        # Fallback: if body_statement is absent, look for a "then" child.
         then_body = self._find_child_by_type(node, "body_statement")
+        if then_body is None:
+            then_body = self._find_child_by_type(node, "then")
         if then_body:
             ctx_stack.append((pos, NodeLabel.BRANCH.value))
             for idx, child in enumerate(then_body.children):
