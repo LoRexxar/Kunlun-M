@@ -940,7 +940,17 @@ class GraphAnalyzer:
                                                 dep_vid, context_vid,
                                                 max_depth - depth)
                                             if dep_res.is_controllable:
-                                                return self._cached(cache_key, dep_res)
+                                                # Branch scope isolation: if dep_vid
+                                                # is outside the current branch but
+                                                # up_vid is inside, the definition may
+                                                # have been overridden inside the
+                                                # branch.
+                                                dep_chain = self.get_branch_chain(dep_vid)
+                                                cur_chain = self.get_branch_chain(up_vid)
+                                                if cur_chain and not set(dep_chain) & set(cur_chain):
+                                                    pass  # skip — dep outside branch scope
+                                                else:
+                                                    return self._cached(cache_key, dep_res)
                                 arg_counter += 1
 
                     # 4d: graph-based function trace (unknown or no taint attribute)
@@ -1869,15 +1879,32 @@ class GraphAnalyzer:
 
         # BinaryOp: ==, ===, !=, !==, ||, &&, <, >, etc.
         if label == NodeLabel.OPERATOR.value and ntype == OperatorType.BINARY_OP.value:
-            if name in _SAFE_CONSTRAINT_OPS:
+            # Determine actual operator — normalizers differ:
+            # - PHP/JS/Java/Go/Python: name = operator ("==", "||", etc.)
+            # - Ruby: name = whole expression ("target == 'ls'"), operator in "text" attr
+            actual_op = name
+            if name not in ("==", "===", "!=", "!==", "||", "&&", "<", ">", "<=", ">="):
+                text_attr = _vattr(self.graph.vs[cond_vid], "text", "")
+                for op in _SAFE_CONSTRAINT_OPS | {"||", "&&"}:
+                    if op in text_attr or op in name:
+                        actual_op = op
+                        break
+
+            if actual_op in _SAFE_CONSTRAINT_OPS:
                 # == or === : one side must be var_name, other must be constant
                 left_vid, right_vid = None, None
+                operand_vids = []  # fallback: Ruby uses OPERAND role
                 for e in self.graph.es.select(_source=cond_vid, label="ast"):
                     role = _vattr(e, "role", "")
                     if role == "left":
                         left_vid = e.target
                     elif role == "right":
                         right_vid = e.target
+                    elif role == "operand":
+                        operand_vids.append(e.target)
+                # Fallback: if no left/right, use first two operand children
+                if left_vid is None and len(operand_vids) >= 2:
+                    left_vid, right_vid = operand_vids[0], operand_vids[1]
                 if left_vid is None or right_vid is None:
                     return False
                 # Check if either side references var_name
@@ -1892,14 +1919,14 @@ class GraphAnalyzer:
                     return True  # constant == var
                 return False
 
-            elif name == "||":
+            elif actual_op == "||":
                 # OR: both sides must constrain → enum pattern
                 for e in self.graph.es.select(_source=cond_vid, label="ast"):
                     if not self._check_condition_node(e.target, var_name, depth + 1):
                         return False
                 return True
 
-            elif name == "&&":
+            elif actual_op == "&&":
                 # AND: either side constrains → safe
                 for e in self.graph.es.select(_source=cond_vid, label="ast"):
                     if self._check_condition_node(e.target, var_name, depth + 1):
@@ -1909,8 +1936,8 @@ class GraphAnalyzer:
             # !=, !==, <, >, <=, >= don't constrain to safe values
             return False
 
-        # FunctionCall: type validator (is_numeric, ctype_digit, etc.)
-        if label == NodeLabel.OPERATOR.value and ntype == OperatorType.CALL.value:
+        # FunctionCall / MethodCall: type validator (is_numeric, isdigit, etc.)
+        if label == NodeLabel.OPERATOR.value and ntype in _CALL_TYPES:
             if name in _TYPE_VALIDATION_FUNCS:
                 # Check if any arg references var_name
                 for e in self.graph.es.select(_source=cond_vid, label="ast"):
@@ -1927,6 +1954,13 @@ class GraphAnalyzer:
                             recv_name = _vattr(self.graph.vs[me.source], "name", "")
                             if recv_name == var_name:
                                 return True
+                # Check method receiver via DFG edge (Python: user_input.isdigit())
+                # Python normalizer routes the receiver through a DFG edge into
+                # the method_call node instead of a member edge.
+                for de in self.graph.es.select(_target=cond_vid, label="dfg"):
+                    recv_name = _vattr(self.graph.vs[de.source], "name", "")
+                    if recv_name == var_name:
+                        return True
 
             # preg_match: anchored regex without dot wildcard → safe
             if name == "preg_match":
