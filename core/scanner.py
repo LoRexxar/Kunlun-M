@@ -757,7 +757,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     vuln = VulnerabilityResult.from_match(
                         (file_path, lineno, sink_name),
                         svid=matched_rule.svid,
-                        language=matched_rule.language,
+                        language=_vattr(graph.vs[sink_vid], 'language', '') or matched_rule.language,
                         rule_name=matched_rule.vulnerability,
                         author=matched_rule.author
                     )

@@ -241,6 +241,10 @@ class GraphAnalyzer:
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.OPERATOR.value:
                 continue
+            # 只处理匹配当前分析器语言的节点
+            node_lang = _vattr(v, 'language', '')
+            if node_lang and self.language and node_lang != self.language:
+                continue
             if _vattr(v, "type") not in _CALL_TYPES:
                 continue
             # 跳过 callee 表达式节点（如 MemberExpression），只保留真正的调用 operator
@@ -352,6 +356,10 @@ class GraphAnalyzer:
         import_keywords = {"include", "require", "include_once", "require_once"}
         for v in self.graph.vs:
             if _vattr(v, "label") != NodeLabel.IMPORT.value:
+                continue
+            # 只处理匹配当前分析器语言的节点
+            node_lang = _vattr(v, 'language', '')
+            if node_lang and self.language and node_lang != self.language:
                 continue
             vtype = _vattr(v, "type", "")
             if vtype not in import_keywords:
