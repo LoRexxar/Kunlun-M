@@ -226,14 +226,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     from core.graph.workspace import ensure_scan_dir, get_workspace_db
                     from core.graph.graph_io import AstGraphIO
                     from core.graph.sqlite_index import ScanRecord
-                    from core.pretreatment import ast_object as _ao
                     scan_dir = ensure_scan_dir(a_sid)
                     gio = AstGraphIO(scan_dir)
                     meta = gio.save(graph)
                     sr = ScanRecord(get_workspace_db())
                     sr.upsert(
                         scan_id=a_sid,
-                        language=_ao.lan[0] if _ao.lan else None,
+                        language=language[0] if language else None,
                         target=target_directory,
                         graph_path=meta["file_path"],
                         node_count=graph.vcount(),
@@ -253,7 +252,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             # db_path 传 None，让 pipeline 根据 scan_id 自动使用 workspace DB
             # 仅在无 scan_id 时 fallback 到主库（保持 analyze 子命令可用）
             db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db') if not a_sid else None
-            graph = build_ast_graph(ast_object, db_path=db_path, scan_id=a_sid)
+            graph = build_ast_graph(files=files, language=language, target_directory=target_directory, db_path=db_path, scan_id=a_sid)
             logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Build failed: %s', e)
