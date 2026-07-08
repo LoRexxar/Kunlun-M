@@ -1633,6 +1633,34 @@ class GraphAnalyzer:
             try:
                 if self._source_registry.is_source_member(name):
                     return True
+                # Prefix-stripping fallback: Rust normalizer may strip "std::"
+                # producing "env::var" while SR has "std::env::var".
+                # Also: Java normalizer strips class prefix producing "getParameter"
+                # while SR has "getParameter" — but sometimes SR has longer form.
+                # Try BOTH directions: strip leading segments from name, AND
+                # check if any SR entry ends with the current name.
+                for sep in ("::", "."):
+                    if sep in name:
+                        parts = name.split(sep)
+                        # Direction 1: strip leading segments → suffix in SR
+                        for i in range(1, len(parts)):
+                            sfx = sep.join(parts[i:])
+                            if self._source_registry.is_source_member(sfx):
+                                return True
+                        # Direction 2: check if any SR entry ends with
+                        # sep+name (e.g., env::var → std::env::var)
+                        try:
+                            sr_set = getattr(
+                                self._source_registry, 'source_members',
+                                getattr(self._source_registry, '_source_members', None),
+                            )
+                            if sr_set:
+                                for sr_entry in sr_set:
+                                    if sr_entry.endswith(sep + name) or sr_entry == name:
+                                        return True
+                        except (AttributeError, TypeError):
+                            pass
+                        break
             except Exception:
                 pass
         return False
