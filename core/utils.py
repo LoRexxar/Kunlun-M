@@ -34,11 +34,20 @@ def parse_sink_names(match_string):
 
     match_string = match_string.strip()
 
-    # 去掉外层分组括号 "(a|b|c)..." → "a|b|c..."
-    # 用正则匹配确保正确提取，即使末尾有正则后缀
+    # 1. 先去掉正则断言（lookbehind/lookahead），它们不影响 sink 名称匹配。
+    #    必须在外层括号处理之前，否则 (?<!...) 的括号会被外层规则误匹配。
+    #    (?<!...) 和 (?<=...) 是零宽断言，(?=...) 和 (?!...) 同理。
+    match_string = re.sub(r'\(\?[<!]=?[^)]*\)', '', match_string)
+    match_string = re.sub(r'\(\?[!=][^)]*\)', '', match_string)
+
+    # 2. 去掉外层分组括号 "(a|b|c)..." → "a|b|c..."
     m = re.match(r'^\((.+)\)(.*)$', match_string, re.DOTALL)
     if m:
         match_string = m.group(1).strip() + m.group(2).strip()
+
+    # 3. 去掉正则元字符序列（\b=word boundary, \d, \w, \s 等），
+    #    它们不是对后续字符的转义，而是独立的正则指令，应整体删除。
+    match_string = re.sub(r'\\[bBdDwWsS]', '', match_string)
 
     # 去掉正则转义字符（Go 规则的 match 常为 "exec\\.Command|os\\.StartProcess"）
     # 只保留 \s, \(, \) 等正则元字符的转义，去掉 \. 的转义

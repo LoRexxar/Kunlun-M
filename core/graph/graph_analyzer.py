@@ -113,6 +113,14 @@ _FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
     "ApplicationContext", "Environment", "WebGoatUser",
 })
 
+# Spring/JAX-RS annotations that mark a parameter as user-controlled input
+_USER_CONTROLLED_ANNOTATIONS: frozenset[str] = frozenset({
+    "RequestParam", "PathVariable", "RequestBody", "RequestHeader",
+    "CookieValue", "ModelAttribute", "MatrixVariable",
+    "PathParam", "QueryParam", "FormParam", "HeaderParam",
+    "CookieParam", "Context",  # JAX-RS
+})
+
 _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     # PHP
     "is_numeric", "is_int", "is_integer", "is_float", "is_double",
@@ -218,6 +226,10 @@ class GraphAnalyzer:
             sink_names = sorted(_SINK_FUNCTIONS)
         name_set = set(sink_names)
         normalized_set = {sn.replace("::", ".") for sn in name_set}
+        # Case-insensitive fallback: vul_function 用类名 (JdbcTemplate.queryForObject)
+        # 而图节点用代码级名称 (jdbcTemplate.queryForObject)，需要大小写不敏感匹配
+        normalized_lower = {sn.lower() for sn in normalized_set}
+        name_lower = {sn.lower() for sn in name_set}
         results: list[dict] = []
 
         # 收集所有作为 callee 的节点 vid（MemberExpression 等），用于去重
@@ -282,6 +294,13 @@ class GraphAnalyzer:
 
             # Path 1: short name match (e.g. "unmarshal" in sink_set)
             if normalized_callee in normalized_set:
+                matched_name = normalized_callee
+                callee_name = normalized_callee
+
+            # Path 1b: case-insensitive match (vul_function uses class names
+            # like "JdbcTemplate.queryForObject" while AST nodes use code-level
+            # names like "jdbcTemplate.queryForObject")
+            if not matched_name and normalized_callee.lower() in normalized_lower:
                 matched_name = normalized_callee
                 callee_name = normalized_callee
 
@@ -751,6 +770,23 @@ class GraphAnalyzer:
 
                 # Rule 0: function parameter (entry point)
                 if ulabel == "parameter":
+                    # Check for user-controlled annotations (Spring/JAX-RS) first,
+                    # regardless of DFG upstream.  Parameters annotated with
+                    # @RequestParam, @PathVariable, @RequestBody etc. are
+                    # user-controlled HTTP input sources.
+                    if self.language in ("java", "kotlin"):
+                        if self._has_user_controlled_annotation(up_vid):
+                            logger.debug(
+                                "entry parameter '%s' vid=%d has user-controlled annotation → controllable",
+                                uname, up_vid,
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"user-controlled annotation on '{uname}'",
+                                chain=[{"step": "source", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
                     # If this parameter has no DFG upstream, it's an entry point
                     if not list(self._get_dfg_sources(up_vid)):
                         # For Java/Kotlin: check if this is a framework-injected
@@ -764,13 +800,18 @@ class GraphAnalyzer:
                                     "entry parameter '%s' vid=%d (framework type '%s', uncontrollable)",
                                     uname, up_vid, java_type,
                                 )
-                                return self._cached(cache_key, AnalysisResult(
-                                    code=-1,
-                                    reason=f"entry parameter '{uname}' (framework type: {java_type})",
-                                    chain=[{"step": "entry_param", "vid": up_vid,
-                                            "name": uname, "code": -1}],
-                                    path=new_path,
-                                    expr_lineno=_vattr(uv, "lineno", 0)))
+                                # Record as fallback but continue BFS — other
+                                # DFG paths (e.g. sink arguments independent of
+                                # this DI receiver) may still reach a source.
+                                if param_fallback is None:
+                                    param_fallback = AnalysisResult(
+                                        code=-1,
+                                        reason=f"entry parameter '{uname}' (framework type: {java_type})",
+                                        chain=[{"step": "entry_param", "vid": up_vid,
+                                                "name": uname, "code": -1}],
+                                        path=new_path,
+                                        expr_lineno=_vattr(uv, "lineno", 0))
+                                continue
                             # Check parameter-level annotations for
                             # framework-injected identity markers (e.g. @CurrentUsername).
                             safe_ann = self._check_safe_param_annotation(up_vid)
@@ -779,24 +820,34 @@ class GraphAnalyzer:
                                     "entry parameter '%s' vid=%d (safe annotation '%s')",
                                     uname, up_vid, safe_ann,
                                 )
-                                return self._cached(cache_key, AnalysisResult(
-                                    code=-1,
-                                    reason=f"entry parameter '{uname}' (safe annotation: {safe_ann})",
-                                    chain=[{"step": "entry_param", "vid": up_vid,
-                                            "name": uname, "code": -1}],
-                                    path=new_path,
-                                    expr_lineno=_vattr(uv, "lineno", 0)))
+                                if param_fallback is None:
+                                    param_fallback = AnalysisResult(
+                                        code=-1,
+                                        reason=f"entry parameter '{uname}' (safe annotation: {safe_ann})",
+                                        chain=[{"step": "entry_param", "vid": up_vid,
+                                                "name": uname, "code": -1}],
+                                        path=new_path,
+                                        expr_lineno=_vattr(uv, "lineno", 0))
+                                continue
                         logger.debug(
-                            "unresolved entry parameter '%s' vid=%d (no DFG upstream → uncontrollable)",
+                            "unresolved entry parameter '%s' vid=%d (no DFG upstream → recording as fallback, continue BFS)",
                             uname, up_vid,
                         )
-                        return self._cached(cache_key, AnalysisResult(
-                            code=-1,
-                            reason=f"unresolved entry parameter '{uname}'",
-                            chain=[{"step": "entry_param", "vid": up_vid,
-                                    "name": uname, "code": -1}],
-                            path=new_path,
-                            expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Don't return immediately — other DFG paths from the
+                        # same sink may still reach a controllable source.
+                        # E.g. jdbcTemplate.queryForObject(sql, rowMapper):
+                        #   jdbcTemplate → DI bean (uncontrollable receiver)
+                        #   sql → built from user input (controllable argument)
+                        # We must continue BFS to check the argument path.
+                        if param_fallback is None:
+                            param_fallback = AnalysisResult(
+                                code=-1,
+                                reason=f"unresolved entry parameter '{uname}'",
+                                chain=[{"step": "entry_param", "vid": up_vid,
+                                        "name": uname, "code": -1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                     # Parameter has DFG upstream — continue BFS.
                     # Record as fallback entry point — if BFS exhausts without
                     # reaching a source, treat as uncontrollable (not all function
@@ -1597,6 +1648,21 @@ class GraphAnalyzer:
                     if check == safe_check or ann_name == safe:
                         return safe
         return None
+
+    def _has_user_controlled_annotation(self, param_vid: int) -> bool:
+        """Check if a Java/Kotlin parameter has a user-controlled annotation.
+
+        Spring annotations like @RequestParam, @PathVariable, @RequestBody
+        indicate that the parameter carries user-supplied HTTP input.
+        JAX-RS annotations (@QueryParam, @PathParam, @FormParam) similarly.
+        """
+        for e in self.graph.es.select(_source=param_vid, label="own"):
+            tgt = self.graph.vs[e.target]
+            if _vattr(tgt, "label") == "annotation":
+                ann_name = _vattr(tgt, "name", "").lstrip("@")
+                if ann_name in _USER_CONTROLLED_ANNOTATIONS:
+                    return True
+        return False
 
     def _is_source_variable(self, name: str) -> bool:
         if not name:
