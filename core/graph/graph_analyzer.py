@@ -45,6 +45,7 @@ _JS_SOURCE_ROOTS: frozenset[str] = frozenset({
 })
 
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
+    # PHP
     "htmlspecialchars", "htmlentities", "strip_tags", "urlencode",
     "rawurlencode", "addslashes", "intval", "floatval",
     "escapeshellarg", "escapeshellcmd",
@@ -55,6 +56,31 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
+    # Python
+    "shlex.quote", "shlex.quote_plus",
+    "html.escape", "html.unescape",
+    "re.escape", "urllib.parse.quote", "urllib.parse.quote_plus",
+    "cgi.escape", "markupsafe.escape",
+    "os.path.basename", "os.path.realpath",
+    "int", "float", "str",
+    "json.dumps", "json.loads",
+    "pickle.dumps", "pickle.loads",
+    # Java
+    "StringEscapeUtils.escapeSql",
+    "org.apache.commons.lang3.StringEscapeUtils.escapeSql",
+    # Go
+    "html.EscapeString", "url.QueryEscape",
+    "shellescape.Quote",
+    # JavaScript/TypeScript
+    "encodeURIComponent", "encodeURI",
+    "DOMPurify.sanitize", "sanitizeHtml",
+    "escape", "unescape",
+    # Ruby
+    "ERB::Util.html_escape", "ERB::Util.url_encode",
+    "CGI.escapeHTML", "CGI.escape",
+    "Shellwords.escape", "Shellwords.shellescape",
+    "ActiveRecord::SanitizationHelper.sanitize_sql",
+    "params.to_unsafe_h",
 })
 
 _SINK_FUNCTIONS: frozenset[str] = frozenset({
@@ -262,6 +288,15 @@ class GraphAnalyzer:
             # 跳过 callee 表达式节点（如 MemberExpression），只保留真正的调用 operator
             # 但方法链中间有自身 arg 的节点是真正的调用点，不应跳过
             if v.index in callee_targets and v.index not in callee_with_args:
+                continue
+            # 跳过没有参数的 MemberExpression（属性访问如 req.query，不是函数调用）。
+            # JS normalizer 把 obj.prop 和 obj.method(arg) 都标记为 method_call，
+            # 但只有后者有 ast[role=arg] 出边。
+            if (_vattr(v, "type") == OperatorType.METHOD_CALL.value and
+                    _vattr(v, "raw_type") == "MemberExpression" and
+                    v.index not in callee_with_args and
+                    not any(_vattr(e, "role") == "arg"
+                            for e in self.graph.es.select(_source=v.index, label="ast"))):
                 continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:

@@ -537,6 +537,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 """Recursively trace operator sub-args for controllable data."""
                                 if depth >= max_depth:
                                     return None, None
+                                # Check if this operator is a repair function —
+                                # if so, its output is safe, return repaired.
+                                _callee = analyzer._resolve_callee_name(op_vid)
+                                if _callee and analyzer._is_repair_function(_callee):
+                                    from core.graph.graph_analyzer import AnalysisResult as _AR
+                                    return _AR(
+                                        code=2, reason=f"nested repair '{_callee}'",
+                                        chain=[{"step": "repair", "vid": op_vid,
+                                                "name": _callee, "code": 2}],
+                                        path=[op_vid]), None
                                 sub_arg_vids = [
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")
@@ -559,7 +569,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 return None, None
 
                             r, u = _deep_trace_args(arg_vid)
-                            if r is not None:
+                            if r is not None and r.is_controllable:
                                 found_controllable = True
                                 result = r
                                 break
