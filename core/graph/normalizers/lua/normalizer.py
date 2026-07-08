@@ -1035,6 +1035,7 @@ class Normalizer:
         # function_call: identifier (args)
         callee = self._find_child_by_type(node, "identifier",
                                            "dot_index_expression",
+                                           "method_index_expression",
                                            "parenthesized_expression",
                                            "bracket_index_expression")
         callee_name = self._text(callee) if callee else "<call>"

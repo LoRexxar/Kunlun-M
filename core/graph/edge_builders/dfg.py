@@ -101,6 +101,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if phase == 1:
             self._analyze_operator_flows()
             self._analyze_method_receiver_flows()
+            self._analyze_chained_call_returns()
             self._analyze_member_access_flows()
             self._analyze_assignments()
             self._analyze_parameter_scope_flows()
@@ -344,6 +345,62 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 continue
 
             self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
+
+    def _analyze_chained_call_returns(self) -> None:
+        """#0c: Chained call returns — inner call → outer call DFG.
+
+        For method chaining (e.g., Rust `env::var("X").unwrap()` or
+        JS `obj.method1().method2()`), the inner call's return value is
+        implicitly the receiver/argument of the outer call. We add a
+        DFG edge from inner call operator to outer call operator.
+
+        Detection: a call operator has an AST child that is also a
+        call operator (reached via callee chain: outer --[ast/callee]-->
+        callee_id --[ast]--> inner_call_operator).
+        """
+        call_types = {
+            OperatorType.CALL.value,
+            OperatorType.STATIC_CALL.value,
+            OperatorType.METHOD_CALL.value,
+        }
+
+        # Collect all call operator vids
+        call_vids = set()
+        for v in self.graph.vs:
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "type") in call_types:
+                call_vids.add(v.index)
+
+        for vid in call_vids:
+            # Walk AST children to find any child that is also a call operator
+            # The inner call may be nested: outer --[ast/callee]--> callee_id --[ast]--> inner_call
+            for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
+                child_vid = e.target
+                child_label = _vattr(self.graph.vs[child_vid], "label", "")
+                child_type = _vattr(self.graph.vs[child_vid], "type", "")
+
+                # Direct: ast child is itself a call operator
+                if child_label == NodeLabel.OPERATOR.value and child_type in call_types:
+                    self._add_dfg_edge(
+                        child_vid, vid, DfgType.FORWARD_SLICE.value
+                    )
+                    continue
+
+                # Indirect: ast child is an identifier/qualified_id that points to
+                # a call operator via its own ast children
+                if child_label in (NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
+                    for e2 in self.graph.es.select(_source=child_vid, label=EdgeLabel.AST.value):
+                        inner_vid = e2.target
+                        inner_label = _vattr(self.graph.vs[inner_vid], "label", "")
+                        inner_type = _vattr(self.graph.vs[inner_vid], "type", "")
+                        if (inner_label == NodeLabel.OPERATOR.value
+                                and inner_type in call_types
+                                and inner_vid != vid):
+                            self._add_dfg_edge(
+                                inner_vid, vid, DfgType.FORWARD_SLICE.value
+                            )
+                            break
 
     def _analyze_member_access_flows(self) -> None:
         """#0c: member access chain — 创建 identifier(receiver) → identifier(property) 的 DFG 边。

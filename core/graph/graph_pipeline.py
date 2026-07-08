@@ -73,7 +73,8 @@ _CODE_EXT_MAP = {
     "typescript": {".ts", ".tsx"},
     "python": {".py"},
     "go": {".go"},
-    "c": {".c", ".cpp", ".h", ".hpp", ".cc", ".cxx"},
+    "c": {".c", ".h"},
+    "cpp": {".cpp", ".cc", ".cxx", ".hpp"},
     "ruby": {".rb"},
     "rust": {".rs"},
     "csharp": {".cs"},
@@ -89,14 +90,14 @@ _LANG_ALIASES = {
     "rb": "ruby",
     "cs": "csharp",
     "kt": "kotlin",
-    "c++": "c",
-    "cpp": "c",
 }
 
 # tree-sitter module name mapping
 _TS_MODULE_MAP = {
     "go": "tree_sitter_go",
     "c": "tree_sitter_c",
+    "cpp": "tree_sitter_cpp",
+    "c++": "tree_sitter_cpp",
     "ruby": "tree_sitter_ruby",
     "rust": "tree_sitter_rust",
     "typescript": "tree_sitter_typescript",

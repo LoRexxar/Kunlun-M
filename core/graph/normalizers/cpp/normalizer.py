@@ -95,7 +95,7 @@ class Normalizer:
         )
     """
 
-    language = "c"
+    language = "cpp"
 
     def normalize(
         self,
@@ -340,6 +340,11 @@ class Normalizer:
                                         file_path, depth)
             return self._walk_children(node, add_node, add_edge, ctx_stack,
                                         file_path, depth)
+
+        # ---- Qualified identifier (std::getenv, ns::func) ---------------
+        if ntype == "qualified_identifier":
+            return self._walk_qualified_id(node, add_node, add_edge, ctx_stack,
+                                           file_path, depth)
 
         # ---- Call expression -------------------------------------------
         if ntype == "call_expression":
@@ -1244,7 +1249,7 @@ class Normalizer:
             node, "identifier", "field_expression", "member_expression",
             "subscript_expression", "parenthesized_expression",
             "call_expression", "pointer_expression",
-            "cast_expression")
+            "cast_expression", "qualified_identifier")
         arg_list = self._find_child_by_type(node, "argument_list")
 
         callee_text = self._text(func_node) if func_node else "<call>"
@@ -2051,5 +2056,41 @@ class Normalizer:
             },
         })
         self._own_edge(add_edge, ctx_stack, pos, depth)
+        return pos
+
+    def _walk_qualified_id(self, node, add_node, add_edge,
+                           ctx_stack, file_path, depth) -> int:
+        """Handle qualified_identifier (e.g., std::getenv) by extracting
+        the full qualified name as an identifier node, with member edges
+        for each segment."""
+        lineno = self._lineno(node)
+        # Extract full text: "std::getenv"
+        full_text = self._text(node)
+        # Extract the final identifier (getenv) as a separate node
+        # for member chain tracking
+        final_id = self._find_child_by_type(node, "identifier")
+
+        pos = add_node({
+            "label": NodeLabel.IDENTIFIER.value,
+            "name": full_text,
+            "lineno": lineno,
+            "language": self.language,
+            "attrs": {
+                "type": IdentifierType.VARIABLE.value,
+                "raw_type": node.type,
+            },
+        })
+        self._own_edge(add_edge, ctx_stack, pos, depth)
+
+        # Create member edges for each non-skip child (namespace_identifier, identifier)
+        prev_pos = pos
+        for child in node.children:
+            if self._is_skip(child):
+                continue
+            child_type = child.type
+            if child_type in ("namespace_identifier", "identifier", "type_identifier"):
+                child_pos = self._walk_identifier(child, add_node, file_path)
+                if child_pos is not None:
+                    self._ast_edge(add_edge, pos, child_pos, "segment")
         return pos
 
