@@ -63,6 +63,10 @@ class CVI_7005(SingleRuleMixin):
         if re.search(r'\.copy\s*\(\s*\)', regex_string):
             return False
 
+        # 过滤 receiver.open() — self.open()/obj.open() 是方法调用，非内置 open()
+        if re.search(r'\w+\s*\.\s*open\s*\(', regex_string):
+            return False
+
         # 检查 open() 的参数
         open_match = re.search(r'\bopen\s*\(\s*(.+)', regex_string, re.I)
         if open_match:
