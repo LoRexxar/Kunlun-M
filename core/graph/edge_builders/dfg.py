@@ -101,7 +101,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if phase == 1:
             self._analyze_operator_flows()
             self._analyze_method_receiver_flows()
+            self._analyze_member_access_flows()
             self._analyze_assignments()
+            self._analyze_parameter_scope_flows()
             # NOTE: builtin_and_summary (step 5) must run BEFORE same_variables
             # (step 4) so that param_flow DFG edges (e.g. snprintf output params)
             # are already accumulated in _dfg_edges when same_variables checks
@@ -342,6 +344,26 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 continue
 
             self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
+
+    def _analyze_member_access_flows(self) -> None:
+        """#0c: member access chain — 创建 identifier(receiver) → identifier(property) 的 DFG 边。
+
+        对于 member 边 (receiver --member--> property)，当 property 是 identifier 且
+        receiver 也是 identifier 时，创建 DFG 边使 parameters_back 能沿 member chain 追溯。
+
+        例: request.args → identifier(request) --dfg--> identifier(args)
+        例: request.data → identifier(request) --dfg--> identifier(data)
+        """
+        for e in self.graph.es.select(label=EdgeLabel.MEMBER.value):
+            src_vid = e.source
+            tgt_vid = e.target
+            src_label = _vattr(self.graph.vs[src_vid], "label", "")
+            tgt_label = _vattr(self.graph.vs[tgt_vid], "label", "")
+            if (src_label == NodeLabel.IDENTIFIER.value
+                    and tgt_label == NodeLabel.IDENTIFIER.value):
+                self._add_dfg_edge(
+                    src_vid, tgt_vid, DfgType.FORWARD_SLICE.value
+                )
 
     # -- 分析步骤 1：赋值传播 -------------------------------------------------
 
@@ -762,6 +784,78 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                 target_vid, vid, DfgType.SAME.value
                             )
                             break
+                    # 回退3：如果前方有同名 parameter，创建 parameter → identifier 的 DFG 边
+                    # 使 parameters_back 能从 body identifier 追溯到函数参数
+                    for j in range(i - 1, -1, -1):
+                        if vids_sorted[j] in assign_lhs_vids:
+                            break
+                        if _vattr(self.graph.vs[vids_sorted[j]], "label") == NodeLabel.PARAMETER.value:
+                            self._add_dfg_edge(
+                                vids_sorted[j], vid, DfgType.SAME.value
+                            )
+                            break
+
+    def _analyze_parameter_scope_flows(self) -> None:
+        """#0d: parameter → body identifier — 对每个 function 的 parameter，
+        查找同 file 内同名的 identifier（无 DFG 入边、非 assign LHS 的），
+        创建 parameter → identifier 的 DFG 边。
+
+        这解决了 Python/JS 等语言中函数参数在函数体内被直接引用时
+        （如 member access 的 receiver: request.args 中的 request）
+        缺少 DFG 边的问题。
+
+        由于 Python normalizer 创建的 member access receiver identifier
+        不一定挂在 function 的 own 子树中，此方法按 file 粒度匹配。
+        """
+        for fv in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
+            func_vid = fv.index
+            func_path = _vattr(fv, "path", "")
+
+            # 收集此 function 的所有 parameter
+            params: dict[str, list[int]] = defaultdict(list)
+            for oe in self.graph.es.select(_source=func_vid, label="own"):
+                cv = self.graph.vs[oe.target]
+                if _vattr(cv, "label") == NodeLabel.PARAMETER.value:
+                    pname = _vattr(cv, "name", "")
+                    if pname:
+                        params[pname].append(cv.index)
+            if not params:
+                continue
+
+            # 收集 assign LHS（这些已有 DFG 入边，不需要 param → ident 边）
+            assign_lhs_vids: set[int] = set()
+            for v in self.graph.vs.select(label=NodeLabel.IDENTIFIER.value):
+                for e in self.graph.es.select(_source=v.index, label="ast"):
+                    if _vattr(e, "role") in ("lhs", "assign_lhs"):
+                        assign_lhs_vids.add(v.index)
+
+            # 在同 file 内查找同名 identifier（无 DFG 入边且非 LHS）
+            for pname, param_vids in params.items():
+                for ident in self.graph.vs.select(
+                    label=NodeLabel.IDENTIFIER.value,
+                    name=pname,
+                ):
+                    ident_vid = ident.index
+                    # 跳过 parameter 自身
+                    if ident_vid in param_vids:
+                        continue
+                    # 跳过有 DFG 入边的（已有数据流来源）
+                    has_dfg_in = any(
+                        self.graph.es.select(_target=ident_vid, label="dfg")
+                    )
+                    if has_dfg_in:
+                        continue
+                    # 跳过 assign LHS
+                    if ident_vid in assign_lhs_vids:
+                        continue
+                    # 跳过不同 file 的
+                    if _vattr(ident, "path", "") != func_path:
+                        continue
+                    # 创建 parameter → identifier 的 DFG 边
+                    for pvid in param_vids:
+                        self._add_dfg_edge(
+                            pvid, ident_vid, DfgType.SAME.value
+                        )
 
     # -- 分析步骤 6：跨文件变量链接 -------------------------------------------
 

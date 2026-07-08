@@ -786,21 +786,27 @@ class GraphAnalyzer:
                                             "name": uname, "code": -1}],
                                     path=new_path,
                                     expr_lineno=_vattr(uv, "lineno", 0)))
-                        logger.debug("entry parameter '%s' vid=%d", uname, up_vid)
+                        logger.debug(
+                            "unresolved entry parameter '%s' vid=%d (no DFG upstream → uncontrollable)",
+                            uname, up_vid,
+                        )
                         return self._cached(cache_key, AnalysisResult(
-                            code=4, reason=f"entry parameter '{uname}'",
+                            code=-1,
+                            reason=f"unresolved entry parameter '{uname}'",
                             chain=[{"step": "entry_param", "vid": up_vid,
-                                    "name": uname, "code": 4}],
+                                    "name": uname, "code": -1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
-                    # Parameter has DFG upstream (e.g. from cross-file caller).
-                    # Record as fallback entry point — if BFS exhausts, treat
-                    # as entry parameter since it's still a function boundary.
+                    # Parameter has DFG upstream — continue BFS.
+                    # Record as fallback entry point — if BFS exhausts without
+                    # reaching a source, treat as uncontrollable (not all function
+                    # parameters come from tainted callers).
                     if param_fallback is None:
                         param_fallback = AnalysisResult(
-                            code=4, reason=f"entry parameter '{uname}'",
+                            code=-1,
+                            reason=f"unresolved entry parameter '{uname}'",
                             chain=[{"step": "entry_param", "vid": up_vid,
-                                    "name": uname, "code": 4}],
+                                    "name": uname, "code": -1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0))
 
