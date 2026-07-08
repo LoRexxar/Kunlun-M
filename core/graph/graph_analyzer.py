@@ -818,7 +818,8 @@ class GraphAnalyzer:
                         chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
                         path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
-                # Rule 1b: member/field identifier — check full_text for source
+                # Rule 1b: member/field identifier — check full_text and member
+                # chain for source (e.g., environ → os.environ → source)
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
@@ -829,19 +830,36 @@ class GraphAnalyzer:
                                 chain=[{"step": "dfg", "vid": up_vid,
                                         "name": full_text, "code": 1}],
                                 path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Reconstruct member chain (a.b.c → check "a.b.c", "a.b", "a")
+                    chain_name = self._is_source_via_member_chain(up_vid, uname)
+                    if chain_name:
+                        logger.debug("source found via member chain '%s' vid=%d", chain_name, up_vid)
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{chain_name}' (via member chain from '{uname}')",
+                            chain=[{"step": "dfg", "vid": up_vid,
+                                    "name": chain_name, "code": 1}],
+                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 2: constant — skip, keep searching
                 if ulabel == NodeLabel.CONST.value:
                     continue
 
-                # Rule 2b: binary_op / subscript (e.g., arg[1], arr[key]) —
-                # check ast children for source variable (the object being
-                # indexed).  DFG only flows from the operator to its result;
-                # the indexed object is connected via ast edges, not dfg.
-                if ulabel == NodeLabel.OPERATOR.value and utype in ("binary_op", "subscript"):
+                # Rule 2b: binary_op / subscript / call (e.g., sys.argv[0],
+                # arr[key], obj.method()) — check ast children for source
+                # variable (the object being indexed/called).  DFG only flows
+                # from the operator to its result; the indexed/called object is
+                # connected via ast edges, not dfg.
+                if ulabel == NodeLabel.OPERATOR.value and utype in (
+                    "binary_op", "subscript", "call",
+                ):
                     for ae in self.graph.es.select(_source=up_vid, label="ast"):
                         child_vid = ae.target
-                        child_name = _vattr(self.graph.vs[child_vid], "name", "")
+                        cv = self.graph.vs[child_vid]
+                        child_name = _vattr(cv, "name", "")
+                        child_type = _vattr(cv, "type", "")
+                        child_label = _vattr(cv, "label", "")
+                        # Direct name check
                         if self._is_source_variable(child_name):
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -849,7 +867,18 @@ class GraphAnalyzer:
                                 chain=[{"step": "subscript_source", "vid": child_vid,
                                         "name": child_name, "code": 1}],
                                 path=new_path + [child_vid],
-                                expr_lineno=_vattr(self.graph.vs[child_vid], "lineno", 0)))
+                                expr_lineno=_vattr(cv, "lineno", 0)))
+                        # Member chain check (e.g., argv → sys.argv)
+                        if child_label == NodeLabel.IDENTIFIER.value and child_type in ("field", "property"):
+                            chain_name = self._is_source_via_member_chain(child_vid, child_name)
+                            if chain_name:
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"superglobal '{chain_name}' via subscript member chain",
+                                    chain=[{"step": "subscript_source", "vid": child_vid,
+                                            "name": chain_name, "code": 1}],
+                                    path=new_path + [child_vid],
+                                    expr_lineno=_vattr(cv, "lineno", 0)))
 
                 # Rule 3: repair function
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
@@ -1568,6 +1597,43 @@ class GraphAnalyzer:
             except Exception:
                 pass
         return False
+
+    def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
+        """从 identifier 节点沿 incoming member 边重建组合名，
+        检查 source_registry / superglobals。
+
+        处理链式 member access:  a.b.c.d()
+        当 BFS 追到 identifier(c) 时，沿 member 边回溯找到 a.b，
+        组合为 "a.b.c" 检查是否为 source。
+
+        Returns: 第一个匹配 source_registry 的组合名，或 None。
+        """
+        if not name or self.graph is None:
+            return None
+        # 快速检查：name 本身就是 source
+        if self._is_source_variable(name):
+            return name
+
+        # 沿 incoming member 边回溯，逐步拼接组合名
+        # member 边方向: receiver → property  (os --member--> environ)
+        # 回溯方向: property ← member ← receiver
+        chain = name
+        cur_vid = vid
+        for _ in range(10):  # 最多 10 级，防止循环
+            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            if not member_in:
+                break
+            parent_vid = member_in[0].source
+            parent_v = self.graph.vs[parent_vid]
+            parent_name = _vattr(parent_v, "name", "")
+            if not parent_name:
+                break
+            chain = f"{parent_name}.{chain}"
+            if self._is_source_variable(chain):
+                return chain
+            cur_vid = parent_vid
+
+        return None
 
     def _is_repair_function(self, name: str) -> bool:
         if not name:
