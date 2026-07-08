@@ -17,4 +17,22 @@ class CVI_7010(SingleRuleMixin):
         self.vul_function = ["search", "search_s", "search_ext"]
 
     def main(self, regex_string):
-        pass
+        """
+        二次筛选：只保留 LDAP 搜索调用，过滤 re.search 等
+
+        安全模式 (return False):
+        - re.search(pattern, text)       正则搜索，非LDAP
+        - re.search_s / re.search_ext    正则模块无此方法（不会出现）
+
+        危险模式 (return None):
+        - conn.search(filter, ...)       LDAP 连接搜索
+        - ldap.search(base, filter)      LDAP 模块搜索
+        """
+        if not regex_string:
+            return None
+
+        # 过滤 re.search — 正则搜索不是 LDAP
+        if re.search(r'\bre\.search\s*\(', regex_string):
+            return False
+
+        return None
