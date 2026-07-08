@@ -822,6 +822,32 @@ class GraphAnalyzer:
                                         "name": uname, "code": 1}],
                                 path=new_path,
                                 expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Check java_type: numeric primitive/wrapper types cannot
+                        # carry injection payloads (Long, Integer, int, etc.).
+                        # Even if upstream data is user-controlled, the type system
+                        # restricts the value to non-injectable forms.
+                        _NUMERIC_JAVA_TYPES = frozenset({
+                            "int", "long", "float", "double", "short", "byte",
+                            "Integer", "Long", "Float", "Double", "Short", "Byte",
+                            "BigInteger", "BigDecimal", "Number",
+                        })
+                        param_java_type = _vattr(uv, "java_type", "")
+                        if param_java_type in _NUMERIC_JAVA_TYPES:
+                            logger.debug(
+                                "parameter '%s' vid=%d (java_type='%s', numeric — not injectable)",
+                                uname, up_vid, param_java_type,
+                            )
+                            # Record as fallback but continue BFS — other DFG paths
+                            # may still reach a controllable source.
+                            if param_fallback is None:
+                                param_fallback = AnalysisResult(
+                                    code=-1,
+                                    reason=f"parameter '{uname}' (numeric java_type: {param_java_type})",
+                                    chain=[{"step": "entry_param", "vid": up_vid,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
                     # If this parameter has no DFG upstream, it's an entry point
                     if not list(self._get_dfg_sources(up_vid)):
                         # For Java/Kotlin: check if this is a framework-injected
@@ -1690,7 +1716,23 @@ class GraphAnalyzer:
         Spring annotations like @RequestParam, @PathVariable, @RequestBody
         indicate that the parameter carries user-supplied HTTP input.
         JAX-RS annotations (@QueryParam, @PathParam, @FormParam) similarly.
+
+        Returns False for parameters whose java_type is a numeric primitive
+        or wrapper (int, long, float, double, Integer, Long, Float, Double,
+        Short, Byte, BigInteger, BigDecimal) — these cannot carry injection
+        payloads regardless of annotation.
         """
+        # Numeric types are not injectable even if annotated
+        _NON_INJECTABLE_TYPES = frozenset({
+            "int", "long", "float", "double", "short", "byte",
+            "Integer", "Long", "Float", "Double", "Short", "Byte",
+            "BigInteger", "BigDecimal", "Number",
+        })
+        param_v = self.graph.vs[param_vid]
+        jtype = _vattr(param_v, "java_type", "")
+        if jtype in _NON_INJECTABLE_TYPES:
+            return False
+
         for e in self.graph.es.select(_source=param_vid, label="own"):
             tgt = self.graph.vs[e.target]
             if _vattr(tgt, "label") == "annotation":
@@ -2038,6 +2080,22 @@ class GraphAnalyzer:
                     break
             own_inc = self.graph.es.select(_target=cur, label="own")
             if own_inc:
+                # Check if any branch has this node as its condition
+                # (ast edge with role='condition'). If so, include that
+                # branch in the chain — needed for JS/TS where condition
+                # nodes may be owned by function rather than branch.
+                found_branch = False
+                for ae in self.graph.es.select(_target=cur, label="ast"):
+                    if _vattr(ae, "role", "") == "condition":
+                        src = self.graph.vs[ae.source]
+                        if _vattr(src, "label", "") == NodeLabel.BRANCH.value:
+                            btype = _vattr(src, "type", "").lower()
+                            result.append(ae.source)
+                            if btype in self._NEGATED_BRANCH_TYPES:
+                                found_branch = True
+                                break
+                if found_branch:
+                    break
                 cur = own_inc[0].source
             else:
                 cur = self._get_ast_parent(cur)
@@ -2225,6 +2283,46 @@ class GraphAnalyzer:
                     recv_name = _vattr(self.graph.vs[de.source], "name", "")
                     if recv_name == var_name:
                         return True
+
+            # JS/TS RegExp method calls: /regex/.test(var) or /regex/.match(var)
+            # The JS normalizer stores the full expression as name (e.g. "/regex/.test").
+            # The receiver (regex literal) is linked via member edge to the method_call node.
+            callee_name = name.split(".")[-1] if "." in name else name
+            if callee_name in ("test", "match", "search", "exec"):
+                recv_vid = None
+                arg_vid = None
+                # Receiver is linked via member edge INTO the method_call node
+                for me in self.graph.es.select(_target=cond_vid, label="member"):
+                    recv_vid = me.source
+                    break
+                # Arg is the ast child with role='arg'
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(e, "role", "") == "arg":
+                        arg_vid = e.target
+                        break
+                # Fallback: try member or use edge source for receiver
+                if recv_vid is None:
+                    for me in self.graph.es.select(_source=cond_vid, label="member"):
+                        recv_vid = me.target
+                        break
+                if recv_vid is not None and arg_vid is not None:
+                    recv_name = _vattr(self.graph.vs[recv_vid], "name", "")
+                    recv_label = _vattr(self.graph.vs[recv_vid], "label", "")
+                    arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                    if (recv_label == NodeLabel.CONST.value
+                            and recv_name.startswith("/") and recv_name.endswith("/")
+                            and arg_name == var_name):
+                        # Check if regex is anchored (starts with ^ and ends with $)
+                        inner = recv_name[1:-1]  # strip outer slashes
+                        # Handle flags suffix: /[0-9]+/g → pattern = [0-9]+
+                        pattern = inner
+                        for ch in inner[::-1]:
+                            if ch in "gimsuy":
+                                pattern = pattern[:-1]
+                            else:
+                                break
+                        if pattern.startswith("^") and pattern.endswith("$"):
+                            return True
 
             # preg_match: anchored regex without dot wildcard → safe
             if name == "preg_match":

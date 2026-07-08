@@ -74,16 +74,11 @@ _BUILTIN_SOURCE_MEMBERS = {
     'flag.String',
     'flag.Int',
     'flag.Bool',
-    # io
-    'ioutil.ReadFile',
-    'os.ReadFile',
+    # io — 流读取（参数来自外部 I/O）
     'io.ReadAll',
     'bufio.Scanner',
     # URL 解析
     'url.Parse',
-    # encoding
-    'json.Unmarshal',
-    'xml.Unmarshal',
     # net 标准库
     'net/http',
 }

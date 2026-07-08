@@ -613,9 +613,32 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             found_controllable = True
                         elif not arg_vids:
                             # 无参数的 sink（如 rand::thread_rng()）— 跳过 taint 回溯，
-                            # 依赖 rule.main() 做二次筛选
-                            found_controllable = True
+                            # 依赖 rule.main() 做二次筛选。
+                            # 先检查 sink 所在函数是否有调用者（cg 入边）：
+                            # 如果 sink 所在函数从未被调用（死代码），则跳过。
                             sink_vid = sink['vid']
+                            parent_func_vid = None
+                            for oe in analyzer.graph.es.select(
+                                _target=sink_vid, label="own"
+                            ):
+                                if _vattr(analyzer.graph.vs[oe.source], "label") == "function":
+                                    parent_func_vid = oe.source
+                                    break
+                            if parent_func_vid is not None:
+                                has_callers = any(
+                                    True for _ in analyzer.graph.es.select(
+                                        _target=parent_func_vid, label="cg"
+                                    )
+                                )
+                                if not has_callers:
+                                    logger.debug(
+                                        "presence-of-sink skipped: '%s' in "
+                                        "uncalled function vid=%d",
+                                        sink.get('name', ''), parent_func_vid,
+                                    )
+                                    continue
+                            # 有调用者（或不在函数中）→ 报出 presence of sink
+                            found_controllable = True
                             result = AnalysisResult(
                                 code=0,
                                 reason=f"presence of sink '{sink.get('name', '')}'",

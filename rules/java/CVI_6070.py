@@ -48,8 +48,6 @@ class CVI_6070(SingleRuleMixin):
 
             "DocumentBuilder.parse",
 
-            "TransformerFactory.newTransformer",
-
         ]
 
     def main(self, regex_string):

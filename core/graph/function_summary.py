@@ -656,6 +656,17 @@ def _trace_call_to_function(
             vname = _vattr(graph.vs[call_vid], "name", "")
             return {"origin": vname, "origin_type": target_taint, "dep_params": [], "has_unresolved_call": False}
 
+        # fallback: 检查 GraphAnalyzer._REPAIR_FUNCTIONS 白名单
+        # 内置修复函数（如 html.escape, shlex.quote 等）未被 enrich_taint 标注，
+        # 但在 _REPAIR_FUNCTIONS 中。匹配短名（去除模块前缀）。
+        target_name = _vattr(target, "name", "")
+        if target_name:
+            from core.graph.graph_analyzer import _REPAIR_FUNCTIONS
+            short_name = target_name.rsplit(".", 1)[-1] if "." in target_name else target_name
+            if short_name in _REPAIR_FUNCTIONS or target_name in _REPAIR_FUNCTIONS:
+                vname = _vattr(graph.vs[call_vid], "name", "")
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
         # 目标完全未知 → 返回 None，让调用方继续 DFG 追踪
         return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
 
