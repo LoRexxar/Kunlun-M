@@ -794,8 +794,16 @@ class GraphAnalyzer:
                 # Skip DFG edges marked as branch-safe (pre-processed).
                 # These edges carry data that has been validated by a
                 # branch condition (e.g., is_numeric guard).
+                # Scope gate: only respect branch-safe when the target node
+                # (cur_vid) shares a branch scope with the sink.  Cross-scope
+                # branch-safe marks should not block BFS traversal — e.g.
+                # vid=28 (cmd in if-A) is marked branch-safe, but BFS from
+                # vid=38 (cmd in if-B) must still traverse through vid=28
+                # to reach the true source (argv).
                 if self._is_dfg_branch_safe(up_vid, cur_vid):
-                    continue
+                    cur_bc = self.get_branch_chain(cur_vid)
+                    if cur_bc and (set(cur_bc) & sink_branch_set):
+                        continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
                 uname = _vattr(uv, "name", "")
@@ -831,8 +839,21 @@ class GraphAnalyzer:
                             "Integer", "Long", "Float", "Double", "Short", "Byte",
                             "BigInteger", "BigDecimal", "Number",
                         })
+                        # Collection types (List, Set, Map, etc.) cannot be directly
+                        # used as injection payloads. In MyBatis ${param} with a
+                        # List param produces "[1, 2, 3]" which is not valid SQL.
+                        # The normalizer doesn't extract generic params, so
+                        # java_type is just "List" without "<Long>".
+                        _COLLECTION_JAVA_TYPES = frozenset({
+                            "List", "Set", "Map", "Collection",
+                            "ArrayList", "LinkedList", "HashSet", "TreeSet",
+                            "HashMap", "TreeMap", "LinkedHashMap",
+                            "Queue", "Deque", "Stack", "Vector",
+                            "Iterator", "Iterable", "Enumeration",
+                        })
+                        _NON_INJECTABLE_JAVA_TYPES = _NUMERIC_JAVA_TYPES | _COLLECTION_JAVA_TYPES
                         param_java_type = _vattr(uv, "java_type", "")
-                        if param_java_type in _NUMERIC_JAVA_TYPES:
+                        if param_java_type in _NON_INJECTABLE_JAVA_TYPES:
                             logger.debug(
                                 "parameter '%s' vid=%d (java_type='%s', numeric — not injectable)",
                                 uname, up_vid, param_java_type,
@@ -1120,21 +1141,29 @@ class GraphAnalyzer:
                                 actual_idx = int(idx) if idx else arg_counter
                                 if actual_idx in pt_param_indices:
                                     arg_vid = ae.target
-                                    arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
-                                    if arg_name:
-                                        dep_vid = self._find_identifier_by_name(
-                                            arg_name, context_vid)
-                                        if dep_vid is not None:
-                                            dep_res = self.parameters_back(
-                                                dep_vid, context_vid,
-                                                max_depth - depth)
-                                            if dep_res.is_controllable:
-                                                # Branch scope isolation: if dep_vid
-                                                # is outside the current branch but
-                                                # up_vid is inside, the definition may
-                                                # have been overridden inside the
-                                                # branch.
-                                                dep_chain = self.get_branch_chain(dep_vid)
+                                    # Try tracing arg_vid directly via dfg first;
+                                    # only fall back to _find_identifier_by_name (which
+                                    # searches the whole graph by name) when the arg has
+                                    # no local dfg sources (e.g. bare unbound identifier).
+                                    dep_res = self.parameters_back(
+                                        arg_vid, context_vid,
+                                        max_depth - depth)
+                                    if dep_res is None or not dep_res.is_controllable:
+                                        arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                                        if arg_name and dep_res is None:
+                                            dep_vid = self._find_identifier_by_name(
+                                                arg_name, context_vid)
+                                            if dep_vid is not None:
+                                                dep_res = self.parameters_back(
+                                                    dep_vid, context_vid,
+                                                    max_depth - depth)
+                                    if dep_res is not None and dep_res.is_controllable:
+                                                # Branch scope isolation: if the
+                                                # source identifier is outside the
+                                                # current branch but up_vid is inside,
+                                                # the definition may have been overridden
+                                                # inside the branch.
+                                                dep_chain = self.get_branch_chain(arg_vid)
                                                 cur_chain = self.get_branch_chain(up_vid)
                                                 if cur_chain and not set(dep_chain) & set(cur_chain):
                                                     pass  # skip — dep outside branch scope
@@ -1170,26 +1199,37 @@ class GraphAnalyzer:
                 # whose condition constrains this variable to a safe value.
                 # Always use the current BFS node's branch chain (more precise
                 # than sink's chain for nested branch scenarios).
+                # BUT: only check if the current node's branch chain shares
+                # at least one branch with the start_vid's chain.  A variable
+                # in a *different* code block should not inherit constraints
+                # from unrelated branches.  (Fixes cross-block DFG chain
+                # pollution — e.g. C's linear cmd→cmd→cmd DFG links that
+                # span multiple independent if/else blocks.)
                 if ulabel == NodeLabel.IDENTIFIER.value and uname:
                     cur_branch_chain = self.get_branch_chain(up_vid)
                     if cur_branch_chain:
-                        # Skip if in ternary iffalse (not constrained)
-                        in_ternary_false = False
-                        innermost_cur = cur_branch_chain[0]
-                        cbtype = _vattr(self.graph.vs[innermost_cur],
-                                       "type", "").lower()
-                        if cbtype == "ternary" and self._is_in_ternary_iffalse(
-                                up_vid, innermost_cur):
-                            in_ternary_false = True
+                        # Scope gate: skip if no shared branch with start
+                        if not (set(cur_branch_chain) & sink_branch_set):
+                            pass  # different code block, no constraint
+                        else:
+                            # Same branch scope — check constraints
+                            # Skip if in ternary iffalse (not constrained)
+                            in_ternary_false = False
+                            innermost_cur = cur_branch_chain[0]
+                            cbtype = _vattr(self.graph.vs[innermost_cur],
+                                           "type", "").lower()
+                            if cbtype == "ternary" and self._is_in_ternary_iffalse(
+                                    up_vid, innermost_cur):
+                                in_ternary_false = True
 
-                        if not in_ternary_false:
-                            # Check ALL branches in the node's chain,
-                            # not just the innermost one. A variable can
-                            # be protected by a parent branch constraint.
-                            for branch_vid in cur_branch_chain:
-                                if self.check_branch_constraint(
-                                        branch_vid, uname):
-                                    return self._cached(cache_key,
+                            if not in_ternary_false:
+                                # Check ALL branches in the node's chain,
+                                # not just the innermost one. A variable can
+                                # be protected by a parent branch constraint.
+                                for branch_vid in cur_branch_chain:
+                                    if self.check_branch_constraint(
+                                            branch_vid, uname):
+                                        return self._cached(cache_key,
                                         AnalysisResult(
                                             code=-1,
                                             reason=f"branch constraint on "
@@ -1770,6 +1810,10 @@ class GraphAnalyzer:
         if self.language in ("javascript", "typescript"):
             if name in _JS_SOURCE_ROOTS:
                 return True
+        # C: argv is a user-controlled source (command-line arguments)
+        if self.language == "c":
+            if name == "argv" or (name.startswith("argv")):
+                return True
         # SourceRegistry: builtin source members for all languages
         # (e.g., Go: os.Args, os.Getenv; C: argv, getenv; Python: sys.argv, os.environ)
         if self._source_registry is not None:
@@ -2173,8 +2217,85 @@ class GraphAnalyzer:
         """
         btype = _vattr(self.graph.vs[branch_vid], "type", "")
 
-        # Wildcard branches never constrain: else, default, case _
+        # Wildcard branches: else and default normally don't constrain.
+        # EXCEPTION: else of a != branch — the else means == (constraining).
+        # e.g. if (strcmp(x, "rm") != 0) { ... } else { BLOCKED }
+        # In this case, the else branch inherits the NEGATED condition,
+        # and != negated is ==, which IS a safe constraint.
         if btype in self._NEGATED_BRANCH_TYPES:
+            if btype == "else":
+                # Find parent if branch via own or ast edge
+                # (C normalizer uses ast with role=iffalse;
+                #  PHP/JS may use own)
+                parent_if_vid = None
+                for lbl in ("own", "ast"):
+                    for e in self.graph.es.select(
+                        _target=branch_vid, label=lbl
+                    ):
+                        p = self.graph.vs[e.source]
+                        if _vattr(p, "label") == NodeLabel.BRANCH.value \
+                                and _vattr(p, "type") == "if":
+                            parent_if_vid = e.source
+                            break
+                    if parent_if_vid is not None:
+                        break
+                if parent_if_vid is not None:
+                    parent_cond = self._get_condition_root(parent_if_vid)
+                    if parent_cond is not None:
+                        pname = _vattr(self.graph.vs[parent_cond], "name", "")
+                        ptype = _vattr(self.graph.vs[parent_cond], "type", "")
+                        # != or !== negated → ==, which is a safe constraint.
+                        # _check_condition_node returns False for != directly,
+                        # so we extract left/right and check as if it were ==.
+                        if pname in ("!=", "!=="):
+                            left_vid, right_vid = None, None
+                            for e in self.graph.es.select(
+                                _source=parent_cond, label="ast"
+                            ):
+                                role = _vattr(e, "role", "")
+                                if role == "left":
+                                    left_vid = e.target
+                                elif role == "right":
+                                    right_vid = e.target
+                            if left_vid is not None and right_vid is not None:
+                                left_name = _vattr(
+                                    self.graph.vs[left_vid], "name", "")
+                                right_label = _vattr(
+                                    self.graph.vs[right_vid], "label", "")
+                                right_name = _vattr(
+                                    self.graph.vs[right_vid], "name", "")
+                                # var == const (negated !=)
+                                if left_name == var_name and right_label in (
+                                        NodeLabel.CONST.value,
+                                        NodeLabel.IDENTIFIER.value):
+                                    return True
+                                if right_name == var_name:
+                                    left_label = _vattr(
+                                        self.graph.vs[left_vid], "label", "")
+                                    if left_label in (
+                                            NodeLabel.CONST.value,
+                                            NodeLabel.IDENTIFIER.value):
+                                        return True
+                                # strcmp(var, const) == 0 (negated !=)
+                                left_type = _vattr(
+                                    self.graph.vs[left_vid], "type", "")
+                                if (left_type == "call"
+                                        and left_name in (
+                                            "strcmp", "strncmp", "memcmp",
+                                            "strcasecmp", "strncasecmp")):
+                                    cmp_args = [
+                                        e.target for e in self.graph.es.select(
+                                            _source=left_vid, label="ast")
+                                        if _vattr(e, "role") == "arg"]
+                                    if len(cmp_args) >= 2:
+                                        a0 = _vattr(
+                                            self.graph.vs[cmp_args[0]], "name", "")
+                                        a1l = _vattr(
+                                            self.graph.vs[cmp_args[1]], "label", "")
+                                        if (a0 == var_name and a1l in (
+                                                NodeLabel.CONST.value,
+                                                NodeLabel.IDENTIFIER.value)):
+                                            return True
             return False
         if btype == "case":
             cond_vid = self._get_condition_root(branch_vid)
@@ -2239,6 +2360,28 @@ class GraphAnalyzer:
                     return True  # var == constant
                 if right_name == var_name and left_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
                     return True  # constant == var
+
+                # strcmp(var, const) == 0 → var is constrained to const
+                # Pattern: left is a call to strcmp/memcmp/etc.,
+                # right is a constant 0 (or NULL/false).
+                # The first arg of strcmp must be var_name, second must be constant.
+                left_label_type = _vattr(self.graph.vs[left_vid], "type", "")
+                if left_label in (NodeLabel.OPERATOR.value,) and left_label_type == "call":
+                    callee = left_name  # already resolved from name attr
+                    if callee in ("strcmp", "strncmp", "memcmp", "strcasecmp",
+                                 "strncasecmp"):
+                        # Extract strcmp args
+                        cmp_args = []
+                        for ce in self.graph.es.select(_source=left_vid, label="ast"):
+                            if _vattr(ce, "role") == "arg":
+                                cmp_args.append(ce.target)
+                        if len(cmp_args) >= 2:
+                            arg0_name = _vattr(self.graph.vs[cmp_args[0]], "name", "")
+                            arg1_label = _vattr(self.graph.vs[cmp_args[1]], "label", "")
+                            arg1_name = _vattr(self.graph.vs[cmp_args[1]], "name", "")
+                            if (arg0_name == var_name
+                                    and arg1_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value)):
+                                return True
                 return False
 
             elif actual_op == "||":
@@ -2399,6 +2542,25 @@ class GraphAnalyzer:
                             switch_var = _vattr(self.graph.vs[switch_cond], "name", "")
                             if switch_var == var_name:
                                 return True
+                            # Subscript: switch(x[i]) constrains x
+                            # Extract base variable from subscript operator
+                            # C/Java: x[0] → binary_op, left=identifier x, right=index
+                            sc_label = _vattr(self.graph.vs[switch_cond], "label", "")
+                            sc_type = _vattr(self.graph.vs[switch_cond], "type", "")
+                            if (sc_label == NodeLabel.OPERATOR.value
+                                    and sc_type == OperatorType.BINARY_OP.value):
+                                for se in self.graph.es.select(
+                                    _source=switch_cond, label="ast"
+                                ):
+                                    if _vattr(se, "role") == "left":
+                                        base_name = _vattr(
+                                            self.graph.vs[se.target], "name", "")
+                                        # Strip subscript suffix: "cmd[...]" → "cmd"
+                                        if "[" in base_name:
+                                            base_name = base_name[:base_name.index("[")]
+                                        if base_name == var_name:
+                                            return True
+                                        break
 
         return False
 
