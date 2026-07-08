@@ -880,6 +880,34 @@ class GraphAnalyzer:
                                     path=new_path + [child_vid],
                                     expr_lineno=_vattr(cv, "lineno", 0)))
 
+                # Rule 2c: operator(method_call/static_call) — JS-style member
+                # chain where operator name IS the full dotted path
+                # (e.g., "process.env.INPUT", "req.query.cmd").
+                # The operator's name may directly match source_registry, or
+                # we can reconstruct parent chain via incoming member edges.
+                if ulabel == NodeLabel.OPERATOR.value and utype in (
+                    "method_call", "static_call",
+                ):
+                    # Direct name check — operator name may be "process.env.INPUT"
+                    if self._is_source_variable(uname):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{uname}' (operator member chain)",
+                            chain=[{"step": "dfg", "vid": up_vid,
+                                    "name": uname, "code": 1}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Member chain reconstruction from operator
+                    chain_name = self._is_source_via_member_chain(up_vid, uname)
+                    if chain_name:
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{chain_name}' (operator member chain)",
+                            chain=[{"step": "dfg", "vid": up_vid,
+                                    "name": chain_name, "code": 1}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
+
                 # Rule 3: repair function
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
                     callee = self._resolve_callee_name(up_vid)
@@ -1578,7 +1606,18 @@ class GraphAnalyzer:
         if "[" in name:
             if name.split("[", 1)[0] in _SUPERGLOBALS:
                 return True
-            # Don't short-circuit — SourceRegistry may recognize it (e.g., params[:cmd])
+            # Ruby-style: ARGV[0], ENV['X'] → check "ARGV", "ENV[]", etc.
+            base = name.split("[", 1)[0]
+            if self._source_registry is not None:
+                try:
+                    # Check base name directly (e.g., "ARGV")
+                    if self._source_registry.is_source_member(base):
+                        return True
+                    # Check base+[] pattern (e.g., "ENV[]")
+                    if self._source_registry.is_source_member(f"{base}[]"):
+                        return True
+                except Exception:
+                    pass
         if "." in name:
             # Support dotted paths like "request.GET"
             if name in _SUPERGLOBALS:
@@ -1599,12 +1638,16 @@ class GraphAnalyzer:
         return False
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
-        """从 identifier 节点沿 incoming member 边重建组合名，
+        """从节点沿 incoming member 边重建组合名，
         检查 source_registry / superglobals。
 
-        处理链式 member access:  a.b.c.d()
-        当 BFS 追到 identifier(c) 时，沿 member 边回溯找到 a.b，
-        组合为 "a.b.c" 检查是否为 source。
+        支持两种 member chain 图结构:
+        1. Python-style: identifier(os) --member--> identifier(environ) --member--> ...
+           成员链是 identifier 之间的 member 边。
+        2. JS-style: identifier(process) --member--> operator(process.env)
+                    --member--> operator(process.env.INPUT)
+           成员链是 identifier/operator 交替的 member 边，operator 通过
+           ast 边连接内部 property identifier。
 
         Returns: 第一个匹配 source_registry 的组合名，或 None。
         """
@@ -1615,8 +1658,6 @@ class GraphAnalyzer:
             return name
 
         # 沿 incoming member 边回溯，逐步拼接组合名
-        # member 边方向: receiver → property  (os --member--> environ)
-        # 回溯方向: property ← member ← receiver
         chain = name
         cur_vid = vid
         for _ in range(10):  # 最多 10 级，防止循环
@@ -1628,6 +1669,14 @@ class GraphAnalyzer:
             parent_name = _vattr(parent_v, "name", "")
             if not parent_name:
                 break
+            # Avoid double-counting when chain already starts with parent_name
+            if chain.startswith(parent_name + "."):
+                # chain already has parent as prefix — the parent itself
+                # might be the source (e.g., chain="process.env.INPUT",
+                # parent="process.env" is in source_registry)
+                if self._is_source_variable(parent_name):
+                    return parent_name
+                break  # no further useful chain to build
             chain = f"{parent_name}.{chain}"
             if self._is_source_variable(chain):
                 return chain
