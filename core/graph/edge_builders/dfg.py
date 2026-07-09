@@ -48,10 +48,31 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     def __init__(self) -> None:
         self.graph: "ig.Graph | None" = None
-        self._dfg_edges: list[tuple[int, int, str]] = []  # (src, tgt, dfg_type)
+        self._dfg_edges: set[tuple[int, int, str]] = set()  # (src, tgt, dfg_type)
         # 函数名→vid列表索引（build() 中预构建，用于 _resolve_function O(1) 查找）
         self._func_name_index: dict[str, list[int]] = {}
         self._func_fullname_index: dict[str, list[int]] = {}
+        # 边索引：预构建以替代 es.select() 的 O(E) 遍历
+        self._edge_src_idx: dict[tuple[str, int], list[int]] = {}  # (label, src_vid) → [tgt_vids]
+        self._edge_tgt_idx: dict[tuple[str, int], list[int]] = {}  # (label, tgt_vid) → [src_vids]
+
+    # -- 边索引查询 helpers (O(1) 替代 es.select 的 O(E)) ------------------
+
+    def _edges_from(self, src_vid: int, label: str) -> list[int]:
+        """返回从 src_vid 出发的、标签为 label 的边的目标 vid 列表。"""
+        return self._edge_src_idx.get((label, src_vid), [])
+
+    def _edges_to(self, tgt_vid: int, label: str) -> list[int]:
+        """返回指向 tgt_vid 的、标签为 label 的边的源 vid 列表。"""
+        return self._edge_tgt_idx.get((label, tgt_vid), [])
+
+    def _has_edge_from(self, src_vid: int, label: str) -> bool:
+        """快速判断 src_vid 是否有标签为 label 的出边。"""
+        return (label, src_vid) in self._edge_src_idx
+
+    def _has_edge_to(self, tgt_vid: int, label: str) -> bool:
+        """快速判断 tgt_vid 是否有标签为 label 的入边。"""
+        return (label, tgt_vid) in self._edge_tgt_idx
 
     # -- 公共接口 ------------------------------------------------------------
 
@@ -74,10 +95,21 @@ class DataFlowBuilder(BaseEdgeBuilder):
             新增的 dfg 边数量。
         """
         self.graph = graph
-        self._dfg_edges = []
+        self._dfg_edges = set()
 
         if self.graph.vcount() == 0:
             return 0
+
+        # 预构建边索引：O(E) 一次遍历，替代后续所有 es.select() 的 O(E) 逐次查询
+        self._edge_src_idx = defaultdict(list)
+        self._edge_tgt_idx = defaultdict(list)
+        for e in self.graph.es:
+            elabel = _vattr(e, "label", "")
+            self._edge_src_idx[(elabel, e.source)].append(e.target)
+            self._edge_tgt_idx[(elabel, e.target)].append(e.source)
+        # 转为普通 dict 避免 defaultdict 开销
+        self._edge_src_idx = dict(self._edge_src_idx)
+        self._edge_tgt_idx = dict(self._edge_tgt_idx)
 
         # 预构建函数名索引：name → [vid1, vid2, ...]
         # 避免在 _resolve_function 中对每个函数调用做 O(V) 全图遍历
@@ -757,9 +789,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
                 continue
             has_own = False
-            for oe in self.graph.es.select(_target=v.index, label="own"):
+            for own_src in self._edges_to(v.index, "own"):
                 parent_label = _vattr(
-                    self.graph.vs[oe.source], "label", ""
+                    self.graph.vs[own_src], "label", ""
                 )
                 if parent_label == NodeLabel.FUNCTION.value:
                     has_own = True
@@ -825,11 +857,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         if vids_sorted[j] in assign_lhs_vids:
                             break  # 已有 LHS 但被跳过（lineno 不匹配）
                         target_vid = vids_sorted[j]
-                        has_dfg_in = any(
-                            self.graph.es.select(
-                                _target=target_vid, label="dfg"
-                            )
-                        )
+                        has_dfg_in = self._has_edge_to(target_vid, "dfg")
                         if not has_dfg_in:
                             # Check accumulated but not-yet-flushed DFG edges
                             has_dfg_in = any(
@@ -864,27 +892,27 @@ class DataFlowBuilder(BaseEdgeBuilder):
         由于 Python normalizer 创建的 member access receiver identifier
         不一定挂在 function 的 own 子树中，此方法按 file 粒度匹配。
         """
+        # 预收集全图 assign LHS（提到循环外，避免每个 function 重复扫描）
+        assign_lhs_vids: set[int] = set()
+        for v in self.graph.vs.select(label=NodeLabel.IDENTIFIER.value):
+            for e in self.graph.es.select(_source=v.index, label="ast"):
+                if _vattr(e, "role") in ("lhs", "assign_lhs"):
+                    assign_lhs_vids.add(v.index)
+
         for fv in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
             func_vid = fv.index
             func_path = _vattr(fv, "path", "")
 
             # 收集此 function 的所有 parameter
             params: dict[str, list[int]] = defaultdict(list)
-            for oe in self.graph.es.select(_source=func_vid, label="own"):
-                cv = self.graph.vs[oe.target]
+            for own_tgt in self._edges_from(func_vid, "own"):
+                cv = self.graph.vs[own_tgt]
                 if _vattr(cv, "label") == NodeLabel.PARAMETER.value:
                     pname = _vattr(cv, "name", "")
                     if pname:
                         params[pname].append(cv.index)
             if not params:
                 continue
-
-            # 收集 assign LHS（这些已有 DFG 入边，不需要 param → ident 边）
-            assign_lhs_vids: set[int] = set()
-            for v in self.graph.vs.select(label=NodeLabel.IDENTIFIER.value):
-                for e in self.graph.es.select(_source=v.index, label="ast"):
-                    if _vattr(e, "role") in ("lhs", "assign_lhs"):
-                        assign_lhs_vids.add(v.index)
 
             # 在同 file 内查找同名 identifier（无 DFG 入边且非 LHS）
             for pname, param_vids in params.items():
@@ -897,9 +925,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     if ident_vid in param_vids:
                         continue
                     # 跳过有 DFG 入边的（已有数据流来源）
-                    has_dfg_in = any(
-                        self.graph.es.select(_target=ident_vid, label="dfg")
-                    )
+                    has_dfg_in = self._has_edge_to(ident_vid, "dfg")
                     if has_dfg_in:
                         continue
                     # 跳过 assign LHS
@@ -1338,13 +1364,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
     # -- 辅助方法：边写入 -----------------------------------------------------
 
     def _add_dfg_edge(self, src: int, tgt: int, dfg_type: str) -> None:
-        """累积一条 dfg 边（去重检查）。"""
+        """累积一条 dfg 边（set 自动去重）。"""
         if src == tgt:
             return
-        # 简单去重：检查是否已存在相同的 (src, tgt, dfg_type)
-        key = (src, tgt, dfg_type)
-        if key not in self._dfg_edges:
-            self._dfg_edges.append(key)
+        self._dfg_edges.add((src, tgt, dfg_type))
 
     def _apply_dfg_edges(self) -> None:
         """将累积的 dfg 边批量写入 igraph Graph。"""
