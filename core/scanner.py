@@ -637,13 +637,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         sink.get('name', ''), parent_func_vid,
                                     )
                                     continue
-                            # 有调用者（或不在函数中）→ 报出 presence of sink
-                            found_controllable = True
-                            result = AnalysisResult(
-                                code=0,
-                                reason=f"presence of sink '{sink.get('name', '')}'",
-                                chain=[], path=[sink_vid],
-                            )
+                            # 有调用者（或不在函数中），但无参数 sink 无法沿 DFG 追溯，
+                            # 改为 receiver 追溯（与有参但不可控时的逻辑一致）。
+                            # 对 callable_only sink 不追踪 receiver。
+                            if callable_only:
+                                continue
+                            recv_result = analyzer.parameters_back(sink['vid'])
+                            if recv_result is not None and recv_result.is_controllable:
+                                found_controllable = True
+                                result = recv_result
+                                sink_vid = sink['vid']
+                            else:
+                                continue
                         else:
                             # receiver 追溯：sink 的 arg 都不可控时，
                             # 检查 sink operator 本身是否通过 receiver 链路可控。
