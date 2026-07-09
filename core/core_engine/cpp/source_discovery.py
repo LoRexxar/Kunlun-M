@@ -65,24 +65,16 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 命令行参数
-    'argv', 'argc',
-    # 环境变量
-    'getenv', 'secure_getenv',
     # 标准输入函数
-    'scanf', 'fscanf', 'sscanf',
-    'fgets', 'gets', 'getline', 'getdelim',
+    'fgets', 'getline', 'getdelim',
     'read', 'fread',
-    # 网络
-    'recv', 'recvfrom', 'recvmsg',
     # C++ IO
     'std::cin', 'cin',
     'std::getline',
     # C++ string streams
     'std::istringstream', 'std::stringstream',
     # 文件
-    'fgetc', 'getc', 'getchar',
-    'popen',
+    'fgetc', 'getc',
     # C++ std::istream
     'std::istream::read', 'std::istream::getline',
 }

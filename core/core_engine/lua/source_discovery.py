@@ -63,8 +63,6 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 环境变量
-    'os.getenv',
     # 标准输入输出
     'io.read',
     'io.lines',
@@ -73,8 +71,6 @@ _BUILTIN_SOURCE_MEMBERS = {
     'io.open',
     # 文件读取
     'io.open',
-    # 命令行参数
-    'arg',
     # 网络请求 (常见库)
     'http.request',
     'socket.tcp',

@@ -77,14 +77,6 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 命令行参数
-    'sys.argv',
-    # 环境变量
-    'os.environ',
-    # 用户输入
-    'input',
-    # 标准输入
-    'sys.stdin',
     # HTTP 请求对象（通用，不依赖框架检测）
     'request.args',
     'request.form',

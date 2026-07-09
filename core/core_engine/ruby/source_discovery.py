@@ -70,18 +70,10 @@ _BUILTIN_SOURCE_MEMBERS = {
     'request.body',
     'cookies',
     'session',
-    # 命令行参数
-    'ARGV',
-    # 环境变量
-    'ENV',
-    'ENV[]',
-    # 标准输入
-    '$stdin', 'STDIN',
-    'gets', 'gets.chomp', 'readline',
     # 文件读取
-    'open', 'File.read', 'File.open', 'IO.read',
+    'open',
     # 网络读取
-    'URI.parse', 'URI.open',
+    'URI.open',
     'Net::HTTP.get', 'Net::HTTP.post',
     # 编码解析
     'JSON.parse', 'YAML.load', 'YAML.safe_load', 'CSV.parse',

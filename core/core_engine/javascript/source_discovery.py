@@ -120,8 +120,6 @@ _BUILTIN_SOURCE_MEMBERS = {
     'document.cookie', 'document.URL', 'document.documentURI',
     'document.referrer', 'document.domain', 'document.baseURI',
     'window.name', 'window.location',
-    # Node.js
-    'process.env', 'process.argv',
     # Common HTTP request sources (Express/Koa/NestJS/Fastify)
     'req.query', 'req.body', 'req.params', 'req.headers', 'req.cookies',
     'req.files', 'req.url', 'req.method',

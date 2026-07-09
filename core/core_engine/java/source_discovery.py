@@ -31,11 +31,7 @@ _BUILTIN_SOURCE_MEMBERS = frozenset({
 })
 
 # 内置 source producer 函数（方法名匹配）
-_BUILTIN_SOURCE_PRODUCERS = {
-    # System
-    "System.getenv": "system",
-    "System.getProperty": "system",
-}
+_BUILTIN_SOURCE_PRODUCERS = {}
 
 
 # ---------------------------------------------------------------------------

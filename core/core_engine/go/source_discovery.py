@@ -64,24 +64,7 @@ class SourceRegistry:
 # 内置 source 定义（与 GO_CONTROLLED_SOURCES 互补）
 # ---------------------------------------------------------------------------
 
-_BUILTIN_SOURCE_MEMBERS = {
-    # 命令行参数
-    'os.Args',
-    # 环境变量
-    'os.Getenv',
-    'os.LookupEnv',
-    # flag 包
-    'flag.String',
-    'flag.Int',
-    'flag.Bool',
-    # io — 流读取（参数来自外部 I/O）
-    'io.ReadAll',
-    'bufio.Scanner',
-    # URL 解析
-    'url.Parse',
-    # net 标准库
-    'net/http',
-}
+_BUILTIN_SOURCE_MEMBERS = set()
 
 # ---------------------------------------------------------------------------
 # 框架配置

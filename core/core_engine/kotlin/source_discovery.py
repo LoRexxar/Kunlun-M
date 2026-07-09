@@ -66,7 +66,7 @@ _BUILTIN_SOURCE_MEMBERS = {
     # 命令行输入
     'readLine', 'readln', 'readlnOrNull',
     # System
-    'System.console', 'System.getenv', 'System.getProperty',
+    'System.console',
     'System.`in`',
     # Java IO
     'java.io.BufferedReader', 'java.io.FileReader',

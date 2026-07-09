@@ -63,13 +63,6 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 命令行参数
-    'std::env::args',
-    'std::env::args_os',
-    'std::env::args().collect',
-    # 环境变量
-    'std::env::var',
-    'std::env::var_os',
     # 文件读取
     'std::fs::read_to_string',
     'std::fs::read',

@@ -102,18 +102,6 @@ _BUILTIN_SOURCE_MEMBERS = {
     'HttpRequest',
     'HttpResponse',
 
-    # Configuration
-    'Environment.GetEnvironmentVariable',
-    'IConfiguration',
-    'Configuration',
-
-    # Console
-    'Console.ReadLine',
-    'Console.Read',
-
-    # 命令行参数
-    'args',
-
     # WebUtility / HttpUtility
     'HttpUtility.UrlDecode',
     'HttpUtility.HtmlDecode',
