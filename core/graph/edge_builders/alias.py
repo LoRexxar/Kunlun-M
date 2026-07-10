@@ -89,8 +89,10 @@ class AliasBuilder:
                 self._node_label_idx.setdefault(vlabel, []).append(v.index)
 
         # Helper methods — 存为实例属性，供所有内部方法使用
-        self._ef = self._edge_src_idx.get
-        self._et = self._edge_tgt_idx.get
+        # 注意：不能直接 .get 绑定，否则 _ef(vid, label) 会被解释为 dict.get(vid, label)
+        # 即 label 变成了 default 参数。必须用 lambda 包装。
+        self._ef = lambda src, label: self._edge_src_idx.get((label, src), [])
+        self._et = lambda tgt, label: self._edge_tgt_idx.get((label, tgt), [])
 
         # 预构建 identifier/parameter 名字索引：name -> [(vid, parent_func_vid), ...]
         # 用于 _find_callee_identifier 的 O(1) fallback 查找
