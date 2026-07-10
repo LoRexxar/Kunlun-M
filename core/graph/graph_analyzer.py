@@ -237,6 +237,42 @@ class GraphAnalyzer:
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._call_stack: list[str] = []
         self._source_registry = source_registry
+
+        # --- 预构建 O(1) 索引 ---
+        # 边索引: label → {src_vid: [tgt_vid, ...]}
+        self._esrc: dict[str, dict[int, list[int]]] = {}
+        # 边索引: label → {tgt_vid: [src_vid, ...]}
+        self._etgt: dict[str, dict[int, list[int]]] = {}
+        for e in graph.es:
+            el = _vattr(e, 'label', '') or ''
+            self._esrc.setdefault(el, {}).setdefault(e.source, []).append(e.target)
+            self._etgt.setdefault(el, {}).setdefault(e.target, []).append(e.source)
+
+        # 节点索引: label → [vid, ...]
+        self._nlbl: dict[str, list[int]] = {}
+        # 节点索引: (label, name) → [vid, ...]
+        self._nname: dict[tuple[str, str], list[int]] = {}
+        for v in graph.vs:
+            vl = _vattr(v, 'label', '') or ''
+            vn = _vattr(v, 'name', '') or ''
+            self._nlbl.setdefault(vl, []).append(v.index)
+            if vn:
+                self._nname.setdefault((vl, vn), []).append(v.index)
+
+        # 节点 file_path 索引: (label, name, file_path) → [vid, ...]
+        # （_find_identifier_by_name 需要 file_path 过滤）
+        self._nfile: dict[tuple[str, str, str], list[int]] = {}
+        for v in graph.vs:
+            vl = _vattr(v, 'label', '') or ''
+            vn = _vattr(v, 'name', '') or ''
+            fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
+            if vl and vn:
+                self._nfile.setdefault((vl, vn, fp), []).append(v.index)
+
+        # branch_safe DFG 边集合：(source_vid, target_vid)}
+        # 替代 edge attribute 查询，O(1) lookup
+        self._branch_safe_set: set[tuple[int, int]] = set()
+
         self._mark_branch_safe_dfg()
 
     # --- Sink discovery ---------------------------------------------------
@@ -276,9 +312,8 @@ class GraphAnalyzer:
             if has_arg:
                 callee_with_args.add(ct_vid)
 
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
-                continue
+        for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+            v = self.graph.vs[vid]
             # 只处理匹配当前分析器语言的节点
             node_lang = _vattr(v, 'language', '')
             if node_lang and self.language and node_lang != self.language:
@@ -408,9 +443,8 @@ class GraphAnalyzer:
         # 第三轮：查找 import 类型节点（PHP include/require）
         # import 节点的 type 就是 include/require/include_once/require_once
         import_keywords = {"include", "require", "include_once", "require_once"}
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.IMPORT.value:
-                continue
+        for vid in self._nlbl.get(NodeLabel.IMPORT.value, []):
+            v = self.graph.vs[vid]
             # 只处理匹配当前分析器语言的节点
             node_lang = _vattr(v, 'language', '')
             if node_lang and self.language and node_lang != self.language:
@@ -438,9 +472,8 @@ class GraphAnalyzer:
         # 第二轮：查找 assign 类型节点中匹配 sink_name 的属性赋值
         # 例如 element.innerHTML = expr → innerHTML 是 sink
         assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
-                continue
+        for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+            v = self.graph.vs[vid]
             if _vattr(v, "type") not in assign_types:
                 continue
             # 查找 LHS 边
@@ -496,31 +529,26 @@ class GraphAnalyzer:
         return_sinks = {sn for sn in name_set if sn.startswith('r:')}
         if annotation_sinks or return_sinks:
             # 收集所有 annotation 节点
-            annotation_vids = {
-                v.index for v in self.graph.vs
-                if _vattr(v, 'label') == 'annotation'
-            }
+            annotation_vids = set(self._nlbl.get('annotation', []))
             # 预建 annotation -> parent 映射（支持 class 和 function 两种 parent）
             # 方法级别注解（如 @ResponseBody）挂在 function 上
             # 类级别注解（如 @RestController）挂在 class 上
             anno_to_parent: dict[int, tuple[str, int]] = {}  # anno_vid -> (parent_label, parent_vid)
             for anno_vid in annotation_vids:
-                for e in self.graph.es.select(_target=anno_vid, label='own'):
-                    src_label = _vattr(self.graph.vs[e.source], 'label', '')
+                for src in self._et(anno_vid, 'own'):
+                    src_label = _vattr(self.graph.vs[src], 'label', '')
                     if src_label in (NodeLabel.CLASS.value, NodeLabel.FUNCTION.value):
-                        anno_to_parent[anno_vid] = (src_label, e.source)
+                        anno_to_parent[anno_vid] = (src_label, src)
                         break
             # 预建 class -> function own 映射
             class_to_funcs: dict[int, list[int]] = {}
-            for v in self.graph.vs:
-                if _vattr(v, 'label') != NodeLabel.CLASS.value:
-                    continue
+            for vid in self._nlbl.get(NodeLabel.CLASS.value, []):
                 funcs = []
-                for e in self.graph.es.select(_source=v.index, label='own'):
-                    if _vattr(self.graph.vs[e.target], 'label') == NodeLabel.FUNCTION.value:
-                        funcs.append(e.target)
+                for tgt in self._ef(vid, 'own'):
+                    if _vattr(self.graph.vs[tgt], 'label') == NodeLabel.FUNCTION.value:
+                        funcs.append(tgt)
                 if funcs:
-                    class_to_funcs[v.index] = funcs
+                    class_to_funcs[vid] = funcs
 
             for anno_vid, (parent_label, parent_vid) in anno_to_parent.items():
                 anno_name = _vattr(self.graph.vs[anno_vid], 'name', '')
@@ -545,13 +573,11 @@ class GraphAnalyzer:
 
             # r: 前缀：匹配所有 function 的 return 节点
             if return_sinks:
-                for v in self.graph.vs:
-                    if _vattr(v, 'label') != NodeLabel.RETURN.value:
-                        continue
+                for vid in self._nlbl.get(NodeLabel.RETURN.value, []):
                     # 只处理有 function-return scope own 边的 return 节点
                     has_func_scope = any(
                         _vattr(e, 'scope') == 'function-return' and _vattr(self.graph.vs[e.source], 'label') == NodeLabel.FUNCTION.value
-                        for e in self.graph.es.select(_target=v.index, label='own')
+                        for e in self.graph.es.select(_target=vid, label='own')
                     )
                     if not has_func_scope:
                         continue
@@ -1305,33 +1331,33 @@ class GraphAnalyzer:
             checked: set[int] = set()
             for u_name, vids in visited_idents.items():
                 # Fast path: select vertices by name attribute
-                for cand in self.graph.vs.select(
-                    label=NodeLabel.IDENTIFIER.value, name=u_name
+                for cand in self._nname.get(
+                    (NodeLabel.IDENTIFIER.value, u_name), []
                 ):
-                    if cand.index in visited or cand.index in checked:
+                    if cand in visited or cand in checked:
                         continue
-                    cand_fp = _vattr(cand, "file_path", "") or _vattr(cand, "path", "")
+                    cand_fp = _vattr(self.graph.vs[cand], "file_path", "") or _vattr(self.graph.vs[cand], "path", "")
                     if cand_fp != start_fp:
                         continue
-                    checked.add(cand.index)
+                    checked.add(cand)
                     # Skip candidates that have branch-safe DFG edges
                     # (their value is protected by a branch constraint).
-                    if self._has_branch_safe_dfg_in(cand.index):
+                    if self._has_branch_safe_dfg_in(cand):
                         continue
                     # Skip candidates that are NOT in the same branch scope
                     # as the start_vid. Def-chaining should not cross branch
                     # boundaries — a variable inside an if-branch should not
                     # be linked to the same-named variable outside the branch.
                     if sink_branch_chain:
-                        cand_chain = self.get_branch_chain(cand.index)
+                        cand_chain = self.get_branch_chain(cand)
                         # Candidate must share at least one ancestor branch
                         if not set(cand_chain) & sink_branch_set:
                             continue
                     # Check if this candidate has DFG sources to trace
-                    if self._get_dfg_sources(cand.index):
+                    if self._get_dfg_sources(cand):
                         # Use _trace_dfg_direct to avoid recursive
                         # parameters_back calling def-chain again
-                        r = self._trace_dfg_direct(cand.index, max_depth=20)
+                        r = self._trace_dfg_direct(cand, max_depth=20)
                         if r is not None and r.is_controllable:
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -1475,9 +1501,8 @@ class GraphAnalyzer:
             scope_path = _vattr(self.graph.vs[from_vid], "file_path", None)
 
         results: list[int] = []
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
-                continue
+        for vid in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+            v = self.graph.vs[vid]
             vn = _vattr(v, "name", "") or ""
             vf = _vattr(v, "fullname", "") or ""
             if not (vn == func_name or vf.endswith("\\" + func_name) or vf == func_name):
@@ -1485,11 +1510,11 @@ class GraphAnalyzer:
             if scope_path:
                 fp = _vattr(v, "file_path") or ""
                 if fp == scope_path:
-                    results.insert(0, v.index)
+                    results.insert(0, vid)
                 else:
-                    results.append(v.index)
+                    results.append(vid)
             else:
-                results.append(v.index)
+                results.append(vid)
         logger.debug("find_function_def('%s', from=%s) → %s",
                       func_name, from_vid, results)
         return results
@@ -1988,13 +2013,11 @@ class GraphAnalyzer:
         has ANY constraint (even if not directly on this variable), since
         the re-assignment creates a new value derived from constrained data.
         """
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
-                continue
+        for vid in self._nlbl.get(NodeLabel.IDENTIFIER.value, []):
+            v = self.graph.vs[vid]
             uname = _vattr(v, "name", "")
             if not uname:
                 continue
-            vid = v.index
             branch_chain = self.get_branch_chain(vid)
             if not branch_chain:
                 continue
@@ -2011,29 +2034,30 @@ class GraphAnalyzer:
             # This is handled by BFS at runtime — no extra marking needed.
 
             if constrained:
-                for e in self.graph.es.select(_target=vid, label="dfg"):
-                    e["branch_safe"] = True
+                for src in self._et(vid, "dfg"):
+                    self._branch_safe_set.add((src, vid))
 
     def _is_dfg_branch_safe(self, source_vid: int, target_vid: int) -> bool:
         """Check if the DFG edge from source_vid to target_vid is
         marked as branch_safe."""
-        for e in self.graph.es.select(
-            _source=source_vid, _target=target_vid, label="dfg"
-        ):
-            if _vattr(e, "branch_safe"):
-                return True
-        return False
+        return (source_vid, target_vid) in self._branch_safe_set
 
     def _has_branch_safe_dfg_in(self, vid: int) -> bool:
         """Check if vid has any incoming DFG edge marked branch_safe."""
-        for e in self.graph.es.select(_target=vid, label="dfg"):
-            if _vattr(e, "branch_safe"):
-                return True
-        return False
+        return any((src, vid) in self._branch_safe_set
+                   for src in self._et(vid, "dfg"))
 
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
-        return [e.source for e in self.graph.es.select(_target=vid, label="dfg")]
+        return self._et(vid, "dfg")
+
+    def _ef(self, vid: int, label: str) -> list[int]:
+        """edges FROM vid with given label → target vids"""
+        return self._esrc.get(label, {}).get(vid, [])
+
+    def _et(self, vid: int, label: str) -> list[int]:
+        """edges TO vid with given label → source vids"""
+        return self._etgt.get(label, {}).get(vid, [])
 
     def _has_user_input_annotation(self, param_vid: int) -> bool:
         """Check if a parameter node has a user-input annotation (e.g. @RequestParam).
@@ -2735,24 +2759,32 @@ class GraphAnalyzer:
         When *context_vid* is None (no scope restriction), candidates without
         a real *file_path* (library stubs, decompiled helpers) are excluded to
         avoid cross-project false positives.
+
+        Replaced O(V) full scan with O(1) dict lookup using prebuilt indexes
+        (_nfile, _nname).
         """
         scope = None
         if context_vid is not None:
             scope = _vattr(self.graph.vs[context_vid], "file_path", None)
-        candidates: list[int] = []
-        for v in self.graph.vs:
-            if _vattr(v, "label") != NodeLabel.IDENTIFIER.value:
-                continue
-            if _vattr(v, "name") == name:
-                fp = _vattr(v, "file_path", "")
-                # Same-file match (when scope is known) → return immediately
-                if scope and fp == scope:
-                    return v.index
-                # No scope: skip candidates without a real file_path (library stubs)
-                if not scope and not fp:
-                    continue
-                candidates.append(v.index)
-        return candidates[0] if candidates else None
+        # Fast path: same-file match
+        if scope:
+            key = (NodeLabel.IDENTIFIER.value, name, scope)
+            vids = self._nfile.get(key, [])
+            if vids:
+                return vids[0]
+            # Fallback: any-file match (skip no-file-path stubs)
+            all_vids = self._nname.get((NodeLabel.IDENTIFIER.value, name), [])
+            candidates = [v for v in all_vids
+                          if (_vattr(self.graph.vs[v], "file_path", "")
+                              or _vattr(self.graph.vs[v], "path", ""))]
+            return candidates[0] if candidates else None
+        else:
+            # No scope: skip candidates without a real file_path
+            all_vids = self._nname.get((NodeLabel.IDENTIFIER.value, name), [])
+            candidates = [v for v in all_vids
+                          if (_vattr(self.graph.vs[v], "file_path", "")
+                              or _vattr(self.graph.vs[v], "path", ""))]
+            return candidates[0] if candidates else None
 
     def _find_enclosing_branches(self, vid: int) -> list[int]:
         """Find all branch ancestor nodes via own edges."""
