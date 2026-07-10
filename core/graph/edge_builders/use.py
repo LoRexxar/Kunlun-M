@@ -19,6 +19,7 @@ enables:
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -60,29 +61,80 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         if graph.vcount() == 0:
             return 0
 
-        # Collect callee_targets set: operator vids that are targets
-        # of ast[callee] edges from other operators (chained calls).
-        # These are intermediate callee expressions, not real call sites.
-        callee_targets: set[int] = set()
-        for e in graph.es.select(label="ast"):
-            if _vattr(e, "role") == "callee":
-                callee_targets.add(e.target)
+        # ── 预构建边索引：O(E) 一次遍历，替代后续所有 es.select() ──
+        self._ast_src_from: dict[int, list[tuple[int, str]]] = defaultdict(list)
+        self._ast_to: dict[int, list[tuple[int, str]]] = defaultdict(list)
+        self._member_to: dict[int, list[int]] = defaultdict(list)
+        self._own_to: dict[int, list[int]] = defaultdict(list)
+        self._dfg_to: dict[int, list[int]] = defaultdict(list)
+        self._incoming_to: dict[int, list[int]] = defaultdict(list)
+        # use 边索引（已存在的 use 边，用于去重）
+        self._use_pairs: set[tuple[int, int]] = set()
 
-        # Identify callee_targets that have their own args — these are
-        # intermediate call sites in method chains (e.g. Request.Get in
-        # Request.Get(url).execute().asString()).  They must NOT be skipped
-        # because they are real sink candidates with user-controlled args.
+        for e in graph.es:
+            elabel = _vattr(e, "label", "")
+            if elabel == "ast":
+                role = _vattr(e, "role", "")
+                self._ast_src_from[e.source].append((e.target, role))
+                self._ast_to[e.target].append((e.source, role))
+            elif elabel == "member":
+                self._member_to[e.target].append(e.source)
+            elif elabel == "own":
+                self._own_to[e.target].append(e.source)
+            elif elabel == "dfg":
+                self._dfg_to[e.target].append(e.source)
+            elif elabel == "use":
+                self._use_pairs.add((e.source, e.target))
+            self._incoming_to[e.target].append(e.source)
+
+        self._ast_src_from = dict(self._ast_src_from)
+        self._ast_to = dict(self._ast_to)
+        self._member_to = dict(self._member_to)
+        self._own_to = dict(self._own_to)
+        self._dfg_to = dict(self._dfg_to)
+        self._incoming_to = dict(self._incoming_to)
+
+        # ── 函数节点索引：替代 vs.select(label="function") 的 O(V) 遍历 ──
+        self._func_fullname_idx: dict[str, int] = {}
+        self._func_name_file_idx: dict[str, dict[str, int]] = defaultdict(dict)
+        self._func_name_ext_idx: dict[str, list[int]] = defaultdict(list)
+
+        for v in graph.vs:
+            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+                continue
+            fn = _vattr(v, "fullname", "")
+            if fn:
+                self._func_fullname_idx[fn] = v.index
+            name = _vattr(v, "name", "")
+            if not name:
+                continue
+            fp = _vattr(v, "file_path", "")
+            is_ext = _vattr(v, "is_external", False)
+            if fp and not is_ext:
+                self._func_name_file_idx[name][fp] = v.index
+            if is_ext:
+                self._func_name_ext_idx[name].append(v.index)
+        self._func_name_ext_idx = dict(self._func_name_ext_idx)
+
+        # ── enclosing function 缓存 ──
+        self._enclosing_fn_cache: dict[int, int | None] = {}
+        self._enclosing_fn_lineno_cache: dict[int, tuple[int, int] | None] = {}
+
+        # ── 收集 callee_targets set ──
+        callee_targets: set[int] = set()
+        for src_vid, targets in self._ast_src_from.items():
+            for tgt, role in targets:
+                if role == "callee":
+                    callee_targets.add(tgt)
+
+        # Identify callee_targets that have their own args
         callee_with_args: set[int] = set()
         for ct_vid in callee_targets:
-            has_arg = any(
-                _vattr(e, "role") == "arg"
-                for e in graph.es.select(_source=ct_vid, label="ast")
-            )
-            if has_arg:
+            ast_edges = self._ast_src_from.get(ct_vid, [])
+            if any(role == "arg" for _, role in ast_edges):
                 callee_with_args.add(ct_vid)
 
         # Build name → [vid] index for identifier/parameter lookup
-        # (parameters carry java_type for receiver type resolution)
         name_index: dict[str, list[int]] = {}
         for v in graph.vs:
             vl = _vattr(v, "label", "")
@@ -91,14 +143,16 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 if name:
                     name_index.setdefault(name, []).append(v.index)
 
+        # ── 遍历 operator 节点，生成 use 边 ──
         count = 0
+        use_edges: list[tuple[int, int]] = []
+        use_attrs: list[dict] = []
+
         for v in graph.vs:
             if _vattr(v, "label") != NodeLabel.OPERATOR.value:
                 continue
             if _vattr(v, "type") not in _CALL_TYPES:
                 continue
-            # Skip intermediate callee expressions (nested in method chains)
-            # but NOT those that have their own args — they are real call sites
             if v.index in callee_targets and v.index not in callee_with_args:
                 continue
 
@@ -132,14 +186,12 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             if resolved_type:
                 fullname = f"{resolved_type}.{callee_name}"
             elif op_type == OperatorType.NEW.value:
-                # Constructor call: fullname is the class name itself
                 fullname = callee_name
             elif op_name:
                 fullname = op_name
             else:
                 fullname = callee_name
 
-            # Determine function node name (short)
             func_name = callee_name
 
             # Find existing function node or create external one
@@ -150,17 +202,24 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             )
 
             if target_vid is not None:
-                # Avoid duplicate use edges
-                exists = False
-                for ue in graph.es.select(_source=vid, _target=target_vid,
-                                          label="use"):
-                    exists = True
-                    break
-                if not exists:
-                    graph.add_edge(vid, target_vid, label="use",
-                                   call_type=cg_call_type,
-                                   lineno=lineno)
+                if (vid, target_vid) not in self._use_pairs:
+                    self._use_pairs.add((vid, target_vid))
+                    use_edges.append((vid, target_vid))
+                    use_attrs.append({
+                        "label": "use",
+                        "call_type": cg_call_type,
+                        "lineno": lineno,
+                    })
                     count += 1
+
+        # ── 批量写入 use 边 ──
+        if use_edges:
+            graph.add_edges(use_edges)
+            n_existing = graph.ecount() - len(use_edges)
+            for i, attrs in enumerate(use_attrs):
+                eid = n_existing + i
+                for k, val in attrs.items():
+                    graph.es[eid][k] = val
 
         return count
 
@@ -168,27 +227,20 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
     def _extract_callee_name(self, graph: "ig.Graph", op_vid: int,
                              op_name: str) -> str:
-        """Extract callee method name from ast[callee] edges.
-
-        For chained calls like ``a.b.c()``, returns the last identifier
-        callee (``c``), skipping intermediate operator callee targets.
-        """
+        """Extract callee method name from ast[callee] edges."""
         callee_names: list[tuple[str, int]] = []
-        for e in graph.es.select(_source=op_vid, label="ast"):
-            if _vattr(e, "role") == "callee":
-                t = graph.vs[e.target]
+        for tgt, role in self._ast_src_from.get(op_vid, []):
+            if role == "callee":
+                t = graph.vs[tgt]
                 name = _vattr(t, "name") or _vattr(t, "value")
                 if name:
                     callee_names.append((name, t.index))
 
-        # Prefer the last identifier callee (actual method name in chains)
         for name, tvid in reversed(callee_names):
             if _vattr(graph.vs[tvid], "label") == NodeLabel.IDENTIFIER.value:
                 return name
-        # Fall back to last callee name overall
         if callee_names:
             return callee_names[-1][0]
-        # Fall back to operator's own name (last segment after dot)
         if op_name:
             parts = op_name.replace("::", ".").rsplit(".", 1)
             if len(parts) == 2 and parts[1]:
@@ -198,14 +250,9 @@ class UseEdgeBuilder(BaseEdgeBuilder):
     def _resolve_receiver_type(self, graph: "ig.Graph", op_vid: int,
                                callee_name: str,
                                name_index: dict[str, list[int]]) -> str | None:
-        """Resolve the declared type of the method call's receiver.
-
-        Returns type name (e.g. ``"Unmarshaller"``) or None.
-        """
-        # Step 1: Extract receiver identifier name(s) from callee chain
+        """Resolve the declared type of the method call's receiver."""
         receiver_names = self._get_receiver_ident_names(graph, op_vid)
         if not receiver_names:
-            # Fallback: parse op_name for receiver identifier
             op_name = _vattr(graph.vs[op_vid], "name", "")
             if op_name and "." in op_name:
                 parts = op_name.replace("::", ".").rsplit(".", 1)
@@ -216,14 +263,10 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             return None
 
         call_file = _vattr(graph.vs[op_vid], "file_path", "")
-
-        # Determine operator's enclosing function lineno range (for scoped lookup)
         op_scope = self._enclosing_function_lineno(graph, op_vid)
 
-        # Step 2: For each receiver name, search for java_type/dtype
         for qualifier_name in receiver_names:
             candidates = name_index.get(qualifier_name, [])
-            # Sort: same-scope first, then same-file, then others
             same_scope: list[int] = []
             same_file: list[int] = []
             other_file: list[int] = []
@@ -264,43 +307,28 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                     else:
                         break
 
-        # Step 3 (fallback): Chain call return type inference.
-        # For ``DocumentBuilderFactory.newDocumentBuilder().parse()``,
-        # the receiver is itself a call whose return type we need.
         return self._resolve_chain_receiver_type(graph, op_vid)
 
     def _resolve_chain_receiver_type(self, graph: "ig.Graph",
                                      op_vid: int) -> str | None:
-        """Resolve receiver type from a chained call's return type.
-
-        For ``DocumentBuilderFactory.newDocumentBuilder().parse()``,
-        the receiver of ``parse()`` is the return value of
-        ``newDocumentBuilder()``.  This method:
-
-        1. Finds the inner call operator from the callee chain.
-        2. Looks up the inner call's function node for ``return_type``.
-        3. Applies ``newXxx()`` → ``Xxx`` heuristic for Java factory
-           methods when no return_type is available.
-        """
-        for e in graph.es.select(_source=op_vid, label="ast"):
-            if _vattr(e, "role") != "callee":
+        """Resolve receiver type from a chained call's return type."""
+        for tgt, role in self._ast_src_from.get(op_vid, []):
+            if role != "callee":
                 continue
-            target = e.target
-            target_label = _vattr(graph.vs[target], "label", "")
+            target_label = _vattr(graph.vs[tgt], "label", "")
             if target_label != NodeLabel.OPERATOR.value:
                 continue
-            inner_type = _vattr(graph.vs[target], "type", "")
+            inner_type = _vattr(graph.vs[tgt], "type", "")
             if inner_type not in _CALL_TYPES:
                 continue
 
-            inner_op_name = _vattr(graph.vs[target], "name", "")
+            inner_op_name = _vattr(graph.vs[tgt], "name", "")
             inner_callee = self._extract_callee_name(
-                graph, target, inner_op_name
+                graph, tgt, inner_op_name
             )
             if not inner_callee:
                 continue
 
-            # Try to build inner fullname and find existing function node
             if inner_type == OperatorType.STATIC_CALL.value and \
                     "." in inner_op_name:
                 qualifier = inner_op_name.split(".")[0]
@@ -308,17 +336,14 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             else:
                 inner_fullname = inner_callee
 
-            # Check graph for function node with return_type
-            for v in graph.vs.select(label="function"):
-                if _vattr(v, "fullname") == inner_fullname:
-                    rt = _vattr(v, "return_type", "")
-                    if rt and rt != "void":
-                        return rt
+            vid = self._func_fullname_idx.get(inner_fullname)
+            if vid is not None:
+                rt = _vattr(graph.vs[vid], "return_type", "")
+                if rt and rt != "void":
+                    return rt
 
-            # Heuristic: Java factory pattern ``newXxx()`` → ``Xxx``
             if inner_callee.startswith("new") and len(inner_callee) > 3:
                 hint = inner_callee[3:]
-                # Verify it looks like a type name (starts with uppercase)
                 if hint[0:1].isupper():
                     return hint
 
@@ -328,16 +353,11 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
     def _get_receiver_ident_names(self, graph: "ig.Graph",
                                    call_vid: int) -> list[str]:
-        """Extract receiver identifier names from callee chain.
-
-        For ``this.unmarshaller.unmarshal()``, follows callee member
-        edges to find ``unmarshaller`` (skipping ``this``/``self``
-        and the method name itself).
-        """
+        """Extract receiver identifier names from callee chain."""
         callee_vids: list[int] = []
-        for e in graph.es.select(_source=call_vid, label="ast"):
-            if _vattr(e, "role") == "callee":
-                callee_vids.append(e.target)
+        for tgt, role in self._ast_src_from.get(call_vid, []):
+            if role == "callee":
+                callee_vids.append(tgt)
 
         names: list[str] = []
 
@@ -345,35 +365,24 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             cv_label = _vattr(graph.vs[cv], "label", "")
             cv_name = _vattr(graph.vs[cv], "name", "")
 
-            # The callee identifier (e.g. "unmarshal") is the method name,
-            # not the receiver. Follow member edges BACK from the callee
-            # identifier to find the receiver.
             if cv_label == NodeLabel.IDENTIFIER.value:
-                # Check if callee identifier has incoming member edges
-                # (meaning it's a member of some expression)
-                for me in graph.es.select(_target=cv, label="member"):
-                    source = me.source
+                for source in self._member_to.get(cv, []):
                     src_label = _vattr(graph.vs[source], "label", "")
                     if src_label == NodeLabel.IDENTIFIER.value:
                         src_name = _vattr(graph.vs[source], "name", "")
                         if src_name and src_name not in ("this", "self"):
                             names.append(src_name)
                     elif src_label == NodeLabel.OPERATOR.value:
-                        # Recursively trace operator's callee chain
                         names.extend(self._get_receiver_ident_names(graph, source))
-                # No member edges → this is a bare function call, no receiver
                 continue
 
             if cv_label == NodeLabel.OPERATOR.value:
-                # The callee target is an operator (chained call like a.b.c())
-                # Its name might contain the receiver info
                 current = cv
                 visited: set[int] = set()
                 while current not in visited:
                     visited.add(current)
                     found = False
-                    for me in graph.es.select(_target=current, label="member"):
-                        source = me.source
+                    for source in self._member_to.get(current, []):
                         src_label = _vattr(graph.vs[source], "label", "")
                         if src_label == NodeLabel.IDENTIFIER.value:
                             src_name = _vattr(graph.vs[source], "name", "")
@@ -392,13 +401,9 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
         return names
 
-    @staticmethod
-    def _get_dfg_sources(graph: "ig.Graph", vid: int) -> list[int]:
+    def _get_dfg_sources(self, graph: "ig.Graph", vid: int) -> list[int]:
         """Get upstream DFG source vertex IDs."""
-        sources = []
-        for e in graph.es.select(_target=vid, label="dfg"):
-            sources.append(e.source)
-        return sources
+        return list(self._dfg_to.get(vid, []))
 
     def _find_or_create_function(self, graph: "ig.Graph",
                                 func_name: str, fullname: str,
@@ -406,42 +411,29 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                                 caller_file: str = "") -> int | None:
         """Find an existing function node or create an external one.
 
-        Prefers:
-          1. Exact fullname match (non-external declaration).
-          2. Same name function node (may be from another call's use edge).
-          3. Create new external function node.
+        Uses pre-built indexes instead of O(V) vs.select() scans.
         """
-        # Try exact fullname match (declaration nodes)
-        for v in graph.vs.select(label="function"):
-            existing_fn = _vattr(v, "fullname", "")
-            if existing_fn == fullname:
-                return v.index
+        # 1. Exact fullname match
+        vid = self._func_fullname_idx.get(fullname)
+        if vid is not None:
+            return vid
 
-        # Try same-file name match (for same-class method calls where
-        # fullname may not match exactly, e.g. ".injectableQuery" vs
-        # "SqlInjectionLesson5a.injectableQuery")
+        # 2. Same-file name match (non-external declarations)
         if caller_file:
-            for v in graph.vs.select(label="function"):
-                if _vattr(v, "name") == func_name and not _vattr(v, "is_external", False):
-                    vfile = _vattr(v, "file_path", "")
-                    if vfile == caller_file:
-                        return v.index
+            vid = self._func_name_file_idx.get(func_name, {}).get(caller_file)
+            if vid is not None:
+                return vid
 
-        # Try name match (reuse existing external function node)
-        for v in graph.vs.select(label="function"):
-            if _vattr(v, "name") == func_name:
-                # Only reuse external nodes by name when the receiver type
-                # matches — prevents cross-type dedup (e.g. SAXParser.parse
-                # vs DocumentBuilder.parse).
-                if _vattr(v, "is_external", False):
-                    existing_fn = _vattr(v, "fullname", "")
-                    existing_type = existing_fn.rsplit(".", 1)[0] if "." in existing_fn else ""
-                    new_type = fullname.rsplit(".", 1)[0] if "." in fullname else ""
-                    if not existing_type or not new_type or existing_type == new_type:
-                        return v.index
+        # 3. Name match on external nodes (with type compatibility check)
+        for vid in self._func_name_ext_idx.get(func_name, []):
+            existing_fn = _vattr(graph.vs[vid], "fullname", "")
+            existing_type = existing_fn.rsplit(".", 1)[0] if "." in existing_fn else ""
+            new_type = fullname.rsplit(".", 1)[0] if "." in fullname else ""
+            if not existing_type or not new_type or existing_type == new_type:
+                return vid
 
-        # Create new external function node
-        new_vid = graph.add_vertex(
+        # 4. Create new external function node
+        new_v = graph.add_vertex(
             label=NodeLabel.FUNCTION.value,
             name=func_name,
             lineno=0,
@@ -450,39 +442,50 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             type=FunctionType.FUNCTION.value,
             is_external=True,
         )
+        new_vid = new_v.index
+        # 更新索引，使后续查找能命中
+        self._func_fullname_idx[fullname] = new_vid
+        self._func_name_ext_idx.setdefault(func_name, []).append(new_vid)
         return new_vid
 
-    @staticmethod
-    def _enclosing_function(graph: "ig.Graph", vid: int) -> int | None:
+    def _enclosing_function(self, graph: "ig.Graph", vid: int) -> int | None:
         """Find the ancestor function node of *vid* via ``own`` edges."""
+        cached = self._enclosing_fn_cache.get(vid)
+        if cached is not None or vid in self._enclosing_fn_cache:
+            return cached
+
         visited: set[int] = set()
         current = vid
         for _ in range(10):
             if current in visited:
                 break
             visited.add(current)
-            for e in graph.es.select(_target=current, label="own"):
-                parent = graph.vs[e.source]
-                if _vattr(parent, "label") == NodeLabel.FUNCTION.value:
-                    return e.source
-                current = e.source
+            for parent_vid in self._own_to.get(current, []):
+                parent_label = _vattr(graph.vs[parent_vid], "label", "")
+                if parent_label == NodeLabel.FUNCTION.value:
+                    self._enclosing_fn_cache[vid] = parent_vid
+                    return parent_vid
+                current = parent_vid
                 break
             else:
                 break
+
+        self._enclosing_fn_cache[vid] = None
         return None
 
-    @staticmethod
-    def _enclosing_function_lineno(graph: "ig.Graph", vid: int) -> tuple[int, int] | None:
+    def _enclosing_function_lineno(self, graph: "ig.Graph", vid: int) -> tuple[int, int] | None:
         """Find the enclosing function's lineno range for *vid*.
 
-        Walks ``own`` edges from *vid* upward.  Returns ``(start, end)`` or
-        ``None``.  ``end`` is set to ``start + 200`` as a rough upper bound
-        (AST doesn't record end_lineno).
+        Uses cache to avoid repeated upward traversal.
         """
-        fn_vid = UseEdgeBuilder._enclosing_function(graph, vid)
+        cached = self._enclosing_fn_lineno_cache.get(vid)
+        if cached is not None or vid in self._enclosing_fn_lineno_cache:
+            return cached
+
+        fn_vid = self._enclosing_function(graph, vid)
         if fn_vid is None:
-            # Try walking both own and ast edges (identifiers may only have
-            # ast edges to intermediate operator nodes).
+            # Fallback: walk all incoming edges (not just own) to find function.
+            # Identifiers may only have ast edges to intermediate operator nodes.
             visited: set[int] = set()
             current = vid
             for _ in range(15):
@@ -490,22 +493,33 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                     break
                 visited.add(current)
                 found = False
-                for e in graph.es.select(_target=current):
-                    parent = graph.vs[e.source]
-                    if _vattr(parent, "label") == NodeLabel.FUNCTION.value:
-                        fn_vid = e.source
+                # First pass: check all incoming for a direct function parent
+                for source in self._incoming_to.get(current, []):
+                    if _vattr(graph.vs[source], "label", "") == NodeLabel.FUNCTION.value:
+                        fn_vid = source
                         found = True
                         break
                 if found:
                     break
-                # Move up one level via own/ast
-                for e in graph.es.select(_target=current):
-                    if _vattr(e, "label") in ("own", "ast"):
-                        current = e.source
-                        break
-                else:
+                # Move up one level: prefer own edge, then ast edge
+                moved = False
+                for parent_vid in self._own_to.get(current, []):
+                    current = parent_vid
+                    moved = True
                     break
+                if not moved:
+                    # Walk ast edges in reverse
+                    ast_sources = self._ast_to.get(current, [])
+                    if ast_sources:
+                        current = ast_sources[0][0]  # take first ast parent
+                        moved = True
+                if not moved:
+                    break
+
         if fn_vid is None:
+            self._enclosing_fn_lineno_cache[vid] = None
             return None
         start = int(_vattr(graph.vs[fn_vid], "lineno", 0) or 0)
-        return (start, start + 200)
+        result = (start, start + 200)
+        self._enclosing_fn_lineno_cache[vid] = result
+        return result
