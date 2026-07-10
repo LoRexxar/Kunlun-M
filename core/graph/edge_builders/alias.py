@@ -53,6 +53,9 @@ class AliasBuilder:
         self.graph = None
         self.language = ""
         self._alias_count = 0
+        # 批量写缓存
+        self._alias_buf_edges: list[tuple[int, int]] = []
+        self._alias_buf_attrs: list[dict] = []
         # 边索引：O(E) 一次构建，替代所有 es.select 的 O(E) 逐次查询
         self._edge_src_idx: dict[tuple[str, int], list[int]] = {}
         self._edge_tgt_idx: dict[tuple[str, int], list[int]] = {}
@@ -183,6 +186,7 @@ class AliasBuilder:
                 self._alias_count,
                 self.language,
             )
+        self._flush_alias_edges()
         return self._alias_count
 
     # -- internal helpers -----------------------------------------------------
@@ -423,25 +427,28 @@ class AliasBuilder:
         alias_type: str,
         target_func_vid: int | None,
     ) -> None:
-        """Create an alias edge from callee identifier to resolved function."""
+        """Buffer an alias edge for batch write."""
         attrs = {
             "alias_type": alias_type,
             "resolved_name": resolved_name,
         }
         if target_func_vid is not None:
-            self.graph.add_edge(
-                source_vid, target_func_vid, label="alias", **attrs
-            )
+            self._alias_buf_edges.append((source_vid, target_func_vid))
         else:
             # Self-loop as marker - consumers check resolved_name attribute
-            self.graph.add_edge(
-                source_vid, source_vid, label="alias", **attrs
-            )
+            self._alias_buf_edges.append((source_vid, source_vid))
+        self._alias_buf_attrs.append(attrs)
         self._alias_count += 1
-        logger.debug(
-            "[ALIAS] v%d -> '%s' (type=%s, target=%s)",
-            source_vid,
-            resolved_name,
-            alias_type,
-            target_func_vid,
-        )
+
+    def _flush_alias_edges(self) -> None:
+        """Flush buffered alias edges in one batch call."""
+        if not self._alias_buf_edges:
+            return
+        n = len(self._alias_buf_edges)
+        attrs: dict[str, list] = {"label": ["alias"] * n}
+        for i, a in enumerate(self._alias_buf_attrs):
+            for k, v in a.items():
+                attrs.setdefault(k, [""] * n)[i] = v
+        self.graph.add_edges(self._alias_buf_edges, attributes=attrs)
+        self._alias_buf_edges.clear()
+        self._alias_buf_attrs.clear()
