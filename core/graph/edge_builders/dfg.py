@@ -1540,13 +1540,13 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
                 return cur
             # 优先沿 own 边向上（operator → function/file）
-            inc_own = self.graph.es.select(_target=cur, label="own")
-            if inc_own:
-                cur = inc_own[0].source
+            own_sources = self._edges_to(cur, "own")
+            if own_sources:
+                cur = own_sources[0]
             else:
                 # 回退：沿 ast 边向上（identifier → operator）
-                inc_ast = self.graph.es.select(_target=cur, label="ast")
-                cur = inc_ast[0].source if inc_ast else None
+                ast_sources = self._edges_to(cur, "ast")
+                cur = ast_sources[0] if ast_sources else None
         # Fallback: if no scope found via edges, use file node from path
         node_path = _vattr(self.graph.vs[vid], "path", "")
         if node_path:
