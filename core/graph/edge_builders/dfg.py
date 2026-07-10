@@ -49,6 +49,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def __init__(self) -> None:
         self.graph: "ig.Graph | None" = None
         self._dfg_edges: set[tuple[int, int, str]] = set()  # (src, tgt, dfg_type)
+        # _dfg_edges 的 target 索引，O(1) 查某个 vid 是否是某条 dfg 边的 target
+        self._dfg_tgt_set: set[int] = set()
         # 函数名→vid列表索引（build() 中预构建，用于 _resolve_function O(1) 查找）
         self._func_name_index: dict[str, list[int]] = {}
         self._func_fullname_index: dict[str, list[int]] = {}
@@ -96,6 +98,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         """
         self.graph = graph
         self._dfg_edges = set()
+        self._dfg_tgt_set = set()
 
         if self.graph.vcount() == 0:
             return 0
@@ -857,13 +860,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         if vids_sorted[j] in assign_lhs_vids:
                             break  # 已有 LHS 但被跳过（lineno 不匹配）
                         target_vid = vids_sorted[j]
-                        has_dfg_in = self._has_edge_to(target_vid, "dfg")
-                        if not has_dfg_in:
-                            # Check accumulated but not-yet-flushed DFG edges
-                            has_dfg_in = any(
-                                tgt == target_vid
-                                for _, tgt, _ in self._dfg_edges
-                            )
+                        has_dfg_in = self._has_edge_to(target_vid, "dfg") \
+                            or target_vid in self._dfg_tgt_set
                         if has_dfg_in:
                             self._add_dfg_edge(
                                 target_vid, vid, DfgType.SAME.value
@@ -1017,13 +1015,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 continue
 
             # 检查是否有 DFG 入边（含已累积未 flush 的）
-            has_dfg_in = bool(
-                list(self.graph.es.select(_target=v.index, label="dfg"))
-            )
-            if not has_dfg_in:
-                has_dfg_in = any(
-                    tgt == v.index for _, tgt, _ in self._dfg_edges
-                )
+            has_dfg_in = self._has_edge_to(v.index, "dfg") \
+                or v.index in self._dfg_tgt_set
 
             cat = "defined" if has_dfg_in else "undefined"
 
@@ -1367,7 +1360,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
         """累积一条 dfg 边（set 自动去重）。"""
         if src == tgt:
             return
-        self._dfg_edges.add((src, tgt, dfg_type))
+        edge = (src, tgt, dfg_type)
+        if edge not in self._dfg_edges:
+            self._dfg_edges.add(edge)
+            self._dfg_tgt_set.add(tgt)
 
     def _apply_dfg_edges(self) -> None:
         """将累积的 dfg 边批量写入 igraph Graph。"""
