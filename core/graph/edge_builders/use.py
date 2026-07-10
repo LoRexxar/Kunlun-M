@@ -71,6 +71,35 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         # use 边索引（已存在的 use 边，用于去重）
         self._use_pairs: set[tuple[int, int]] = set()
 
+        # ── 预缓存节点属性 — 避免 15s+ 的 _vattr/graph.vs 开销 ──
+        n = graph.vcount()
+        self._vlabel: list[str] = [""] * n
+        self._vname: list[str] = [""] * n
+        self._vtype: list[str] = [""] * n
+        self._vpath: list[str] = [""] * n
+        self._vlineno: list[int] = [0] * n
+        self._vfile_path: list[str] = [""] * n
+        self._vis_external: list[bool] = [False] * n
+        self._vfullname: list[str] = [""] * n
+        self._vjava_type: list[str] = [""] * n
+        self._vdtype: list[str] = [""] * n
+        self._vreturn_type: list[str] = [""] * n
+        self._vvalue: list[str] = [""] * n
+        for v in graph.vs:
+            i = v.index
+            self._vlabel[i] = _vattr(v, "label", "")
+            self._vname[i] = _vattr(v, "name", "")
+            self._vtype[i] = _vattr(v, "type", "")
+            self._vpath[i] = _vattr(v, "path", "")
+            self._vlineno[i] = _vattr(v, "lineno", 0) or 0
+            self._vfile_path[i] = _vattr(v, "file_path", "") or ""
+            self._vis_external[i] = _vattr(v, "is_external", False)
+            self._vfullname[i] = _vattr(v, "fullname", "") or ""
+            self._vjava_type[i] = _vattr(v, "java_type", "") or ""
+            self._vdtype[i] = _vattr(v, "dtype", "") or ""
+            self._vreturn_type[i] = _vattr(v, "return_type", "") or ""
+            self._vvalue[i] = _vattr(v, "value", "") or ""
+
         for e in graph.es:
             elabel = _vattr(e, "label", "")
             if elabel == "ast":
@@ -100,20 +129,21 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._func_name_ext_idx: dict[str, list[int]] = defaultdict(list)
 
         for v in graph.vs:
-            if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            i = v.index
+            if self._vlabel[i] != NodeLabel.FUNCTION.value:
                 continue
-            fn = _vattr(v, "fullname", "")
+            fn = self._vfullname[i]
             if fn:
-                self._func_fullname_idx[fn] = v.index
-            name = _vattr(v, "name", "")
+                self._func_fullname_idx[fn] = i
+            name = self._vname[i]
             if not name:
                 continue
-            fp = _vattr(v, "file_path", "")
-            is_ext = _vattr(v, "is_external", False)
+            fp = self._vfile_path[i]
+            is_ext = self._vis_external[i]
             if fp and not is_ext:
-                self._func_name_file_idx[name][fp] = v.index
+                self._func_name_file_idx[name][fp] = i
             if is_ext:
-                self._func_name_ext_idx[name].append(v.index)
+                self._func_name_ext_idx[name].append(i)
         self._func_name_ext_idx = dict(self._func_name_ext_idx)
 
         # ── enclosing function 缓存 ──
@@ -137,11 +167,11 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         # Build name → [vid] index for identifier/parameter lookup
         name_index: dict[str, list[int]] = {}
         for v in graph.vs:
-            vl = _vattr(v, "label", "")
-            if vl in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value):
-                name = _vattr(v, "name", "")
+            i = v.index
+            if self._vlabel[i] in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value):
+                name = self._vname[i]
                 if name:
-                    name_index.setdefault(name, []).append(v.index)
+                    name_index.setdefault(name, []).append(i)
 
         # ── 遍历 operator 节点，生成 use 边 ──
         count = 0
@@ -149,17 +179,17 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         use_attrs: list[dict] = []
 
         for v in graph.vs:
-            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+            vid = v.index
+            if self._vlabel[vid] != NodeLabel.OPERATOR.value:
                 continue
-            if _vattr(v, "type") not in _CALL_TYPES:
+            if self._vtype[vid] not in _CALL_TYPES:
                 continue
-            if v.index in callee_targets and v.index not in callee_with_args:
+            if vid in callee_targets and vid not in callee_with_args:
                 continue
 
-            vid = v.index
-            lineno = _vattr(v, "lineno", 0)
-            op_name = _vattr(v, "name", "")
-            op_type = _vattr(v, "type", "")
+            lineno = self._vlineno[vid]
+            op_name = self._vname[vid]
+            op_type = self._vtype[vid]
 
             # Determine call_type
             if op_type == OperatorType.STATIC_CALL.value:
@@ -195,7 +225,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             func_name = callee_name
 
             # Find existing function node or create external one
-            caller_file = _vattr(graph.vs[vid], "file_path", "")
+            caller_file = self._vfile_path[vid]
             target_vid = self._find_or_create_function(
                 graph, func_name, fullname, lineno,
                 caller_file=caller_file
@@ -232,12 +262,12 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         for tgt, role in self._ast_src_from.get(op_vid, []):
             if role == "callee":
                 t = graph.vs[tgt]
-                name = _vattr(t, "name") or _vattr(t, "value")
+                name = self._vname[tgt] or self._vvalue[tgt]
                 if name:
                     callee_names.append((name, t.index))
 
         for name, tvid in reversed(callee_names):
-            if _vattr(graph.vs[tvid], "label") == NodeLabel.IDENTIFIER.value:
+            if self._vlabel[tvid] == NodeLabel.IDENTIFIER.value:
                 return name
         if callee_names:
             return callee_names[-1][0]
@@ -253,7 +283,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         """Resolve the declared type of the method call's receiver."""
         receiver_names = self._get_receiver_ident_names(graph, op_vid)
         if not receiver_names:
-            op_name = _vattr(graph.vs[op_vid], "name", "")
+            op_name = self._vname[op_vid]
             if op_name and "." in op_name:
                 parts = op_name.replace("::", ".").rsplit(".", 1)
                 prefix = parts[0].rsplit(".", 1)[-1]
@@ -262,7 +292,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         if not receiver_names:
             return None
 
-        call_file = _vattr(graph.vs[op_vid], "file_path", "")
+        call_file = self._vfile_path[op_vid]
         op_scope = self._enclosing_function_lineno(graph, op_vid)
 
         for qualifier_name in receiver_names:
@@ -275,7 +305,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 if op_scope and cand_scope and op_scope[0] == cand_scope[0]:
                     same_scope.append(vid)
                 else:
-                    vfile = _vattr(graph.vs[vid], "file_path", "")
+                    vfile = self._vfile_path[vid]
                     if vfile == call_file:
                         same_file.append(vid)
                     else:
@@ -283,8 +313,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             sorted_candidates = same_scope + same_file + other_file
 
             for vid in sorted_candidates:
-                dtype = _vattr(graph.vs[vid], "java_type", "") or \
-                        _vattr(graph.vs[vid], "dtype", "")
+                dtype = self._vjava_type[vid] or self._vdtype[vid]
                 if dtype and dtype != "var":
                     return dtype
 
@@ -296,12 +325,10 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                         break
                     visited.add(current)
                     for src_vid in self._get_dfg_sources(graph, current):
-                        sv = graph.vs[src_vid]
-                        dtype = _vattr(sv, "java_type", "") or \
-                                _vattr(sv, "dtype", "")
+                        dtype = self._vjava_type[src_vid] or self._vdtype[src_vid]
                         if dtype:
                             return dtype
-                        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
+                        if self._vlabel[src_vid] == NodeLabel.IDENTIFIER.value:
                             current = src_vid
                             break
                     else:
@@ -315,14 +342,14 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         for tgt, role in self._ast_src_from.get(op_vid, []):
             if role != "callee":
                 continue
-            target_label = _vattr(graph.vs[tgt], "label", "")
+            target_label = self._vlabel[tgt]
             if target_label != NodeLabel.OPERATOR.value:
                 continue
-            inner_type = _vattr(graph.vs[tgt], "type", "")
+            inner_type = self._vtype[tgt]
             if inner_type not in _CALL_TYPES:
                 continue
 
-            inner_op_name = _vattr(graph.vs[tgt], "name", "")
+            inner_op_name = self._vname[tgt]
             inner_callee = self._extract_callee_name(
                 graph, tgt, inner_op_name
             )
@@ -338,7 +365,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
             vid = self._func_fullname_idx.get(inner_fullname)
             if vid is not None:
-                rt = _vattr(graph.vs[vid], "return_type", "")
+                rt = self._vreturn_type[vid]
                 if rt and rt != "void":
                     return rt
 
@@ -362,14 +389,14 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         names: list[str] = []
 
         for cv in callee_vids:
-            cv_label = _vattr(graph.vs[cv], "label", "")
-            cv_name = _vattr(graph.vs[cv], "name", "")
+            cv_label = self._vlabel[cv]
+            cv_name = self._vname[cv]
 
             if cv_label == NodeLabel.IDENTIFIER.value:
                 for source in self._member_to.get(cv, []):
-                    src_label = _vattr(graph.vs[source], "label", "")
+                    src_label = self._vlabel[source]
                     if src_label == NodeLabel.IDENTIFIER.value:
-                        src_name = _vattr(graph.vs[source], "name", "")
+                        src_name = self._vname[source]
                         if src_name and src_name not in ("this", "self"):
                             names.append(src_name)
                     elif src_label == NodeLabel.OPERATOR.value:
@@ -383,10 +410,10 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                     visited.add(current)
                     found = False
                     for source in self._member_to.get(current, []):
-                        src_label = _vattr(graph.vs[source], "label", "")
+                        src_label = self._vlabel[source]
                         if src_label == NodeLabel.IDENTIFIER.value:
-                            src_name = _vattr(graph.vs[source], "name", "")
-                            src_type = _vattr(graph.vs[source], "type", "")
+                            src_name = self._vname[source]
+                            src_type = self._vtype[source]
                             if src_name and src_name not in ("this", "self"):
                                 if src_type != "this":
                                     names.append(src_name)
@@ -426,7 +453,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
         # 3. Name match on external nodes (with type compatibility check)
         for vid in self._func_name_ext_idx.get(func_name, []):
-            existing_fn = _vattr(graph.vs[vid], "fullname", "")
+            existing_fn = self._vfullname[vid]
             existing_type = existing_fn.rsplit(".", 1)[0] if "." in existing_fn else ""
             new_type = fullname.rsplit(".", 1)[0] if "." in fullname else ""
             if not existing_type or not new_type or existing_type == new_type:
@@ -443,6 +470,25 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             is_external=True,
         )
         new_vid = new_v.index
+        # 扩展属性缓存以覆盖新节点
+        for arr, default in [
+            ("_vlabel", NodeLabel.FUNCTION.value),
+            ("_vname", func_name),
+            ("_vtype", FunctionType.FUNCTION.value),
+            ("_vpath", ""),
+            ("_vlineno", 0),
+            ("_vfile_path", ""),
+            ("_vis_external", True),
+            ("_vfullname", fullname),
+            ("_vjava_type", ""),
+            ("_vdtype", ""),
+            ("_vreturn_type", ""),
+            ("_vvalue", ""),
+        ]:
+            lst = getattr(self, arr)
+            while len(lst) <= new_vid:
+                lst.append(default if isinstance(default, str) or isinstance(default, bool) or isinstance(default, int) else "")
+            lst[new_vid] = default
         # 更新索引，使后续查找能命中
         self._func_fullname_idx[fullname] = new_vid
         self._func_name_ext_idx.setdefault(func_name, []).append(new_vid)
@@ -461,7 +507,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 break
             visited.add(current)
             for parent_vid in self._own_to.get(current, []):
-                parent_label = _vattr(graph.vs[parent_vid], "label", "")
+                parent_label = self._vlabel[parent_vid]
                 if parent_label == NodeLabel.FUNCTION.value:
                     self._enclosing_fn_cache[vid] = parent_vid
                     return parent_vid
@@ -495,7 +541,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 found = False
                 # First pass: check all incoming for a direct function parent
                 for source in self._incoming_to.get(current, []):
-                    if _vattr(graph.vs[source], "label", "") == NodeLabel.FUNCTION.value:
+                    if self._vlabel[source] == NodeLabel.FUNCTION.value:
                         fn_vid = source
                         found = True
                         break
@@ -519,7 +565,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         if fn_vid is None:
             self._enclosing_fn_lineno_cache[vid] = None
             return None
-        start = int(_vattr(graph.vs[fn_vid], "lineno", 0) or 0)
+        start = self._vlineno[fn_vid]
         result = (start, start + 200)
         self._enclosing_fn_lineno_cache[vid] = result
         return result
