@@ -114,6 +114,40 @@ class DataFlowBuilder(BaseEdgeBuilder):
         self._edge_src_idx = dict(self._edge_src_idx)
         self._edge_tgt_idx = dict(self._edge_tgt_idx)
 
+        # ast 边 role 索引：(src_vid, role) → [tgt_vids]
+        # 替代 es.select(_source=vid, label=AST, role=...) 的 O(E) 查询
+        self._ast_role_from: dict[tuple[int, str], list[int]] = {}
+        for e in self.graph.es:
+            if _vattr(e, "label", "") == EdgeLabel.AST.value:
+                role = _vattr(e, "role", "")
+                if role:
+                    key = (e.source, role)
+                    if key not in self._ast_role_from:
+                        self._ast_role_from[key] = []
+                    self._ast_role_from[key].append(e.target)
+
+        # 节点标签索引：label → [vids]，替代 vs.select(label=...) 的 O(V) 遍历
+        self._node_label_idx: dict[str, list[int]] = {}
+        for v in self.graph.vs:
+            vlabel = _vattr(v, "label", "")
+            if vlabel:
+                self._node_label_idx.setdefault(vlabel, []).append(v.index)
+
+        # (name, label) → [vids] 索引，替代 vs.select(label=X, name=Y) 的 O(V) 查询
+        self._name_label_idx: dict[tuple[str, str], list[int]] = {}
+        for v in self.graph.vs:
+            vlabel = _vattr(v, "label", "")
+            vname = _vattr(v, "name", "")
+            if vlabel and vname:
+                self._name_label_idx.setdefault((vname, vlabel), []).append(v.index)
+
+        # path → file vid 索引，替代 _get_scope_parent fallback 中 vs.select 的 O(V) 遍历
+        self._path_to_file_vid: dict[str, int] = {}
+        for vid in self._node_label_idx.get(NodeLabel.FILE.value, []):
+            path = _vattr(self.graph.vs[vid], "path", "")
+            if path:
+                self._path_to_file_vid[path] = vid
+
         # 预构建函数名索引：name → [vid1, vid2, ...]
         # 避免在 _resolve_function 中对每个函数调用做 O(V) 全图遍历
         self._func_name_index = {}
@@ -190,8 +224,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             vid = v.index
             # 获取所有 ast 子节点（操作数）
-            for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
-                child_vid = e.target
+            for child_vid in self._edges_from(vid, EdgeLabel.AST.value):
                 child_label = _vattr(self.graph.vs[child_vid], "label", "")
                 # 操作数可以是 identifier、const、operator、literal 等
                 if child_label in (
@@ -217,10 +250,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(v, "type") not in call_types:
                 continue
             vid = v.index
-            for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
-                if _vattr(e, "role") != AstRole.ARG.value:
-                    continue
-                child_vid = e.target
+            for child_vid in self._ast_role_from.get((vid, AstRole.ARG.value), []):
                 child_label = _vattr(self.graph.vs[child_vid], "label", "")
                 if child_label in (
                     NodeLabel.IDENTIFIER.value,
@@ -410,8 +440,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         for vid in call_vids:
             # Walk AST children to find any child that is also a call operator
             # The inner call may be nested: outer --[ast/callee]--> callee_id --[ast]--> inner_call
-            for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
-                child_vid = e.target
+            for child_vid in self._edges_from(vid, EdgeLabel.AST.value):
                 child_label = _vattr(self.graph.vs[child_vid], "label", "")
                 child_type = _vattr(self.graph.vs[child_vid], "type", "")
 
@@ -425,8 +454,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 # Indirect: ast child is an identifier/qualified_id that points to
                 # a call operator via its own ast children
                 if child_label in (NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
-                    for e2 in self.graph.es.select(_source=child_vid, label=EdgeLabel.AST.value):
-                        inner_vid = e2.target
+                    for inner_vid in self._edges_from(child_vid, EdgeLabel.AST.value):
                         inner_label = _vattr(self.graph.vs[inner_vid], "label", "")
                         inner_type = _vattr(self.graph.vs[inner_vid], "type", "")
                         if (inner_label == NodeLabel.OPERATOR.value
@@ -446,16 +474,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
         例: request.args → identifier(request) --dfg--> identifier(args)
         例: request.data → identifier(request) --dfg--> identifier(data)
         """
-        for e in self.graph.es.select(label=EdgeLabel.MEMBER.value):
-            src_vid = e.source
-            tgt_vid = e.target
-            src_label = _vattr(self.graph.vs[src_vid], "label", "")
-            tgt_label = _vattr(self.graph.vs[tgt_vid], "label", "")
-            if (src_label == NodeLabel.IDENTIFIER.value
-                    and tgt_label == NodeLabel.IDENTIFIER.value):
-                self._add_dfg_edge(
-                    src_vid, tgt_vid, DfgType.FORWARD_SLICE.value
-                )
+        for (elabel, src_vid), tgt_vids in self._edge_src_idx.items():
+            if elabel != EdgeLabel.MEMBER.value:
+                continue
+            for tgt_vid in tgt_vids:
+                src_label = _vattr(self.graph.vs[src_vid], "label", "")
+                tgt_label = _vattr(self.graph.vs[tgt_vid], "label", "")
+                if (src_label == NodeLabel.IDENTIFIER.value
+                        and tgt_label == NodeLabel.IDENTIFIER.value):
+                    self._add_dfg_edge(
+                        src_vid, tgt_vid, DfgType.FORWARD_SLICE.value
+                    )
 
     # -- 分析步骤 1：赋值传播 -------------------------------------------------
 
@@ -551,10 +580,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 rhs_type = _vattr(self.graph.vs[rhs_vid], "type", "").lower()
                 if rhs_type == "ternary":
                     # iftrue 和 iffalse 分支的值节点 dfg 到 LHS
-                    for branch_child in self.graph.es.select(
-                        _source=rhs_vid, label=EdgeLabel.AST.value
-                    ):
-                        child_vid = branch_child.target
+                    for child_vid in self._edges_from(rhs_vid, EdgeLabel.AST.value):
                         child_label = _vattr(self.graph.vs[child_vid], "label", "")
                         # iftrue/iffalse 的值节点（identifier/const/operator）
                         if child_label in (
@@ -738,9 +764,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 continue
 
             # 检查是否已有此 DFG 边（避免重复）
-            for eid3 in self.graph.es.select(_source=vid, _target=receiver_vid,
-                                              label=EdgeLabel.DFG.value):
-                continue  # 已存在，跳过当前 call 继续下一个
+            if (vid, receiver_vid) in self._dfg_edges:
+                continue
 
             # 创建 call → receiver 的 DFG 回传边
             self._add_dfg_edge(vid, receiver_vid, DfgType.FORWARD_SLICE.value)
@@ -801,10 +826,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     break
             if has_own:
                 # Only treat as LHS if it has an initialiser (ast[value] edge)
-                has_init = any(
-                    _vattr(e, "role") == "value"
-                    for e in self.graph.es.select(_source=v.index, label="ast")
-                )
+                has_init = bool(self._ast_role_from.get((v.index, "value"), []))
                 if has_init:
                     assign_lhs_vids.add(v.index)
 
@@ -892,14 +914,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
         """
         # 预收集全图 assign LHS（提到循环外，避免每个 function 重复扫描）
         assign_lhs_vids: set[int] = set()
-        for v in self.graph.vs.select(label=NodeLabel.IDENTIFIER.value):
-            for e in self.graph.es.select(_source=v.index, label="ast"):
-                if _vattr(e, "role") in ("lhs", "assign_lhs"):
-                    assign_lhs_vids.add(v.index)
+        for vid in self._node_label_idx.get(NodeLabel.IDENTIFIER.value, []):
+            if self._ast_role_from.get((vid, "lhs"), []) or self._ast_role_from.get((vid, "assign_lhs"), []):
+                assign_lhs_vids.add(vid)
 
-        for fv in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
-            func_vid = fv.index
-            func_path = _vattr(fv, "path", "")
+        for func_vid in self._node_label_idx.get(NodeLabel.FUNCTION.value, []):
+            func_path = _vattr(self.graph.vs[func_vid], "path", "")
 
             # 收集此 function 的所有 parameter
             params: dict[str, list[int]] = defaultdict(list)
@@ -914,11 +934,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             # 在同 file 内查找同名 identifier（无 DFG 入边且非 LHS）
             for pname, param_vids in params.items():
-                for ident in self.graph.vs.select(
-                    label=NodeLabel.IDENTIFIER.value,
-                    name=pname,
-                ):
-                    ident_vid = ident.index
+                for ident_vid in self._name_label_idx.get((pname, NodeLabel.IDENTIFIER.value), []):
                     # 跳过 parameter 自身
                     if ident_vid in param_vids:
                         continue
@@ -930,7 +946,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     if ident_vid in assign_lhs_vids:
                         continue
                     # 跳过不同 file 的
-                    if _vattr(ident, "path", "") != func_path:
+                    if _vattr(self.graph.vs[ident_vid], "path", "") != func_path:
                         continue
                     # 创建 parameter → identifier 的 DFG 边
                     for pvid in param_vids:
@@ -1171,6 +1187,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def _resolve_import_targets(
         self, import_vid: int, parent_fp: str,
         file_path_map: dict[str, int],
+        _visited: set[int] | None = None,
     ) -> list[int]:
         """解析 import 节点的目标文件，返回 target file_vid 列表。
 
@@ -1183,6 +1200,13 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         arg_vids = self._get_ast_children(import_vid, role="arg")
         parent_dir = os.path.dirname(parent_fp)
+
+        # 防止循环递归（同文件 import 链可能互相引用）
+        if _visited is None:
+            _visited = set()
+        if import_vid in _visited:
+            return []
+        _visited.add(import_vid)
 
         # Case S: source 属性直接提供路径（C/C++ #include "utils.h"）
         # C/C++ import 节点没有 ast[arg] 子节点，路径存在 source 属性中
@@ -1235,7 +1259,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 if (_vattr(ca, "label", "") == NodeLabel.OPERATOR.value
                         and _vattr(ca, "type", "") in ("binary_op", "concat")):
                     resolved = self._resolve_import_targets(
-                        v.index, v_fp, file_path_map
+                        v.index, v_fp, file_path_map, _visited
                     )
                     for r in resolved:
                         candidates.add(r)
@@ -1269,8 +1293,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         const type=constant 无法静态求值，跳过。
         """
         result: list[str] = []
-        for e in self.graph.es.select(_source=vid, label="ast"):
-            child_vid = e.target
+        for child_vid in self._edges_from(vid, "ast"):
             child = self.graph.vs[child_vid]
             child_label = _vattr(child, "label", "")
             child_type = _vattr(child, "type", "")
@@ -1490,9 +1513,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(e, "label") == EdgeLabel.USE.value:
                 return e.target
         # JS 等语言用 ast[role=callee] 而非 use 边
-        for e in self.graph.es.select(_source=vid, label=EdgeLabel.AST.value):
-            if _vattr(e, "role") == "callee":
-                return e.target
+        callee_vids = self._ast_role_from.get((vid, "callee"), [])
+        if callee_vids:
+            return callee_vids[0]
         return None
 
     def _get_cg_callers(self, func_vid: int) -> list[int]:
@@ -1507,9 +1530,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if _vattr(e, "label") == EdgeLabel.USE.value:
                 result.append(e.source)
         # JS 等语言用 ast[role=callee]
-        for e in self.graph.es.select(_target=func_vid, label=EdgeLabel.AST.value):
-            if _vattr(e, "role") == "callee":
-                result.append(e.source)
+        for (src_vid, role), tgt_vids in self._ast_role_from.items():
+            if role == "callee" and func_vid in tgt_vids:
+                result.append(src_vid)
         return result
 
     def _get_edges_by_label(self, label: str) -> list[int]:
@@ -1550,9 +1573,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # Fallback: if no scope found via edges, use file node from path
         node_path = _vattr(self.graph.vs[vid], "path", "")
         if node_path:
-            for v in self.graph.vs.select(label=NodeLabel.FILE.value):
-                if _vattr(v, "path", "") == node_path:
-                    return v.index
+            return self._path_to_file_vid.get(node_path)
         return None
 
     def _get_callee_name(self, vid: int) -> str:

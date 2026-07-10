@@ -53,6 +53,13 @@ class AliasBuilder:
         self.graph = None
         self.language = ""
         self._alias_count = 0
+        # 边索引：O(E) 一次构建，替代所有 es.select 的 O(E) 逐次查询
+        self._edge_src_idx: dict[tuple[str, int], list[int]] = {}
+        self._edge_tgt_idx: dict[tuple[str, int], list[int]] = {}
+        # ast role 索引：(src_vid, role) → [tgt_vids]
+        self._ast_role_from: dict[tuple[int, str], list[int]] = {}
+        # 节点标签索引：label → [vids]
+        self._node_label_idx: dict[str, list[int]] = {}
 
     # -- public entry ---------------------------------------------------------
 
@@ -61,6 +68,30 @@ class AliasBuilder:
         self.graph = graph
         self.language = language
         self._alias_count = 0
+
+        # 预构建边索引
+        self._edge_src_idx.clear()
+        self._edge_tgt_idx.clear()
+        self._ast_role_from.clear()
+        self._node_label_idx.clear()
+        for e in self.graph.es:
+            elabel = _vattr(e, "label", "")
+            src, tgt = e.source, e.target
+            self._edge_src_idx.setdefault((elabel, src), []).append(tgt)
+            self._edge_tgt_idx.setdefault((elabel, tgt), []).append(src)
+            if elabel == "ast":
+                role = _vattr(e, "role", "")
+                if role:
+                    self._ast_role_from.setdefault((src, role), []).append(tgt)
+        for v in self.graph.vs:
+            vlabel = _vattr(v, "label", "")
+            if vlabel:
+                self._node_label_idx.setdefault(vlabel, []).append(v.index)
+
+        # Helper methods — 存为实例属性，供所有内部方法使用
+        self._ef = self._edge_src_idx.get
+        self._et = self._edge_tgt_idx.get
+
         # 预构建 identifier/parameter 名字索引：name -> [(vid, parent_func_vid), ...]
         # 用于 _find_callee_identifier 的 O(1) fallback 查找
         self._name_to_idents: dict[str, list[tuple[int, int | None]]] = {}
@@ -92,7 +123,7 @@ class AliasBuilder:
                 fpath = _vattr(v, "file_path", "") or _vattr(v, "path", "")
                 if not fpath:
                     continue
-                has_dfg = bool(self.graph.es.select(_target=v.index, label="dfg"))
+                has_dfg = bool(self._et(v.index, "dfg"))
                 key = f"{fpath}\x00{name}"
                 self._file_name_idents.setdefault(key, []).append((v.index, has_dfg))
         call_types = {
@@ -115,7 +146,7 @@ class AliasBuilder:
             func_vid, func_name = use_func
 
             # Skip if function has own children (real definition)
-            if list(self.graph.es.select(_source=func_vid, label="own")):
+            if self._ef(func_vid, "own"):
                 continue
 
             # Check for method_call indirect invocation patterns:
@@ -156,20 +187,19 @@ class AliasBuilder:
 
     def _find_use_function(self, op_vid: int) -> tuple[int, str] | None:
         """Find the use->function edge target from a call operator."""
-        for e in self.graph.es.select(_source=op_vid, label="use"):
-            target = self.graph.vs[e.target]
+        for tgt_vid in self._ef(op_vid, "use"):
+            target = self.graph.vs[tgt_vid]
             if target["label"] == NodeLabel.FUNCTION.value:
-                return e.target, target["name"]
+                return tgt_vid, target["name"]
         return None
 
     def _find_callee_identifier(self, op_vid: int, func_name: str) -> int | None:
         """Find the callee identifier vertex for a call operator."""
         # Look for ast[role=callee] child that is an identifier
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
-            if _vattr(e, "role") == "callee":
-                t = self.graph.vs[e.target]
-                if t["label"] == NodeLabel.IDENTIFIER.value:
-                    return e.target
+        for callee_vid in self._ast_role_from.get((op_vid, "callee"), []):
+            t = self.graph.vs[callee_vid]
+            if t["label"] == NodeLabel.IDENTIFIER.value:
+                return callee_vid
         # Fallback: 从预构建索引查找 identifier/parameter by name
         candidates = self._name_to_idents.get(func_name, [])
         if candidates:
@@ -192,16 +222,16 @@ class AliasBuilder:
                 continue
             visited.add(current)
             # Walk up own chain, then AST chain from intermediate nodes
-            for e in self.graph.es.select(_target=current, label="own"):
-                parent_label = self.graph.vs[e.source]["label"]
+            for src_vid in self._et(current, "own"):
+                parent_label = self.graph.vs[src_vid]["label"]
                 if parent_label in ("function", "file"):
-                    return e.source
-                queue.append(e.source)
-            for e in self.graph.es.select(_target=current, label="ast"):
-                parent_label = self.graph.vs[e.source]["label"]
+                    return src_vid
+                queue.append(src_vid)
+            for src_vid in self._et(current, "ast"):
+                parent_label = self.graph.vs[src_vid]["label"]
                 if parent_label in ("function", "file"):
-                    return e.source
-                queue.append(e.source)
+                    return src_vid
+                queue.append(src_vid)
         return None
 
     def _find_operand_identifier(self, op_vid: int) -> int | None:
@@ -211,14 +241,13 @@ class AliasBuilder:
         the method name ``call`` is a generic dispatch mechanism and the real
         function reference is the receiver object.
         """
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
-            if _vattr(e, "role") == "operand":
-                t = self.graph.vs[e.target]
-                if t["label"] in (
-                    NodeLabel.IDENTIFIER.value,
-                    NodeLabel.PARAMETER.value,
-                ):
-                    return e.target
+        for operand_vid in self._ast_role_from.get((op_vid, "operand"), []):
+            t = self.graph.vs[operand_vid]
+            if t["label"] in (
+                NodeLabel.IDENTIFIER.value,
+                NodeLabel.PARAMETER.value,
+            ):
+                return operand_vid
         return None
 
     def _resolve_alias(
@@ -246,20 +275,16 @@ class AliasBuilder:
             # Terminal: identifier
             if cur_label == NodeLabel.IDENTIFIER.value and cur_name:
                 # Check if any member edge points TO this identifier
-                member_from = list(
-                    self.graph.es.select(_target=current, label="member")
-                )
-                if member_from:
-                    parent_vid = member_from[0].source
+                member_sources = self._et(current, "member")
+                if member_sources:
+                    parent_vid = member_sources[0]
                     parent_name = _vattr(self.graph.vs[parent_vid], "name", "")
                     composed = f"{parent_name}.{cur_name}"
                     func_vid = self._find_or_create_function(composed)
                     return composed, AliasType.VIA_MEMBER.value, func_vid
 
                 # Leaf identifier: no DFG upstream
-                dfg_sources = list(
-                    self.graph.es.select(_target=current, label="dfg")
-                )
+                dfg_sources = self._et(current, "dfg")
                 if not dfg_sources:
                     # Cross-scope fallback
                     cross_scope_id = self._find_same_name_with_dfg(
@@ -280,8 +305,8 @@ class AliasBuilder:
                     return cur_name, atype, func_vid
 
                 # Has DFG upstream — try each path
-                for dfg_e in dfg_sources:
-                    result = _try(dfg_e.source, depth + 1)
+                for src_vid in dfg_sources:
+                    result = _try(src_vid, depth + 1)
                     if result[0] is not None:
                         return result
                 return None, None, None
@@ -309,11 +334,8 @@ class AliasBuilder:
                     return string_arg, alias_type, func_vid
 
             # Transit: any other node — follow DFG sources
-            dfg_sources = list(
-                self.graph.es.select(_target=current, label="dfg")
-            )
-            for dfg_e in dfg_sources:
-                result = _try(dfg_e.source, depth + 1)
+            for src_vid in self._et(current, "dfg"):
+                result = _try(src_vid, depth + 1)
                 if result[0] is not None:
                     return result
 
@@ -327,17 +349,16 @@ class AliasBuilder:
         Used for getattr(obj, 'method_name'), globals().get('func_name'),
         and Ruby method(:symbol) patterns.
         """
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
-            if _vattr(e, "role") == "arg":
-                arg_v = self.graph.vs[e.target]
-                if arg_v["label"] == NodeLabel.CONST.value:
-                    name = _vattr(arg_v, "name", "")
-                    if name:
-                        name = name.strip("'\"")
-                        # Strip Ruby symbol prefix (:system → system)
-                        if name.startswith(":") and not name.startswith("::"):
-                            name = name[1:]
-                        return name
+        for arg_vid in self._ast_role_from.get((op_vid, "arg"), []):
+            arg_v = self.graph.vs[arg_vid]
+            if arg_v["label"] == NodeLabel.CONST.value:
+                name = _vattr(arg_v, "name", "")
+                if name:
+                    name = name.strip("'\"")
+                    # Strip Ruby symbol prefix (:system → system)
+                    if name.startswith(":") and not name.startswith("::"):
+                        name = name[1:]
+                    return name
         return None
 
     def _find_or_create_function(self, name: str) -> int | None:
