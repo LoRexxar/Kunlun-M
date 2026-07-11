@@ -24,7 +24,6 @@ _BUILTIN_SOURCE_MEMBERS = frozenset({
     # HttpServletRequest 方法
     "getParameter", "getHeader", "getInputStream", "getReader",
     "getQueryString", "getCookies", "getParameterValues", "getParameterMap",
-    "getProtocol", "getScheme", "getServerName", "getRemoteAddr",
     "getRemoteHost", "getRequestURI", "getRequestURL",
     "getContextPath", "getPathInfo", "getPart", "getParts",
     "getAttribute", "getSession",

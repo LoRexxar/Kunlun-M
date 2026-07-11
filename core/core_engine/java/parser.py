@@ -783,7 +783,6 @@ def _trace_expr(expr, stmts, lineno, file_path, repair_functions, controlled_par
 _REQUEST_SOURCE_METHODS = frozenset({
     "getParameter", "getHeader", "getInputStream", "getReader",
     "getQueryString", "getCookies", "getParameterValues", "getParameterMap",
-    "getProtocol", "getScheme", "getServerName", "getRemoteAddr",
     "getPart", "getParts", "getInputStream",
 })
 
