@@ -45,8 +45,42 @@ _MAX_ITERATIONS = 5
 _CALL_TYPES = frozenset({"call", "method_call", "static_call"})
 
 
+def _build_edge_index(graph: "ig.Graph"):
+    """一次性遍历所有边，构建 O(1) 索引替代 es.select。
+
+    Returns:
+        out: dict[str, dict[int, list[int]]]  — label → {src_vid: [tgt_vid, ...]}
+        inn: dict[str, dict[int, list[int]]]  — label → {tgt_vid: [src_vid, ...]}
+        ast_children: dict[int, list[tuple[int, str, str]]]  — src_vid → [(tgt_vid, role, arg_index), ...]
+        own_children: dict[int, list[tuple[int, str]]]  — src_vid → [(tgt_vid, index), ...]
+    """
+    from utils.igraph_compat import _vattr
+    out: dict[str, dict[int, list[int]]] = {}
+    inn: dict[str, dict[int, list[int]]] = {}
+    ast_children: dict[int, list[tuple[int, str, str]]] = {}
+    own_children: dict[int, list[tuple[int, str]]] = {}
+    for e in graph.es:
+        el = _vattr(e, "label") or ""
+        s, t = e.source, e.target
+        out.setdefault(el, {}).setdefault(s, []).append(t)
+        inn.setdefault(el, {}).setdefault(t, []).append(s)
+        if el == "ast":
+            role = _vattr(e, "role") or ""
+            arg_idx = _vattr(e, "arg_index") or _vattr(e, "index") or ""
+            ast_children.setdefault(s, []).append((t, role, arg_idx))
+        if el == "own":
+            idx = _vattr(e, "index") or ""
+            own_children.setdefault(s, []).append((t, idx))
+    return {
+        "out": out,
+        "in": inn,
+        "ast_ch": ast_children,
+        "own_ch": own_children,
+    }
+
+
 def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
-                               return_vids: list[int] | None = None):
+                               return_vids: list[int] | None = None, eidx: dict | None = None):
     """递归收集 start_vid 通过 ast/own 边可达的所有后代节点（BFS）。
 
     同时追踪 ast 边和 own 边（own 边仅在 branch/control 节点下展开）。
@@ -70,19 +104,18 @@ def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
     while queue:
         vid = queue.popleft()
         src_label = _vattr(graph.vs[vid], "label", "")
-        for e in graph.es.select(_source=vid):
-            el = _vattr(e, "label")
-            if el == "ast":
-                if e.target not in result:
-                    result.add(e.target)
-                    queue.append(e.target)
-            elif el == "own" and src_label in _OWN_EXPAND_LABELS:
-                # branch/control 节点的 own 子节点也展开
-                if e.target not in result:
-                    result.add(e.target)
-                    queue.append(e.target)
-                    if return_vids is not None and _vattr(graph.vs[e.target], "label", "") == NodeLabel.RETURN.value:
-                        return_vids.append(e.target)
+        for tgt_vid in eidx["out"].get("ast", {}).get(vid, []):
+            if tgt_vid not in result:
+                result.add(tgt_vid)
+                queue.append(tgt_vid)
+        if src_label in _OWN_EXPAND_LABELS:
+            # branch/control 节点的 own 子节点也展开
+            for tgt_vid in eidx["out"].get("own", {}).get(vid, []):
+                if tgt_vid not in result:
+                    result.add(tgt_vid)
+                    queue.append(tgt_vid)
+                    if return_vids is not None and _vattr(graph.vs[tgt_vid], "label", "") == NodeLabel.RETURN.value:
+                        return_vids.append(tgt_vid)
 
 
 def build_function_summaries(
@@ -105,6 +138,9 @@ def build_function_summaries(
 
     stats = {"annotated": 0, "passthrough": 0, "source": 0, "safe": 0, "literal": 0, "unknown": 0}
 
+    # 一次性构建 O(1) 边索引，替代所有 es.select 调用
+    eidx = _build_edge_index(graph)
+
     # ── 收集所有 function 节点及其结构 ──
     func_data: dict[int, dict] = {}  # func_vid → {own_vids, param_idx, return_vids, lang}
     for v in graph.vs:
@@ -116,13 +152,11 @@ def build_function_summaries(
         own_vids: set[int] = set()
         param_idx: dict[int, int] = {}  # param_vid → param index
         return_vids: list[int] = []
-        for e in graph.es.select(_source=vid, label="own"):
-            child_vid = e.target
+        for child_vid, edge_idx in eidx["own_ch"].get(vid, []):
             child_label = _vattr(graph.vs[child_vid], "label", "")
             if child_label == NodeLabel.PARAMETER.value:
-                idx = _vattr(e, "index")
-                if idx is not None and idx != "":
-                    param_idx[child_vid] = int(idx)
+                if edge_idx is not None and edge_idx != "":
+                    param_idx[child_vid] = int(edge_idx)
                 # parameter 不展开 ast 子树（无意义）
                 own_vids.add(child_vid)
             elif child_label == NodeLabel.RETURN.value:
@@ -130,7 +164,7 @@ def build_function_summaries(
                 own_vids.add(child_vid)
             else:
                 # 其他 own 子节点：递归展开 ast 子树（同时收集嵌套 return）
-                _collect_ast_descendants(graph, child_vid, own_vids, return_vids)
+                _collect_ast_descendants(graph, child_vid, own_vids, return_vids, eidx=eidx)
         func_data[vid] = {
             "own_vids": own_vids,
             "param_idx": param_idx,
@@ -154,7 +188,7 @@ def build_function_summaries(
                 continue
 
             return_flows = _collect_return_flows(
-                graph, fd["return_vids"], fd["own_vids"], fd["param_idx"]
+                graph, fd["return_vids"], fd["own_vids"], fd["param_idx"], eidx
             )
             if not return_flows:
                 processed.add(vid)
@@ -183,7 +217,7 @@ def build_function_summaries(
                 if summary_type == "passthrough" and dep_params:
                     sorted_deps = sorted(dep_params)
                     graph.vs[vid]["taint_passthrough"] = sorted_deps
-                    _mark_passthrough_params(graph, vid, sorted_deps)
+                    _mark_passthrough_params(graph, vid, sorted_deps, eidx)
 
             processed.add(vid)
             new_this_round += 1
@@ -215,15 +249,16 @@ def _collect_return_flows(
     return_vids: list[int],
     own_vids: set[int],
     param_idx: dict[int, int],
+    eidx: dict,
 ) -> list[dict]:
     """从所有 return 节点收集 return flows。"""
     from utils.igraph_compat import _vattr
 
     flows = []
     for ret_vid in return_vids:
-        for ae in graph.es.select(_source=ret_vid, label="ast"):
-            if _vattr(ae, "role") == "value":
-                flow = _trace_return_value(graph, ae.target, own_vids, param_idx, visited=set())
+        for tgt, role, _ in eidx["ast_ch"].get(ret_vid, []):
+            if role == "value":
+                flow = _trace_return_value(graph, tgt, own_vids, param_idx, set(), eidx)
                 if flow:
                     flows.append(flow)
     return flows
@@ -277,6 +312,7 @@ def _trace_return_value(
     own_vids: set[int],
     param_idx: dict[int, int],
     visited: set[int],
+    eidx: dict,
     depth: int = 0,
 ) -> dict:
     """从返回值表达式 vid 沿 DFG 反向追踪到参数/字面量/source。
@@ -320,7 +356,7 @@ def _trace_return_value(
     if self_taint == "passthrough":
         pt = _vattr(v, "taint_passthrough", [])
         if pt:
-            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, depth)
+            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
 
     # ── 2.6. $this / self（链式调用返回自身实例） ──
     #     PHP/Java 中 `return $this` / `return self` 是链式调用模式，
@@ -367,11 +403,11 @@ def _trace_return_value(
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
         if taint == "passthrough":
             pt = _vattr(v, "taint_passthrough", [])
-            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, depth)
+            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
 
         # 3b. call operator → 尝试 use → function（用户自定义函数的摘要）
         if vtype in _CALL_TYPES:
-            result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, depth)
+            result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, eidx, depth)
             if result:
                 return result
 
@@ -387,9 +423,8 @@ def _trace_return_value(
         #     (int)$x, (string)$x, (bool)$x — 类型转换不消除污点，
         #     结果取决于内部表达式。递归追踪 ast 子节点。
         if vtype == "type_cast":
-            for ae in graph.es.select(_source=start_vid, label="ast"):
-                inner = ae.target
-                sub = _trace_return_value(graph, inner, own_vids, param_idx, visited, depth + 1)
+            for inner in [t for t, r, _ in eidx["ast_ch"].get(start_vid, [])]:
+                sub = _trace_return_value(graph, inner, own_vids, param_idx, visited, eidx, depth + 1)
                 if sub["origin_type"] in ("source", "param", "safe"):
                     return sub
                 # 内部是 unknown/literal → type_cast 也是 unknown
@@ -408,10 +443,9 @@ def _trace_return_value(
     #    聚合结果（condition 不影响污点传播）。
     if vlabel == NodeLabel.BRANCH.value:
         branch_flows = []
-        for be in graph.es.select(_source=start_vid, label="ast"):
-            role = _vattr(be, "role", "")
+        for tgt, role, _ in eidx["ast_ch"].get(start_vid, []):
             if role in ("iftrue", "iffalse"):
-                sub = _trace_return_value(graph, be.target, own_vids, param_idx, visited, depth + 1)
+                sub = _trace_return_value(graph, tgt, own_vids, param_idx, visited, eidx, depth + 1)
                 branch_flows.append(sub)
         if branch_flows:
             # 用 _aggregate_flows 聚合所有分支
@@ -435,9 +469,7 @@ def _trace_return_value(
     any_unresolved = False
     dfg_has_safe_source = False  # DFG 链中是否存在 safe/literal 源
 
-    for de in graph.es.select(_target=start_vid, label="dfg"):
-        src_vid = de.source
-
+    for src_vid in eidx["in"].get("dfg", {}).get(start_vid, []):
         # 4a. 检查 DFG 源节点自身是否是 source/safe（如 $_COOKIE、$_GET 等
         #     不在函数 own 子树内的全局变量，由 enrich_taint 标注）
         src_taint = _vattr(graph.vs[src_vid], "taint_type", "")
@@ -449,7 +481,7 @@ def _trace_return_value(
         # 4b. 约束在函数 own 子树内，递归追踪
         if src_vid not in own_vids:
             continue
-        sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, depth + 1)
+        sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, eidx, depth + 1)
         if sub["origin_type"] == "source":
             return sub  # source 立即返回
         if sub["origin_type"] == "safe":
@@ -467,8 +499,7 @@ def _trace_return_value(
     #    e.g. $_COOKIE['theme'] → member ← $_COOKIE (source)
     #    e.g. $array[array_rand($array)] → member ← $array (parameter)
     if vlabel == NodeLabel.IDENTIFIER.value:
-        for me in graph.es.select(_target=start_vid, label="member"):
-            container_vid = me.source
+        for container_vid in eidx["in"].get("member", {}).get(start_vid, []):
             container = graph.vs[container_vid]
             container_taint = _vattr(container, "taint_type", "")
             # $this / self：链式调用或属性访问，返回对象实例，非外部输入
@@ -490,7 +521,7 @@ def _trace_return_value(
                         break
             # 容器可能是 passthrough 函数的返回值——递归追踪
             if container_vid in own_vids:
-                sub = _trace_return_value(graph, container_vid, own_vids, param_idx, visited, depth + 1)
+                sub = _trace_return_value(graph, container_vid, own_vids, param_idx, visited, eidx, depth + 1)
                 if sub["origin_type"] in ("source", "param"):
                     return sub
 
@@ -503,7 +534,7 @@ def _trace_return_value(
         ret_name = _vattr(v, "name", "")
         if ret_name:
             assign_found = _trace_assign_fallback(
-                graph, ret_name, start_vid, own_vids, param_idx, visited, depth
+                graph, ret_name, start_vid, own_vids, param_idx, visited, eidx, depth
             )
             if assign_found and assign_found["origin_type"] != "unknown":
                 return assign_found
@@ -534,6 +565,7 @@ def _trace_assign_fallback(
     own_vids: set[int],
     param_idx: dict[int, int],
     visited: set[int],
+    eidx: dict,
     depth: int,
 ) -> dict | None:
     """在 own subtree 内搜索 assignment LHS 同名 identifier，追踪 RHS 表达式。
@@ -553,8 +585,8 @@ def _trace_assign_fallback(
         if _vattr(graph.vs[n], "type") not in ("assign", "aug_assign"):
             continue
         # 检查 LHS —— 直接 identifier 或 ArrayOffset（映射为 identifier/property）
-        for le in graph.es.select(_source=n, label="ast", role="left"):
-            lhs = graph.vs[le.target]
+        for lhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "left"]:
+            lhs = graph.vs[lhs_vid]
             lhs_label = _vattr(lhs, "label", "")
             lhs_name = _vattr(lhs, "name", "")
 
@@ -566,8 +598,8 @@ def _trace_assign_fallback(
                 # 检查 member 边是否来自目标变量
                 # $arr[$key] = $val → member($arr → $key)，LHS 是 $key (property)
                 # 搜索 member 边的 source（container = $arr）
-                for me in graph.es.select(_target=le.target, label="member"):
-                    container = graph.vs[me.source]
+                for container_vid in eidx["in"].get("member", {}).get(lhs_vid, []):
+                    container = graph.vs[container_vid]
                     if (_vattr(container, "label") == NodeLabel.IDENTIFIER.value and
                             _vattr(container, "name", "") == target_name):
                         matched_lhs = True
@@ -575,23 +607,21 @@ def _trace_assign_fallback(
 
             if matched_lhs:
                 # 找到匹配的赋值，追踪 RHS
-                for re in graph.es.select(_source=n, label="ast", role="right"):
-                    rhs_vid = re.target
+                for rhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "right"]:
                     if depth + 1 >= 3:
                         return None
-                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, eidx, depth + 1)
                     return sub
                 # PHP normalizer 用 "lhs"/"rhs"，兼容
-                for re in graph.es.select(_source=n, label="ast", role="rhs"):
-                    rhs_vid = re.target
+                for rhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "rhs"]:
                     if depth + 1 >= 3:
                         return None
-                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, eidx, depth + 1)
                     return sub
                 return None  # RHS 不存在
         # PHP normalizer 兼容：lhs role
-        for le in graph.es.select(_source=n, label="ast", role="lhs"):
-            lhs = graph.vs[le.target]
+        for lhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "lhs"]:
+            lhs = graph.vs[lhs_vid]
             lhs_label = _vattr(lhs, "label", "")
             lhs_name = _vattr(lhs, "name", "")
 
@@ -599,19 +629,18 @@ def _trace_assign_fallback(
             if lhs_label == NodeLabel.IDENTIFIER.value and lhs_name == target_name:
                 matched_lhs = True
             elif lhs_label == NodeLabel.IDENTIFIER.value and _vattr(lhs, "type") == "property":
-                for me in graph.es.select(_target=le.target, label="member"):
-                    container = graph.vs[me.source]
+                for container_vid in eidx["in"].get("member", {}).get(lhs_vid, []):
+                    container = graph.vs[container_vid]
                     if (_vattr(container, "label") == NodeLabel.IDENTIFIER.value and
                             _vattr(container, "name", "") == target_name):
                         matched_lhs = True
                         break
 
             if matched_lhs:
-                for re in graph.es.select(_source=n, label="ast", role="rhs"):
-                    rhs_vid = re.target
+                for rhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "rhs"]:
                     if depth + 1 >= 3:
                         return None
-                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, depth + 1)
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, eidx, depth + 1)
                     return sub
                 return None
     return None  # 未找到同名赋值
@@ -623,14 +652,15 @@ def _trace_call_to_function(
     own_vids: set[int],
     param_idx: dict[int, int],
     visited: set[int],
+    eidx: dict,
     depth: int,
 ) -> dict | None:
     """追踪 call → use → function，读取目标函数的摘要。"""
     from core.graph.node_edge_schema import NodeLabel
     from utils.igraph_compat import _vattr
 
-    for ue in graph.es.select(_source=call_vid, label="use"):
-        target = graph.vs[ue.target]
+    for target_vid in eidx["out"].get("use", {}).get(call_vid, []):
+        target = graph.vs[target_vid]
         if _vattr(target, "label") != NodeLabel.FUNCTION.value:
             continue
 
@@ -638,7 +668,7 @@ def _trace_call_to_function(
         target_pt = _vattr(target, "func_summary_pt", [])
 
         if target_summary == "passthrough" and target_pt:
-            return _trace_passthrough_call(graph, call_vid, target_pt, own_vids, param_idx, visited, depth)
+            return _trace_passthrough_call(graph, call_vid, target_pt, own_vids, param_idx, visited, eidx, depth)
         if target_summary == "source":
             vname = _vattr(graph.vs[call_vid], "name", "")
             return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
@@ -680,6 +710,7 @@ def _trace_passthrough_call(
     own_vids: set[int],
     param_idx: dict[int, int],
     visited: set[int],
+    eidx: dict,
     depth: int,
 ) -> dict:
     """追踪 passthrough call 的参数——将 passthrough 索引映射到 call 的 ast[arg] 实参，递归追踪。"""
@@ -690,19 +721,17 @@ def _trace_passthrough_call(
     any_unresolved = False
     arg_counter = 0
 
-    for ae in graph.es.select(_source=call_vid, label="ast"):
-        if _vattr(ae, "role") != "arg":
+    for tgt, role, arg_idx in eidx["ast_ch"].get(call_vid, []):
+        if role != "arg":
             continue
-        # NOTE: normalizer 用 "arg_index" 存参数索引，兼容 "index"（旧格式）
-        idx = _vattr(ae, "arg_index") or _vattr(ae, "index")
-        actual_idx = int(idx) if idx is not None and idx != "" else arg_counter
+        actual_idx = int(arg_idx) if arg_idx else arg_counter
         if actual_idx in pt_indices:
-            arg_vid = ae.target
+            arg_vid = tgt
             # 实参为字面量 const（如 str_repeat('<br>', $n)）→ 直接标 safe
             if _vattr(graph.vs[arg_vid], "label") == NodeLabel.CONST.value:
                 vname = _vattr(graph.vs[call_vid], "name", "")
                 return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
-            sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, depth + 1)
+            sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, eidx, depth + 1)
             if sub["origin_type"] == "source":
                 return sub
             if sub["origin_type"] == "safe":
@@ -729,7 +758,7 @@ def _trace_passthrough_call(
 # ---------------------------------------------------------------------------
 
 
-def _mark_passthrough_params(graph: ig.Graph, func_vid: int, passthrough_indices: list[int]):
+def _mark_passthrough_params(graph: ig.Graph, func_vid: int, passthrough_indices: list[int], eidx: dict):
     """标记 function 下对应的 parameter 节点为 passthrough_arg。
 
     遍历 function → own → parameter，匹配 own 边的 index 属性。
@@ -739,11 +768,11 @@ def _mark_passthrough_params(graph: ig.Graph, func_vid: int, passthrough_indices
     from utils.igraph_compat import _vattr
 
     idx_set = set(i for i in passthrough_indices if isinstance(i, int))
-    for e in graph.es.select(_source=func_vid, label="own"):
-        target_label = _vattr(graph.vs[e.target], "label")
+    for child_vid, edge_idx in eidx["own_ch"].get(func_vid, []):
+        target_label = _vattr(graph.vs[child_vid], "label")
         if target_label != NodeLabel.PARAMETER.value:
             continue
         # index 在 own 边上（不在 parameter 节点上）
-        pidx = _vattr(e, "index")
+        pidx = edge_idx
         if pidx is not None and int(pidx) in idx_set:
-            graph.vs[e.target]["taint_type"] = "passthrough_arg"
+            graph.vs[child_vid]["taint_type"] = "passthrough_arg"
