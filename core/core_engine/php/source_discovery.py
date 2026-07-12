@@ -42,10 +42,12 @@ class SourceRegistry:
     """Registry of all known source entry points for a PHP project."""
     framework: Optional[str] = None
 
-    # PHP builtin superglobals
+    # PHP builtin superglobals ($_SESSION / $_SERVER excluded — $_SESSION is
+    # server-side session data; $_SERVER has mixed controllability handled
+    # per-key by graph_analyzer._SERVER_UNCONTROLLED_KEYS).
     builtin_sources: Set[str] = field(default_factory=lambda: {
-        '$_GET', '$_POST', '$_REQUEST', '$_COOKIE', '$_SERVER',
-        '$_FILES', '$_SESSION', '$_ENV',
+        '$_GET', '$_POST', '$_REQUEST', '$_COOKIE',
+        '$_FILES', '$_ENV',
         '$HTTP_RAW_POST_DATA', '$argc', '$argv',
         '$HTTP_POST_FILES', '$HTTP_COOKIE_VARS', '$HTTP_REQUEST_VARS',
         '$HTTP_POST_VARS', '$HTTP_GET_VARS',

@@ -28,15 +28,24 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SUPERGLOBALS: frozenset[str] = frozenset({
-    # PHP superglobals
+    # PHP superglobals ($_SESSION excluded — server-side session data, not direct user input)
     "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES", "$_SERVER",
-    "$_SESSION", "$_ENV", "$HTTP_RAW_POST_DATA", "$argc", "$argv",
+    "$_ENV", "$HTTP_RAW_POST_DATA", "$argc", "$argv",
     # Python web framework sources (object names)
     "request.GET", "request.POST", "request.REQUEST", "request.COOKIES",
     "request.FILES", "request.data", "request.body", "request.query_params",
     "request.query_string", "request.form",
     # Flask/WSGI
     "flask.request", "django.http.HttpRequest",
+})
+
+# $_SERVER keys that are NOT directly user-controlled (server config / runtime info).
+# Keys not in this set (HTTP_*, REQUEST_URI, PHP_SELF, SCRIPT_NAME, QUERY_STRING, etc.)
+# are treated as user-controlled sources.
+_SERVER_UNCONTROLLED_KEYS: frozenset[str] = frozenset({
+    "SERVER_NAME", "SERVER_ADDR", "SERVER_PORT", "SERVER_SOFTWARE",
+    "SERVER_SIGNATURE", "SERVER_ADMIN", "DOCUMENT_ROOT",
+    "SCRIPT_FILENAME", "GATEWAY_INTERFACE", "PATH_TRANSLATED",
 })
 
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
@@ -667,7 +676,10 @@ class GraphAnalyzer:
                             path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Quick checks on start node itself
-        if self._is_source_variable(sname):
+        # $_SERVER as a whole is not a source — only specific keys are.
+        # Specific keys are detected via the member-chain walk below, where
+        # _SERVER_UNCONTROLLED_KEYS filters out server-config fields.
+        if sname != "$_SERVER" and self._is_source_variable(sname):
             return self._cached(cache_key, AnalysisResult(
                 code=1, reason=f"'{sname}' is a superglobal",
                 chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
@@ -712,13 +724,17 @@ class GraphAnalyzer:
                 obj_label = _vattr(obj_v, "label", "")
                 obj_type = _vattr(obj_v, "type", "")
                 if self._is_source_variable(obj_name):
-                    return self._cached(cache_key, AnalysisResult(
-                        code=1,
-                        reason=f"superglobal '{obj_name}' via member access",
-                        chain=[{"step": "member_source", "vid": obj_vid,
-                                "name": obj_name, "code": 1}],
-                        path=[start_vid, obj_vid],
-                        expr_lineno=_vattr(obj_v, "lineno", 0)))
+                    # $_SERVER has mixed controllability — skip server-config keys
+                    if obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS:
+                        pass
+                    else:
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{obj_name}' via member access",
+                            chain=[{"step": "member_source", "vid": obj_vid,
+                                    "name": obj_name, "code": 1}],
+                            path=[start_vid, obj_vid],
+                            expr_lineno=_vattr(obj_v, "lineno", 0)))
                 if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
                     cur_member = obj_vid
                 else:
@@ -785,13 +801,17 @@ class GraphAnalyzer:
                 obj_label = _vattr(obj_v, "label", "")
                 obj_type = _vattr(obj_v, "type", "")
                 if self._is_source_variable(obj_name):
-                    return self._cached(cache_key, AnalysisResult(
-                        code=1,
-                        reason=f"superglobal '{obj_name}' via member access",
-                        chain=[{"step": "member_source", "vid": obj_vid,
-                                "name": obj_name, "code": 1}],
-                        path=[start_vid, obj_vid],
-                        expr_lineno=_vattr(obj_v, "lineno", 0)))
+                    # $_SERVER has mixed controllability — skip server-config keys
+                    if obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS:
+                        pass
+                    else:
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"superglobal '{obj_name}' via member access",
+                            chain=[{"step": "member_source", "vid": obj_vid,
+                                    "name": obj_name, "code": 1}],
+                            path=[start_vid, obj_vid],
+                            expr_lineno=_vattr(obj_v, "lineno", 0)))
                 if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
                     cur_member = obj_vid
                 else:

@@ -243,14 +243,20 @@ def _get_simple_name(name: str) -> str:
 
 
 def _is_source_var(name: str) -> bool:
-    """判断是否是 source variable。"""
+    """判断是否是 source variable。
+
+    注意：$_SESSION 不在此列表中——session 数据是服务端持久化的状态，
+    非用户直接可控输入。$_SERVER 仍保留，因为 graph_analyzer 的 member chain
+    检查会按 key 过滤（_SERVER_UNCONTROLLED_KEYS），整体保留 source 标注
+    可让 DFG/AST 的污点预传播覆盖 HTTP_* 等可控字段。
+    """
     if not name:
         return False
     clean = name.lstrip("\\")
-    # PHP superglobals
+    # PHP superglobals ($_SESSION excluded — server-side session data)
     if clean in {
         "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_SERVER",
-        "$_FILES", "$_SESSION", "$_ENV",
+        "$_FILES", "$_ENV",
     }:
         return True
     # JS/TS source roots（通过 member chain 访问的根对象）
