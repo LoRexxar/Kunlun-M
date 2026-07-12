@@ -161,6 +161,9 @@ class Normalizer:
         # Class name stack for fullname resolution (ClassName.MethodName)
         self._class_stack: list[str] = []
 
+        # 递归深度保护：链式方法调用等深度嵌套结构避免 RecursionError
+        self._walk_depth = 0
+
         def current_ctx() -> tuple[int, str] | None:
             return ctx_stack[-1] if ctx_stack else None
 
@@ -1213,162 +1216,170 @@ class Normalizer:
                 self._walk_node(child, add_node, add_edge, ctx_stack, file_path, depth)
             return None
 
-        # Python primitive types from phply (string/int/float/bool literals)
-        if isinstance(ast_node, bool):
-            return self._emit_const(add_node, name="true" if ast_node else "false",
-                                    lineno=0, const_type=ConstType.BOOLEAN)
-        if isinstance(ast_node, (int, float)):
-            return self._emit_const(add_node, name=repr(ast_node),
-                                    lineno=0, const_type=ConstType.NUMBER)
-        if isinstance(ast_node, str):
-            return self._emit_const(add_node, name=repr(ast_node),
-                                    lineno=0, const_type=ConstType.STRING)
-
-        node_type_name = type(ast_node).__name__
-        lineno = getattr(ast_node, "lineno", 0)
-
-        # -- ObjectProperty → member edge -------------------------------------
-        if node_type_name == "ObjectProperty":
-            obj = getattr(ast_node, "node", None)
-            prop_name = getattr(ast_node, "name", "")
-            if obj:
-                obj_pos = self._walk_node(obj, add_node, add_edge, ctx_stack, file_path, 0)
-                member_pos = self._emit_identifier(
-                    add_node, name=prop_name, lineno=lineno,
-                    id_type=IdentifierType.PROPERTY, file_path=file_path,
-                )
-                if obj_pos is not None:
-                    add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
-                               "attrs": {"access_type": MemberAccessType.PROPERTY.value}})
-                return member_pos
-            return self._emit_identifier(add_node, name=prop_name, lineno=lineno,
-                                        id_type=IdentifierType.PROPERTY, file_path=file_path)
-
-        # -- NullsafeProperty → member edge -----------------------------------
-        if node_type_name == "NullsafeProperty":
-            obj = getattr(ast_node, "node", None)
-            prop_name = getattr(ast_node, "name", "")
-            if obj:
-                obj_pos = self._walk_node(obj, add_node, add_edge, ctx_stack, file_path, 0)
-                member_pos = self._emit_identifier(
-                    add_node, name=prop_name, lineno=lineno,
-                    id_type=IdentifierType.PROPERTY, file_path=file_path,
-                )
-                if obj_pos is not None:
-                    add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
-                               "attrs": {"access_type": MemberAccessType.PROPERTY.value}})
-                return member_pos
-
-        # -- ArrayOffset → member edge ----------------------------------------
-        if node_type_name == "ArrayOffset":
-            arr = getattr(ast_node, "node", None)
-            idx_expr = getattr(ast_node, "expr", None)
-            if arr:
-                arr_pos = self._walk_node(arr, add_node, add_edge, ctx_stack, file_path, 0)
-                # The index expression becomes the member
-                idx_name = self._expr_text(idx_expr) if idx_expr else "?"
-                member_pos = self._emit_identifier(
-                    add_node, name=idx_name, lineno=lineno,
-                    id_type=IdentifierType.PROPERTY, file_path=file_path,
-                )
-                if arr_pos is not None:
-                    add_edge({"label": EdgeLabel.MEMBER.value, "source": arr_pos, "target": member_pos,
-                               "attrs": {"access_type": MemberAccessType.ARRAY_OFFSET.value}})
-                return member_pos
-
-        # -- StaticProperty → member edge -------------------------------------
-        if node_type_name == "StaticProperty":
-            cls_ref = getattr(ast_node, "node", None)
-            prop_name = getattr(ast_node, "name", "")
-            if cls_ref:
-                cls_pos = self._walk_node(cls_ref, add_node, add_edge, ctx_stack, file_path, 0)
-                member_pos = self._emit_identifier(
-                    add_node, name=prop_name, lineno=lineno,
-                    id_type=IdentifierType.STATIC, file_path=file_path,
-                )
-                if cls_pos is not None:
-                    add_edge({"label": EdgeLabel.MEMBER.value, "source": cls_pos, "target": member_pos,
-                               "attrs": {"access_type": MemberAccessType.STATIC_PROPERTY.value}})
-                return member_pos
-
-        # -- StringOffset → member edge ---------------------------------------
-        if node_type_name == "StringOffset":
-            obj = getattr(ast_node, "node", None)
-            idx_expr = getattr(ast_node, "expr", None)
-            if obj:
-                obj_pos = self._walk_node(obj, add_node, add_edge, ctx_stack, file_path, 0)
-                idx_name = self._expr_text(idx_expr) if idx_expr else "?"
-                member_pos = self._emit_const(add_node, name=idx_name, lineno=lineno,
-                                              const_type=ConstType.STRING)
-                if obj_pos is not None:
-                    add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
-                               "attrs": {"access_type": MemberAccessType.ARRAY_OFFSET.value}})
-                return member_pos
-
-        # -- ForeachVariable --------------------------------------------------
-        if node_type_name == "ForeachVariable":
-            var = getattr(ast_node, "node", None)
-            if var:
-                return self._walk_node(var, add_node, add_edge, ctx_stack, file_path, depth)
+        # 递归深度保护：链式方法调用等深度嵌套结构避免 RecursionError
+        if self._walk_depth > 500:
             return None
+        self._walk_depth += 1
+        try:
+            # Python primitive types from phply (string/int/float/bool literals)
+            if isinstance(ast_node, bool):
+                return self._emit_const(add_node, name="true" if ast_node else "false",
+                                        lineno=0, const_type=ConstType.BOOLEAN)
+            if isinstance(ast_node, (int, float)):
+                return self._emit_const(add_node, name=repr(ast_node),
+                                        lineno=0, const_type=ConstType.NUMBER)
+            if isinstance(ast_node, str):
+                return self._emit_const(add_node, name=repr(ast_node),
+                                        lineno=0, const_type=ConstType.STRING)
 
-        # -- ClassVariable / StaticVariable → identifier -------------------------
-        if node_type_name in ("ClassVariable", "StaticVariable"):
-            var_name = getattr(ast_node, "name", "")
-            id_type = IdentifierType.STATIC if node_type_name == "StaticVariable" else IdentifierType.PROPERTY
-            pos = self._emit_identifier(add_node, name=var_name, lineno=lineno,
-                                         id_type=id_type, file_path=file_path)
-            initial = getattr(ast_node, "initial", None)
-            if initial:
-                init_pos = self._walk_node(initial, add_node, add_edge, ctx_stack, file_path, 0)
-            return pos
+            node_type_name = type(ast_node).__name__
+            lineno = getattr(ast_node, "lineno", 0)
 
-        # -- ClassConstant → const --------------------------------------------
-        if node_type_name == "ClassConstant":
-            const_name = getattr(ast_node, "name", "")
-            return self._emit_const(add_node, name=const_name, lineno=lineno,
-                                    const_type=ConstType.CONSTANT)
+            # -- ObjectProperty → member edge -------------------------------------
+            if node_type_name == "ObjectProperty":
+                obj = getattr(ast_node, "node", None)
+                prop_name = getattr(ast_node, "name", "")
+                if obj:
+                    obj_pos = self._walk_node(obj, add_node, add_edge, ctx_stack, file_path, 0)
+                    member_pos = self._emit_identifier(
+                        add_node, name=prop_name, lineno=lineno,
+                        id_type=IdentifierType.PROPERTY, file_path=file_path,
+                    )
+                    if obj_pos is not None:
+                        add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
+                                   "attrs": {"access_type": MemberAccessType.PROPERTY.value}})
+                    return member_pos
+                return self._emit_identifier(add_node, name=prop_name, lineno=lineno,
+                                            id_type=IdentifierType.PROPERTY, file_path=file_path)
 
-        # -- MagicConstant (e.g. __FILE__, __LINE__) → const -------------------
-        if node_type_name == "MagicConstant":
-            const_name = getattr(ast_node, "name", "")
-            return self._emit_const(add_node, name=const_name, lineno=lineno,
-                                    const_type=ConstType.CONSTANT)
+            # -- NullsafeProperty → member edge -----------------------------------
+            if node_type_name == "NullsafeProperty":
+                obj = getattr(ast_node, "node", None)
+                prop_name = getattr(ast_node, "name", "")
+                if obj:
+                    obj_pos = self._walk_node(obj, add_node, add_edge, ctx_stack, file_path, 0)
+                    member_pos = self._emit_identifier(
+                        add_node, name=prop_name, lineno=lineno,
+                        id_type=IdentifierType.PROPERTY, file_path=file_path,
+                    )
+                    if obj_pos is not None:
+                        add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
+                                   "attrs": {"access_type": MemberAccessType.PROPERTY.value}})
+                    return member_pos
 
-        # -- Global / LexicalVariable → identifier -----------------------------
-        if node_type_name == "Global":
-            var_name = getattr(ast_node, "name", "")
-            if var_name:
-                return self._emit_identifier(add_node, name=var_name, lineno=lineno,
-                                              id_type=IdentifierType.GLOBAL, file_path=file_path)
-            return None
+            # -- ArrayOffset → member edge ----------------------------------------
+            if node_type_name == "ArrayOffset":
+                arr = getattr(ast_node, "node", None)
+                idx_expr = getattr(ast_node, "expr", None)
+                if arr:
+                    arr_pos = self._walk_node(arr, add_node, add_edge, ctx_stack, file_path, 0)
+                    # The index expression becomes the member
+                    idx_name = self._expr_text(idx_expr) if idx_expr else "?"
+                    member_pos = self._emit_identifier(
+                        add_node, name=idx_name, lineno=lineno,
+                        id_type=IdentifierType.PROPERTY, file_path=file_path,
+                    )
+                    if arr_pos is not None:
+                        add_edge({"label": EdgeLabel.MEMBER.value, "source": arr_pos, "target": member_pos,
+                                   "attrs": {"access_type": MemberAccessType.ARRAY_OFFSET.value}})
+                    return member_pos
 
-        if node_type_name == "LexicalVariable":
-            var_name = getattr(ast_node, "name", "")
-            if var_name:
-                return self._emit_identifier(add_node, name=var_name, lineno=lineno,
-                                              id_type=IdentifierType.VARIABLE, file_path=file_path)
-            return None
+            # -- StaticProperty → member edge -------------------------------------
+            if node_type_name == "StaticProperty":
+                cls_ref = getattr(ast_node, "node", None)
+                prop_name = getattr(ast_node, "name", "")
+                if cls_ref:
+                    cls_pos = self._walk_node(cls_ref, add_node, add_edge, ctx_stack, file_path, 0)
+                    member_pos = self._emit_identifier(
+                        add_node, name=prop_name, lineno=lineno,
+                        id_type=IdentifierType.STATIC, file_path=file_path,
+                    )
+                    if cls_pos is not None:
+                        add_edge({"label": EdgeLabel.MEMBER.value, "source": cls_pos, "target": member_pos,
+                                   "attrs": {"access_type": MemberAccessType.STATIC_PROPERTY.value}})
+                    return member_pos
 
-        # -- Parameter (function call argument wrapper in phply) ---------------
-        if node_type_name == "Parameter":
-            # phply wraps FunctionCall/MethodCall arguments in Parameter nodes.
-            # The actual expression is in the `node` attribute.
-            expr_node = getattr(ast_node, "node", None)
-            if expr_node:
-                return self._walk_node(expr_node, add_node, add_edge, ctx_stack, file_path, depth)
-            return None
+            # -- StringOffset → member edge ---------------------------------------
+            if node_type_name == "StringOffset":
+                obj = getattr(ast_node, "node", None)
+                idx_expr = getattr(ast_node, "expr", None)
+                if obj:
+                    obj_pos = self._walk_node(obj, add_node, add_edge, ctx_stack, file_path, 0)
+                    idx_name = self._expr_text(idx_expr) if idx_expr else "?"
+                    member_pos = self._emit_const(add_node, name=idx_name, lineno=lineno,
+                                                  const_type=ConstType.STRING)
+                    if obj_pos is not None:
+                        add_edge({"label": EdgeLabel.MEMBER.value, "source": obj_pos, "target": member_pos,
+                                   "attrs": {"access_type": MemberAccessType.ARRAY_OFFSET.value}})
+                    return member_pos
 
-        # -- NamedParameter → identifier ---------------------------------------
-        if node_type_name == "NamedParameter":
-            param_name = getattr(ast_node, "name", "")
-            if param_name:
-                return self._emit_identifier(add_node, name=param_name, lineno=lineno,
-                                              id_type=IdentifierType.VARIABLE, file_path=file_path)
-            return None
+            # -- ForeachVariable --------------------------------------------------
+            if node_type_name == "ForeachVariable":
+                var = getattr(ast_node, "node", None)
+                if var:
+                    return self._walk_node(var, add_node, add_edge, ctx_stack, file_path, depth)
+                return None
 
-        # Delegate to the main walk for all other node types
-        return self._walk_node_base(ast_node, add_node, add_edge, ctx_stack, file_path, depth)
+            # -- ClassVariable / StaticVariable → identifier -------------------------
+            if node_type_name in ("ClassVariable", "StaticVariable"):
+                var_name = getattr(ast_node, "name", "")
+                id_type = IdentifierType.STATIC if node_type_name == "StaticVariable" else IdentifierType.PROPERTY
+                pos = self._emit_identifier(add_node, name=var_name, lineno=lineno,
+                                             id_type=id_type, file_path=file_path)
+                initial = getattr(ast_node, "initial", None)
+                if initial:
+                    init_pos = self._walk_node(initial, add_node, add_edge, ctx_stack, file_path, 0)
+                return pos
+
+            # -- ClassConstant → const --------------------------------------------
+            if node_type_name == "ClassConstant":
+                const_name = getattr(ast_node, "name", "")
+                return self._emit_const(add_node, name=const_name, lineno=lineno,
+                                        const_type=ConstType.CONSTANT)
+
+            # -- MagicConstant (e.g. __FILE__, __LINE__) → const -------------------
+            if node_type_name == "MagicConstant":
+                const_name = getattr(ast_node, "name", "")
+                return self._emit_const(add_node, name=const_name, lineno=lineno,
+                                        const_type=ConstType.CONSTANT)
+
+            # -- Global / LexicalVariable → identifier -----------------------------
+            if node_type_name == "Global":
+                var_name = getattr(ast_node, "name", "")
+                if var_name:
+                    return self._emit_identifier(add_node, name=var_name, lineno=lineno,
+                                                  id_type=IdentifierType.GLOBAL, file_path=file_path)
+                return None
+
+            if node_type_name == "LexicalVariable":
+                var_name = getattr(ast_node, "name", "")
+                if var_name:
+                    return self._emit_identifier(add_node, name=var_name, lineno=lineno,
+                                                  id_type=IdentifierType.VARIABLE, file_path=file_path)
+                return None
+
+            # -- Parameter (function call argument wrapper in phply) ---------------
+            if node_type_name == "Parameter":
+                # phply wraps FunctionCall/MethodCall arguments in Parameter nodes.
+                # The actual expression is in the `node` attribute.
+                expr_node = getattr(ast_node, "node", None)
+                if expr_node:
+                    return self._walk_node(expr_node, add_node, add_edge, ctx_stack, file_path, depth)
+                return None
+
+            # -- NamedParameter → identifier ---------------------------------------
+            if node_type_name == "NamedParameter":
+                param_name = getattr(ast_node, "name", "")
+                if param_name:
+                    return self._emit_identifier(add_node, name=param_name, lineno=lineno,
+                                                  id_type=IdentifierType.VARIABLE, file_path=file_path)
+                return None
+
+            # Delegate to the main walk for all other node types
+            return self._walk_node_base(ast_node, add_node, add_edge, ctx_stack, file_path, depth)
+        finally:
+            self._walk_depth -= 1
+
 
     def _walk_node_base(self, ast_node, add_node, add_edge, ctx_stack, file_path, depth) -> int | None:
         """The original walk logic for non-member nodes."""
