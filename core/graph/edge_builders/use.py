@@ -150,6 +150,12 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._enclosing_fn_cache: dict[int, int | None] = {}
         self._enclosing_fn_lineno_cache: dict[int, tuple[int, int] | None] = {}
 
+        # ── 预计算所有节点的 enclosing function，避免 _resolve_receiver_type 中重复 fallback 遍历 ──
+        for vid in range(n):
+            self._enclosing_function(graph, vid)
+        for vid in range(n):
+            self._enclosing_function_lineno(graph, vid)
+
         # ── 收集 callee_targets set ──
         callee_targets: set[int] = set()
         for src_vid, targets in self._ast_src_from.items():
@@ -300,7 +306,8 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             same_scope: list[int] = []
             same_file: list[int] = []
             other_file: list[int] = []
-            for vid in candidates:
+            # 限制候选数量，避免同文件同名变量过多导致性能问题
+            for vid in candidates[:50]:
                 cand_scope = self._enclosing_function_lineno(graph, vid)
                 if op_scope and cand_scope and op_scope[0] == cand_scope[0]:
                     same_scope.append(vid)
