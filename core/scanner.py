@@ -195,7 +195,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     # 尝试加载缓存或构建 AST 图
     graph = None
-    gp_source_regs = {}  # graph_pipeline 收集的 per-language SourceRegistry
     if not no_cache:
         try:
             from core.graph.graph_pipeline import load_cached_graph
@@ -248,20 +247,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     if graph is None:
         try:
             from core.pretreatment import ast_object
-            from core.graph.graph_pipeline import build_ast_graph, get_source_registries
+            from core.graph.graph_pipeline import build_ast_graph
             from Kunlun_M.settings import BASE_DIR
             # db_path 传 None，让 pipeline 根据 scan_id 自动使用 workspace DB
             # 仅在无 scan_id 时 fallback 到主库（保持 analyze 子命令可用）
             db_path = os.path.join(BASE_DIR, 'db', 'kunlun.db') if not a_sid else None
             graph = build_ast_graph(files=files, language=language, target_directory=target_directory, db_path=db_path, scan_id=a_sid)
             logger.info('[SCAN] [GRAPH] Built graph: %d nodes, %d edges', graph.vcount(), graph.ecount())
-            # 获取 graph_pipeline 中的 source_registries（per-file discover_sources 收集的）
-            gp_source_regs = get_source_registries()
-            if gp_source_regs:
-                logger.info('[SCAN] [GRAPH] Source registries from pipeline: %s', list(gp_source_regs.keys()))
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Build failed: %s', e)
-            gp_source_regs = {}
 
     if graph is None or graph.vcount() == 0:
         logger.warning('[SCAN] [GRAPH] Empty or no graph — sink-based rules skipped')
@@ -322,27 +316,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             # PHP/Java 的 SourceRegistry 接口不同（无 is_source_member），需适配
 
             def _make_source_registry(lang):
-                """为指定语言创建 source_registry。
+                """为指定语言创建 source_registry（静态种子 source：builtin + 框架检测）。
 
-                优先使用 graph_pipeline 收集的 SourceRegistry（含框架检测 + AST 遍历发现的 source producer），
-                fallback 到静态 _BUILTIN_SOURCE_MEMBERS。
+                注意：间接 source（函数 return 外部数据）由 function_summary 在图上通过 DFG 追踪发现，
+                不在此处处理。
                 """
-                # 优先：graph_pipeline 中 per-file discover_sources 收集的完整 registry
-                if lang in gp_source_regs:
-                    logger.debug('[SCAN] Using source registry from graph_pipeline for %s', lang)
-                    sr = gp_source_regs[lang]
-                    # 接口适配：确保有 is_source_member 方法
-                    if not hasattr(sr, 'is_source_member'):
-                        _src_members = sr.source_members if hasattr(sr, 'source_members') else set()
-                        def _make_ism(members):
-                            def _ism(expr):
-                                for m in members:
-                                    if expr == m or expr.startswith(m + '.') or expr.startswith(m + '('):
-                                        return True
-                                return False
-                            return _ism
-                        sr.is_source_member = _make_ism(_src_members)
-                    return sr
                 # JS/TS 使用完整 discover（含框架 + AST 遍历）
                 if lang in ('javascript', 'typescript'):
                     engine = 'javascript' if lang == 'javascript' else 'typescript'
