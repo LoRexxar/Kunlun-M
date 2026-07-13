@@ -299,6 +299,19 @@ def build_ast_graph(
                 content_hash = _compute_file_hash(abs_filepath)
 
                 if detected_lang:
+                    # JS/TS: 基于代码格式的启发式过滤（与 pretreatment 一致）
+                    if detected_lang in ('javascript', 'typescript'):
+                        try:
+                            with open(abs_filepath, 'r', encoding='utf-8', errors='ignore') as _f:
+                                _code_sample = _f.read(10240)  # 只读前 10KB 判断
+                            _line_count = _code_sample.count('\n') + 1
+                            _avg_line_len = len(_code_sample) / max(_line_count, 1)
+                            if _avg_line_len > 500 or _line_count < 5:
+                                skipped_special += 1
+                                continue
+                        except (OSError, IOError):
+                            pass
+
                     # Code file: parse + normalize
                     norm_cls = normalizer_cache[detected_lang]
                     try:
