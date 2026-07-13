@@ -28,9 +28,9 @@ class CVI_9203(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"File\.(?:ReadAllText|ReadAllBytes|WriteAllText|WriteAllBytes|Delete|Copy|Move|Open|Create|AppendAllText)\s*\(|(?:new\s+)?FileInfo\s*\(|Directory\.(?:GetFiles|GetDirectories|GetParent|CreateDirectory|Delete|Move)\s*\("
 
-        self.vul_function = ["ReadAllText", "ReadAllBytes", "WriteAllText", "WriteAllBytes",
-                             "Delete", "Copy", "Move", "Open", "Create", "AppendAllText",
-                             "FileInfo", "GetFiles", "GetDirectories", "CreateDirectory"]
+        self.vul_function = ["File.ReadAllText", "File.ReadAllBytes", "File.WriteAllText", "File.WriteAllBytes",
+                             "File.Delete", "File.Copy", "File.Move", "File.Open", "File.Create", "File.AppendAllText",
+                             "FileInfo", "Directory.GetFiles", "Directory.GetDirectories", "Directory.CreateDirectory"]
 
     def main(self, regex_string):
         """

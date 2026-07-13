@@ -14,6 +14,11 @@ import os
 import re
 import logging
 
+try:
+    import javalang
+except ImportError:
+    javalang = None
+
 logger = logging.getLogger('KunlunLog')
 
 
@@ -275,18 +280,15 @@ def _find_source_producers_in_tree(tree, file_path=None):
     source_members = set()
     annotated_params = set()
 
-    try:
-        import javalang
-    except ImportError:
-        return producers, source_members, annotated_params
-
     # 所有内置 source members
     source_members.update(_BUILTIN_SOURCE_MEMBERS)
 
-    # 遍历所有 MethodDeclaration
+    # 遍历所有 MethodDeclaration（javalang 必须已安装，否则 Java 解析阶段已失败）
+    import javalang
+
     methods = list(tree.filter(javalang.tree.MethodDeclaration))
 
-    for method_node in methods:
+    for method_path, method_node in methods:
         _process_method_declaration(method_node, source_members, annotated_params)
 
     return producers, source_members, annotated_params

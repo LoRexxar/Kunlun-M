@@ -25,7 +25,10 @@ from utils.log import logger
 if TYPE_CHECKING:
     from core.pretreatment import Pretreatment
 
-__all__ = ["build_ast_graph", "load_cached_graph"]
+__all__ = ["build_ast_graph", "load_cached_graph", "get_source_registries"]
+
+# 模块级缓存：最近一次 build_ast_graph 收集的 per-language SourceRegistry
+_last_source_registries: dict[str, object] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +251,15 @@ def build_ast_graph(
     file_only_count = 0
     errors = 0
 
+    # ── Source discovery：逐文件 AST 调用 discover_sources 收集 source producer ──
+    # JS/PHP 由 scanner._make_source_registry 单独处理（完整 discover），
+    # 其他语言在此处收集。source_registries[lang] = SourceRegistry 实例。
+    source_registries: dict[str, object] = {}
+    # 缓存 per-language 的 discover_sources 函数引用，避免重复 import
+    _discover_fn_cache: dict[str, callable] = {}
+    # JS 和 PHP 的 source discovery 已在 scanner 中处理，跳过
+    _SKIP_DISCOVER_LANGS = {'javascript', 'php'}
+
     if files and language:
         # ── New path: iterate files directly, bypass pretreatment ──
         logger.debug("[GraphPipeline] New path: files=%d entries, language=%s", len(files), language)
@@ -319,6 +331,50 @@ def build_ast_graph(
                         if ast_nodes is None:
                             skipped_empty_ast += 1
                             continue
+
+                        # ── Source discovery：对该文件 AST 调用 discover_sources ──
+                        if (detected_lang not in _SKIP_DISCOVER_LANGS
+                                and target_directory):
+                            try:
+                                if detected_lang not in _discover_fn_cache:
+                                    _import_path = f'core.core_engine.{detected_lang}.source_discovery'
+                                    _mod = __import__(_import_path, fromlist=['discover_sources'])
+                                    _discover_fn_cache[detected_lang] = _mod.discover_sources
+                                _sr = _discover_fn_cache[detected_lang](
+                                    target_directory, ast_nodes, abs_filepath
+                                )
+                                if _sr is not None:
+                                    _existing = source_registries.get(detected_lang)
+                                    if _existing is None:
+                                        source_registries[detected_lang] = _sr
+                                    else:
+                                        # 合并 source_members
+                                        for _sm in getattr(_sr, 'source_members', set()):
+                                            _existing.add_source_member(_sm)
+                                        # 合并 user_source_functions / source_producers
+                                        for _src_key in ('user_source_functions', 'source_producers'):
+                                            for _fname, _finfo in getattr(_sr, _src_key, {}).items():
+                                                existing_dict = getattr(_existing, _src_key, {})
+                                                if _fname not in existing_dict:
+                                                    existing_dict[_fname] = _finfo
+                                        # 合并 annotated_param_names
+                                        _existing_apn = getattr(_existing, 'annotated_param_names', None)
+                                        _sr_apn = getattr(_sr, 'annotated_param_names', None)
+                                        if _existing_apn is not None and _sr_apn is not None:
+                                            _existing_apn.update(_sr_apn)
+                                        # 合并 framework_request_methods
+                                        _existing_frm = getattr(_existing, 'framework_request_methods', None)
+                                        _sr_frm = getattr(_sr, 'framework_request_methods', None)
+                                        if _existing_frm is not None and _sr_frm is not None:
+                                            _existing_frm.update(_sr_frm)
+                                        # 保留第一个检测到的框架名
+                                        if getattr(_sr, 'framework', '') and not getattr(_existing, 'framework', ''):
+                                            _existing.framework = _sr.framework
+                            except Exception as _sde:
+                                logger.debug(
+                                    "[GraphPipeline] Source discovery failed for %s (%s): %s",
+                                    abs_filepath, detected_lang, _sde,
+                                )
 
                         normalizer = norm_cls()
                         try:
@@ -526,7 +582,21 @@ def build_ast_graph(
         except Exception as e:
             logger.warning("[GraphPipeline] Failed to save graph: %s", e)
 
+    # 将 source_registries 缓存到模块级变量，scanner 通过 get_source_registries() 获取
+    _last_source_registries.update(source_registries)
     return graph
+
+
+def get_source_registries() -> dict:
+    """获取最近一次 build_ast_graph 收集的 source_registries。
+
+    Returns:
+        dict[str, SourceRegistry] — 语言 → SourceRegistry 实例。
+        调用后自动清空（一次性读取）。
+    """
+    result = dict(_last_source_registries)
+    _last_source_registries.clear()
+    return result
 
 
 # ---------------------------------------------------------------------------
