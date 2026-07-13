@@ -313,15 +313,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 'cpp': ('core.core_engine.cpp.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
                 'typescript': ('core.core_engine.typescript.source_discovery', '_BUILTIN_SOURCE_MEMBERS'),
             }
-            # PHP/Java 的 SourceRegistry 接口不同（无 is_source_member），需适配
+            # 注释：JS/TS 需要全局 ast_object，PHP 的 SourceRegistry 接口不同，需单独处理
 
             def _make_source_registry(lang):
                 """为指定语言创建 source_registry（静态种子 source：builtin + 框架检测）。
 
-                注意：间接 source（函数 return 外部数据）由 function_summary 在图上通过 DFG 追踪发现，
-                不在此处处理。
+                通过 discover_sources(project_dir, None) 获取框架检测 + builtin source，
+                传入 tree=None 跳过 AST 遍历（间接 source 由 function_summary 在图上发现）。
                 """
-                # JS/TS 使用完整 discover（含框架 + AST 遍历）
+                # JS/TS：需要全局 ast_object（含跨文件 import/require 分析）
                 if lang in ('javascript', 'typescript'):
                     engine = 'javascript' if lang == 'javascript' else 'typescript'
                     from importlib import import_module
@@ -338,40 +338,53 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         return _orig_isv(expr.split('.')[0].split('(')[0]) if expr else False
                     _php_sr.is_source_member = _php_ism
                     return _php_sr
-                # Java：无 is_source_member，需适配
-                if lang == 'java':
-                    from core.core_engine.java.source_discovery import SourceRegistry as _SR, _BUILTIN_SOURCE_MEMBERS
-                    _java_sr = _SR()
-                    _java_sr.source_members = set(_BUILTIN_SOURCE_MEMBERS)
-                    def _java_ism(expr):
-                        for sm in _java_sr.source_members:
-                            if expr == sm or expr.startswith(sm + '.') or expr.startswith(sm + '('):
-                                return True
-                        return False
-                    _java_sr.is_source_member = _java_ism
-                    return _java_sr
-                # 其他语言：从 _BUILTIN_SOURCE_MEMBERS 创建轻量 SourceRegistry
-                entry = _LANG_BUILTIN_SOURCE.get(lang)
-                if not entry:
+                # 其他语言：通过 discover_sources(project_dir, None) 获取框架 + builtin 种子 source
+                # 跳过无效的语言标识（如 'base' 等通用规则语言）
+                _VALID_DISCOVER_LANGS = {
+                    'python', 'java', 'javascript', 'typescript', 'php',
+                    'ruby', 'go', 'rust', 'c', 'cpp', 'csharp', 'kotlin', 'lua',
+                }
+                if lang not in _VALID_DISCOVER_LANGS:
                     return None
                 try:
-                    mod = __import__(entry[0], fromlist=['SourceRegistry', entry[1]])
-                    SR = getattr(mod, 'SourceRegistry', None)
-                    BSM = getattr(mod, entry[1], None)
-                    if SR and BSM:
-                        sr = SR()
-                        for sm in BSM:
-                            sr.add_source_member(sm)
-                        # Rust: 注册短名（use std::env → env::args）
-                        if lang == "rust":
+                    from importlib import import_module
+                    mod = import_module(f'core.core_engine.{lang}.source_discovery')
+                    sr = mod.discover_sources(target_directory, None)
+                    # 接口适配：确保有 is_source_member（Java 没有）
+                    if not hasattr(sr, 'is_source_member'):
+                        _src_members = sr.source_members if hasattr(sr, 'source_members') else set()
+                        def _make_ism(members):
+                            def _ism(expr):
+                                for m in members:
+                                    if expr == m or expr.startswith(m + '.') or expr.startswith(m + '('):
+                                        return True
+                                return False
+                            return _ism
+                        sr.is_source_member = _make_ism(_src_members)
+                    return sr
+                except Exception as e:
+                    logger.debug('[SCAN] [GRAPH] discover_sources(%s) failed: %s', lang, e)
+                    # fallback：仅加载 builtin
+                    entry = _LANG_BUILTIN_SOURCE.get(lang)
+                    if not entry:
+                        return None
+                    try:
+                        fmod = __import__(entry[0], fromlist=['SourceRegistry', entry[1]])
+                        SR = getattr(fmod, 'SourceRegistry', None)
+                        BSM = getattr(fmod, entry[1], None)
+                        if SR and BSM:
+                            sr = SR()
                             for sm in BSM:
-                                for prefix in ("std::", "std::process::", "std::io::", "std::net::"):
-                                    if sm.startswith(prefix):
-                                        sr.add_source_member(sm[len(prefix):])
-                        return sr
-                except ImportError:
-                    logger.debug('[SCAN] [GRAPH] No source_discovery for lang=%s', lang)
-                return None
+                                sr.add_source_member(sm)
+                            if lang == "rust":
+                                for sm in BSM:
+                                    for prefix in ("std::", "std::process::", "std::io::", "std::net::"):
+                                        if sm.startswith(prefix):
+                                            sr.add_source_member(sm[len(prefix):])
+                            return sr
+                    except ImportError:
+                        pass
+                    return None
 
             # 按语言分别创建 TraceCache 并 enrich
             for lang in lang_rules.keys():

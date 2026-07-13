@@ -372,11 +372,7 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
     """
     registry = SourceRegistry()
 
-    if tree is None:
-        logger.debug('[AST][Java] Source Discovery: tree is None, skipping')
-        return registry
-
-    # 1. 框架检测
+    # 1. 框架检测（仅需 project_dir，不依赖 tree）
     framework, deps = _detect_framework(project_dir)
     if framework:
         registry.framework = framework
@@ -395,7 +391,11 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
     # 2. 内置 source members
     registry.source_members.update(_BUILTIN_SOURCE_MEMBERS)
 
-    # 3. AST 遍历发现 source producers
+    if tree is None:
+        # 无 AST 时仅返回框架 + 内置种子 source，不遍历 AST
+        return registry
+
+    # 3. AST 遍历发现 source producers（仅在有 AST 时执行）
     producers, source_members, annotated_params = _find_source_producers_in_tree(tree, file_path)
 
     for member in source_members:

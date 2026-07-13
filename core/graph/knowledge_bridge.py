@@ -119,7 +119,12 @@ def enrich_taint(
     source_var_count = _enrich_source_variables(graph)
     count += source_var_count
 
-    logger.debug("enrich_taint: annotated %d function nodes, %d source variables", count, source_var_count)
+    # 4. 注解标注（Java @RequestParam/@PathVariable 等标记参数为 source）
+    annotated_param_count = _enrich_annotated_params(graph)
+    count += annotated_param_count
+
+    logger.debug("enrich_taint: annotated %d function nodes, %d source variables, %d annotated params",
+                 count - source_var_count - annotated_param_count, source_var_count, annotated_param_count)
     return count
 
 
@@ -226,6 +231,54 @@ def _enrich_source_variables(graph: ig.Graph) -> int:
         if _is_source_var(name):
             graph.vs[v.index]["taint_type"] = "source"
             count += 1
+    return count
+
+
+def _enrich_annotated_params(graph: ig.Graph) -> int:
+    """标注图中带有 source 注解的 parameter 节点。
+
+    遍历 parameter → own → annotation 节点，检查注解是否为已知的 source 注解（如
+    Java 的 @RequestParam, @PathVariable），如果是则将 parameter 标注为 taint_type=source。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    # 各语言的 source 注解名集合
+    SOURCE_ANNOTATIONS: dict[str, set[str]] = {
+        'java': {
+            'RequestParam', 'PathVariable', 'RequestBody', 'ModelAttribute',
+            'RequestHeader', 'CookieValue', 'MatrixVariable', 'PathParam',
+        },
+        'kotlin': {
+            'RequestParam', 'PathVariable', 'RequestBody', 'ModelAttribute',
+            'RequestHeader', 'CookieValue', 'MatrixVariable', 'PathParam',
+        },
+    }
+    # 合并为全局集合（目前只有 Java/Kotlin 使用注解检测）
+    _all_annotations = set()
+    for anns in SOURCE_ANNOTATIONS.values():
+        _all_annotations.update(anns)
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.PARAMETER.value:
+            continue
+        if _vattr(v, "taint_type"):
+            continue
+        # 遍历 parameter → own → annotation 子节点
+        for e in graph.es.select(_source=v.index, label="own"):
+            target = graph.vs[e.target]
+            if _vattr(target, "label") != NodeLabel.ANNOTATION.value:
+                continue
+            ann_name = _vattr(target, "name", "")
+            ann_scope = _vattr(target, "scope", "")
+            # 只处理参数级注解
+            if ann_scope != "param-annotation":
+                continue
+            if ann_name in _all_annotations:
+                graph.vs[v.index]["taint_type"] = "source"
+                graph.vs[v.index]["taint_origin"] = f"@{ann_name}"
+                count += 1
+                break
     return count
 
 

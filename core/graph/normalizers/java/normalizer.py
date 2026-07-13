@@ -603,7 +603,7 @@ class Normalizer:
                 "name": ann_name,
                 "lineno": ann_lineno,
                 "language": self.language,
-                "attrs": {"raw_type": "Annotation"},
+                "attrs": {"raw_type": "Annotation", "scope": "param-annotation"},
             })
             add_edge({
                 "label": EdgeLabel.OWN.value,

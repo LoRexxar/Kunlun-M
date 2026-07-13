@@ -333,6 +333,15 @@ def _trace_return_value(
 
     # ── 1. 直接命中 parameter ──
     if start_vid in param_idx:
+        # 检查 parameter 是否已被 enrich_taint 标注为 source（如 @RequestParam）
+        self_taint = _vattr(v, "taint_type", "")
+        if self_taint == "source":
+            return {
+                "origin": vname,
+                "origin_type": "source",
+                "dep_params": [],
+                "has_unresolved_call": False,
+            }
         return {
             "origin": vname,
             "origin_type": "param",
@@ -408,8 +417,25 @@ def _trace_return_value(
         # 3b. call operator → 尝试 use → function（用户自定义函数的摘要）
         if vtype in _CALL_TYPES:
             result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, eidx, depth)
-            if result:
+            if result and result.get("origin_type") != "unknown":
                 return result
+            # 3f. 目标函数无摘要（unknown）→ fallback 追踪 ast 实参
+            #     如果实参中包含 source parameter 的引用，call 返回值也继承该 origin。
+            #     这是保守估计：对于无摘要的外部/框架函数，假设返回值包含实参的污点。
+            if result and result.get("has_unresolved_call"):
+                for arg_vid, role, arg_idx in eidx["ast_ch"].get(start_vid, []):
+                    if not role.startswith("arg"):
+                        continue
+                    # 跳过 callee（ast child role 不是 arg 的部分）
+                    arg_sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, eidx, depth + 1)
+                    if arg_sub and arg_sub.get("origin_type") in ("source", "param"):
+                        return {"origin": vname, "origin_type": arg_sub["origin_type"],
+                                "dep_params": arg_sub.get("dep_params", []),
+                                "has_unresolved_call": arg_sub.get("has_unresolved_call", False)}
+                    # 如果实参中有 source 但 return type 是 unknown，优先报告 unknown
+                    if arg_sub and arg_sub.get("origin_type") == "unknown":
+                        # 继续检查其他实参
+                        pass
 
         # 3c. 内置安全构造函数——不传播外部污点
         #     array() 是 PHP 数组字面量构造，返回值仅由参数决定，
