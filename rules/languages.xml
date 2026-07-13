@@ -40,7 +40,7 @@
         <extension value=".cxx"/>
         <extension value=".hxx"/>
     </language>
-    <language name="Ruby">
+    <language name="Ruby" chiefly="True">
         <extension value=".rb"/>
     </language>
     <language name="Perl">
@@ -77,8 +77,13 @@
     <language name="Ceylon">
         <extension value=".ceylon"/>
     </language>
-    <language name="Kotlin">
+    <language name="Typescript" chiefly="True">
+        <extension value=".ts"/>
+        <extension value=".tsx"/>
+    </language>
+    <language name="Kotlin" chiefly="True">
         <extension value=".kt"/>
+        <extension value=".kts"/>
     </language>
     <language name="Shell">
         <extension value=".sh"/>
@@ -86,7 +91,7 @@
     <language name="Bat">
         <extension value=".bat"/>
     </language>
-    <language name="HTML" chiefly="True">
+    <language name="HTML">
         <extension value=".html"/>
         <extension value=".htm"/>
         <extension value=".phtml"/>
