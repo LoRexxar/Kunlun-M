@@ -367,6 +367,11 @@ def build_ast_graph(
                                         _sr_frm = getattr(_sr, 'framework_request_methods', None)
                                         if _existing_frm is not None and _sr_frm is not None:
                                             _existing_frm.update(_sr_frm)
+                                        # 合并 source_variables (TypeScript)
+                                        _existing_sv = getattr(_existing, 'source_variables', None)
+                                        _sr_sv = getattr(_sr, 'source_variables', None)
+                                        if _existing_sv is not None and _sr_sv is not None:
+                                            _existing_sv.update(_sr_sv)
                                         # 保留第一个检测到的框架名
                                         if getattr(_sr, 'framework', '') and not getattr(_existing, 'framework', ''):
                                             _existing.framework = _sr.framework
