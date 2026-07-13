@@ -576,8 +576,22 @@ class GraphAnalyzer:
                             func_vid, asink, results
                         )
                     elif parent_label == NodeLabel.CLASS.value:
-                        # 类级别注解：遍历该 class 下所有 function
+                        # 类级别注解：只传播到有 HTTP mapping 注解的方法。
+                        # private 方法或非 controller 方法不应作为 HTTP response sink。
+                        _http_mapping_annos = frozenset({
+                            'GetMapping', 'PostMapping', 'PutMapping',
+                            'DeleteMapping', 'PatchMapping', 'RequestMapping',
+                        })
                         for func_vid in class_to_funcs.get(parent_vid, []):
+                            has_mapping = False
+                            for fe in self.graph.es.select(_source=func_vid, label='own'):
+                                cn = _vattr(self.graph.vs[fe.target], 'name', '')
+                                cl = _vattr(self.graph.vs[fe.target], 'label', '')
+                                if cl == NodeLabel.ANNOTATION.value and cn in _http_mapping_annos:
+                                    has_mapping = True
+                                    break
+                            if not has_mapping:
+                                continue
                             self._collect_annotation_return_sinks(
                                 func_vid, asink, results
                             )
@@ -608,13 +622,34 @@ class GraphAnalyzer:
         logger.debug("find_sinks found %d sink node(s)", len(results))
         return results
 
+    _JSON_CT_PATTERNS = frozenset({
+        'APPLICATION_JSON_VALUE', 'APPLICATION_JSON',
+        'application/json', '"application/json"',
+    })
+
     def _collect_annotation_return_sinks(self, func_vid: int, sink_name: str,
                                           results: list[dict]) -> None:
         """Collect return nodes of a function as annotation-driven sinks.
 
         Walks func → own(function-return) → return → ast[value] to build
         sink entries with the return expression as the controllable arg.
+
+        For XSS-related sinks (a:ResponseBody), checks if the function declares
+        a JSON content type (produces=application/json) and skips if so —
+        JSON responses are not interpreted as HTML by browsers.
         """
+        # 检测 JSON Content-Type：扫描函数的 own 子节点中是否有
+        # MimeTypeUtils.APPLICATION_JSON_VALUE 等常量 operator
+        is_json_ct = False
+        for fe in self.graph.es.select(_source=func_vid, label='own'):
+            child_name = _vattr(self.graph.vs[fe.target], 'name', '')
+            for jp in self._JSON_CT_PATTERNS:
+                if jp in child_name:
+                    is_json_ct = True
+                    break
+            if is_json_ct:
+                break
+
         for fe in self.graph.es.select(_source=func_vid, label='own'):
             if _vattr(fe, 'scope') != 'function-return':
                 continue
@@ -637,6 +672,7 @@ class GraphAnalyzer:
                 'type': 'annotation-return',
                 'func_vid': func_vid,
                 'arg_vids': ret_arg_vids,
+                'json_safe': is_json_ct,
             })
 
     # --- Controllability backtracking (core) ------------------------------

@@ -684,6 +684,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 continue
 
                     sink_name = sink.get('name', '')
+                    # JSON Content-Type 的 @ResponseBody 不构成 XSS
+                    # （浏览器不解析 application/json 为 HTML）
+                    if sink.get('json_safe') and sink_name.startswith('a:ResponseBody'):
+                        continue
                     # Multi-rule matching per sink:
                     # Collect all matching rules, then try each rule's main() —
                     # first rule whose main() passes gets to report.
