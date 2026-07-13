@@ -110,12 +110,11 @@ class SourceRegistry:
 
         self.framework_request_objects = set(config['request_object_names'])
 
-        for method in config['request_methods']:
-            self.framework_methods[method] = SourceInfo(
-                type='framework',
-                name=method,
-                framework=framework,
-            )
+        # ⚠️ request_methods 不注册为 framework_methods（即不作为全局 source producer）。
+        # 这些方法（如 get, query, all）只有在 request 对象上调用时才是 source，
+        # 全局注册会导致所有名为 get() 的方法被误标。保留在 request_methods 中
+        # 供 is_framework_request_method() 上下文检查使用。
+        self.request_methods = set(config['request_methods'])
 
         for func in config.get('global_source_functions', set()):
             self.framework_global_functions[func] = SourceInfo(
@@ -175,8 +174,12 @@ FRAMEWORK_CONFIGS = {
     'symfony': {
         'request_object_names': {'request', '$request'},
         'request_methods': {
-            'get', 'query', 'request',
+            'get', 'query', 'request', 'getContent', 'getPayload',
+            'toArray', 'getBasePath', 'getBaseUrl', 'getRequestUri',
         },
+        # ParameterBag 方法：$request->query->get(), $request->request->all() 等
+        # 这些通过链式调用（query→get）使用，需要特殊处理
+        'parameter_bag_methods': {'get', 'all', 'has', 'set', 'remove'},
         'global_source_functions': set(),
     },
 }
@@ -202,7 +205,9 @@ def detect_framework(project_dir: str) -> Optional[str]:
                     return 'thinkphp'
                 if dep.startswith('codeigniter'):
                     return 'codeigniter'
-                if dep.startswith('symfony/') and 'framework' in dep:
+                if dep.startswith('symfony/'):
+                    # 任何 symfony/* 组件都算 Symfony 框架
+                    # 特别是 symfony/http-foundation 包含 Request 对象
                     return 'symfony'
         except (json.JSONDecodeError, OSError):
             pass
@@ -275,6 +280,23 @@ def _node_contains_source(node: Any, registry: SourceRegistry) -> bool:
             method_name = get_simple_name(node.name)
             if method_name and registry.is_framework_request_method(obj_name, method_name):
                 return True
+
+    # Chain call on request sub-property: $request->query->get()
+    # Recognized pattern: $obj-><request_prop>-><method>()
+    # where request_prop is 'query', 'request', 'headers', 'cookies', 'attributes'
+    if isinstance(node, _METHOD_CALL_TYPES):
+        obj_node = node.node
+        if isinstance(obj_node, _METHOD_CALL_TYPES):
+            inner_obj_name = extract_method_object_name(obj_node.node)
+            inner_method_name = get_simple_name(obj_node.name)
+            outer_method_name = get_simple_name(node.name)
+            if (inner_obj_name and inner_method_name and outer_method_name
+                    and registry.is_framework_request_method(inner_obj_name, inner_method_name)):
+                # $request->query is a request method returning ParameterBag
+                config = FRAMEWORK_CONFIGS.get(registry.framework, {})
+                bag_methods = config.get('parameter_bag_methods', set())
+                if outer_method_name in bag_methods:
+                    return True
 
     # Function call to framework global function: input()
     if isinstance(node, php.FunctionCall):

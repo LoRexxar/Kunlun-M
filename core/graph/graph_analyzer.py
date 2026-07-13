@@ -898,6 +898,22 @@ class GraphAnalyzer:
 
                 # Rule 0: function parameter (entry point)
                 if ulabel == "parameter":
+                    # Check for taint_type="source" annotation on parameter
+                    # nodes (set by enrich_taint for framework-injected request
+                    # objects like PHP $request, Python request, etc.).
+                    node_taint = _vattr(uv, "taint_type", "")
+                    if node_taint == "source":
+                        logger.debug(
+                            "entry parameter '%s' vid=%d has taint_type=source → controllable",
+                            uname, up_vid,
+                        )
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"tainted parameter '{uname}'",
+                            chain=[{"step": "source", "vid": up_vid,
+                                    "name": uname, "code": 1}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
                     # Check for user-controlled annotations (Spring/JAX-RS) first,
                     # regardless of DFG upstream.  Parameters annotated with
                     # @RequestParam, @PathVariable, @RequestBody etc. are

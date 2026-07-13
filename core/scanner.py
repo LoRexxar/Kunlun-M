@@ -329,8 +329,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     return mod.discover_sources(ast_object.target_directory, ast_object)
                 # PHP：dataclass，builtin_sources 字段已含 superglobals
                 if lang == 'php':
-                    from core.core_engine.php.source_discovery import SourceRegistry as _SR
+                    from core.core_engine.php.source_discovery import (
+                        SourceRegistry as _SR,
+                        detect_framework,
+                    )
                     _php_sr = _SR()
+                    # 检测框架并注入框架 source 配置
+                    fw = detect_framework(target_directory)
+                    if fw:
+                        _php_sr.add_framework(fw)
                     # 适配接口：添加 is_source_member 方法
                     _orig_isv = _php_sr.is_source_variable
                     _php_sr.source_members = _php_sr.builtin_sources

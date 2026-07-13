@@ -123,6 +123,12 @@ def enrich_taint(
     annotated_param_count = _enrich_annotated_params(graph)
     count += annotated_param_count
 
+    # 5. 框架 request 参数标注（PHP $request, Python flask.request 等）
+    #    当检测到框架时，函数参数中名为 $request / request 的参数标注为 source
+    if source_registry is not None:
+        fw_param_count = _enrich_framework_request_params(graph, source_registry)
+        count += fw_param_count
+
     logger.debug("enrich_taint: annotated %d function nodes, %d source variables, %d annotated params",
                  count - source_var_count - annotated_param_count, source_var_count, annotated_param_count)
     return count
@@ -184,7 +190,8 @@ def _enrich_from_source_registry(
     # 2. builtin source member expression（JS/TS: document.cookie, location.hash, process.env 等）
     #    注意：这里用完整的 func_name（如 "document.cookie"），不是 short name（"cookie"）
     #    is_source_member 支持前缀匹配（如 process.env.USER_INPUT 匹配 process.env）
-    if source_registry.is_source_member(func_name):
+    #    PHP SourceRegistry 没有 is_source_member，用 hasattr 保护
+    if hasattr(source_registry, 'is_source_member') and source_registry.is_source_member(func_name):
         graph.vs[func_vid]["taint_type"] = "source"
         return True
 
@@ -282,9 +289,39 @@ def _enrich_annotated_params(graph: ig.Graph) -> int:
     return count
 
 
-# ---------------------------------------------------------------------------
-# Internal: utilities
-# ---------------------------------------------------------------------------
+def _enrich_framework_request_params(graph: ig.Graph, source_registry) -> int:
+    """标注图中匹配框架 request 对象名称的 parameter 节点为 source。
+
+    当 source_registry 中有框架的 request_object_names 配置时（如 Symfony 的
+    {'request', '$request'}），函数参数名匹配该集合的 parameter 节点被标记为
+    taint_type=source。适用于 PHP/Symfony、PHP/Laravel 等通过 DI 注入 request 的框架。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    # 从 source_registry 收集所有框架的 request 对象名称
+    request_names: set[str] = set()
+    if hasattr(source_registry, 'framework_request_objects'):
+        request_names.update(source_registry.framework_request_objects)
+
+    if not request_names:
+        return 0
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.PARAMETER.value:
+            continue
+        if _vattr(v, "taint_type"):
+            continue
+        name = _vattr(v, "name", "")
+        if not name:
+            continue
+        # PHP 参数名含 $ 前缀（如 $request），也检查不含 $ 的版本
+        clean = name.lstrip("$")
+        if name in request_names or clean in request_names:
+            graph.vs[v.index]["taint_type"] = "source"
+            graph.vs[v.index]["taint_origin"] = "framework_request_param"
+            count += 1
+    return count
 
 def _get_simple_name(name: str) -> str:
     """提取短名：'trim' / 'MyClass::method' → 'method'。"""
