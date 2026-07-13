@@ -2321,7 +2321,7 @@ class Normalizer:
                                        file_path, 0)
                     if value is not None:
                         pos = self._walk_pattern(value, add_node, add_edge,
-                                                  ctx_stack, depth)
+                                                  ctx_stack, file_path, depth)
                         if pos is not None:
                             return pos
                 elif hasattr(prop, "type"):
