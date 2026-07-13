@@ -66,6 +66,7 @@ class Detection(object):
         languages = language_extensions
 
         tmp_language = None
+        lang_count = {}  # language -> total file count
         for ext, ext_info in self.files:
             logger.debug("[DETECTION] [LANGUAGE] {ext} {count}".format(ext=ext, count=ext_info['count']))
             for language, language_info in languages.items():
@@ -77,10 +78,13 @@ class Detection(object):
 
                         # special deal for chrome ext
                         if language == 'chromeext':
-                            self.lang.append('javascript')
-
-                        if language not in self.lang:
-                            self.lang.append(language)
+                            if 'javascript' not in self.lang:
+                                self.lang.append('javascript')
+                            lang_count['javascript'] = lang_count.get('javascript', 0) + ext_info['count']
+                        else:
+                            if language not in self.lang:
+                                self.lang.append(language)
+                            lang_count[language] = lang_count.get(language, 0) + ext_info['count']
                     else:
                         logger.debug('[DETECTION] [LANGUAGE] not chiefly, continue...'.format(language=language))
                         tmp_language = language
@@ -90,6 +94,8 @@ class Detection(object):
                 '[DETECTION] [LANGUAGE] not found chiefly language, use the largest language(language) replace'.format(
                     language=tmp_language))
             self.lang.append(tmp_language)
+        # sort by file count descending (primary language first)
+        self.lang.sort(key=lambda l: lang_count.get(l, 0), reverse=True)
         logger.debug('[DETECTION] [LANGUAGE] main languages ({main_language}), tmp language({tmp_language})'.format(
             tmp_language=tmp_language,
             main_language=",".join(self.lang)))

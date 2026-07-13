@@ -243,6 +243,8 @@ def build_ast_graph(
     processed_count = 0
     skipped_no_normalizer = 0
     skipped_empty_ast = 0
+    skipped_special = 0
+    skipped_large = 0
     file_only_count = 0
     errors = 0
 
@@ -277,6 +279,21 @@ def build_ast_graph(
                 else:
                     abs_filepath = filepath
                 file_ext = os.path.splitext(abs_filepath)[1].lower()
+
+                # 跳过特殊文件（minified / vendor / bundled 等）
+                _skip_patterns = ['/node_modules/', '/bower_components/', '.min.js', '.min.css', 'jquery']
+                if any(pat in abs_filepath for pat in _skip_patterns):
+                    skipped_special += 1
+                    continue
+
+                # 跳过过大文件（>100KB，通常是 minified/bundled 代码）
+                try:
+                    if os.path.getsize(abs_filepath) > 100 * 1024:
+                        skipped_large += 1
+                        continue
+                except OSError:
+                    pass
+
                 detected_lang = code_ext_to_lang.get(file_ext)
 
                 content_hash = _compute_file_hash(abs_filepath)
@@ -399,9 +416,10 @@ def build_ast_graph(
 
     logger.info(
         "[GraphPipeline] Build complete: %d processed, %d file-only, "
-        "%d no normalizer, %d empty AST, %d errors. "
+        "%d no normalizer, %d empty AST, %d special, %d large, %d errors. "
         "Graph: %d nodes, %d edges",
-        processed_count, file_only_count, skipped_no_normalizer, skipped_empty_ast, errors,
+        processed_count, file_only_count, skipped_no_normalizer, skipped_empty_ast,
+        skipped_special, skipped_large, errors,
         graph.vcount(), graph.ecount(),
     )
 

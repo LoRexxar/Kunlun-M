@@ -99,7 +99,7 @@ ext_comment_dict = {
     "lua": ['--', '--[['],
 }
 
-default_black_list = ['.crx_files', 'vendor']
+default_black_list = ['.crx_files', 'vendor', 'node_modules', 'bower_components', '.min.js', '.min.css']
 IGNORE_LIST = []
 
 VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'critical']

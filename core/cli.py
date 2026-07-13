@@ -262,8 +262,12 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         # detection main language and framework
         if not language or (language and str(language).lower() == 'auto'):
             dt = Detection(target_directory, files)
-            main_language = dt.language
+            detected_languages = dt.language
             main_framework = dt.framework
+            # auto 模式：只以主语言（文件数最多的 chiefly 语言）为主扫描
+            main_language = [detected_languages[0]] if detected_languages else []
+            logger.info('[CLI] [STATISTIC] Auto-detected languages: %s, primary: %s',
+                        ','.join(detected_languages), main_language[0] if main_language else 'none')
         else:
             main_language = pa.language
             main_framework = pa.language
