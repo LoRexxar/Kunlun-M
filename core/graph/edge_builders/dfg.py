@@ -783,6 +783,14 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if receiver_vid is None:
                 continue
 
+            # 跳过 static field receiver（如 Logger LOGGER）。
+            # static field 是类级成员，不参与 fluent API 链。
+            # 例: LOGGER.debug(x) — LOGGER 是 static final field，
+            #    debug() 是 void 方法，不存在返回值回传语义。
+            receiver_type = self._vtype[receiver_vid]
+            if receiver_type == 'field':
+                continue
+
             # 检查此 receiver 是否在同作用域内有其他 method_call（多次使用）
             receiver_name = self._vname[receiver_vid]
             other_calls = 0
