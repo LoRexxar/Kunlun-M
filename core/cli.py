@@ -260,8 +260,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         Vendors(task_id, project_id, target_directory, files)
 
         # detection main language and framework
-
-        if not language:
+        if not language or (language and str(language).lower() == 'auto'):
             dt = Detection(target_directory, files)
             main_language = dt.language
             main_framework = dt.framework
