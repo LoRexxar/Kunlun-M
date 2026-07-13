@@ -1302,7 +1302,7 @@ class SingleRule(object):
                     # 优先使用 vul_function（干净函数名列表）构建 sink_names
                     # C/Go 等语言的 match 是正则表达式，parse_sink_names 无法正确解析
                     if _get_rule_sink_names_list(self.sr):
-                        sink_names = [sn.method for sn in _get_rule_sink_names_list(self.sr)]
+                        sink_names = _get_rule_sink_names_list(self.sr)
                     else:
                         sink_names = parse_sink_names(self.sr.match)
                     if sink_names:
