@@ -84,11 +84,12 @@ class Detection(object):
                     else:
                         logger.debug('[DETECTION] [LANGUAGE] not chiefly, continue...'.format(language=language))
                         tmp_language = language
-            if not self.lang and tmp_language is not None:
-                logger.debug(
-                    '[DETECTION] [LANGUAGE] not found chiefly language, use the largest language(language) replace'.format(
-                        language=tmp_language))
-                self.lang.append(tmp_language)
+        # fallback: only if no chiefly language was found at all
+        if not self.lang and tmp_language is not None:
+            logger.debug(
+                '[DETECTION] [LANGUAGE] not found chiefly language, use the largest language(language) replace'.format(
+                    language=tmp_language))
+            self.lang.append(tmp_language)
         logger.debug('[DETECTION] [LANGUAGE] main languages ({main_language}), tmp language({tmp_language})'.format(
             tmp_language=tmp_language,
             main_language=",".join(self.lang)))
