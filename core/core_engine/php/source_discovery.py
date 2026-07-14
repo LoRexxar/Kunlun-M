@@ -48,7 +48,7 @@ class SourceRegistry:
     builtin_sources: Set[str] = field(default_factory=lambda: {
         '$_GET', '$_POST', '$_REQUEST', '$_COOKIE',
         '$_FILES', '$_ENV',
-        '$HTTP_RAW_POST_DATA', '$argc', '$argv',
+        '$HTTP_RAW_POST_DATA',
         '$HTTP_POST_FILES', '$HTTP_COOKIE_VARS', '$HTTP_REQUEST_VARS',
         '$HTTP_POST_VARS', '$HTTP_GET_VARS',
     })

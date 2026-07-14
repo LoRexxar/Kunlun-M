@@ -29,8 +29,9 @@ logger = logging.getLogger(__name__)
 
 _SUPERGLOBALS: frozenset[str] = frozenset({
     # PHP superglobals ($_SESSION excluded — server-side session data, not direct user input)
+    # ($argc/$argv excluded — CLI-only sources, not web-controllable)
     "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES", "$_SERVER",
-    "$_ENV", "$HTTP_RAW_POST_DATA", "$argc", "$argv",
+    "$_ENV", "$HTTP_RAW_POST_DATA",
     # Python web framework sources (object names)
     "request.GET", "request.POST", "request.REQUEST", "request.COOKIES",
     "request.FILES", "request.data", "request.body", "request.query_params",
@@ -46,6 +47,7 @@ _SERVER_UNCONTROLLED_KEYS: frozenset[str] = frozenset({
     "SERVER_NAME", "SERVER_ADDR", "SERVER_PORT", "SERVER_SOFTWARE",
     "SERVER_SIGNATURE", "SERVER_ADMIN", "DOCUMENT_ROOT",
     "SCRIPT_FILENAME", "GATEWAY_INTERFACE", "PATH_TRANSLATED",
+    "argv", "argc",
 })
 
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
@@ -487,6 +489,11 @@ class GraphAnalyzer:
         for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
             v = self.graph.vs[vid]
             if _vattr(v, "type") not in assign_types:
+                continue
+            # PHP: 属性赋值的属性名不应匹配 PHP 内置函数 sink
+            # （如 $data->link = ... 中 link 不等于 PHP link() 硬链接函数）
+            # Round 2 属性 sink 仅为 JS DOM XSS（innerHTML 等）
+            if self.language == "php":
                 continue
             # 查找 LHS 边
             lhs_vids = [
