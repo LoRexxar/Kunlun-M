@@ -41,13 +41,15 @@ _SUPERGLOBALS: frozenset[str] = frozenset({
 })
 
 # $_SERVER keys that are NOT directly user-controlled (server config / runtime info).
-# Keys not in this set (HTTP_*, REQUEST_URI, PHP_SELF, SCRIPT_NAME, QUERY_STRING, etc.)
+# Keys not in this set (HTTP_*, REQUEST_URI, PHP_SELF, QUERY_STRING, etc.)
 # are treated as user-controlled sources.
 _SERVER_UNCONTROLLED_KEYS: frozenset[str] = frozenset({
     "SERVER_NAME", "SERVER_ADDR", "SERVER_PORT", "SERVER_SOFTWARE",
     "SERVER_SIGNATURE", "SERVER_ADMIN", "DOCUMENT_ROOT",
     "SCRIPT_FILENAME", "GATEWAY_INTERFACE", "PATH_TRANSLATED",
     "argv", "argc",
+    "SERVER_PROTOCOL", "SCRIPT_NAME", "REMOTE_ADDR", "REMOTE_HOST",
+    "REMOTE_PORT", "REQUEST_TIME", "REQUEST_TIME_FLOAT", "HTTPS",
 })
 
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
@@ -917,6 +919,10 @@ class GraphAnalyzer:
                         continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
+                # Safe node — taint propagation stops here
+                up_taint = _vattr(uv, "taint_type", "")
+                if up_taint == "safe":
+                    continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
@@ -1853,6 +1859,10 @@ class GraphAnalyzer:
                         continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
+                # Safe node — taint propagation stops here
+                up_taint = _vattr(uv, "taint_type", "")
+                if up_taint == "safe":
+                    continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
