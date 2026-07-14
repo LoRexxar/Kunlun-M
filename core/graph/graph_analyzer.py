@@ -1072,6 +1072,11 @@ class GraphAnalyzer:
 
                 # Rule 1: superglobal
                 if self._is_source_variable(uname):
+                    # $_SERVER has mixed controllability per key — check if all
+                    # member children in this file are uncontrolled keys
+                    if uname == "$_SERVER" and self._is_server_only_uncontrolled_members(up_vid):
+                        logger.debug("$_SERVER blocked: all member keys uncontrolled, vid=%d", up_vid)
+                        continue
                     logger.debug("source found '%s' vid=%d", uname, up_vid)
                     return self._cached(cache_key, AnalysisResult(
                         code=1, reason=f"superglobal '{uname}'",
@@ -1843,6 +1848,8 @@ class GraphAnalyzer:
                 utype = _vattr(uv, "type", "")
                 # Source variable
                 if self._is_source_variable(uname):
+                    if uname == "$_SERVER" and self._is_server_only_uncontrolled_members(up_vid):
+                        continue
                     return AnalysisResult(
                         code=1, reason=f"superglobal '{uname}'",
                         chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
@@ -2031,6 +2038,20 @@ class GraphAnalyzer:
                 return False  # $_SERVER found but no uncontrolled key
             cur_vid = parent_vid
         return False
+
+    def _is_server_only_uncontrolled_members(self, server_vid: int) -> bool:
+        """检查 $_SERVER 节点的所有 outgoing member 子节点是否全在 _SERVER_UNCONTROLLED_KEYS 中。
+
+        如果 $_SERVER 在当前文件中只被 argv/argc 等不可控键访问（没有用户可控键访问），
+        则说明所有通过 $_SERVER 的 DFG 回溯都来自不可控路径，应视为不可控。
+        """
+        if not self.graph:
+            return False
+        for e in self.graph.es.select(_source=server_vid, label="member"):
+            child_name = _vattr(self.graph.vs[e.target], "name", "")
+            if child_name and child_name not in _SERVER_UNCONTROLLED_KEYS:
+                return False
+        return True
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
