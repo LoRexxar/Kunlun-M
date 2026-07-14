@@ -157,7 +157,7 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     receiver_pt = any(isinstance(x, str) and x in _RECEIVER_PT_NAMES for x in passthrough)
     param_indices = [i for i in passthrough if isinstance(i, int)]
 
-    if safe and not passthrough:
+    if safe:
         graph.vs[func_vid]["taint_type"] = "safe"
         return True
 
