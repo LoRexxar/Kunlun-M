@@ -1084,22 +1084,30 @@ class GraphAnalyzer:
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
                         if self._is_source_variable(full_text):
-                            logger.debug("source found via full_text '%s' vid=%d", full_text, up_vid)
-                            return self._cached(cache_key, AnalysisResult(
-                                code=1, reason=f"superglobal '{full_text}' (via member '{uname}')",
-                                chain=[{"step": "dfg", "vid": up_vid,
-                                        "name": full_text, "code": 1}],
-                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                            # $_SERVER has mixed controllability — check member chain
+                            if "$_SERVER" in full_text and self._is_server_member_blocked(up_vid):
+                                pass
+                            else:
+                                logger.debug("source found via full_text '%s' vid=%d", full_text, up_vid)
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1, reason=f"superglobal '{full_text}' (via member '{uname}')",
+                                    chain=[{"step": "dfg", "vid": up_vid,
+                                            "name": full_text, "code": 1}],
+                                    path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                     # Reconstruct member chain (a.b.c → check "a.b.c", "a.b", "a")
                     chain_name = self._is_source_via_member_chain(up_vid, uname)
                     if chain_name:
-                        logger.debug("source found via member chain '%s' vid=%d", chain_name, up_vid)
-                        return self._cached(cache_key, AnalysisResult(
-                            code=1,
-                            reason=f"superglobal '{chain_name}' (via member chain from '{uname}')",
-                            chain=[{"step": "dfg", "vid": up_vid,
-                                    "name": chain_name, "code": 1}],
-                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                        # $_SERVER has mixed controllability — check member chain
+                        if "$_SERVER" in chain_name and self._is_server_member_blocked(up_vid):
+                            pass
+                        else:
+                            logger.debug("source found via member chain '%s' vid=%d", chain_name, up_vid)
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{chain_name}' (via member chain from '{uname}')",
+                                chain=[{"step": "dfg", "vid": up_vid,
+                                        "name": chain_name, "code": 1}],
+                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 2: constant — skip, keep searching
                 if ulabel == NodeLabel.CONST.value:
@@ -1121,24 +1129,30 @@ class GraphAnalyzer:
                         child_label = _vattr(cv, "label", "")
                         # Direct name check
                         if self._is_source_variable(child_name):
-                            return self._cached(cache_key, AnalysisResult(
-                                code=1,
-                                reason=f"superglobal '{child_name}' via subscript",
-                                chain=[{"step": "subscript_source", "vid": child_vid,
-                                        "name": child_name, "code": 1}],
-                                path=new_path + [child_vid],
-                                expr_lineno=_vattr(cv, "lineno", 0)))
+                            if "$_SERVER" in child_name and self._is_server_member_blocked(child_vid):
+                                pass
+                            else:
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"superglobal '{child_name}' via subscript",
+                                    chain=[{"step": "subscript_source", "vid": child_vid,
+                                            "name": child_name, "code": 1}],
+                                    path=new_path + [child_vid],
+                                    expr_lineno=_vattr(cv, "lineno", 0)))
                         # Member chain check (e.g., argv → sys.argv)
                         if child_label == NodeLabel.IDENTIFIER.value and child_type in ("field", "property"):
                             chain_name = self._is_source_via_member_chain(child_vid, child_name)
                             if chain_name:
-                                return self._cached(cache_key, AnalysisResult(
-                                    code=1,
-                                    reason=f"superglobal '{chain_name}' via subscript member chain",
-                                    chain=[{"step": "subscript_source", "vid": child_vid,
-                                            "name": chain_name, "code": 1}],
-                                    path=new_path + [child_vid],
-                                    expr_lineno=_vattr(cv, "lineno", 0)))
+                                if "$_SERVER" in chain_name and self._is_server_member_blocked(child_vid):
+                                    pass
+                                else:
+                                    return self._cached(cache_key, AnalysisResult(
+                                        code=1,
+                                        reason=f"superglobal '{chain_name}' via subscript member chain",
+                                        chain=[{"step": "subscript_source", "vid": child_vid,
+                                                "name": chain_name, "code": 1}],
+                                        path=new_path + [child_vid],
+                                        expr_lineno=_vattr(cv, "lineno", 0)))
 
                 # Rule 2c: operator(method_call/static_call) — JS-style member
                 # chain where operator name IS the full dotted path
@@ -1395,6 +1409,9 @@ class GraphAnalyzer:
                         obj_label = _vattr(obj_v, "label", "")
                         obj_type = _vattr(obj_v, "type", "")
                         if self._is_source_variable(obj_name):
+                            # $_SERVER has mixed controllability — check member chain
+                            if obj_name == "$_SERVER" and self._is_server_member_blocked(cur_member):
+                                break
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"superglobal '{obj_name}' via member access",
@@ -1835,8 +1852,8 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname and self._is_source_variable(full_text):
-                        # $_SERVER has mixed controllability — skip server-config keys
-                        if full_text == "$_SERVER" and uname in _SERVER_UNCONTROLLED_KEYS:
+                        # $_SERVER has mixed controllability — check member chain for uncontrolled keys
+                        if "$_SERVER" in full_text and self._is_server_member_blocked(up_vid):
                             pass
                         else:
                             return AnalysisResult(
@@ -1851,8 +1868,8 @@ class GraphAnalyzer:
                         obj_vid = me.source
                         obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
                         if self._is_source_variable(obj_name):
-                            # $_SERVER has mixed controllability — skip server-config keys
-                            if obj_name == "$_SERVER" and uname in _SERVER_UNCONTROLLED_KEYS:
+                            # $_SERVER has mixed controllability — check member chain
+                            if obj_name == "$_SERVER" and self._is_server_member_blocked(up_vid):
                                 pass
                             else:
                                 return AnalysisResult(
@@ -1984,6 +2001,35 @@ class GraphAnalyzer:
                         break
             except Exception:
                 pass
+        return False
+
+    def _is_server_member_blocked(self, vid: int) -> bool:
+        """检查 vid 沿 incoming member 边向上回溯，
+        如果经过 $_SERVER 且中间层 member key 在 _SERVER_UNCONTROLLED_KEYS 中，
+        返回 True（表示该 source 不应被视为可控）。
+
+        例如: $_SERVER['argv'][1] → 从 vid(1) 上溯 argv(在keys中) + $_SERVER → True
+        """
+        if not self.graph:
+            return False
+        cur_vid = vid
+        # 收集 member chain: 从当前 vid 往上走
+        chain_names = []  # 从内到外的 member name 列表
+        for _ in range(10):
+            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            if not member_in:
+                break
+            parent_vid = member_in[0].source
+            parent_name = _vattr(self.graph.vs[parent_vid], "name", "")
+            cur_name = _vattr(self.graph.vs[cur_vid], "name", "")
+            chain_names.append(cur_name)
+            if parent_name == "$_SERVER":
+                # 找到 $_SERVER 根，检查 chain 中是否有不可控 key
+                for key in chain_names:
+                    if key in _SERVER_UNCONTROLLED_KEYS:
+                        return True
+                return False  # $_SERVER found but no uncontrolled key
+            cur_vid = parent_vid
         return False
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
