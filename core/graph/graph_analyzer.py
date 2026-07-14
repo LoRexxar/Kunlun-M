@@ -375,11 +375,14 @@ class GraphAnalyzer:
             # Normalize: Rust uses :: but sink names use .
             normalized_callee = callee_name.replace("::", ".")
             matched_name = None
+            _is_qualified_match = False  # Track if match is via qualified name (Path 2 or dotted Path 1)
 
             # Path 1: short name match (e.g. "unmarshal" in sink_set)
             if normalized_callee in normalized_set:
                 matched_name = normalized_callee
                 callee_name = normalized_callee
+                if "." in normalized_callee:
+                    _is_qualified_match = True
 
             # Path 1b: case-insensitive match (vul_function uses class names
             # like "JdbcTemplate.queryForObject" while AST nodes use code-level
@@ -387,6 +390,8 @@ class GraphAnalyzer:
             if not matched_name and normalized_callee.lower() in normalized_lower:
                 matched_name = normalized_callee
                 callee_name = normalized_callee
+                if "." in normalized_callee:
+                    _is_qualified_match = True
 
             # Path 2: fullname match via use edge target function node.
             # UseEdgeBuilder resolves receiver type at graph build time,
@@ -408,9 +413,23 @@ class GraphAnalyzer:
                 if norm_fn in normalized_set:
                     matched_name = norm_fn
                     callee_name = tgt_fullname
+                    _is_qualified_match = True
                     break
 
             if not matched_name:
+                continue
+
+            # Guard: method_call/static_call with bare short-name match
+            # (no qualifier like "Class.method" or "::" separator) is likely
+            # an object method sharing a name with a built-in function.
+            # e.g. $filesystem->copy() should NOT match the built-in copy().
+            # Require qualified match (Path 2 use-edge or dotted name) for
+            # method_call/static_call to avoid this class of false positives.
+            if (not _is_qualified_match and
+                    _vattr(v, "type") in (
+                        OperatorType.METHOD_CALL.value,
+                        OperatorType.STATIC_CALL.value,
+                    ) and "." not in normalized_callee and "::" not in normalized_callee):
                 continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
