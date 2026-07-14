@@ -1835,25 +1835,33 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname and self._is_source_variable(full_text):
-                        return AnalysisResult(
-                            code=1,
-                            reason=f"superglobal '{full_text}' (via member '{uname}')",
-                            chain=[{"step": "member_source", "vid": up_vid,
-                                    "name": full_text, "code": 1}],
-                            path=[start_vid, up_vid],
-                            expr_lineno=_vattr(uv, "lineno", 0))
+                        # $_SERVER has mixed controllability — skip server-config keys
+                        if full_text == "$_SERVER" and uname in _SERVER_UNCONTROLLED_KEYS:
+                            pass
+                        else:
+                            return AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{full_text}' (via member '{uname}')",
+                                chain=[{"step": "member_source", "vid": up_vid,
+                                        "name": full_text, "code": 1}],
+                                path=[start_vid, up_vid],
+                                expr_lineno=_vattr(uv, "lineno", 0))
                     # Also check member edges for source objects (e.g., $_REQUEST → member → 'ip')
                     for me in self.graph.es.select(_target=up_vid, label="member"):
                         obj_vid = me.source
                         obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
                         if self._is_source_variable(obj_name):
-                            return AnalysisResult(
-                                code=1,
-                                reason=f"superglobal '{obj_name}' via member access",
-                                chain=[{"step": "member_source", "vid": obj_vid,
-                                        "name": obj_name, "code": 1}],
-                                path=[start_vid, up_vid, obj_vid],
-                                expr_lineno=_vattr(self.graph.vs[obj_vid], "lineno", 0))
+                            # $_SERVER has mixed controllability — skip server-config keys
+                            if obj_name == "$_SERVER" and uname in _SERVER_UNCONTROLLED_KEYS:
+                                pass
+                            else:
+                                return AnalysisResult(
+                                    code=1,
+                                    reason=f"superglobal '{obj_name}' via member access",
+                                    chain=[{"step": "member_source", "vid": obj_vid,
+                                            "name": obj_name, "code": 1}],
+                                    path=[start_vid, up_vid, obj_vid],
+                                    expr_lineno=_vattr(self.graph.vs[obj_vid], "lineno", 0))
                 # Continue BFS
                 if depth + 1 < max_depth:
                     queue.append((up_vid, depth + 1))
