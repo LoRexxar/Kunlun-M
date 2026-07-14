@@ -141,6 +141,99 @@ def enrich_taint(
 # receiver passthrough 的字符串标记 ("this"/"self")
 _RECEIVER_PT_NAMES: frozenset[str] = frozenset({"this", "self"})
 
+# 正则替换/匹配函数 — pattern 为固定常量且不含 dot wildcard 时标为 safe
+_REGEX_SANITIZE_FUNCS: frozenset[str] = frozenset({
+    "preg_replace", "preg_replace_callback", "preg_filter",
+    "mb_ereg_replace", "ereg_replace", "eregi_replace",
+})
+
+# PHP 正则的括号类分隔符映射（开 → 闭）
+_REGEX_BRACKET_DELIMS: dict[str, str] = {
+    "(": ")", "[": "]", "{": "}", "<": ">",
+}
+
+
+def _extract_php_regex_pattern(name: str) -> str:
+    """从 PHP 字符串常量名中提取正则内容。
+
+    PHP 的 preg_* 函数使用 `/pattern/flags` 格式（也支持 `#`、`~`、`()`
+    等其他分隔符）。name 由 normalizer 用 Python repr 写入，通常带外层
+    引号（如 `'/foo/'`），先去引号再取分隔符内的内容。返回空串表示无法提取。
+    """
+    if not name:
+        return ""
+    s = name.strip()
+    # 去掉外层 Python repr 引号
+    if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
+        s = s[1:-1]
+    if not s:
+        return ""
+    delimiter = s[0]
+    # 括号类分隔符：从右找闭合字符
+    if delimiter in _REGEX_BRACKET_DELIMS:
+        close = _REGEX_BRACKET_DELIMS[delimiter]
+        end = s.rfind(close)
+        if end <= 0:
+            return ""
+        return s[1:end]
+    # 普通分隔符（/、#、~、!、@ 等）：从右找下一个分隔符
+    end = s.rfind(delimiter)
+    if end <= 0:
+        return ""
+    return s[1:end]
+
+
+def _regex_has_dot_wildcard(regex: str) -> bool:
+    """检查正则字符串中是否有未转义的 `.`（dot wildcard）。
+
+    - `\\.` 是转义的 `.`，不算 wildcard
+    - `[...]` 字符类内的 `.` 不算 wildcard
+    """
+    in_char_class = False
+    i = 0
+    n = len(regex)
+    while i < n:
+        ch = regex[i]
+        if ch == "\\":
+            # 转义序列：跳过下一字符
+            i += 2
+            continue
+        if ch == "[":
+            in_char_class = True
+        elif ch == "]":
+            in_char_class = False
+        elif ch == "." and not in_char_class:
+            return True
+        i += 1
+    return False
+
+
+def _is_regex_sanitize_safe(graph, func_vid: int) -> bool:
+    """检查正则替换函数的 arg[0]（pattern）是否为常量字符串且不含 dot wildcard。
+
+    遍历 func_vid 出发的 ast 边 + role=arg，按 arg_index 找到 arg[0]，
+    判断其 label 是否为 constant，并检查其正则内容是否含未转义的 `.`。
+    找不到 arg[0] 或不是常量时返回 False。
+    """
+    for e in graph.es.select(_source=func_vid, label="ast"):
+        if _vattr(e, "role", "") != "arg":
+            continue
+        arg_idx = _vattr(e, "arg_index", -1)
+        try:
+            if int(arg_idx) != 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        target = graph.vs[e.target]
+        if _vattr(target, "label", "") != NodeLabel.CONST.value:
+            return False
+        name = _vattr(target, "name", "")
+        pattern = _extract_php_regex_pattern(name)
+        if not pattern:
+            return False
+        return not _regex_has_dot_wildcard(pattern)
+    return False
+
 
 def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache) -> bool:
     """从 TraceCache 内置知识库标注。先短名查，再完整名查。"""
@@ -160,6 +253,12 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     if safe:
         graph.vs[func_vid]["taint_type"] = "safe"
         return True
+
+    # 正则替换函数：pattern 为固定常量且不含 dot wildcard → safe
+    if short_name in _REGEX_SANITIZE_FUNCS or full_name in _REGEX_SANITIZE_FUNCS:
+        if _is_regex_sanitize_safe(graph, func_vid):
+            graph.vs[func_vid]["taint_type"] = "safe"
+            return True
 
     if passthrough:
         graph.vs[func_vid]["taint_type"] = "passthrough"
