@@ -1480,7 +1480,7 @@ class GraphAnalyzer:
                     if self._get_dfg_sources(cand):
                         # Use _trace_dfg_direct to avoid recursive
                         # parameters_back calling def-chain again
-                        r = self._trace_dfg_direct(cand, max_depth=20)
+                        r = self._trace_dfg_direct(cand, max_depth=20, file_path=start_fp)
                         if r is not None and r.is_controllable:
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -1825,13 +1825,18 @@ class GraphAnalyzer:
         self._decision_cache[key] = result
         return result
 
-    def _trace_dfg_direct(self, start_vid: int, max_depth: int = 20) -> AnalysisResult | None:
+    def _trace_dfg_direct(self, start_vid: int, max_depth: int = 20,
+                          file_path: str = "") -> AnalysisResult | None:
         """Simplified DFG backward trace for def-chain resolution.
 
         Unlike parameters_back(), this does NOT trigger def-chain recursion,
         preventing infinite loops. Used only by the def-chain fallback in
         parameters_back() when SSA-style graphs create disconnected
         identifier nodes (e.g., $x = f($x) cycles).
+
+        When file_path is provided, the trace is restricted to vertices in
+        the same file — preventing cross-file DFG backtracking from
+        reaching superglobals defined in unrelated files (e.g. model.php).
         """
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int]] = deque()
@@ -1841,6 +1846,11 @@ class GraphAnalyzer:
             for up_vid in self._get_dfg_sources(cur_vid):
                 if up_vid in visited:
                     continue
+                # 文件限制：如果指定了 file_path，跳过不同文件的节点
+                if file_path:
+                    up_fp = _vattr(self.graph.vs[up_vid], "file_path", "") or _vattr(self.graph.vs[up_vid], "path", "")
+                    if up_fp and up_fp != file_path:
+                        continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
                 uname = _vattr(uv, "name", "")
