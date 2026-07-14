@@ -1755,6 +1755,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if not isinstance(entry, dict):
             return
 
+        # safe 函数：返回值是安全的，不应有 DFG passthrough 边
+        safe = entry.get("safe", False)
+        if safe:
+            return
+
         # passthrough: 返回值依赖哪些参数 → arg → operator（代表返回值）
         passthrough = entry.get("passthrough", [])
         if isinstance(passthrough, list):
