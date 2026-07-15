@@ -1536,6 +1536,13 @@ class GraphAnalyzer:
                     cand_fp = _vattr(self.graph.vs[cand], "file_path", "") or _vattr(self.graph.vs[cand], "path", "")
                     if cand_fp != start_fp:
                         continue
+                    # Function scope check: def-chain should not cross
+                    # function boundaries. Variables with the same name
+                    # in different functions are unrelated.
+                    cand_func = self._get_enclosing_func_vid(cand)
+                    start_func = self._get_enclosing_func_vid(start_vid)
+                    if cand_func is not None and start_func is not None and cand_func != start_func:
+                        continue
                     checked.add(cand)
                     # Skip candidates that have branch-safe DFG edges
                     # (their value is protected by a branch constraint).
@@ -2398,6 +2405,27 @@ class GraphAnalyzer:
         return None
 
     _NEGATED_BRANCH_TYPES = frozenset({"else", "default"})
+
+    def _get_enclosing_func_vid(self, vid: int) -> int | None:
+        """Return the vid of the nearest ancestor FUNCTION node, or None."""
+        cur = vid
+        seen: set[int] = set()
+        for _ in range(30):
+            if cur is None or cur in seen:
+                break
+            seen.add(cur)
+            label = _vattr(self.graph.vs[cur], "label", "")
+            if label == NodeLabel.FUNCTION.value:
+                return cur
+            if label == NodeLabel.FILE.value:
+                return None
+            # Walk up via OWN edges (incoming, i.e., parent owns child)
+            own_in = self.graph.es.select(_target=cur, label="own")
+            if own_in:
+                cur = own_in[0].source
+            else:
+                break
+        return None
 
     def get_branch_chain(self, vid: int) -> list[int]:
         """从 vid 向上搜索，返回 vid 到最近的 function/file 之间
