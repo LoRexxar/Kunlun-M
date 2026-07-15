@@ -163,6 +163,13 @@ _FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
     "ApplicationContext", "Environment", "WebGoatUser",
 })
 
+# Go types that carry user-controlled HTTP request data.
+# Parameters with these types in Go handler functions are SOURCES (controllable),
+# unlike Java where HttpServletRequest is framework-injected (uncontrollable).
+_GO_SOURCE_TYPES: frozenset[str] = frozenset({
+    "*http.Request",
+})
+
 # Spring/JAX-RS annotations that mark a parameter as user-controlled input
 _USER_CONTROLLED_ANNOTATIONS: frozenset[str] = frozenset({
     "RequestParam", "PathVariable", "RequestBody", "RequestHeader",
@@ -958,6 +965,23 @@ class GraphAnalyzer:
                                     "name": uname, "code": 1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
+                    # For Go: *http.Request etc. are user-controlled sources
+                    # Checked here (after taint_type=source, before Java type checks)
+                    # so Go source types are recognized without needing enrich_taint annotations.
+                    if self.language == "go":
+                        go_type = _vattr(uv, "go_type", "")
+                        if go_type in _GO_SOURCE_TYPES:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (Go source type '%s', controllable)",
+                                uname, up_vid, go_type,
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"Go source type '{go_type}'",
+                                chain=[{"step": "source_type", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
                     # Check for user-controlled annotations (Spring/JAX-RS) first,
                     # regardless of DFG upstream.  Parameters annotated with
                     # @RequestParam, @PathVariable, @RequestBody etc. are
