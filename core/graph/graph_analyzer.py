@@ -801,6 +801,17 @@ class GraphAnalyzer:
         # Check member access on start node: $_GET['cmd'] / $obj->prop
         # Supports nested chains: $_FILES['uploaded']['tmp_name']
         if _vattr(sv, "type") in ("field", "property"):
+            # Quick reject: if this member key itself is a known non-source key
+            # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
+            # The parent variable may trace back to the superglobal via DFG, but
+            # this specific member access returns a server-generated value.
+            if sname in _FILES_NON_SOURCE_MEMBERS:
+                return self._cached(cache_key, AnalysisResult(
+                    code=-1,
+                    reason=f"member key '{sname}' is a non-source property (server-generated)",
+                    chain=[{"step": "non_source_member", "vid": start_vid,
+                            "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
             for _ in range(10):
                 member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
@@ -880,6 +891,17 @@ class GraphAnalyzer:
         start_label = _vattr(sv, "label", "")
         start_type = _vattr(sv, "type", "")
         if start_label == NodeLabel.IDENTIFIER.value and start_type in ("field", "property"):
+            # Quick reject: if this member key itself is a known non-source key
+            # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
+            # The parent variable may trace back to the superglobal via DFG, but
+            # this specific member access returns a server-generated value.
+            if sname in _FILES_NON_SOURCE_MEMBERS:
+                return self._cached(cache_key, AnalysisResult(
+                    code=-1,
+                    reason=f"member key '{sname}' is a non-source property (server-generated)",
+                    chain=[{"step": "non_source_member", "vid": start_vid,
+                            "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
             for _ in range(10):
                 member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
