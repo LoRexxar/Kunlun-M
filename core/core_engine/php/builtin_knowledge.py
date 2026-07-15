@@ -191,6 +191,10 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "wp_safe_redirect":     {"passthrough": [0], "safe": True},
         "absint":               {"passthrough": [], "safe": True},
         "wp_kses_allowed_html": {"passthrough": [0], "safe": True},
+        "convert_chars":        {"passthrough": [0], "safe": True},
+        "wp_html_excerpt":      {"passthrough": [0], "safe": True},
+        "wp_unslash":           {"passthrough": [0], "safe": True},
+        "sanitize_key":          {"passthrough": [0], "safe": True},
 
         # ===== CodeIgniter =====
         "xss_clean":            {"passthrough": [0], "safe": True},
