@@ -3072,25 +3072,11 @@ class GraphAnalyzer:
         scope = None
         if context_vid is not None:
             scope = _vattr(self.graph.vs[context_vid], "file_path", None)
-        # Fast path: same-file match
         if scope:
             key = (NodeLabel.IDENTIFIER.value, name, scope)
             vids = self._nfile.get(key, [])
-            if vids:
-                return vids[0]
-            # Fallback: any-file match (skip no-file-path stubs)
-            all_vids = self._nname.get((NodeLabel.IDENTIFIER.value, name), [])
-            candidates = [v for v in all_vids
-                          if (_vattr(self.graph.vs[v], "file_path", "")
-                              or _vattr(self.graph.vs[v], "path", ""))]
-            return candidates[0] if candidates else None
-        else:
-            # No scope: skip candidates without a real file_path
-            all_vids = self._nname.get((NodeLabel.IDENTIFIER.value, name), [])
-            candidates = [v for v in all_vids
-                          if (_vattr(self.graph.vs[v], "file_path", "")
-                              or _vattr(self.graph.vs[v], "path", ""))]
-            return candidates[0] if candidates else None
+            return vids[0] if vids else None
+        return None
 
     def _find_enclosing_branches(self, vid: int) -> list[int]:
         """Find all branch ancestor nodes via own edges."""
