@@ -571,6 +571,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         chain=[{"step": "repair", "vid": op_vid,
                                                 "name": _callee, "code": 2}],
                                         path=[op_vid]), None
+                                # Check knowledge_bridge taint_type="safe" annotation.
+                                # Catches framework sanitizers (e.g. WordPress esc_attr,
+                                # esc_html) that builtin_knowledge marks safe=True
+                                # but are not in the hardcoded _REPAIR_FUNCTIONS set.
+                                if _vattr(graph.vs[op_vid], "taint_type", "") == "safe":
+                                    from core.graph.graph_analyzer import AnalysisResult as _AR
+                                    return _AR(
+                                        code=2, reason=f"nested safe '{_callee or ''}'",
+                                        chain=[{"step": "safe", "vid": op_vid,
+                                                "name": _callee or '', "code": 2}],
+                                        path=[op_vid]), None
                                 sub_arg_vids = [
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")
