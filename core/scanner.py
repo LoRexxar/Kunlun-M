@@ -530,7 +530,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             for sink in sinks:
                 try:
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
-                    arg_vids = list(set(sink.get('arg_vids', [])))
+                    arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
                     # call_user_func / call_user_func_array: RCE 风险仅存在于
                     # 第一个参数（callable）可控的情况。数据参数即使可控也
