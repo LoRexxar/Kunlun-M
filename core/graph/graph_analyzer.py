@@ -1536,12 +1536,42 @@ class GraphAnalyzer:
                     cand_fp = _vattr(self.graph.vs[cand], "file_path", "") or _vattr(self.graph.vs[cand], "path", "")
                     if cand_fp != start_fp:
                         continue
+                    # Line-number constraint: a variable at the sink position
+                    # can only receive values from assignments that appear
+                    # BEFORE it in the source code (lower line number).
+                    cand_lineno = _vattr(self.graph.vs[cand], "lineno", 0)
+                    start_lineno = _vattr(self.graph.vs[start_vid], "lineno", 0)
+                    if start_lineno > 0 and cand_lineno > start_lineno:
+                        continue
                     # Function scope check: def-chain should not cross
                     # function boundaries. Variables with the same name
                     # in different functions are unrelated.
                     cand_func = self._get_enclosing_func_vid(cand)
                     start_func = self._get_enclosing_func_vid(start_vid)
                     if cand_func is not None and start_func is not None and cand_func != start_func:
+                        continue
+                    # SSA kill check: if a same-name variable is re-defined
+                    # between the candidate and the sink, the candidate's
+                    # data flow is broken (killed by the re-definition).
+                    continue_outer = False
+                    for snv in self._nname.get(
+                        (NodeLabel.IDENTIFIER.value, u_name), []
+                    ):
+                        if snv == cand or snv in visited or snv in checked:
+                            continue
+                        snv_fp = _vattr(self.graph.vs[snv], "file_path", "") or _vattr(self.graph.vs[snv], "path", "")
+                        if snv_fp and snv_fp != start_fp:
+                            continue
+                        snv_lineno = _vattr(self.graph.vs[snv], "lineno", 0)
+                        if cand_lineno < snv_lineno < start_lineno:
+                            snv_func = self._get_enclosing_func_vid(snv)
+                            shared_func = cand_func or start_func
+                            if shared_func is not None and snv_func is not None and snv_func != shared_func:
+                                continue
+                            # Re-definition found between candidate and sink
+                            continue_outer = True
+                            break
+                    if continue_outer:
                         continue
                     checked.add(cand)
                     # Skip candidates that have branch-safe DFG edges
