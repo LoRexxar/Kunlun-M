@@ -2424,7 +2424,13 @@ class GraphAnalyzer:
             if own_in:
                 cur = own_in[0].source
             else:
-                break
+                # Parameter nodes are connected via AST edges, not OWN.
+                # Try the AST parent as fallback.
+                ast_in = self.graph.es.select(_target=cur, label="ast")
+                if ast_in:
+                    cur = ast_in[0].source
+                else:
+                    break
         return None
 
     def get_branch_chain(self, vid: int) -> list[int]:
@@ -3075,7 +3081,16 @@ class GraphAnalyzer:
         if scope:
             key = (NodeLabel.IDENTIFIER.value, name, scope)
             vids = self._nfile.get(key, [])
-            return vids[0] if vids else None
+            if vids:
+                # Prefer candidates in the same function scope as context_vid
+                if context_vid is not None:
+                    ctx_func = self._get_enclosing_func_vid(context_vid)
+                    if ctx_func is not None:
+                        scoped = [v for v in vids
+                                  if self._get_enclosing_func_vid(v) == ctx_func]
+                        if scoped:
+                            return scoped[0]
+                return vids[0]
         return None
 
     def _find_enclosing_branches(self, vid: int) -> list[int]:
