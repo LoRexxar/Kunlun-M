@@ -38,7 +38,7 @@ jobs:
           print('scan_parser result:', result)
           "
       - name: Run KunLun CI scan
-        run: python tools/ci_scan.py --target ci_target --output artifacts/kunlun-ci.json
+        run: python tools/ci_scan.py --target ci_target --language all --output artifacts/kunlun-ci.json
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:

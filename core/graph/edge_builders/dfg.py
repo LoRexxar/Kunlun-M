@@ -29,6 +29,16 @@ __all__ = ["DataFlowBuilder"]
 
 logger = logging.getLogger(__name__)
 
+# PHP type casts that sanitize taint by destroying string content.
+# Must match graph_analyzer._TYPE_CAST_SAFE — when the DFG builder encounters
+# one of these as an assign RHS, it must NOT pierce through the cast node.
+# Keeping the cast as the RHS lets the BFS trace in graph_analyzer see the
+# TYPE_CAST node and stop taint propagation.
+_DFG_TYPE_CAST_SAFE: frozenset[str] = frozenset({
+    "int", "integer", "float", "double", "real",
+    "bool", "boolean", "array", "object",
+})
+
 
 # ---------------------------------------------------------------------------
 # DataFlowBuilder
@@ -575,6 +585,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         rtype = self._vtype[rvid]
                         raw_type = self._vraw_type[rvid]
                         if rlabel == NodeLabel.OPERATOR.value and rtype == OperatorType.TYPE_CAST.value:
+                            cast_name = self._vname[rvid] or ""
+                            if cast_name in _DFG_TYPE_CAST_SAFE:
+                                # Sanitizer cast (e.g. PHP (int), (float)) — do NOT pierce.
+                                # Keep the TYPE_CAST node as RHS so graph_analyzer BFS
+                                # can detect it and stop taint propagation.
+                                continue
                             operand_nodes = self._get_ast_children(rvid, role=AstRole.OPERAND.value)
                             if operand_nodes:
                                 real_rhs = operand_nodes

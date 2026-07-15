@@ -260,7 +260,14 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         Vendors(task_id, project_id, target_directory, files)
 
         # detection main language and framework
-        if not language or (language and str(language).lower() == 'auto'):
+        if language and str(language).strip().lower() == 'all':
+            dt = Detection(target_directory, files)
+            detected_languages = dt.language
+            main_framework = dt.framework
+            main_language = detected_languages  # 扫描所有 chiefly 语言
+            logger.info('[CLI] [STATISTIC] All-mode detected languages: %s',
+                        ','.join(detected_languages))
+        elif not language or (language and str(language).lower() == 'auto'):
             dt = Detection(target_directory, files)
             detected_languages = dt.language
             main_framework = dt.framework
