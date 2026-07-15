@@ -52,6 +52,12 @@ _SERVER_UNCONTROLLED_KEYS: frozenset[str] = frozenset({
     "REMOTE_PORT", "REQUEST_TIME", "REQUEST_TIME_FLOAT", "HTTPS",
 })
 
+# $_FILES keys that are NOT user-controlled (server-generated metadata).
+# Keys not in this set ('name', 'type') are treated as user-controlled sources.
+_FILES_NON_SOURCE_MEMBERS: frozenset[str] = frozenset({
+    "tmp_name", "size", "error", "full_path",
+})
+
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
 _JS_SOURCE_ROOTS: frozenset[str] = frozenset({
     "location", "document", "window", "process",
@@ -807,7 +813,9 @@ class GraphAnalyzer:
                 obj_type = _vattr(obj_v, "type", "")
                 if self._is_source_variable(obj_name):
                     # $_SERVER has mixed controllability — skip server-config keys
-                    if obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS:
+                    # $_FILES has mixed controllability — skip non-source sub-keys
+                    if (obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS) \
+                            or (obj_name == "$_FILES" and sname in _FILES_NON_SOURCE_MEMBERS):
                         pass
                     else:
                         return self._cached(cache_key, AnalysisResult(
@@ -884,7 +892,9 @@ class GraphAnalyzer:
                 obj_type = _vattr(obj_v, "type", "")
                 if self._is_source_variable(obj_name):
                     # $_SERVER has mixed controllability — skip server-config keys
-                    if obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS:
+                    # $_FILES has mixed controllability — skip non-source sub-keys
+                    if (obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS) \
+                            or (obj_name == "$_FILES" and sname in _FILES_NON_SOURCE_MEMBERS):
                         pass
                     else:
                         return self._cached(cache_key, AnalysisResult(
@@ -1114,10 +1124,10 @@ class GraphAnalyzer:
 
                 # Rule 1: superglobal
                 if self._is_source_variable(uname):
-                    # $_SERVER has mixed controllability per key — check if all
-                    # member children in this file are uncontrolled keys
-                    if uname == "$_SERVER" and self._is_server_only_uncontrolled_members(up_vid):
-                        logger.debug("$_SERVER blocked: all member keys uncontrolled, vid=%d", up_vid)
+                    # $_SERVER/$_FILES have mixed controllability per key — check if all
+                    # member children in this file are non-source keys
+                    if self._is_superglobal_only_non_source_members(up_vid):
+                        logger.debug("superglobal blocked: all member keys non-source, vid=%d", up_vid)
                         continue
                     logger.debug("source found '%s' vid=%d", uname, up_vid)
                     return self._cached(cache_key, AnalysisResult(
@@ -1131,8 +1141,8 @@ class GraphAnalyzer:
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
                         if self._is_source_variable(full_text):
-                            # $_SERVER has mixed controllability — check member chain
-                            if "$_SERVER" in full_text and self._is_server_member_blocked(up_vid):
+                            # $_SERVER/$_FILES have mixed controllability — check member chain
+                            if self._is_superglobal_member_blocked(up_vid):
                                 pass
                             else:
                                 logger.debug("source found via full_text '%s' vid=%d", full_text, up_vid)
@@ -1144,8 +1154,8 @@ class GraphAnalyzer:
                     # Reconstruct member chain (a.b.c → check "a.b.c", "a.b", "a")
                     chain_name = self._is_source_via_member_chain(up_vid, uname)
                     if chain_name:
-                        # $_SERVER has mixed controllability — check member chain
-                        if "$_SERVER" in chain_name and self._is_server_member_blocked(up_vid):
+                        # $_SERVER/$_FILES have mixed controllability — check member chain
+                        if self._is_superglobal_member_blocked(up_vid):
                             pass
                         else:
                             logger.debug("source found via member chain '%s' vid=%d", chain_name, up_vid)
@@ -1176,7 +1186,7 @@ class GraphAnalyzer:
                         child_label = _vattr(cv, "label", "")
                         # Direct name check
                         if self._is_source_variable(child_name):
-                            if "$_SERVER" in child_name and self._is_server_member_blocked(child_vid):
+                            if self._is_superglobal_member_blocked(child_vid):
                                 pass
                             else:
                                 return self._cached(cache_key, AnalysisResult(
@@ -1190,7 +1200,7 @@ class GraphAnalyzer:
                         if child_label == NodeLabel.IDENTIFIER.value and child_type in ("field", "property"):
                             chain_name = self._is_source_via_member_chain(child_vid, child_name)
                             if chain_name:
-                                if "$_SERVER" in chain_name and self._is_server_member_blocked(child_vid):
+                                if self._is_superglobal_member_blocked(child_vid):
                                     pass
                                 else:
                                     return self._cached(cache_key, AnalysisResult(
@@ -1456,8 +1466,8 @@ class GraphAnalyzer:
                         obj_label = _vattr(obj_v, "label", "")
                         obj_type = _vattr(obj_v, "type", "")
                         if self._is_source_variable(obj_name):
-                            # $_SERVER has mixed controllability — check member chain
-                            if obj_name == "$_SERVER" and self._is_server_member_blocked(cur_member):
+                            # $_SERVER/$_FILES have mixed controllability — check member chain
+                            if self._is_superglobal_member_blocked(cur_member):
                                 break
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -1908,7 +1918,7 @@ class GraphAnalyzer:
                 utype = _vattr(uv, "type", "")
                 # Source variable
                 if self._is_source_variable(uname):
-                    if uname == "$_SERVER" and self._is_server_only_uncontrolled_members(up_vid):
+                    if self._is_superglobal_only_non_source_members(up_vid):
                         continue
                     return AnalysisResult(
                         code=1, reason=f"superglobal '{uname}'",
@@ -1920,7 +1930,7 @@ class GraphAnalyzer:
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname and self._is_source_variable(full_text):
                         # $_SERVER has mixed controllability — check member chain for uncontrolled keys
-                        if "$_SERVER" in full_text and self._is_server_member_blocked(up_vid):
+                        if self._is_superglobal_member_blocked(up_vid):
                             pass
                         else:
                             return AnalysisResult(
@@ -1936,7 +1946,7 @@ class GraphAnalyzer:
                         obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
                         if self._is_source_variable(obj_name):
                             # $_SERVER has mixed controllability — check member chain
-                            if obj_name == "$_SERVER" and self._is_server_member_blocked(up_vid):
+                            if self._is_superglobal_member_blocked(up_vid):
                                 pass
                             else:
                                 return AnalysisResult(
@@ -2070,18 +2080,13 @@ class GraphAnalyzer:
                 pass
         return False
 
-    def _is_server_member_blocked(self, vid: int) -> bool:
-        """检查 vid 沿 incoming member 边向上回溯，
-        如果经过 $_SERVER 且中间层 member key 在 _SERVER_UNCONTROLLED_KEYS 中，
-        返回 True（表示该 source 不应被视为可控）。
-
-        例如: $_SERVER['argv'][1] → 从 vid(1) 上溯 argv(在keys中) + $_SERVER → True
-        """
+    def _is_superglobal_member_blocked(self, vid: int) -> bool:
+        """Generalized version of _is_server_member_blocked.
+        Checks member chains on $_SERVER and $_FILES for non-source keys."""
         if not self.graph:
             return False
         cur_vid = vid
-        # 收集 member chain: 从当前 vid 往上走
-        chain_names = []  # 从内到外的 member name 列表
+        chain_names = []
         for _ in range(10):
             member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
             if not member_in:
@@ -2091,27 +2096,42 @@ class GraphAnalyzer:
             cur_name = _vattr(self.graph.vs[cur_vid], "name", "")
             chain_names.append(cur_name)
             if parent_name == "$_SERVER":
-                # 找到 $_SERVER 根，检查 chain 中是否有不可控 key
                 for key in chain_names:
                     if key in _SERVER_UNCONTROLLED_KEYS:
                         return True
-                return False  # $_SERVER found but no uncontrolled key
+                return False
+            if parent_name == "$_FILES":
+                for key in chain_names:
+                    if key in _FILES_NON_SOURCE_MEMBERS:
+                        return True
+                return False
             cur_vid = parent_vid
         return False
 
-    def _is_server_only_uncontrolled_members(self, server_vid: int) -> bool:
-        """检查 $_SERVER 节点的所有 outgoing member 子节点是否全在 _SERVER_UNCONTROLLED_KEYS 中。
+    def _is_server_member_blocked(self, vid: int) -> bool:
+        return self._is_superglobal_member_blocked(vid)
 
-        如果 $_SERVER 在当前文件中只被 argv/argc 等不可控键访问（没有用户可控键访问），
-        则说明所有通过 $_SERVER 的 DFG 回溯都来自不可控路径，应视为不可控。
-        """
+    def _is_superglobal_only_non_source_members(self, sg_vid: int) -> bool:
+        """Generalized version of _is_server_only_uncontrolled_members.
+        Returns True if ALL outgoing member children of a superglobal node
+        ($_SERVER or $_FILES) are non-source keys."""
         if not self.graph:
             return False
-        for e in self.graph.es.select(_source=server_vid, label="member"):
+        vid_name = _vattr(self.graph.vs[sg_vid], "name", "")
+        if vid_name == "$_SERVER":
+            non_source_set = _SERVER_UNCONTROLLED_KEYS
+        elif vid_name == "$_FILES":
+            non_source_set = _FILES_NON_SOURCE_MEMBERS
+        else:
+            return False
+        for e in self.graph.es.select(_source=sg_vid, label="member"):
             child_name = _vattr(self.graph.vs[e.target], "name", "")
-            if child_name and child_name not in _SERVER_UNCONTROLLED_KEYS:
+            if child_name and child_name not in non_source_set:
                 return False
         return True
+
+    def _is_server_only_uncontrolled_members(self, server_vid: int) -> bool:
+        return self._is_superglobal_only_non_source_members(server_vid)
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
