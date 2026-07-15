@@ -35,4 +35,6 @@ class CVI_1013(SingleRuleMixin):
         :regex_string: regex match string
         :return:
         """
-        pass
+        if "location:" in regex_string.lower():
+            return None
+        return False
