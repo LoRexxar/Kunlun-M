@@ -96,6 +96,14 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "params.to_unsafe_h",
 })
 
+# Fix 14: PHP type cast operators that sanitize taint.
+# (int), (float), (bool), (array) casts destroy string content,
+# making XSS/SQLi/injection impossible through the cast result.
+_TYPE_CAST_SAFE: frozenset[str] = frozenset({
+    "int", "integer", "float", "double", "real",
+    "bool", "boolean", "array", "object",
+})
+
 _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "system", "exec", "passthru", "shell_exec", "popen", "proc_open", "pcntl_exec", "expect_popen",
     "eval", "assert", "create_function",
@@ -922,6 +930,10 @@ class GraphAnalyzer:
                 # Safe node — taint propagation stops here
                 up_taint = _vattr(uv, "taint_type", "")
                 if up_taint == "safe":
+                    continue
+                # Fix 14: type cast operators also sanitize taint.
+                # (int), (float), (bool) etc. destroy string content.
+                if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
                     continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
@@ -1862,6 +1874,10 @@ class GraphAnalyzer:
                 # Safe node — taint propagation stops here
                 up_taint = _vattr(uv, "taint_type", "")
                 if up_taint == "safe":
+                    continue
+                # Fix 14: type cast operators also sanitize taint.
+                # (int), (float), (bool) etc. destroy string content.
+                if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
                     continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")

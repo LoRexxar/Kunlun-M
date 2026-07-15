@@ -582,6 +582,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         chain=[{"step": "safe", "vid": op_vid,
                                                 "name": _callee or '', "code": 2}],
                                         path=[op_vid]), None
+                                # Fix 14: PHP type cast sanitization.
+                                # (int), (float), (bool), (array) casts destroy string
+                                # content, making XSS/SQLi/injection impossible.
+                                if (_vattr(graph.vs[op_vid], "type", "") == "type_cast"
+                                        and _vattr(graph.vs[op_vid], "name", "")
+                                        in ("int", "integer", "float", "double", "real",
+                                            "bool", "boolean", "array", "object")):
+                                    _cast_name = _vattr(graph.vs[op_vid], "name", "")
+                                    from core.graph.graph_analyzer import AnalysisResult as _AR
+                                    return _AR(
+                                        code=2,
+                                        reason=f"type cast '{_cast_name}'",
+                                        chain=[{"step": "safe", "vid": op_vid,
+                                                "name": _cast_name, "code": 2}],
+                                        path=[op_vid]), None
                                 sub_arg_vids = [
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")
