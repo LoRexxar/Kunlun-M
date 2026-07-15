@@ -616,7 +616,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     if sub_label == 'operator':
                                         r, u = _deep_trace_args(sub_vid, depth + 1, max_depth)
                                         if r is not None:
-                                            return r, u
+                                            if r.is_controllable:
+                                                return r, u
+                                            continue
                                     else:
                                         sr = analyzer.parameters_back(sub_vid)
                                         if sr is not None and sr.is_controllable:
@@ -626,11 +628,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 return None, None
 
                             r, u = _deep_trace_args(arg_vid)
-                            if r is not None and r.is_controllable:
-                                found_controllable = True
-                                result = r
-                                break
-                            continue
+                            if r is not None:
+                                if r.is_controllable:
+                                    found_controllable = True
+                                    result = r
+                                    break
+                                # Repair/safe result — sanitizer found, this arg is safe
+                                continue
                         r = analyzer.parameters_back(arg_vid)
                         if r is not None:
                             if r.is_controllable:
