@@ -531,6 +531,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 try:
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(set(sink.get('arg_vids', [])))
+                    any_arg_repaired = False
                     # call_user_func / call_user_func_array: RCE 风险仅存在于
                     # 第一个参数（callable）可控的情况。数据参数即使可控也
                     # 不构成 RCE——危险的是攻击者能控制调用哪个函数。
@@ -601,7 +602,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")
                                 ]
+                                checked_any = False
                                 for sub_vid in sub_arg_vids:
+                                    checked_any = True
                                     sub_label = _vattr(graph.vs[sub_vid], 'label', '')
                                     if sub_label == 'function':
                                         # Check if this function is a sanitizer (taint_type="safe")
@@ -625,6 +628,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             return sr, None
                                         if sr is not None and not sr.is_uncontrollable and u is None:
                                             u = sr
+                                if checked_any:
+                                    from core.graph.graph_analyzer import AnalysisResult as _AR
+                                    return _AR(
+                                        code=2, reason="all sub-args safe",
+                                        chain=[{"step": "safe", "vid": op_vid,
+                                                "name": "", "code": 2}],
+                                        path=[op_vid]), None
                                 return None, None
 
                             r, u = _deep_trace_args(arg_vid)
@@ -634,6 +644,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     result = r
                                     break
                                 # Repair/safe result — sanitizer found, this arg is safe
+                                any_arg_repaired = True
                                 continue
                         r = analyzer.parameters_back(arg_vid)
                         if r is not None:
@@ -718,6 +729,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 对 callable_only sink（call_user_func），不追踪 receiver——
                             # 数据参数即使通过 receiver 链路可控也不构成 RCE。
                             if callable_only:
+                                continue
+                            # Sanitizer detected in args: skip receiver tracing.
+                            # If any arg was sanitizer-wrapped (repair result),
+                            # the sink output is safe even if receiver chain is controllable.
+                            if any_arg_repaired:
                                 continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
