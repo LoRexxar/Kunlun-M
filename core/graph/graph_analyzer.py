@@ -58,6 +58,12 @@ _FILES_NON_SOURCE_MEMBERS: frozenset[str] = frozenset({
     "tmp_name", "size", "error", "full_path",
 })
 
+# $_FILES member keys that ARE user-controlled (original filename / MIME type).
+# $_FILES without these keys in the member chain is NOT a valid source.
+_FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
+    "name", "type",
+})
+
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
 _JS_SOURCE_ROOTS: frozenset[str] = frozenset({
     "location", "document", "window", "process",
@@ -1151,6 +1157,10 @@ class GraphAnalyzer:
                     if self._is_superglobal_only_non_source_members(up_vid):
                         logger.debug("superglobal blocked: all member keys non-source, vid=%d", up_vid)
                         continue
+                    # $_FILES bare form is an array, not a scalar source.
+                    if uname == "$_FILES":
+                        logger.debug("$_FILES blocked: bare form not a scalar source, vid=%d", up_vid)
+                        continue
                     logger.debug("source found '%s' vid=%d", uname, up_vid)
                     return self._cached(cache_key, AnalysisResult(
                         code=1, reason=f"superglobal '{uname}'",
@@ -1979,6 +1989,12 @@ class GraphAnalyzer:
                 if self._is_source_variable(uname):
                     if self._is_superglobal_only_non_source_members(up_vid):
                         continue
+                    # $_FILES bare form is an array, not a scalar source.
+                    # Only $_FILES[x]['name'] or $_FILES[x]['type'] are user-controlled.
+                    # Block $_FILES itself; member-chain sources (via Rule 1b/5)
+                    # will be caught separately with _is_superglobal_member_blocked.
+                    if uname == "$_FILES":
+                        continue
                     return AnalysisResult(
                         code=1, reason=f"superglobal '{uname}'",
                         chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
@@ -2160,9 +2176,16 @@ class GraphAnalyzer:
                         return True
                 return False
             if parent_name == "$_FILES":
+                has_source_member = False
                 for key in chain_names:
+                    if key in _FILES_SOURCE_MEMBERS:
+                        has_source_member = True
                     if key in _FILES_NON_SOURCE_MEMBERS:
                         return True
+                # $_FILES requires a source member (name/type) in the chain.
+                # Bare $_FILES[key] with a dynamic key is not a scalar source.
+                if not has_source_member:
+                    return True
                 return False
             cur_vid = parent_vid
         return False
