@@ -606,6 +606,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 for sub_vid in sub_arg_vids:
                                     checked_any = True
                                     sub_label = _vattr(graph.vs[sub_vid], 'label', '')
+                                    if sub_label == 'identifier':
+                                        # Skip variables already marked safe by sanitizer propagation
+                                        if _vattr(graph.vs[sub_vid], "taint_type", "") == "safe":
+                                            continue
                                     if sub_label == 'function':
                                         # Check if this function is a sanitizer (taint_type="safe")
                                         _sub_callee = analyzer._resolve_callee_name(sub_vid)

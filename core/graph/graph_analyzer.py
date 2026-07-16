@@ -1529,6 +1529,9 @@ class GraphAnalyzer:
                 uv = self.graph.vs[up_vid]
                 if _vattr(uv, "label") != NodeLabel.IDENTIFIER.value:
                     continue
+                # Skip safe-tainted identifiers — already sanitized
+                if _vattr(uv, "taint_type", "") == "safe":
+                    continue
                 u_name = _vattr(uv, "name", "")
                 if not u_name:
                     continue

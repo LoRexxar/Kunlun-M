@@ -129,6 +129,10 @@ def enrich_taint(
         fw_param_count = _enrich_framework_request_params(graph, source_registry)
         count += fw_param_count
 
+    # 6. 传播 safe taint: 将 sanitizer call 的 safe 标记传播到赋值 LHS 变量
+    safe_prop_count = _propagate_safe_taint(graph)
+    count += safe_prop_count
+
     logger.debug("enrich_taint: annotated %d function nodes, %d source variables, %d annotated params",
                  count - source_var_count - annotated_param_count, source_var_count, annotated_param_count)
     return count
@@ -298,6 +302,103 @@ def _enrich_from_source_registry(
 
 
 # LEGACY: _enrich_from_summary 已迁移到 core/graph/function_summary.py（图原生摘要）
+
+
+# ---------------------------------------------------------------------------
+# Internal: sanitizer → LHS 传播
+# ---------------------------------------------------------------------------
+
+def _propagate_safe_taint(graph: ig.Graph) -> int:
+    """将 sanitizer call 的 safe 标记传播到赋值 LHS 变量。
+
+    当 ``$y = esc_attr($x)`` 时，``esc_attr`` call 节点已通过 ``_enrich_from_builtin``
+    标记为 ``taint_type="safe"``，但 ``$y`` (LHS 标识符) 未被标记。
+    ``parameters_back`` BFS 反向追踪时只看当前节点的 ``taint_type``，
+    不会展开 RHS 子树，因此会把 ``$y`` 当作普通变量继续向上回溯到 source，
+    产生误报。
+
+    算法：
+    1. 找出所有 assign operator 节点（label=operator, type=assign|aug_assign）
+    2. 对每个 assign，取 LHS 标识符（ast[role=lhs]）和 RHS 子树根（ast[role=rhs]）
+    3. 在 RHS AST 子树中 BFS 查找带 ``taint_type="safe"`` 的 call 节点
+    4. 若找到，则将 LHS 标识符节点标记为 ``taint_type="safe"``
+    5. 返回标记的节点数量
+    """
+    from core.graph.node_edge_schema import OperatorType, EdgeLabel
+
+    count = 0
+    assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
+
+    for v in graph.vs:
+        if _vattr(v, "label", "") != NodeLabel.OPERATOR.value:
+            continue
+        if _vattr(v, "type", "") not in assign_types:
+            continue
+
+        assign_vid = v.index
+
+        # 取 LHS / RHS 节点（通过 ast 边的 role 区分）
+        lhs_vids: list[int] = []
+        rhs_vids: list[int] = []
+        for e in graph.es.select(_source=assign_vid, label=EdgeLabel.AST.value):
+            role = _vattr(e, "role", "")
+            if role == "lhs":
+                lhs_vids.append(e.target)
+            elif role == "rhs":
+                rhs_vids.append(e.target)
+
+        if not lhs_vids or not rhs_vids:
+            continue
+
+        lhs_vid = lhs_vids[0]
+        rhs_vid = rhs_vids[0]
+
+        # 仅当 LHS 是标识符时才标记
+        if _vattr(graph.vs[lhs_vid], "label", "") != NodeLabel.IDENTIFIER.value:
+            continue
+
+        # 已有 taint 标记（source/safe 等）则跳过，避免覆盖更高优先级的标注
+        if _vattr(graph.vs[lhs_vid], "taint_type", ""):
+            continue
+
+        # 检查 RHS AST 子树中是否含 safe call 节点
+        if _rhs_has_safe_call(graph, rhs_vid):
+            graph.vs[lhs_vid]["taint_type"] = "safe"
+            count += 1
+
+    if count:
+        logger.debug("_propagate_safe_taint: marked %d LHS variables as safe", count)
+    return count
+
+
+def _rhs_has_safe_call(graph: ig.Graph, root_vid: int) -> bool:
+    """检查以 ``root_vid`` 为根的 AST 子树是否包含 ``taint_type="safe"`` 的 call 节点。
+
+    仅遍历 AST 边，不跟随 DFG 边 — 我们只关心赋值右侧的即时语法结构，
+    不展开数据流。
+    """
+    from core.graph.node_edge_schema import EdgeLabel
+
+    queue = [root_vid]
+    visited = {root_vid}
+
+    while queue:
+        vid = queue.pop(0)
+        v = graph.vs[vid]
+
+        # 命中 safe operator（包括 call/method_call/static_call）即返回
+        if _vattr(v, "label", "") == NodeLabel.OPERATOR.value:
+            if _vattr(v, "taint_type", "") == "safe":
+                return True
+
+        # BFS 进入 AST 子节点
+        for e in graph.es.select(_source=vid, label=EdgeLabel.AST.value):
+            child = e.target
+            if child not in visited:
+                visited.add(child)
+                queue.append(child)
+
+    return False
 
 
 # ---------------------------------------------------------------------------
