@@ -127,6 +127,122 @@ default_black_list = [
     'gin', 'echo', 'chi', 'fiber', 'beego', 'revel',
     'actix', 'axum', 'rocket',
 ]
+
+# 框架项目识别配置
+# 用于检测扫描目标是否是框架本身，如果是，标记结果为 "framework_code"
+# key: 框架/项目名称（小写，用于匹配目录名或文件内容）
+# value: 检测模式，支持:
+#   - 'dir_name': 匹配目标目录名
+#   - 'file_content': 匹配项目文件中的内容（如 pom.xml 中的 artifactId）
+#   - 'file_exists': 检查特定文件是否存在
+FRAMEWORK_PROJECTS = {
+    # Java 生态
+    'spring-boot': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'spring-boot'},
+    'spring-cloud': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'spring-cloud'},
+    'spring-framework': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'spring-framework'},
+    'nacos': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'nacos'},
+    'dubbo': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'dubbo'},
+    'sentinel': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'sentinel'},
+    'seata': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'seata'},
+    'rocketmq': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'rocketmq'},
+    'mybatis': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'mybatis'},
+    'hibernate': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'hibernate'},
+    'jackson': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'jackson'},
+    'netty': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'netty'},
+    'grpc': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'grpc'},
+    'consul': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'consul'},
+    'eureka': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'eureka'},
+    'zuul': {'detect': 'file_content', 'file': 'pom.xml', 'pattern': 'zuul'},
+    # PHP 生态
+    'laravel': {'detect': 'file_content', 'file': 'composer.json', 'pattern': 'laravel/framework'},
+    'symfony': {'detect': 'file_content', 'file': 'composer.json', 'pattern': 'symfony/'},
+    'thinkphp': {'detect': 'file_content', 'file': 'composer.json', 'pattern': 'topthink'},
+    'codeigniter': {'detect': 'file_content', 'file': 'composer.json', 'pattern': 'codeigniter'},
+    'joomla': {'detect': 'file_content', 'file': 'administrator/manifests/files/joomla.xml', 'pattern': 'joomla'},
+    'drupal': {'detect': 'file_content', 'file': 'core/lib/Drupal.php', 'pattern': 'Drupal'},
+    'wordpress': {'detect': 'file_exists', 'file': 'wp-includes/version.php'},
+    # Python 生态
+    'flask': {'detect': 'file_content', 'file': 'setup.py', 'pattern': 'flask'},
+    'django': {'detect': 'file_content', 'file': 'setup.py', 'pattern': 'django'},
+    'fastapi': {'detect': 'file_content', 'file': 'pyproject.toml', 'pattern': 'fastapi'},
+    # Go 生态
+    'gin': {'detect': 'file_content', 'file': 'go.mod', 'pattern': 'github.com/gin-gonic/gin'},
+    'echo': {'detect': 'file_content', 'file': 'go.mod', 'pattern': 'github.com/labstack/echo'},
+    'fiber': {'detect': 'file_content', 'file': 'go.mod', 'pattern': 'github.com/gofiber/fiber'},
+}
+
+def detect_framework_project(target_dir: str) -> str | None:
+    """检测目标目录是否是框架项目。
+    
+    Returns:
+        框架名称（如 'nacos', 'laravel'）或 None（不是框架项目）
+    """
+    import os
+    import re
+    
+    if not target_dir or not os.path.isdir(target_dir):
+        return None
+    
+    for framework_name, config in FRAMEWORK_PROJECTS.items():
+        detect_type = config.get('detect')
+        
+        if detect_type == 'dir_name':
+            # 匹配目录名
+            dir_name = os.path.basename(target_dir).lower()
+            if framework_name in dir_name:
+                return framework_name
+                
+        elif detect_type == 'file_content':
+            # 匹配文件内容
+            file_path = os.path.join(target_dir, config['file'])
+            pattern = config['pattern']
+            if os.path.isfile(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(10000)  # 只读前 10KB
+                    if pattern.lower() in content.lower():
+                        return framework_name
+                except Exception:
+                    pass
+                    
+        elif detect_type == 'file_exists':
+            # 检查文件是否存在
+            file_path = os.path.join(target_dir, config['file'])
+            if os.path.isfile(file_path):
+                return framework_name
+    
+    return None
+
+def is_framework_code_file(file_path: str, framework_name: str | None) -> bool:
+    """判断文件是否属于框架内部代码。
+    
+    这是一个辅助函数，用于在扫描时标记框架代码。
+    具体判断逻辑取决于框架类型。
+    """
+    if not framework_name:
+        return False
+    
+    # 常见的框架内部目录模式
+    framework_internal_patterns = {
+        'spring-boot': ['/spring-boot/', '/spring-boot-autoconfigure/'],
+        'spring-cloud': ['/spring-cloud-'],
+        'nacos': ['/nacos-'],
+        'dubbo': ['/dubbo-'],
+        'laravel': ['/laravel/framework/'],
+        'symfony': ['/symfony/'],
+        'django': ['/django/'],
+        'flask': ['/flask/'],
+        'gin': ['/gin-gonic/gin/'],
+    }
+    
+    patterns = framework_internal_patterns.get(framework_name, [])
+    file_path_lower = file_path.lower()
+    
+    for pattern in patterns:
+        if pattern.lower() in file_path_lower:
+            return True
+    
+    return False
 IGNORE_LIST = []
 
 VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'critical']

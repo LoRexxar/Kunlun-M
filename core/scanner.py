@@ -171,6 +171,12 @@ def scan_single(target_directory, single_rule, files=None, language=None, tamper
 def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
          extension_count=0, files=None, tamper_name=None, is_unconfirm=False, no_cache=False, auto_yes=False):
     """Graph-based scan — AST 图扫描引擎入口"""
+    # 框架项目检测
+    from Kunlun_M.const import detect_framework_project
+    detected_framework = detect_framework_project(target_directory)
+    if detected_framework:
+        logger.info('[SCAN] Detected framework project: %s', detected_framework)
+    
     r = Rule(language)
     rules = r.rules(special_rules)
     find_vulnerabilities = []
@@ -886,6 +892,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     )
                     vuln.analysis = result.reason
                     vuln.chain = chain
+                    
+                    # 标记框架代码
+                    from Kunlun_M.const import is_framework_code_file
+                    if detected_framework and is_framework_code_file(file_path, detected_framework):
+                        vuln.analysis = f"[FRAMEWORK:{detected_framework}] {vuln.analysis}"
+                    
                     find_vulnerabilities.append(vuln)
                     logger.debug('[CVI-{cvi}] [GRAPH] Found: {sink}'.format(
                         cvi=matched_rule.svid, sink=sink_name))
