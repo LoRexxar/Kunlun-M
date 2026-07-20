@@ -435,7 +435,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool, Dict]]] = {
 
         # ===== Node.js: process =====
         "process.env":               {"passthrough": [0], "safe": False},
-        "process.argv":              {"passthrough": [0], "safe": False},
+        "process.argv":              {"passthrough": [0], "safe": True},  # CLI-only, not web-controllable
         "process.cwd":               {"passthrough": [], "safe": True},
         "process.exit":              {"passthrough": [], "safe": True},
         "process.nextTick":          {"passthrough": [], "safe": True},

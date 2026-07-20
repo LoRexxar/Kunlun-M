@@ -1,19 +1,23 @@
 {% extends "dashboard/base.html" %}
 {% load static %}
 {% block title %}拓展插件详情 - {{ tamper_name }}{% endblock %}
+{% block body_header %}
+<h1>拓展插件详情 - {{ tamper_name }} <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
 <div class="row">
-  <div class="col-xs-12">
-    <div class="box">
-      <div class="box-header">
-        <h3 class="box-title">拓展插件详情<small> {{ tamper_name }}</small></h3>
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h3 class="card-title">拓展插件详情<small> {{ tamper_name }}</small></h3>
         {% if source_path %}
-        <span class="label label-default">{{ source_path }}</span>
+        <span class="badge bg-secondary">{{ source_path }}</span>
         {% endif %}
       </div>
-      <div class="box-body">
+      <div class="card-body">
 
         {% if source_code %}
         <pre class="language-python line-numbers"><code class="language-python">{{ source_code|force_escape }}</code></pre>

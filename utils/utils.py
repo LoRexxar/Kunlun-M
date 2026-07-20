@@ -744,7 +744,12 @@ def show_context(filename, line_number, show_line=3, is_back=False):
 
 def del_sensitive_for_config(param_config):
     result_list = []
-    param_config_list = ast.literal_eval(param_config)
+    if not param_config or not param_config.strip():
+        return "[]"
+    try:
+        param_config_list = ast.literal_eval(param_config)
+    except Exception:
+        return param_config
 
     last_param = ""
 

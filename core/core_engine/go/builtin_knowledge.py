@@ -84,7 +84,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # ===== os 环境变量/命令行 Sources =====
         "os.Getenv":     {"passthrough": [0], "safe": False},
         "os.LookupEnv":  {"passthrough": [0], "safe": False},
-        "os.Args":       {"passthrough": [], "safe": False},  # source (CLI args)
+        "os.Args":       {"passthrough": [], "safe": True},  # CLI-only, not web-controllable
 
         # ===== io/ioutil / os 文件读取 Sources =====
         "ioutil.ReadFile":  {"passthrough": [0], "safe": False},

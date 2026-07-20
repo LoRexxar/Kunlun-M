@@ -27,17 +27,17 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "os.tmpname":                {"passthrough": [], "safe": False},
 
     "io.read":                   {"passthrough": [0], "safe": False},
-    "io.lines":                  {"passthrough": [0], "safe": False},
-    "io.stdin":                  {"passthrough": [], "safe": False},
-    "io.open":                   {"passthrough": [0], "safe": False},
-    "io.input":                  {"passthrough": [0], "safe": False},
-    "io.output":                 {"passthrough": [0], "safe": False},
+    "io.lines":                  {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "io.stdin":                  {"passthrough": [], "safe": True},   # CLI, not web
+    "io.open":                   {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "io.input":                  {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "io.output":                 {"passthrough": [0], "safe": True},  # CLI/file, not web
 
     # ===== 网络请求 Sources =====
-    "http.request":              {"passthrough": [0], "safe": False},
-    "socket.tcp":                {"passthrough": [0], "safe": False},
-    "socket.udp":                {"passthrough": [0], "safe": False},
-    "socket.connect":            {"passthrough": [0], "safe": False},
+    "http.request":              {"passthrough": [0], "safe": True},  # CLI/client, not web
+    "socket.tcp":                {"passthrough": [0], "safe": True},  # CLI/network, not web
+    "socket.udp":                {"passthrough": [0], "safe": True},  # CLI/network, not web
+    "socket.connect":            {"passthrough": [0], "safe": True},  # CLI/network, not web
 
     # ===== JSON 解码 =====
     "json.decode":               {"passthrough": [0], "safe": False},

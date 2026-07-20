@@ -88,7 +88,7 @@ default_controlled_params = [
 
     # ===== Node.js: process =====
     'process.env',
-    'process.argv',
+    # process.argv removed: CLI-only, not web-controllable
 
     # ===== Node.js: 原生 http =====
     'req.url',

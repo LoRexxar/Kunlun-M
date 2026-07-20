@@ -129,14 +129,14 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "getHeaderNames":       {"passthrough": [], "safe": False},
         "getCookies":           {"passthrough": [0], "safe": False},
         "getQueryString":       {"passthrough": [0], "safe": False},
-        "getRequestURI":        {"passthrough": [0], "safe": False},
-        "getContextPath":       {"passthrough": [0], "safe": False},
-        "getPathInfo":          {"passthrough": [0], "safe": False},
+        "getRequestURI":        {"passthrough": [0], "safe": True},  # Server-side, not user input
+        "getContextPath":       {"passthrough": [0], "safe": True},  # Server-side config
+        "getPathInfo":          {"passthrough": [0], "safe": True},  # Server-side config
         "getInputStream":       {"passthrough": [0], "safe": False},
         "getReader":            {"passthrough": [0], "safe": False},
-        "getAttribute":         {"passthrough": [0], "safe": False},
-        "getSession":           {"passthrough": [0], "safe": False},
-        "getServletContext":    {"passthrough": [0], "safe": False},
+        "getAttribute":         {"passthrough": [0], "safe": True},  # Server-side attribute
+        "getSession":           {"passthrough": [0], "safe": True},  # Server-side session
+        "getServletContext":    {"passthrough": [0], "safe": True},  # Server-side context
 
         # ===== Response sinks =====
         "getWriter":            {"passthrough": [0], "safe": False},

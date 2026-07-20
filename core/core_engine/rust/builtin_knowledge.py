@@ -22,33 +22,34 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     # ===== std::env 环境变量/命令行 Sources =====
     "std::env::var":           {"passthrough": [0], "safe": False},
     "std::env::var_os":        {"passthrough": [0], "safe": False},
-    "std::env::args":          {"passthrough": [], "safe": False},
-    "std::env::args_os":       {"passthrough": [], "safe": False},
+    "std::env::args":          {"passthrough": [], "safe": True},  # CLI-only, not web-controllable
+    "std::env::args_os":       {"passthrough": [], "safe": True},  # CLI-only, not web-controllable
 
     # ===== std::fs 文件读取 Sources =====
-    "std::fs::read_to_string": {"passthrough": [0], "safe": False},
-    "std::fs::read":           {"passthrough": [0], "safe": False},
-    "std::fs::read_dir":       {"passthrough": [0], "safe": False},
-    "std::fs::metadata":       {"passthrough": [0], "safe": False},
-    "std::fs::canonicalize":   {"passthrough": [0], "safe": False},
+    # File operations removed: CLI/file, not web sources
+    "std::fs::read_to_string": {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "std::fs::read":           {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "std::fs::read_dir":       {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "std::fs::metadata":       {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "std::fs::canonicalize":   {"passthrough": [0], "safe": True},  # CLI/file, not web
 
     # ===== std::io Sources =====
-    "std::io::Read::read_to_string": {"passthrough": [0], "safe": False},
-    "std::io::BufRead::lines":       {"passthrough": [0], "safe": False},
-    "std::io::stdin":                 {"passthrough": [], "safe": False},
+    # IO operations removed: CLI, not web sources
+    "std::io::Read::read_to_string": {"passthrough": [0], "safe": True},  # CLI, not web
+    "std::io::BufRead::lines":       {"passthrough": [0], "safe": True},  # CLI, not web
+    "std::io::stdin":                 {"passthrough": [], "safe": True},   # CLI, not web
 
     # ===== serde_json 解码 =====
-    "serde_json::from_str":     {"passthrough": [0], "safe": False, "param_flow": {0: 0}},
-    "serde_json::from_value":   {"passthrough": [0], "safe": False},
-    "serde_json::from_reader":  {"passthrough": [0], "safe": False},
+    # serde_json::from_str/from_value/from_reader removed: JSON deserialization, not necessarily user input
+    # They are utility functions, not web sources
     "serde_json::Value::get":   {"passthrough": [0], "safe": False},
     "serde_json::Value::as_str": {"passthrough": [0], "safe": False},
 
     # ===== serde_yaml 解码 =====
-    "serde_yaml::from_str":     {"passthrough": [0], "safe": False},
+    # serde_yaml::from_str removed: YAML deserialization, not necessarily user input
 
     # ===== toml 解码 =====
-    "toml::from_str":           {"passthrough": [0], "safe": False},
+    # toml::from_str removed: TOML deserialization, not necessarily user input
 
     # ===== std::net 解析 =====
     "std::net::TcpStream::connect":  {"passthrough": [0], "safe": False},

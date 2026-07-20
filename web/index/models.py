@@ -269,6 +269,13 @@ def check_and_new_project_id(scantask_id, task_name, project_origin, project_des
 #         ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
 #          'Commit(Author)', 'Source Code Content', 'Analysis'])
 class ScanResultTask(models.Model):
+    VERIFICATION_CHOICES = [
+        ('pending', '待验证'),
+        ('tp', 'True Positive'),
+        ('fp', 'False Positive'),
+        ('unknown', '无法判断'),
+    ]
+
     scan_project_id = models.IntegerField(default=0)
     scan_task_id = models.IntegerField()
     # result_id = models.IntegerField()
@@ -280,6 +287,16 @@ class ScanResultTask(models.Model):
     vul_hash = models.CharField(max_length=32, default='')
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    # 验证状态字段
+    verification_status = models.CharField(
+        max_length=10,
+        choices=VERIFICATION_CHOICES,
+        default='pending',
+        db_index=True
+    )
+    verified_by = models.CharField(max_length=100, default='')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verification_notes = models.TextField(default='')
 
     def save(self, *args, **kwargs):
 

@@ -54,17 +54,9 @@ _sd_registry = None
 # Lua 特有的可控输入源
 LUA_CONTROLLED_SOURCES = [
     "os.getenv",
-    "io.read",
-    "io.lines",
-    "io.stdin",
-    "io.input",
-    "io.open",
-    "io.popen",
-    "os.execute",
-    "http.request",
-    "socket.tcp",
-    "socket.udp",
-    "socket.connect",
+    # io.open/io.read/io.lines/io.stdin/io.input/io.output removed: CLI/file, not web
+    # io.popen/os.execute removed: CLI/command, not web
+    # http.request/socket.* removed: CLI/network client, not web
     "json.decode",
     "cjson.decode",
     "arg",

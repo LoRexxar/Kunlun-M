@@ -604,6 +604,60 @@ class Pretreatment:
                     except Exception:
                         logger.warning("[AST] [JAR] 处理异常: {}".format(traceback.format_exc()))
 
+            elif fileext[0] == '.class' and 'java' in self.lan:
+                # 针对 .class 文件的反编译预处理
+                for filepath in fileext[1]['list']:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]['language'] = 'java'
+                    self.pre_result[filepath]['ast_nodes'] = []
+                    self.pre_result[filepath]['type'] = 'class'
+
+                    try:
+                        # 1. 确保有 CFR
+                        cfr_path = self._ensure_cfr()
+                        if not cfr_path:
+                            logger.warning("[AST] [CLASS] CFR 不可用，跳过反编译: {}".format(filepath))
+                            continue
+
+                        # 2. 反编译 .class 文件
+                        decompiled_dir = filepath + "_decompiled/"
+                        if not os.path.isdir(decompiled_dir) or not os.listdir(decompiled_dir):
+                            os.makedirs(decompiled_dir, exist_ok=True)
+                            subprocess.run(
+                                ['java', '-jar', cfr_path, filepath, '--outputdir', decompiled_dir],
+                                capture_output=True, timeout=120
+                            )
+
+                        self.pre_result[filepath]['decompiled_dir'] = decompiled_dir
+
+                        # 3. 遍历反编译输出的 .java 文件，做 AST 解析
+                        for root, dirs, java_files in os.walk(decompiled_dir):
+                            for jf in java_files:
+                                if jf.endswith('.java'):
+                                    java_path = os.path.join(root, jf)
+                                    self.pre_result[java_path] = {}
+                                    self.pre_result[java_path]['language'] = 'java'
+                                    self.pre_result[java_path]['ast_nodes'] = []
+                                    self.pre_result[java_path]['source_class'] = filepath
+
+                                    try:
+                                        with codecs.open(java_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                            code = f.read()
+                                        if not self.is_unprecom:
+                                            tree = javalang.parse.parse(code)
+                                            self.pre_result[java_path]['ast_nodes'] = tree
+                                    except javalang.parser.JavaSyntaxError:
+                                        logger.warning("[AST] [CLASS] 反编译文件语法错误: {}".format(java_path))
+                                    except Exception:
+                                        logger.warning("[AST] [CLASS] 解析异常: {}".format(traceback.format_exc()))
+
+                                    # 加入反编译文件列表，供后续扫描使用
+                                    self.decompiled_files.append(java_path)
+
+                    except Exception:
+                        logger.warning("[AST] [CLASS] 处理异常: {}".format(traceback.format_exc()))
+
             elif fileext[0] in ext_dict['java'] and 'java' in self.lan:
                 # 针对 Java 的预处理
                 for filepath in fileext[1]['list']:

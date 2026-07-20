@@ -1,255 +1,294 @@
 <!DOCTYPE html>
-<!--
-This is a starter template page. Use this page to start your new project from
-scratch. This page gets rid of all links and provides the needed markup only.
--->
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>KunLun-MA | {% block title %}首页{% endblock %}</title>
-    {% load static %}
-  <!-- Tell the browser to be responsive to screen width -->
-  <link rel="icon" href="{% static 'favicon.ico' %}" >
-  <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
-  <link rel="stylesheet" href="{% static 'css/bulma.css' %}">
-  <!-- Font Awesome -->
+  {% load static %}
+  <link rel="icon" href="{% static 'favicon.ico' %}">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/css/tabler.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
   <link rel="stylesheet" href="{% static 'font-awesome/css/font-awesome.min.css' %}">
-  <!-- Ionicons -->
-  <link rel="stylesheet" href="{% static 'Ionicons/css/ionicons.min.css' %}">
-  <link rel="stylesheet" href="{% static 'css/dashboard-bulma.css' %}?v=8">
-  <!-- my style -->
-  <link rel="stylesheet" href="{% static 'css/default.css' %}?v=28">
+  <link rel="stylesheet" href="{% static 'css/prism.css' %}">
+  <link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
+  <link rel="stylesheet" href="{% static 'css/kunlun-dashboard.css' %}?v=37">
+  <link rel="stylesheet" href="{% static 'css/kunlun-custom.css' %}?v=1">
 
-  <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
-  <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
-  <!--[if lt IE 9]>
-  <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
-  <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-  <![endif]-->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,600,700,300italic,400italic,600italic">
 
-  <!-- Google Font -->
-  <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,600,700,300italic,400italic,600italic">
+  {% block extra_css %}{% endblock %}
 </head>
 
-<body class="dashboard-shell">
-<div class="wrapper">
+<body class="dashboard-shell theme-light layout-fluid">
+<div class="page">
 
-  <!-- Main Header -->
-  <header class="main-header">
+  <aside class="navbar navbar-vertical navbar-expand-md navbar-dark km-navbar-vertical main-sidebar">
+    <div class="container-fluid">
 
-    <!-- Logo -->
-    <a href="{% url 'dashboard:index' %}" class="logo">
-      <!-- logo for regular state and mobile devices -->
-
-      <span class="logo-lg"><b>KunLun-</b>MA</span>
-    </a>
-
-    <!-- Header Navbar -->
-    <nav class="navbar navbar-static-top" role="navigation">
-      <!-- Sidebar toggle button-->
-      <a href="#" class="sidebar-toggle" data-toggle="push-menu" role="button">
-        <span class="sr-only">切换导航</span>
-      </a>
-      <div class="navbar-form navbar-left quick-nav hidden-xs">
-        <div class="form-group">
-          <input id="quickSearch" type="text" class="form-control" placeholder="快速跳转：任务 / 项目 / 规则">
-        </div>
+      <div class="km-sidebar-brand logo">
+        <a href="{% url 'dashboard:index' %}" class="navbar-brand navbar-brand-autodark">
+          <b>KunLun-</b>MA
+        </a>
+        <a href="#" class="sidebar-toggle km-sidebar-toggle-mobile d-md-none" data-toggle="push-menu" role="button" aria-label="切换导航">
+          <i class="ti ti-x"></i>
+        </a>
       </div>
-      <!-- Navbar Right Menu -->
-      <div class="navbar-custom-menu">
-        <ul class="nav navbar-nav">
-          <li>
-            <a href="#" id="themeToggle" class="km-theme-toggle" title="切换到深色模式" aria-label="切换到深色模式">
-              <i id="themeIcon" class="fa fa-sun-o"></i>
-              <span id="themeText" class="km-theme-text">深色</span>
-            </a>
-          </li>
-          <!-- User Account Menu -->
-          <li class="dropdown user user-menu">
-            <!-- Menu Toggle Button -->
-            <a href="#" class="dropdown-toggle" data-toggle="dropdown">
-              <!-- The user image in the navbar-->
-              <img src="{% static 'img/1.jpg' %}" class="user-image" alt="用户头像">
-              <!-- hidden-xs hides the username on small devices so only the image appears. -->
-              <span class="hidden-xs">{{ user }}</span>
-            </a>
-            <ul class="dropdown-menu km-user-menu">
-              <li class="user-header">
-                <img src="{% static 'img/1.jpg' %}" class="img-circle" alt="用户头像">
-                <p class="km-user-name">{{ user }}</p>
+
+      <div class="collapse navbar-collapse" id="navbar-menu-pc">
+        <div class="user-panel km-user-panel">
+          <div class="pull-left image">
+            <img src="{% static 'img/1.jpg' %}" class="img-circle" alt="用户头像">
+          </div>
+          <div class="pull-left info">
+            <p>{{ user }}</p>
 {% if user.is_authenticated %}
-                <p class="km-user-status"><i class="fa fa-circle text-success"></i> 在线</p>
+            <a href="#"><i class="fa fa-circle text-success"></i> 在线</a>
 {% else %}
-                <p class="km-user-status"><i class="fa fa-circle text-danger"></i> 离线</p>
+            <a href="#"><i class="fa fa-circle text-danger"></i> 离线</a>
 {% endif %}
-              </li>
-              <li class="user-footer user-footer-modern">
-                <div class="km-user-actions">
-                  <a href="{% url 'dashboard:userinfo' %}" class="btn btn-default btn-flat btn-modern-quiet btn-block text-center">个人信息</a>
-                  <a href="{% url 'index:logout' %}" class="btn btn-default btn-flat btn-block text-center">退出登录</a>
-                </div>
-              </li>
+          </div>
+        </div>
+
+        <ul class="navbar-nav pt-lg-3 sidebar-menu" data-widget="tree">
+          <li class="nav-item active treeview menu-open" id="dashboard">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-home fa fa-dashboard"></i></span>
+              <span class="nav-link-title">首页</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item active"><a class="nav-link" href="{% url 'dashboard:index' %}"><i class="fa fa-circle-o"></i>控制台</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:overview' %}"><i class="fa fa-circle-o"></i>总览</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="projects">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-folders fa ion-ios-analytics-outline"></i></span>
+              <span class="nav-link-title">项目</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item" id="projects_list"><a class="nav-link" href="{% url 'dashboard:projects_list' %}"><i class="fa fa-circle-o"></i>项目列表</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="tasks">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-list-check fa ion-ios-analytics-outline"></i></span>
+              <span class="nav-link-title">扫描任务</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item" id="task_new"><a class="nav-link" href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
+              <li class="nav-item" id="task_list"><a class="nav-link" href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>任务列表</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="vendors">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-package fa ion-ios-analytics-outline"></i></span>
+              <span class="nav-link-title">依赖管理</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item" id="vendors_list"><a class="nav-link" href="{% url 'dashboard:vendors_list' %}"><i class="fa fa-circle-o"></i>依赖列表</a></li>
+              <li class="nav-item" id="vendors_statistics"><a class="nav-link" href="{% url 'dashboard:vendors_statistics' %}"><i class="fa fa-circle-o"></i>依赖统计</a></li>
+              <li class="nav-item" id="vendor_vulns_list"><a class="nav-link" href="{% url 'dashboard:vendor_vulns_list' %}"><i class="fa fa-circle-o"></i>漏洞列表</a></li>
+              <li class="nav-item" id="vendors_vulns_statistics"><a class="nav-link" href="{% url 'dashboard:vendors_vulns_statistics' %}"><i class="fa fa-circle-o"></i>漏洞统计</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="rules">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-book-2 fa ion-document-text"></i></span>
+              <span class="nav-link-title">安全规则</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item" id="rule_list"><a class="nav-link" href="{% url 'dashboard:rules_list' %}"><i class="fa fa-circle-o"></i>CVI 规则</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="tampers">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-plug-connected fa ion-android-expand"></i></span>
+              <span class="nav-link-title">拓展插件</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item" id="tamper_list"><a class="nav-link" href="{% url 'dashboard:tampers_list' %}"><i class="fa fa-circle-o"></i>插件列表</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="graph_analysis">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-topology-star fa fa-project-diagram"></i></span>
+              <span class="nav-link-title">图分析</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:graph_analysis' %}"><i class="fa fa-circle-o"></i>交互式分析</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="docs">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-book fa fa-book"></i></span>
+              <span class="nav-link-title">帮助中心</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:docs' %}"><i class="fa fa-circle-o"></i>使用文档</a></li>
+              <li class="nav-item"><a class="nav-link" href="https://github.com/LoRexxar/Kunlun-M" target="_blank"><i class="fa fa-circle-o"></i>GitHub</a></li>
+            </ul>
+          </li>
+          <li class="nav-item treeview" id="user">
+            <a class="nav-link" href="#">
+              <span class="nav-link-icon"><i class="ti ti-user fa ion-person"></i></span>
+              <span class="nav-link-title">个人中心</span>
+              <span class="float-end">
+                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu nav nav-pills nav-vertical">
+              <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:userinfo' %}"><i class="fa fa-circle-o"></i>个人信息</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:userinfo' %}#tokens"><i class="fa fa-circle-o"></i>API Token</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'index:logout' %}"><i class="fa fa-circle-o"></i>退出登录</a></li>
             </ul>
           </li>
         </ul>
       </div>
-    </nav>
-  </header>
-  <!-- Left side column. contains the logo and sidebar -->
-  <aside class="main-sidebar">
-
-    <!-- sidebar: style can be found in sidebar.less -->
-    <section class="sidebar">
-
-      <!-- Sidebar user panel (optional) -->
-      <div class="user-panel">
-        <div class="pull-left image">
-          <img src="{% static 'img/1.jpg' %}" class="img-circle" alt="用户头像">
-        </div>
-        <div class="pull-left info">
-          <p>{{ user }}</p>
-          <!-- Status -->
-{% if user.is_authenticated %}
-          <a href="#"><i class="fa fa-circle text-success"></i> 在线</a>
-{% else %}
-          <a href="#"><i class="fa fa-circle .text-danger"></i> 离线</a>
-{% endif %}
-        </div>
-      </div>
-
-      <!-- Sidebar Menu -->
-      <ul class="sidebar-menu" data-widget="tree">
-        <!-- Optionally, you can add icons to the links -->
-        <li class="active treeview menu-open" id="dashboard">
-          <a href="#">
-            <i class="fa fa-dashboard"></i><span>首页</span>
-            <span class="pull-right-container">
-              <i class="fa fa-angle-left pull-right"></i>
-            </span>
-          </a>
-          <ul class="treeview-menu">
-            <li class="active"><a href="{% url 'dashboard:index' %}"><i class="fa fa-circle-o"></i>概览</a></li>
-          </ul>
-        </li>
-          <li class="treeview" id="projects">
-          <a href="#"><i class="fa ion-ios-analytics-outline"></i><span>项目</span>
-            <span class="pull-right-container">
-                <i class="fa fa-angle-left pull-right"></i>
-              </span>
-          </a>
-          <ul class="treeview-menu">
-            <li id="projects_list"><a href="{% url 'dashboard:projects_list' %}"><i class="fa fa-circle-o"></i>项目列表</a></li>
-          </ul>
-        </li>
-         <li class="treeview" id="tasks">
-          <a href="#"><i class="fa ion-ios-analytics-outline"></i><span>任务</span>
-            <span class="pull-right-container">
-                <i class="fa fa-angle-left pull-right"></i>
-              </span>
-          </a>
-          <ul class="treeview-menu">
-            <li id="task_new"><a href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
-            <li id="task_list"><a href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>任务列表</a></li>
-          </ul>
-        </li>
-        <li class="treeview" id="vendors">
-          <a href="#"><i class="fa ion-ios-analytics-outline"></i><span>依赖</span>
-            <span class="pull-right-container">
-                <i class="fa fa-angle-left pull-right"></i>
-              </span>
-          </a>
-          <ul class="treeview-menu">
-            <li id="vendors_list"><a href="{% url 'dashboard:vendors_list' %}"><i class="fa fa-circle-o"></i>依赖列表</a></li>
-            <li id="vendors_statistics"><a href="{% url 'dashboard:vendors_statistics' %}"><i class="fa fa-circle-o"></i>依赖统计</a></li>
-            <li id="vendor_vulns_list"><a href="{% url 'dashboard:vendor_vulns_list' %}"><i class="fa fa-circle-o"></i>依赖漏洞列表</a></li>
-            <li id="vendors_vulns_statistics"><a href="{% url 'dashboard:vendors_vulns_statistics' %}"><i class="fa fa-circle-o"></i>依赖漏洞统计</a></li>
-
-          </ul>
-        </li>
-        <li class="treeview" id="rules">
-          <a href="#"><i class="fa ion-document-text"></i><span>规则</span>
-            <span class="pull-right-container">
-                <i class="fa fa-angle-left pull-right"></i>
-              </span>
-          </a>
-          <ul class="treeview-menu">
-            <li id="rule_list"><a href="{% url 'dashboard:rules_list' %}"><i class="fa fa-circle-o"></i>规则列表</a></li>
-          </ul>
-        </li>
-        <li class="treeview" id="tampers">
-          <a href="#"><i class="fa ion-android-expand"></i><span>拓展插件</span>
-            <span class="pull-right-container">
-                <i class="fa fa-angle-left pull-right"></i>
-              </span>
-          </a>
-          <ul class="treeview-menu">
-            <li id="tamper_list"><a href="{% url 'dashboard:tampers_list' %}"><i class="fa fa-circle-o"></i>拓展插件列表</a></li>
-          </ul>
-        </li>
-        <li class="treeview" id="graph_analysis">
-          <a href="{% url 'dashboard:graph_analysis' %}"><i class="fa fa-project-diagram"></i><span>图分析</span></a>
-        </li>
-        <li id="docs"><a href="{% url 'dashboard:docs' %}"><i class="fa fa-book"></i><span>文档</span></a></li>
-
-        <li id="user"><a href="{% url 'dashboard:userinfo' %}"><i class="fa ion-person"></i><span>用户</span></a></li>
-      </ul>
-      <!-- /.sidebar-menu -->
-    </section>
-    <!-- /.sidebar -->
+    </div>
   </aside>
 
-  <!-- Content Wrapper. Contains page content -->
-  <div class="content-wrapper">
-    <!-- Content Header (Page header) -->
-    <section class="content-header">
-        {% block body_header %}
-      <h1>
-        首页
-        <small>KunLun-MA 控制面板</small>
-      </h1>
+  <div class="page-wrapper main-header-wrapper">
+
+    <header class="page-header d-print-none main-header">
+      <nav class="container-fluid">
+        <div class="d-flex align-items-center w-100" style="flex-wrap:nowrap;">
+          <div class="flex-shrink-0 d-md-none">
+            <a href="#" class="sidebar-toggle km-sidebar-toggle" data-toggle="push-menu" role="button" aria-label="切换导航">
+              <i class="ti ti-menu-2"></i>
+            </a>
+          </div>
+          <div class="flex-shrink-0 d-none d-md-block">
+            <a href="#" class="sidebar-toggle km-sidebar-toggle" data-toggle="push-menu" role="button" aria-label="切换导航">
+              <i class="ti ti-menu-2"></i>
+            </a>
+          </div>
+
+          <div class="flex-grow-1 navbar-form navbar-left quick-nav hidden-xs km-quick-nav-wrap" style="min-width:0;">
+            <div class="form-group input-icon m-0">
+              <span class="icon"><i class="ti ti-search"></i></span>
+              <input id="quickSearch" type="text" class="form-control km-quick-search" placeholder="快速跳转：任务 / 项目 / 规则">
+            </div>
+          </div>
+
+          <div class="flex-shrink-0 navbar-custom-menu ms-auto">
+            <ul class="nav navbar-nav align-items-center">
+              <li class="nav-item">
+                <a href="#" id="themeToggle" class="nav-link km-theme-toggle" title="切换到深色模式" aria-label="切换到深色模式">
+                  <i id="themeIcon" class="ti ti-moon fa fa-moon-o"></i>
+                  <span id="themeText" class="km-theme-text">深色</span>
+                </a>
+              </li>
+              <li class="nav-item dropdown user user-menu">
+                <a href="#" class="nav-link dropdown-toggle" data-toggle="dropdown" role="button">
+                  <img src="{% static 'img/1.jpg' %}" class="user-image" alt="用户头像">
+                  <span class="hidden-xs">{{ user }}</span>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end km-user-menu">
+                  <li class="user-header">
+                    <img src="{% static 'img/1.jpg' %}" class="img-circle" alt="用户头像">
+                    <p class="km-user-name">{{ user }}</p>
+{% if user.is_authenticated %}
+                    <p class="km-user-status"><i class="fa fa-circle text-success"></i> 在线</p>
+{% else %}
+                    <p class="km-user-status"><i class="fa fa-circle text-danger"></i> 离线</p>
+{% endif %}
+                  </li>
+                  <li class="user-footer user-footer-modern">
+                    <div class="km-user-actions">
+                      <a href="{% url 'dashboard:userinfo' %}" class="btn btn-default btn-flat btn-modern-quiet btn-block text-center">个人信息</a>
+                      <a href="{% url 'index:logout' %}" class="btn btn-default btn-flat btn-block text-center">退出登录</a>
+                    </div>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="page-body content-wrapper">
+      <div class="container-fluid">
+        <section class="content-header">
+          {% block body_header %}
+          <h1>首页 <small>KunLun-MA 控制面板</small></h1>
+          {% endblock %}
+        </section>
+
+        <section class="content container-fluid">
+        {% block body %}
         {% endblock %}
-    </section>
+        </section>
+      </div>
+    </main>
 
-    <!-- Main content -->
-    <section class="content container-fluid">
-    {% block body %}
-      <!--------------------------
-        | Your Page Content Here |
-        -------------------------->
-    {% endblock %}
-    </section>
-    <!-- /.content -->
+    <footer class="footer footer-transparent d-print-none main-footer">
+      <div class="container-fluid">
+        <div class="row text-center">
+          <div class="col">
+            <strong>Copyright &copy; 2018 <a href="#">公司</a>.</strong> 保留所有权利。
+            <span class="ms-2 text-muted">由 LoRexxar 提供支持</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+
   </div>
-  <!-- /.content-wrapper -->
-
-  <!-- Main Footer -->
-  <footer class="main-footer">
-    <!-- To the right -->
-    <div class="pull-right hidden-xs">
-      由 LoRexxar 提供支持
-    </div>
-    <!-- Default to the left -->
-    <strong>Copyright &copy; 2018 <a href="#">公司</a>.</strong> 保留所有权利。
-  </footer>
-
 </div>
-<!-- ./wrapper -->
 
-<!-- REQUIRED JS SCRIPTS -->
-
-<!-- jQuery 3 -->
 <script src="{% static 'js/jquery.min.js' %}"></script>
-<script src="{% static 'js/dashboard-shell.js' %}?v=2"></script>
-<script src="{% static 'js/dashboard-enhanced.js' %}?v=4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
+<script src="{% static 'js/prism.js' %}"></script>
+<script src="{% static 'js/dashboard-shell.js' %}?v=3"></script>
+<script src="{% static 'js/dashboard-enhanced.js' %}?v=5"></script>
+<script>
+// 快速跳转
+$(function(){
+  $('#quickSearch').on('keydown', function(e){
+    if(e.key === 'Enter'){
+      var val = $(this).val().trim();
+      if(!val) return;
+      // 纯数字 → 任务详情
+      if(/^\d+$/.test(val)){
+        window.location.href = '{% url "dashboard:task_detail" 0 %}'.replace('/0', '/' + val);
+        return;
+      }
+      // 其他 → 任务列表搜索
+      window.location.href = '{% url "dashboard:tasks_list" %}?search=' + encodeURIComponent(val);
+    }
+  });
+});
+</script>
 
 {% block script %}
-
 {% endblock %}
 
-<!-- Optionally, you can add Slimscroll and FastClick plugins.
-     Both of these plugins are recommended to enhance the
-     user experience. -->
+{% block extra_js %}{% endblock %}
 </body>
 </html>

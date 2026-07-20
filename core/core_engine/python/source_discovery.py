@@ -114,8 +114,7 @@ _FRAMEWORK_CONFIGS = {
             'request.remote_addr',
             'request.url',
             'request.referrer',
-            # Flask session
-            'session',
+            # session removed: server-side data, not user input
             # Flask config
             'flask.request',
         },
@@ -142,10 +141,10 @@ _FRAMEWORK_CONFIGS = {
             'form.cleaned_data',
             'self.cleaned_data',
             # Django URL params
-            'kwargs',
-            'self.kwargs',
-            'args',
-            'self.args',
+            # 'kwargs' removed: too generic, matches non-view code (Wagtail, system checks)
+            'self.kwargs',  # Class-based view URL params (user-controllable)
+            # 'args' removed: too generic
+            'self.args',  # Class-based view positional URL params
         },
     },
     'fastapi': {

@@ -74,7 +74,7 @@ ext_dict = {
     "chromeext": ['.crx'],
     "html": ['.html'],
     "python": ['.py'],
-    "java": ['.java', '.jar', '.xml'],
+    "java": ['.java', '.jar', '.class', '.xml'],
     "go": ['.go'],
     "c": ['.c', '.cpp', '.h', '.hpp', '.cc', '.cxx'],
     "rust": ['.rs'],
@@ -99,7 +99,34 @@ ext_comment_dict = {
     "lua": ['--', '--[['],
 }
 
-default_black_list = ['.crx_files', 'vendor', 'node_modules', 'bower_components', '.min.js', '.min.css']
+default_black_list = [
+    # 依赖目录
+    '.crx_files', 'vendor', 'node_modules', 'bower_components',
+    # 压缩文件
+    '.min.js', '.min.css',
+    # 测试目录（减少测试文件误报）
+    'test', 'tests', 'spec', 'specs', '__tests__', 'testcases',
+    # 示例和文档目录（减少示例代码误报）
+    'examples', 'example', 'sample', 'samples', 'demo', 'demos',
+    'docs', 'documentation', 'doc',
+    # 构建和输出目录
+    'build', 'dist', 'out', 'output', 'target',
+    # 脚本目录（减少构建脚本误报）
+    'scripts', 'script',
+    # 版本控制
+    '.git', '.svn', '.hg',
+    # 编辑器和IDE
+    '.idea', '.vscode', '.vs', '.eclipse',
+    # 二进制和编译产物（保留 .class 用于 Java 反编译）
+    '__pycache__', '*.pyc', '*.pyo', '*.o', '*.so', '*.dll',
+    # 框架源码目录（减少框架内部代码误报）
+    'flask', 'django', 'tornado', 'bottle', 'falcon',
+    'express', 'koa', 'hapi', 'fastify', 'nest',
+    'spring', 'struts', 'play',
+    'rails', 'sinatra',
+    'gin', 'echo', 'chi', 'fiber', 'beego', 'revel',
+    'actix', 'axum', 'rocket',
+]
 IGNORE_LIST = []
 
 VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'critical']

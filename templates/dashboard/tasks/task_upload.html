@@ -1,5 +1,9 @@
 {% extends "dashboard/base.html" %}
 {% block title %}新建扫描{% endblock %}
+{% block body_header %}
+<h1>新建扫描 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <style>
@@ -13,13 +17,13 @@
 </style>
 
 <div class="row">
-  <div class="col-xs-12 col-md-10 col-md-offset-1 col-lg-8 col-lg-offset-2">
-    <div class="box box-primary">
+  <div class="col-12">
+    <div class="card">
       <div class="box-header with-border">
-        <h3 class="box-title">新建扫描</h3>
+        <h3 class="card-title">新建扫描</h3>
       </div>
 
-      <div class="box-body" style="padding: 26px 28px 30px;">
+      <div class="card-body" style="padding: 26px 28px 30px;">
         <div class="km-tabs-header">
           <button class="km-tab active" data-target="tab-upload">
             <i class="fa fa-cloud-upload"></i> 上传文件
@@ -68,19 +72,19 @@
 
           <form id="pathForm" method="post" action="{% url 'dashboard:task_path' %}">
             {% csrf_token %}
-            <div class="form-group">
-              <label>项目路径 <span class="text-danger">*</span></label>
+            <div class="form-group mb-3">
+              <label class="form-label">项目路径 <span class="text-danger">*</span></label>
               <input type="text" class="form-control" name="target_path" placeholder="/home/projects/myapp" {% if path_scan_disabled %}disabled{% endif %} value="{{ submitted_path|default:'' }}">
               <p class="help-block" style="color:#6b7280;">服务器上的项目目录绝对路径</p>
             </div>
 
-            <div class="form-group">
-              <label>任务名称（可选）</label>
+            <div class="form-group mb-3">
+              <label class="form-label">任务名称（可选）</label>
               <input type="text" class="form-control" name="task_name" placeholder="可选，默认使用路径名" {% if path_scan_disabled %}disabled{% endif %}>
             </div>
 
-            <div class="form-group">
-              <label>项目描述（可选）</label>
+            <div class="form-group mb-3">
+              <label class="form-label">项目描述（可选）</label>
               <textarea class="form-control" rows="2" name="description" placeholder="可选" {% if path_scan_disabled %}disabled{% endif %}></textarea>
             </div>
 

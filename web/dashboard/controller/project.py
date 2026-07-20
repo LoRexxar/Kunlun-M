@@ -140,6 +140,7 @@ class ProjectDetailView(View):
             taskresult.has_chain = len(taskresult.chain_nodes) > 0
 
             if taskresult.cvi_id == '9999':
+                taskresult.rule_name = 'Vendor Vuln'
                 vender_vul_id = taskresult.vulfile_path.split(":")[-1]
                 if vender_vul_id:
                     vv = VendorVulns.objects.filter(id=vender_vul_id).first()
@@ -163,6 +164,7 @@ class ProjectDetailView(View):
             else:
                 r = Rules.objects.filter(svid=taskresult.cvi_id).first()
                 taskresult.level = VUL_LEVEL[r.level]
+                taskresult.rule_name = r.rule_name if r else taskresult.cvi_id
 
         if not project:
             return HttpResponseNotFound('Project Not Found.')

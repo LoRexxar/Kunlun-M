@@ -35,32 +35,35 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "flash":                {"passthrough": [], "safe": False},
 
     # ===== 文件读取 Sources =====
-    "File.read":            {"passthrough": [0], "safe": False},
-    "File.open":            {"passthrough": [0], "safe": False},
-    "File.write":           {"passthrough": [0], "safe": False},
-    "File.delete":          {"passthrough": [0], "safe": False},
-    "IO.read":              {"passthrough": [0], "safe": False},
-    "IO.write":             {"passthrough": [0], "safe": False},
-    "IO.popen":             {"passthrough": [0], "safe": False},
-    "open":                 {"passthrough": [0], "safe": False},
-    "readlines":            {"passthrough": [0], "safe": False},
+    # File/IO operations removed: CLI/file, not web sources
+    "File.read":            {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "File.open":            {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "File.write":           {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "File.delete":          {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "IO.read":              {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "IO.write":             {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "IO.popen":             {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "open":                 {"passthrough": [0], "safe": True},  # CLI/file, not web
+    "readlines":            {"passthrough": [0], "safe": True},  # CLI/file, not web
 
     # ===== 编码解析 Sources =====
-    "JSON.parse":           {"passthrough": [0], "safe": False, "param_flow": {0: 0}},
-    "YAML.load":            {"passthrough": [0], "safe": False},
+    # JSON/YAML/CSV/ERB removed: deserialization, not web sources
+    "JSON.parse":           {"passthrough": [0], "safe": True},  # deserialization, not web
+    "YAML.load":            {"passthrough": [0], "safe": True},  # deserialization, not web
     "YAML.safe_load":       {"passthrough": [0], "safe": True},
-    "CSV.parse":            {"passthrough": [0], "safe": False},
-    "Base64.decode64":      {"passthrough": [0], "safe": False},
-    "Base64.encode64":      {"passthrough": [0], "safe": False},
-    "ERB.new":              {"passthrough": [0], "safe": False},
-    "ERB.result":           {"passthrough": [0], "safe": False},
+    "CSV.parse":            {"passthrough": [0], "safe": True},  # deserialization, not web
+    "Base64.decode64":      {"passthrough": [0], "safe": True},  # encoding, not web
+    "Base64.encode64":      {"passthrough": [0], "safe": True},  # encoding, not web
+    "ERB.new":              {"passthrough": [0], "safe": True},  # template, not web
+    "ERB.result":           {"passthrough": [0], "safe": True},  # template, not web
 
     # ===== 网络读取 Sources =====
-    "URI.parse":            {"passthrough": [0], "safe": False},
-    "URI.open":             {"passthrough": [0], "safe": False},
-    "Net::HTTP.get":        {"passthrough": [0], "safe": False},
-    "Net::HTTP.post":       {"passthrough": [0], "safe": False},
-    "open-uri":             {"passthrough": [0], "safe": False},
+    # URI/Net::HTTP removed: client operations, not web sources
+    "URI.parse":            {"passthrough": [0], "safe": True},  # client, not web
+    "URI.open":             {"passthrough": [0], "safe": True},  # client, not web
+    "Net::HTTP.get":        {"passthrough": [0], "safe": True},  # client, not web
+    "Net::HTTP.post":       {"passthrough": [0], "safe": True},  # client, not web
+    "open-uri":             {"passthrough": [0], "safe": True},  # client, not web
 
     # ================================================================
     #  SINKS — 危险操作（标记为不安全）

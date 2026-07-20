@@ -8,6 +8,7 @@
 from django.urls import path
 
 from web.api import views
+from web.api.views_verify import TaskResultVerifyApiView, TaskVerifyBatchApiView
 
 app_name = "api"
 urlpatterns = [
@@ -65,6 +66,9 @@ urlpatterns = [
 
     # graph analysis
     path("graph/scans", views.GraphScansApiView.as_view(), name="graph_scans"),
+    path("graph/load", views.GraphLoadApiView.as_view(), name="graph_load"),
+    path("graph/release", views.GraphReleaseApiView.as_view(), name="graph_release"),
+    path("graph/status", views.GraphStatusApiView.as_view(), name="graph_status"),
     path("graph/query", views.GraphQueryApiView.as_view(), name="graph_query"),
     # graph subgraph extraction (for visualization)
     path("graph/subgraph", views.GraphSubgraphApiView.as_view(), name="graph_subgraph"),
@@ -74,4 +78,8 @@ urlpatterns = [
     path("graph/node_vulns", views.GraphNodeVulnsApiView.as_view(), name="graph_node_vulns"),
     # graph node source code context
     path("graph/node_source", views.GraphNodeSourceApiView.as_view(), name="graph_node_source"),
+
+    # verification
+    path("task/result/<int:result_id>/verify", TaskResultVerifyApiView.as_view(), name="task_result_verify"),
+    path("task/<int:task_id>/verify/batch", TaskVerifyBatchApiView.as_view(), name="task_verify_batch"),
 ]

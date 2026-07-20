@@ -33,9 +33,27 @@ def index(req):
         project_id = get_and_check_scantask_project_id(task.id)
         project = Project.objects.filter(id=project_id).first()
 
-        task.project_name = project.project_name
+        task.project_name = project.project_name if project else '-'
 
-    data = {'tasks': tasks}
+    # 摘要统计
+    status_count = {'success': 0, 'running': 0, 'failed': 0, 'other': 0}
+    for task in tasks:
+        if task.is_finished == 1:
+            status_count['success'] += 1
+        elif task.is_finished == 2:
+            status_count['running'] += 1
+        elif task.is_finished in (-1, 0):
+            status_count['failed'] += 1
+        else:
+            status_count['other'] += 1
+
+    first_task = tasks[0] if tasks else None
+
+    data = {
+        'tasks': tasks,
+        'status_count': status_count,
+        'last_task': first_task,
+    }
 
     return render(req, 'dashboard/index.html', data)
 
@@ -312,12 +330,12 @@ def overview(req):
                 "target_path": task.target_path
             }
 
-    return JsonResponse({
-        "status": "ok",
-        "count": len(tasks),
-        "task_status": status_count,
+    context = {
+        "tasks": tasks,
+        "status_count": status_count,
+        "latest_task": latest_task,
         "latest_scan_time": latest_scan_time,
-        "latest_task": latest_task
-    })
+    }
+    return render(req, "dashboard/overview.html", context)
 
 

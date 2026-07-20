@@ -5,8 +5,8 @@
 {% block body %}
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
 <div class="row">
-    <div class="col-xs-12">
-    <div class="box box-warning">
+    <div class="col-12">
+    <div class="card">
     <div class="box-header with-border">
       <h3 class="box-title">任务配置</h3>
     </div>
@@ -33,7 +33,7 @@
             <h3 class="box-title">调试日志<small> {{ task.task_name }}</small></h3>
         </div>
         <!-- /.box-header -->
-        <div class="box box-solid">
+        <div class="card">
             <!-- /.box-header -->
             <div class="box-body">
 <pre class="language-python line-numbers">

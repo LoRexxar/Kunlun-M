@@ -1,18 +1,22 @@
 {% extends "dashboard/base.html" %}
 {% block title %}依赖漏洞列表{% endblock %}
+{% block body_header %}
+<h1>依赖漏洞列表 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div class="row">
-        <div class="col-xs-12">
-          <div class="box">
-            <div class="box-header">
-              <h3 class="box-title">组件漏洞列表</h3>
-              <div class="box-tools pull-right">
-                <input type="text" id="vulnSearch" class="form-control input-sm pull-right" style="width:200px;" placeholder="搜索 CVE/标题/依赖名...">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">组件漏洞列表</h3>
+              <div class="card-tools float-end">
+                <input type="text" id="vulnSearch" class="form-control form-control-sm float-end" style="width:200px;" placeholder="搜索 CVE/标题/依赖名...">
               </div>
             </div>
             <!-- /.box-header -->
-            <div class="box-body table-responsive no-padding">
+            <div class="card-body table-responsive">
               <table class="table table-hover km-table km-table-wide" id="vulnTable">
                 <thead>
                   <tr>
@@ -34,13 +38,13 @@
                     <td class="km-td-nowrap">
                       {% with s=vendorvuln.severity|lower %}
                         {% if s == 'critical' or s == 'high' %}
-                          <span class="label label-danger status-label">{{ vendorvuln.severity }}</span>
+                          <span class="badge bg-danger status-label">{{ vendorvuln.severity }}</span>
                         {% elif s == 'medium' %}
-                          <span class="label label-warning status-label">{{ vendorvuln.severity }}</span>
+                          <span class="badge bg-warning status-label">{{ vendorvuln.severity }}</span>
                         {% elif s == 'low' %}
-                          <span class="label label-info status-label">{{ vendorvuln.severity }}</span>
+                          <span class="badge bg-info status-label">{{ vendorvuln.severity }}</span>
                         {% else %}
-                          <span class="label label-default status-label">{{ vendorvuln.severity }}</span>
+                          <span class="badge bg-secondary status-label">{{ vendorvuln.severity }}</span>
                         {% endif %}
                       {% endwith %}
                     </td>
@@ -54,7 +58,7 @@
             </div>
             <!-- /.box-body -->
 
-            <div class="box-footer">
+            <div class="card-footer">
                 <ul class="pagination pagination-sm m-0 float-right">
                   <li class="page-item"><a class="page-link" href="{% url 'dashboard:vendor_vulns_list' %}">«</a></li>
                 {% for i in page_range %}

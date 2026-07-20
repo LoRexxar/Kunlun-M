@@ -21,7 +21,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
 
     # ===== Node.js / DOM Sources =====
     "process.env":          {"passthrough": [0], "safe": False},
-    "process.argv":         {"passthrough": [], "safe": False},
+    "process.argv":         {"passthrough": [], "safe": True},  # CLI-only, not web-controllable
 
     # ===== Express / Connect Framework =====
     "req.query":            {"passthrough": [0], "safe": False},

@@ -67,7 +67,7 @@ class TaskListView(TemplateView):
             project_id = get_and_check_scantask_project_id(task.id)
             project = Project.objects.filter(id=project_id).first()
 
-            task.project_name = project.project_name
+            task.project_name = project.project_name if project else '-'
 
         return context
 
@@ -317,6 +317,7 @@ class TaskDetailView(View):
             taskresult.has_chain = len(taskresult.chain_nodes) > 0
 
             if taskresult.cvi_id == '9999':
+                taskresult.rule_name = 'Vendor Vuln'
                 vender_vul_id = taskresult.vulfile_path.split(":")[-1]
 
                 if vender_vul_id:
@@ -341,6 +342,7 @@ class TaskDetailView(View):
             else:
                 r = Rules.objects.filter(svid=taskresult.cvi_id).first()
                 taskresult.level = VUL_LEVEL[r.level]
+                taskresult.rule_name = r.rule_name if r else taskresult.cvi_id
 
         # 构建 chain JSON 供前端使用
         chain_json_map = {}

@@ -1,17 +1,21 @@
 {% extends "dashboard/base.html" %}
 {% block title %}配置扫描{% endblock %}
+{% block body_header %}
+<h1>配置扫描 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div class="row">
-  <div class="col-xs-12">
-    <div class="box box-info">
+  <div class="col-12">
+    <div class="card">
       <div class="box-header with-border">
-        <h3 class="box-title">配置扫描</h3>
+        <h3 class="card-title">配置扫描</h3>
       </div>
 
       <form method="post">
         {% csrf_token %}
-        <div class="box-body">
+        <div class="card-body">
           {% if error_message %}
           <div class="alert alert-danger">{{ error_message }}</div>
           {% endif %}
@@ -107,7 +111,7 @@
           </div>
         </div>
 
-        <div class="box-footer">
+        <div class="card-footer">
           <button type="submit" class="btn btn-primary">开始扫描</button>
           <a href="{% url 'dashboard:task_detail' task.id %}" class="btn btn-default">返回任务详情</a>
         </div>

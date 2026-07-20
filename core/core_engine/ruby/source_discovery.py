@@ -69,18 +69,9 @@ _BUILTIN_SOURCE_MEMBERS = {
     'request',
     'request.body',
     'cookies',
-    'session',
-    # 文件读取
-    'open',
-    # 网络读取
-    'URI.open',
-    'Net::HTTP.get', 'Net::HTTP.post',
-    # 编码解析
-    'JSON.parse', 'YAML.load', 'YAML.safe_load', 'CSV.parse',
-    # ERB
-    'ERB', 'ERB.new',
-    # CGI
-    'CGI', 'CGI.new',
+    # session removed: server-side data, not user input
+    # 文件/网络/编码操作 removed: CLI, not web sources
+    # Rails web sources are detected via framework config
 }
 
 

@@ -63,25 +63,9 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 标准输入输出
-    'io.read',
-    'io.lines',
-    'io.stdin',
-    'io.input',
-    'io.open',
-    # 文件读取
-    'io.open',
-    # 网络请求 (常见库)
-    'http.request',
-    'socket.tcp',
-    'socket.udp',
-    'socket.connect',
-    # JSON 解析
-    'json.decode',
-    'cjson.decode',
-    # 命令执行
-    'os.execute',
-    'io.popen',
+    # 注意：io.open/io.read/os.execute/io.popen/http.request 等 CLI/文件操作已移除
+    # 它们不是 Web source，是 Lua 标准库，用于本地文件和命令执行
+    # Web source 通过框架检测注入（OpenResty/nginx-lua: ngx.req.*）
 }
 
 
@@ -90,6 +74,20 @@ _BUILTIN_SOURCE_MEMBERS = {
 # ---------------------------------------------------------------------------
 
 _FRAMEWORK_CONFIGS = {
+    'openresty': {
+        'detect_file': ['nginx', 'openresty', 'ngx_'],
+        'source_members': {
+            'ngx.req.get_uri_args',
+            'ngx.req.get_post_args',
+            'ngx.req.get_headers',
+            'ngx.var.request_body',
+            'ngx.var.uri',
+            'ngx.var.query_string',
+            'ngx.var.http_cookie',
+            'ngx.req.get_body_data',
+            'ngx.req.read_body',
+        },
+    },
     'lapis': {
         'detect_file': ['lapis'],
         'source_members': {

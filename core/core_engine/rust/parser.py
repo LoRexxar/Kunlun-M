@@ -53,20 +53,19 @@ _sd_registry = None
 
 # Rust 特有的可控输入源
 RUST_CONTROLLED_SOURCES = [
-    "std::env::args", "std::env::var", "std::env::args_os",
-    "std::io::stdin", "std::io::BufReader", "std::io::Read",
-    "std::fs::read_to_string", "std::fs::read",
-    "std::env::args", "std::env::var_os",
-    "std::net::TcpStream", "std::net::UdpSocket",
-    "std::process::Command", "std::process::Stdio",
+    # std::env::args/args_os removed: CLI-only, not web-controllable
+    "std::env::var",
+    # std::io/std::fs removed: CLI/file, not web sources
+    "std::env::var_os",
+    # std::net removed: CLI/network, not web sources
+    # std::process removed: CLI, not web sources
     "http::Request", "http::request::Request",
     "actix_web::HttpRequest", "HttpRequest",
     "axum::extract::Query", "axum::extract::Path",
     "axum::extract::Form", "axum::extract::Json",
     "rocket::http::RawStr", "rocket::request::Request",
     "reqwest::Response", "reqwest::blocking::Response",
-    "serde_json::from_str", "serde_json::from_value",
-    "serde_yaml::from_str", "toml::from_str",
+    # serde_json/serde_yaml/toml removed: deserialization, not web sources
 ]
 
 # Rust 特有的敏感函数列表

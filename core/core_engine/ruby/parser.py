@@ -61,12 +61,8 @@ RUBY_CONTROLLED_SOURCES = [
     "ARGV", "ARGV[",
     "$stdin", "STDIN",
     "gets", "gets.chomp", "readline",
-    "open", "File.read", "File.open", "IO.read",
-    "URI.parse", "URI.open",
-    "Net::HTTP.get", "Net::HTTP.post",
-    "JSON.parse", "YAML.load", "YAML.safe_load",
-    "ERB", "ERB.new",
-    "CGI", "CGI.new", "cgi",
+    # open/File.read/File.open/IO.read/URI.parse/URI.open/Net::HTTP.* removed: CLI, not web
+    # JSON.parse/YAML.load/ERB/CGI removed: deserialization/template, not web
     "Rack::Request", "Sinatra::Request",
     "Rails::Request", "ActionController",
     # Sinatra

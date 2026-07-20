@@ -71,7 +71,7 @@ _sd_registry = None  # Source Discovery 注册表
 # C/C++ 可控输入源
 # ---------------------------------------------------------------------------
 C_CONTROLLED_SOURCES = [
-    "argv", "argc",
+    # argv/argc removed: CLI-only, not web-controllable
     "getenv", "secure_getenv",
     "scanf", "fscanf", "sscanf",
     "fgets", "gets", "getline", "getdelim",
@@ -1390,10 +1390,7 @@ def _trace_variable_in_lines_impl(file_path, var_name, from_line, to_line,
         logger.debug("[AST][C] Variable {} is controllable source".format(var_name))
         return (1, to_line)
 
-    # argv[1] 等下标形式也直接判定为可控
-    if var_name == "argv":
-        logger.debug("[AST][C] Variable argv is controllable source")
-        return (1, to_line)
+    # argv/argc removed: CLI-only, not web-controllable
 
     # ---- 检查 var_name 是否是函数形参 ----
     if var_name in param_names:
@@ -1560,11 +1557,7 @@ def _analyze_rhs_node(rhs_node, var_name, file_path, lineno, to_line,
         array = rhs_node.child_by_field_name("array") or rhs_node.child_by_field_name("argument")
         if array:
             array_text = _node_text(array)
-            # argv[i] → 可控源
-            if array_text == "argv" or array_text.startswith("argv"):
-                logger.debug("[AST][C] Variable {} from argv subscript: {}".format(
-                    var_name, rhs_text[:80]))
-                return (1, lineno)
+            # argv/argc removed: CLI-only, not web-controllable
             if _is_controllable_source(array_text, controlled_params):
                 return (1, lineno)
             if array.type == "identifier":
@@ -2179,7 +2172,7 @@ def scan_parser(rule_match, vul_lineno, file_path,
     # 清除上次扫描残留，重建 C_CONTROLLED_SOURCES 初始列表（防止跨项目污染）
     global C_CONTROLLED_SOURCES
     C_CONTROLLED_SOURCES = [
-        "argv", "argc",
+        # argv/argc removed: CLI-only, not web-controllable
         "getenv", "secure_getenv",
         "scanf", "fscanf", "sscanf",
         "fgets", "gets", "getline", "getdelim",

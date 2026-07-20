@@ -30,8 +30,9 @@ logger = logging.getLogger(__name__)
 _SUPERGLOBALS: frozenset[str] = frozenset({
     # PHP superglobals ($_SESSION excluded — server-side session data, not direct user input)
     # ($argc/$argv excluded — CLI-only sources, not web-controllable)
-    "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES", "$_SERVER",
-    "$_ENV", "$HTTP_RAW_POST_DATA",
+    # ($_SERVER removed — mixed controllability, handled per-key by _SERVER_UNCONTROLLED_KEYS)
+    "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES",
+    "$_ENV", "$_HTTP_RAW_POST_DATA",
     # Python web framework sources (object names)
     "request.GET", "request.POST", "request.REQUEST", "request.COOKIES",
     "request.FILES", "request.data", "request.body", "request.query_params",
@@ -179,7 +180,8 @@ _FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
 # Parameters with these types in Go handler functions are SOURCES (controllable),
 # unlike Java where HttpServletRequest is framework-injected (uncontrollable).
 _GO_SOURCE_TYPES: frozenset[str] = frozenset({
-    "*http.Request",
+    # *http.Request removed: only specific methods (r.URL.Query.Get, r.FormValue, etc.) are sources
+    # The type itself is not a source - framework internal handling
 })
 
 # Spring/JAX-RS annotations that mark a parameter as user-controlled input
@@ -2116,10 +2118,7 @@ class GraphAnalyzer:
         if self.language in ("javascript", "typescript"):
             if name in _JS_SOURCE_ROOTS:
                 return True
-        # C: argv is a user-controlled source (command-line arguments)
-        if self.language == "c":
-            if name == "argv" or (name.startswith("argv")):
-                return True
+        # C: argv/argc is CLI-only, not web-controllable (removed from sources)
         # SourceRegistry: builtin source members for all languages
         # (e.g., Go: os.Args, os.Getenv; C: argv, getenv; Python: sys.argv, os.environ)
         if self._source_registry is not None:

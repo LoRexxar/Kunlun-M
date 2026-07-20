@@ -53,7 +53,44 @@ class GraphQueryBuilder:
     def __init__(self, graph: ig.Graph, language: str = "php") -> None:
         self.graph = graph
         self.language = language
-        self._analyzer = GraphAnalyzer(graph, language)
+        self._analyzer = None  # 延迟构建，按需初始化
+
+    def _ensure_analyzer(self):
+        """延迟构建 GraphAnalyzer 索引，只在需要 taint 分析时触发。"""
+        if self._analyzer is None:
+            from core.graph.graph_analyzer import GraphAnalyzer
+            self._analyzer = GraphAnalyzer(self.graph, self.language)
+        return self._analyzer
+
+    def _quick_sink_count(self) -> int:
+        """轻量统计 sink 数量，不构建完整 GraphAnalyzer 索引。
+
+        用 igraph 内置属性选择器，避免逐节点 Python 迭代。
+        """
+        from core.graph.graph_analyzer import _SINK_FUNCTIONS
+        sink_names_lower = {s.lower() for s in _SINK_FUNCTIONS}
+
+        # 批量获取所有 operator 节点的 name 属性
+        try:
+            op_vids = [v.index for v in self.graph.vs.select(label="operator")]
+        except Exception:
+            # label 可能不是 attribute name，回退到遍历
+            op_vids = [v.index for v in self.graph.vs if _vattr(v, "label") == "operator"]
+
+        if not op_vids:
+            return 0
+
+        # 批量读取 name 属性（igraph 批量操作比逐个快得多）
+        names = self.graph.vs[op_vids]["name"] if hasattr(self.graph.vs[op_vids], "attributes") else []
+        if not names:
+            names = [_vattr(self.graph.vs[vid], "name", "") for vid in op_vids]
+
+        count = 0
+        for name in names:
+            short = name.split(".")[-1] if "." in name else name
+            if short.lower() in sink_names_lower or name.lower() in sink_names_lower:
+                count += 1
+        return count
 
     # --- overview() ---
     def overview(self) -> dict[str, Any]:
@@ -84,8 +121,9 @@ class GraphQueryBuilder:
                 children = sum(1 for e in self.graph.es.select(_source=v.index, label="own"))
                 files.append({"path": path, "language": lang, "node_count": children})
 
-        # Count sinks
-        sinks = self._analyzer.find_sinks()
+        # Count sinks (lightweight: just count operator nodes matching sink names,
+        # skip full GraphAnalyzer index build for overview)
+        sink_count = self._quick_sink_count()
 
         return {
             "node_count": self.graph.vcount(),
@@ -95,7 +133,7 @@ class GraphQueryBuilder:
             "edge_type_summary": self.edge_type_summary(),
             "function_count": label_counts.get(NodeLabel.FUNCTION.value, 0),
             "class_count": label_counts.get(NodeLabel.CLASS.value, 0),
-            "sink_count": len(sinks),
+            "sink_count": sink_count,
         }
 
     # --- get_file() ---
@@ -219,7 +257,7 @@ class GraphQueryBuilder:
             - callees: [{vid, name, lineno}]
             - taint_type: if enriched (source/safe/passthrough/None)
         """
-        func_vids = self._analyzer.find_function_def(func_name)
+        func_vids = self._ensure_analyzer().find_function_def(func_name)
         if not func_vids:
             return {"error": f"Function not found: {func_name}"}
 
@@ -319,7 +357,7 @@ class GraphQueryBuilder:
             - arg_index: which argument was traced
             - result: AnalysisResult details (code, source, path, etc.)
         """
-        sinks = self._analyzer.find_sinks()
+        sinks = self._ensure_analyzer().find_sinks()
         results = []
 
         # Find file node for scoping
@@ -337,7 +375,7 @@ class GraphQueryBuilder:
                 continue
 
             for i, arg_vid in enumerate(sink.get("arg_vids", [])):
-                analysis = self._analyzer.parameters_back(arg_vid)
+                analysis = self._ensure_analyzer().parameters_back(arg_vid)
                 results.append({
                     "sink": {
                         "name": sink["name"],
@@ -685,7 +723,7 @@ class GraphQueryBuilder:
             Same format as :meth:`get_subgraph`:
             ``{center_vid, nodes, edges, total_nodes, total_edges}``
         """
-        func_vids = self._analyzer.find_function_def(func_name)
+        func_vids = self._ensure_analyzer().find_function_def(func_name)
         if not func_vids:
             return {"error": f"Function not found: {func_name}"}
 

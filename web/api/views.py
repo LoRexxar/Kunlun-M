@@ -14,6 +14,8 @@ from django.contrib.auth.decorators import login_required
 
 from web.index.controller import login_or_token_required, api_token_required
 from django.views import View
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from django.db.models import Count
 from django.utils import timezone
 
@@ -24,29 +26,20 @@ from core.vendors import get_project_vendor_by_name, get_vendor_vul_by_name
 from Kunlun_M.settings import LOGS_PATH
 
 
-def _load_graph_session(scan_id):
-    """Load AstGraphSession for a given scan_id.
+def _get_cached_session(scan_id):
+    """获取已缓存的 graph session（不会触发加载）。
 
     Returns (session, error_response) tuple.
-    On success, session is loaded and ready to use — caller must session.close().
-    On failure, session is None and error_response is a JsonResponse to return.
+    session=None + error_response=JsonResponse 表示 session 未加载或不可用。
     """
-    from core.graph.session import AstGraphSession
-    from core.graph.workspace import get_workspace_db, get_scan_dir
-    from core.graph.sqlite_index import ScanRecord
-
-    graph_dir = get_scan_dir(scan_id)
-    graph_path = os.path.join(graph_dir, "graph.graphmlz")
-    if not os.path.exists(graph_path):
-        return None, JsonResponse({"code": 404, "error": f"Graph not found for scan {scan_id}"})
-
-    workspace_db = get_workspace_db()
-    sr = ScanRecord(workspace_db)
-    info = sr.get_by_id(scan_id)
-    language = info.get("language", "php") if info else "php"
-
-    session = AstGraphSession(graph_dir, db_path=workspace_db, language=language)
-    session.load()
+    try:
+        scan_id = int(scan_id)
+    except (TypeError, ValueError):
+        pass
+    from web.api.graph_session_manager import get_session
+    session = get_session(scan_id)
+    if session is None or not session.is_loaded:
+        return None, JsonResponse({"code": 412, "error": "Graph not loaded. Please load graph first via /api/graph/load."})
     return session, None
 
 
@@ -699,6 +692,94 @@ class GraphScansApiView(View):
             return JsonResponse({"code": 500, "error": str(e)})
 
 
+class GraphLoadApiView(View):
+    """加载 graph session 到进程缓存。
+
+    POST 参数:
+        scan_id: 扫描 ID (必填)
+
+    大型图加载需要数秒到数十秒，客户端应轮询 /api/graph/status 或
+    使用返回的 load_time 估算。
+    """
+
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
+    @staticmethod
+    @login_or_token_required
+    def post(request):
+        scan_id = request.POST.get("scan_id") or request.GET.get("scan_id")
+        if not scan_id:
+            return JsonResponse({"code": 400, "error": "scan_id required"})
+        try:
+            scan_id = int(scan_id)
+        except ValueError:
+            return JsonResponse({"code": 400, "error": "invalid scan_id"})
+
+        from web.api.graph_session_manager import load_session, session_info
+
+        # 如果已经加载，直接返回
+        existing = session_info()
+        for s in existing.get("loaded", []):
+            if s.get("scan_id") == scan_id:
+                return JsonResponse({
+                    "code": 200,
+                    "message": "Already loaded",
+                    "scan_id": scan_id,
+                    **s,
+                })
+
+        session, error = load_session(scan_id)
+        if error:
+            return JsonResponse({"code": 500, "error": error})
+
+        info = session_info()
+        for s in info.get("loaded", []):
+            if s.get("scan_id") == scan_id:
+                return JsonResponse({"code": 200, **s})
+
+        return JsonResponse({"code": 200, "message": "Loaded"})
+
+
+class GraphReleaseApiView(View):
+    """释放已加载的 graph session，回收内存。"""
+
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
+    @staticmethod
+    @login_or_token_required
+    def post(request):
+        from web.api.graph_session_manager import release_session
+        scan_id = request.POST.get("scan_id") or request.GET.get("scan_id")
+        if not scan_id:
+            # 释放所有
+            from web.api.graph_session_manager import _release_all
+            _release_all()
+            return JsonResponse({"code": 200, "message": "All sessions released"})
+        try:
+            scan_id = int(scan_id)
+        except ValueError:
+            return JsonResponse({"code": 400, "error": "invalid scan_id"})
+
+        released = release_session(scan_id)
+        if released:
+            return JsonResponse({"code": 200, "message": f"Session {scan_id} released"})
+        return JsonResponse({"code": 404, "message": f"No session for scan {scan_id}"})
+
+
+class GraphStatusApiView(View):
+    """查询当前 graph session 缓存状态。"""
+
+    @staticmethod
+    @login_or_token_required
+    def get(request):
+        from web.api.graph_session_manager import session_info
+        return JsonResponse({"code": 200, **session_info()})
+
+
 class GraphQueryApiView(View):
     """AST 图查询 API — 对应 CLI analyze 子命令"""
 
@@ -712,7 +793,7 @@ class GraphQueryApiView(View):
         if not scan_id:
             return JsonResponse({"code": 400, "error": "scan_id required"})
 
-        session, err = _load_graph_session(scan_id)
+        session, err = _get_cached_session(scan_id)
         if err:
             return err
 
@@ -749,8 +830,6 @@ class GraphQueryApiView(View):
             return JsonResponse({"code": 200, "data": result})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
-        finally:
-            session.close()
 
 
 class GraphSubgraphApiView(View):
@@ -781,7 +860,7 @@ class GraphSubgraphApiView(View):
         if not vid and not file_path:
             return JsonResponse({"code": 400, "error": "vid or file_path required"})
 
-        session, err = _load_graph_session(scan_id)
+        session, err = _get_cached_session(scan_id)
         if err:
             return err
 
@@ -799,8 +878,6 @@ class GraphSubgraphApiView(View):
             return JsonResponse({"code": 200, "data": result})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
-        finally:
-            session.close()
 
 class GraphChainSubgraphApiView(View):
     """传播链子图 API — 给定一组 vid，返回它们之间的子图用于链路可视化。
@@ -821,7 +898,7 @@ class GraphChainSubgraphApiView(View):
         if not vids_str:
             return JsonResponse({"code": 400, "error": "vids required"})
 
-        session, err = _load_graph_session(scan_id)
+        session, err = _get_cached_session(scan_id)
         if err:
             return err
 
@@ -842,8 +919,6 @@ class GraphChainSubgraphApiView(View):
             return JsonResponse({"code": 200, "data": result})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
-        finally:
-            session.close()
 
 
 # --- 查询节点关联漏洞 ---
@@ -903,7 +978,7 @@ class GraphNodeSourceApiView(View):
             return JsonResponse({"code": 400, "error": "scan_id and vid required"})
 
         vid = int(vid)
-        session, err = _load_graph_session(scan_id)
+        session, err = _get_cached_session(scan_id)
         if err:
             return err
 
@@ -912,5 +987,3 @@ class GraphNodeSourceApiView(View):
             return JsonResponse({"code": 200, "data": result})
         except Exception as e:
             return JsonResponse({"code": 500, "error": str(e)})
-        finally:
-            session.close()

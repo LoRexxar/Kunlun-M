@@ -2,96 +2,67 @@
 {% load static %}
 {% load tz %}
 {% block title %}任务详情{% endblock %}
+{% block body_header %}
+<h1>任务详情 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div>
 
-<div class="box box-primary">
-<div class="box-header with-border
-">
-  <h3 class="box-title">任务详情</h3>
+<div class="card">
+<div class="card-header">
+  <h3 class="card-title">任务详情</h3>
 </div>
-<div class="box-body">
-  <!-- Date -->
-  <!-- Date and time range -->
-  <div class="form-group">
-    <label>路径：</label>
+<div class="card-body">
+  <div class="mb-3">
+    <label class="form-label">扫描路径</label>
+    <input type="text" class="form-control" value="{{ task.target_path }}" disabled>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">所属项目</label>
+    <input type="text" class="form-control" value="{{ project.id }}.{{ project.project_name }}" disabled>
+  </div>
+</div>
+</div>
 
-    <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-laptop "></i>
-      </div>
-      <input type="text" class="form-control pull-right" name="filename" value="{{ task.target_path }}" disabled>
+<div class="card">
+<div class="card-header">
+  <h3 class="card-title">扫描配置</h3>
+</div>
+<div class="card-body">
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <label class="form-label">任务名称</label>
+      <input type="text" class="form-control" value="{{ task.task_name }}" disabled>
     </div>
-    <!-- /.input group -->
-  </div>
-
-  <div class="form-group">
-    <label>项目：</label>
-
-    <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-laptop "></i>
-      </div>
-        <div type="text" class="form-control pull-right"><a href='{% url 'dashboard:project_detail' project.id %}'>{{ project.id }}.{{ project.project_name }}</a></div>
-    </div>
-    <!-- /.input group -->
-  </div>
-  <!-- /.form group -->
-</div>
-<!-- /.box-body -->
-</div>
-
-<div class="box box-info">
-<div class="box-header with-border">
-  <h3 class="box-title">任务</h3>
-</div>
-<div class="box-body">
-
-  <div class="form-group">
-    <label>任务名称：</label>
-    <input type="text" class="form-control my-colorpicker1 colorpicker-element" name="task_name" value="{{ task.task_name }}" disabled>
-  </div>
-  <!-- /.form group -->
-<div class="form-group">
-    <label>任务创建时间:</label>
-
-    <div class="input-group">
-      <div class="input-group-addon">
-        <i class="fa fa-calendar"></i>
-      </div>
+    <div class="col-md-6">
+      <label class="form-label">创建时间</label>
       <input type="text" class="form-control" value="{{ task.created_at|localtime|date:'Y-m-d H:i:s' }}" disabled>
     </div>
-    <!-- /.input group -->
-</div>
-
-<div class="form-group">
-    <label>任务状态：</label>
-
-    <div class="input-group">
-      {% if task.is_finished == 0 %}
-      <span class="label label-danger">失败</span>
-      {% elif task.is_finished == 2 %}
-      <span class="label label-warning">运行中</span>
-      {% elif task.is_finished == 1 %}
-      <span class="label label-success">成功</span>
-      {% else %}
-      <span class="label label-success">{{ task.is_finished }}</span>
-      {% endif %}
+  </div>
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <label class="form-label">任务状态</label>
+      <div>
+        {% if task.is_finished == 0 %}
+        <span class="badge bg-danger">失败</span>
+        {% elif task.is_finished == 2 %}
+        <span class="badge bg-warning">运行中</span>
+        {% elif task.is_finished == 1 %}
+        <span class="badge bg-success">成功</span>
+        {% else %}
+        <span class="badge bg-success">{{ task.is_finished }}</span>
+        {% endif %}
+      </div>
     </div>
-    <!-- /.input group -->
+  </div>
+  <div class="mb-3">
+    <label class="form-label">参数配置</label>
+    <textarea class="form-control" rows="2" disabled>{{ task.parameter_config }}</textarea>
+  </div>
 </div>
-
-<div class="form-group">
-  <label>参数配置：</label>
-  <textarea class="form-control" rows="3" placeholder="任务参数详情" name="parameter_config" disabled>{{ task.parameter_config }}</textarea>
-</div>
-
-<!-- /.box-body -->
-</div>
-
-
-<div class="box-footer">
+<div class="card-footer">
     {% if task.is_finished == 2 %}
     <button id="btnLogLive" type="button" class="btn btn-warning"><i class="fa fa-terminal"></i> 实时日志</button>
     {% endif %}
@@ -111,15 +82,15 @@
 
 <!-- 实时日志面板（运行中时显示） -->
 {% if task.is_finished == 2 %}
-<div class="box box-default" id="logPanel" style="display:none;">
+<div class="card" id="logPanel" style="display:none;">
   <div class="box-header with-border">
-    <h3 class="box-title"><i class="fa fa-terminal"></i> 实时日志</h3>
-    <div class="box-tools pull-right">
-      <button type="button" class="btn btn-box-tool" id="btnLogPause"><i class="fa fa-pause"></i> 暂停</button>
-      <button type="button" class="btn btn-box-tool" onclick="$('#logPanel').hide()"><i class="fa fa-times"></i></button>
+    <h3 class="card-title"><i class="fa fa-terminal"></i> 实时日志</h3>
+    <div class="card-tools d-flex ms-auto">
+      <button type="button" class="btn btn-sm btn-ghost-secondary" id="btnLogPause"><i class="fa fa-pause"></i> 暂停</button>
+      <button type="button" class="btn btn-sm btn-ghost-secondary" onclick="$('#logPanel').hide()"><i class="fa fa-times"></i></button>
     </div>
   </div>
-  <div class="box-body">
+  <div class="card-body">
     <pre id="logContent" style="background:#1e1e1e; color:#d4d4d4; padding:16px; border-radius:6px; font-size:12px; line-height:1.5; max-height:500px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></pre>
   </div>
 </div>
@@ -127,12 +98,12 @@
 
 {% if task.is_finished == 1 %}
 
-<div class="box box-warning">
+<div class="card">
 <div class="box-header with-border">
-  <h3 class="box-title">结果 {% if taskresults %}<span class="badge bg-yellow">{{ taskresults|length }}</span>{% endif %}</h3>
-  <div class="box-tools pull-right">
+  <h3 class="card-title">结果 {% if taskresults %}<span class="badge bg-yellow">{{ taskresults|length }}</span>{% endif %}</h3>
+  <div class="card-tools d-flex ms-auto">
     <div class="input-group input-group-sm" style="width:250px;">
-      <input type="text" id="resultFilter" class="form-control pull-right" placeholder="搜索 CVI / 文件 / 代码...">
+      <input type="text" id="resultFilter" class="form-control float-end" placeholder="搜索 CVI / 文件 / 代码...">
       <div class="input-group-btn">
         <button type="button" class="btn btn-default"><i class="fa fa-search"></i></button>
       </div>
@@ -140,20 +111,20 @@
   </div>
 </div>
 <!-- /.box-header -->
-<div class="box-body">
+<div class="card-body">
     <!-- 筛选条 -->
     <div style="margin-bottom:12px;" id="filterBar">
-      <button class="btn btn-xs btn-default filter-btn active" data-filter="all">全部</button>
-      <button class="btn btn-xs btn-danger filter-btn" data-filter="critical">严重</button>
-      <button class="btn btn-xs btn-danger filter-btn" data-filter="high">高危</button>
-      <button class="btn btn-xs btn-warning filter-btn" data-filter="medium">中危</button>
-      <button class="btn btn-xs btn-info filter-btn" data-filter="low">低危</button>
+      <button class="btn btn-sm btn-default filter-btn active" data-filter="all">全部</button>
+      <button class="btn btn-sm btn-danger filter-btn" data-filter="critical">严重</button>
+      <button class="btn btn-sm btn-danger filter-btn" data-filter="high">高危</button>
+      <button class="btn btn-sm btn-warning filter-btn" data-filter="medium">中危</button>
+      <button class="btn btn-sm btn-info filter-btn" data-filter="low">低危</button>
       <span style="margin-left:16px;">
-        <button class="btn btn-xs btn-default filter-btn" data-filter="confirmed">已确认</button>
-        <button class="btn btn-xs btn-default filter-btn" data-filter="unconfirmed">未确认</button>
+        <button class="btn btn-sm btn-default filter-btn" data-filter="confirmed">已确认</button>
+        <button class="btn btn-sm btn-default filter-btn" data-filter="unconfirmed">未确认</button>
       </span>
     </div>
-    <div class="box-body table-responsive no-padding">
+    <div class="box-body table-responsive">
               <table class="table table-hover km-table km-table-wide" id="resultTable">
                 <thead>
                   <tr>
@@ -197,31 +168,31 @@
 
                     <td class="km-td-nowrap">
                       {% if taskresult.level|lower == 'critical' %}
-                      <span class="label label-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
+                      <span class="badge bg-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
                       {% elif taskresult.level|lower == 'high' %}
-                      <span class="label label-danger">高危</span>
+                      <span class="badge bg-danger">高危</span>
                       {% elif taskresult.level|lower == 'medium' %}
-                      <span class="label label-warning">中危</span>
+                      <span class="badge bg-warning">中危</span>
                       {% elif taskresult.level|lower == 'low' %}
-                      <span class="label label-info">低危</span>
+                      <span class="badge bg-info">低危</span>
                       {% else %}
                       {{ taskresult.level }}
                       {% endif %}
                     </td>
-                    <td class="km-td-nowrap">{{ taskresult.result_type }}</td>
+                    <td><span class="badge bg-light text-dark border" title="{{ taskresult.result_type|escape }}">{{ taskresult.rule_name|default:taskresult.cvi_id }}</span></td>
 
                     <td class="km-td-nowrap">
                       {% if taskresult.is_unconfirm == 0 %}
-                      <span class="label label-success">是</span>
+                      <span class="badge bg-success">是</span>
                       {% elif  taskresult.is_unconfirm  == 1 %}
-                      <span class="label label-danger">否</span>
+                      <span class="badge bg-danger">否</span>
                       {% else %}
-                      <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
+                      <span class="badge bg-success">{{ taskresult.is_unconfirm }}</span>
                       {% endif %}
                     </td>
                     <td class="km-col-actions">
                       <div class="km-actions">
-                        <button type="button" class="btn btn-danger btn-xs" onclick="event.stopPropagation(); delVul('{{ taskresult.id }}')">删除</button>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); delVul('{{ taskresult.id }}')">删除</button>
                       </div>
                     </td>
                   </tr>
@@ -248,10 +219,10 @@
                           </span></div>
                           <div class="km-vul-info-row"><span class="km-vul-label">类型</span><span>{{ taskresult.result_type }}</span></div>
                           <div class="km-vul-info-row"><span class="km-vul-label">等级</span><span>
-                            {% if taskresult.level|lower == 'critical' %}<span class="label label-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
-                            {% elif taskresult.level|lower == 'high' %}<span class="label label-danger">高危</span>
-                            {% elif taskresult.level|lower == 'medium' %}<span class="label label-warning">中危</span>
-                            {% elif taskresult.level|lower == 'low' %}<span class="label label-info">低危</span>
+                            {% if taskresult.level|lower == 'critical' %}<span class="badge bg-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
+                            {% elif taskresult.level|lower == 'high' %}<span class="badge bg-danger">高危</span>
+                            {% elif taskresult.level|lower == 'medium' %}<span class="badge bg-warning">中危</span>
+                            {% elif taskresult.level|lower == 'low' %}<span class="badge bg-info">低危</span>
                             {% else %}{{ taskresult.level }}{% endif %}
                           </span></div>
                         </div>
@@ -274,12 +245,12 @@
 </div>
 
 {% if newevilfuncs %}
-<div class="box box-success">
+<div class="card">
     <div class="box-header with-border">
-      <h3 class="box-title">新增危险函数</h3>
+      <h3 class="card-title">新增危险函数</h3>
     </div>
     <!-- /.box-header -->
-    <div class="box-body table-responsive no-padding">
+    <div class="box-body table-responsive">
       <table class="table table-hover km-table">
         <thead>
           <tr>
@@ -299,11 +270,11 @@
             <td><div class="km-cell-config" title="{{ newevilfunc.origin_func_name|escape }}">{{ newevilfunc.origin_func_name }}</div></td>
             <td class="km-td-nowrap">
               {% if newevilfunc.is_active %}
-              <span class="label label-success">是</span>
+              <span class="badge bg-success">是</span>
               {% elif not newevilfunc.is_active %}
-              <span class="label label-danger">否</span>
+              <span class="badge bg-danger">否</span>
               {% else %}
-              <span class="label label-success">{{ newevilfunc.is_active }}</span>
+              <span class="badge bg-success">{{ newevilfunc.is_active }}</span>
               {% endif %}
             </td>
           </tr>
@@ -323,8 +294,8 @@
 
 {% block script %}
 
-<link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
-<link rel="stylesheet" href="{% static 'css/prism.css' %}">
+<link rel="stylesheet" href="{% static 'css/chain-panel.css' %}?v=39">
+<link rel="stylesheet" href="{% static 'css/prism.css' %}?v=39">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.4/cytoscape.min.js"></script>
 <style>
 .km-vul-row-active { background-color: #e8f4fd !important; }
@@ -334,12 +305,13 @@
 /* 漏洞详情面板 - flexbox 左右布局 */
 .km-vul-detail {
   display: flex;
-  border: 1px solid #d8dce0;
-  border-top: 2px solid #3c8dbc;
+  border: 1px solid #e0e0e0;
+  border-top: 2px solid #3b82f6;
   min-height: 200px;
   max-height: 500px;
   overflow: hidden;
-  background: #eaedf1;
+  background: #fff;
+  border-radius: 0 0 6px 6px;
 }
 
 /* 左侧基本信息 */
@@ -347,7 +319,7 @@
   width: 260px;
   min-width: 260px;
   background: #fff;
-  border-right: 1px solid #d8dce0;
+  border-right: 1px solid #e8e8e8;
   padding: 12px 16px;
   overflow-y: auto;
   scrollbar-width: none;
@@ -384,39 +356,183 @@
   overflow: hidden;
 }
 
-/* Chain code area - Prism 浅色主题覆盖 */
+/* 传播链面板布局 - 上下结构 */
+.km-chain-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.km-chain-sidebar {
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 10px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  flex-shrink: 0;
+}
+.km-chain-code {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+  min-width: 0;
+}
+
+/* 传播链标题和摘要 */
+.km-chain-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.km-chain-summary {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: normal;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 传播链节点列表 - 横向 */
+.km-chain-nodes {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.km-chain-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+  min-width: 56px;
+}
+.km-chain-node:hover { background: #e8edf3; }
+.km-chain-node.km-chain-node-active { background: #dbeafe; }
+
+.km-chain-node-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  background: #fff;
+}
+.km-chain-node-info { text-align: center; min-width: 0; max-width: 80px; }
+.km-chain-node-type { font-size: 10px; font-weight: 600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.km-chain-node-content {
+  font-size: 10px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.km-chain-node-loc {
+  font-size: 9px;
+  color: #9ca3af;
+}
+
+/* 传播链连接线 - 横向箭头 */
+.km-chain-connector {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.km-chain-connector-line {
+  width: 12px;
+  height: 2px;
+  background: #cbd5e1;
+  border-radius: 1px;
+}
+
+/* 传播链代码区头部 */
+.km-chain-code-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+.km-chain-code-path {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: normal;
+}
+.km-chain-code-body {
+  overflow: auto;
+  max-height: 320px;
+}
+.km-chain-code-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fdf8f0;
+  table-layout: fixed;
+}
+.km-chain-code-table td {
+  padding: 0 !important;
+  border: none !important;
+  vertical-align: top;
+}
+.km-chain-line-highlight td {
+  background: rgba(255, 167, 38, 0.15) !important;
+  border-left: 2px solid #f59e0b;
+}
+
+/* Chain code area - Prism 浅色主题覆盖（与 chain-panel.css 统一） */
 .km-chain-code-body .token.comment,
 .km-chain-code-body .token.prolog,
 .km-chain-code-body .token.doctype,
-.km-chain-code-body .token.cdata { color:slategray; font-style:italic; }
-.km-chain-code-body .token.punctuation { color:#999; }
+.km-chain-code-body .token.cdata { color: #8b8070; font-style: italic; }
+.km-chain-code-body .token.punctuation { color: #3d3529; }
 .km-chain-code-body .token.property,
-.km-chain-code-body .token.tag,
 .km-chain-code-body .token.boolean,
 .km-chain-code-body .token.constant,
 .km-chain-code-body .token.symbol,
-.km-chain-code-body .token.deleted { color:#905; }
+.km-chain-code-body .token.deleted { color: #0074bd; }
+/* 修复 Tabler .tag 样式泄漏 */
+.km-chain-code-body .token.tag { color: #0074bd; background:transparent !important; border:none !important; padding:0 !important; border-radius:0 !important; box-shadow:none !important; display:inline !important; gap:0 !important; align-items:inherit !important; }
 .km-chain-code-body .token.selector,
 .km-chain-code-body .token.attr-name,
 .km-chain-code-body .token.string,
 .km-chain-code-body .token.char,
 .km-chain-code-body .token.builtin,
-.km-chain-code-body .token.inserted { color:#690; }
+.km-chain-code-body .token.inserted { color: #a5173a; }
 .km-chain-code-body .token.operator,
 .km-chain-code-body .token.entity,
-.km-chain-code-body .token.url { color:#9a6e3a; }
+.km-chain-code-body .token.url { color: #7c3aed; }
 .km-chain-code-body .token.atrule,
 .km-chain-code-body .token.attr-value,
-.km-chain-code-body .token.keyword { color:#07a; }
+.km-chain-code-body .token.keyword { color: #b91c1c; }
 .km-chain-code-body .token.function,
-.km-chain-code-body .token.class-name { color:#DD4A68; }
+.km-chain-code-body .token.class-name { color: #7c3aed; }
 .km-chain-code-body .token.regex,
 .km-chain-code-body .token.important,
-.km-chain-code-body .token.variable { color:#e90; }
+.km-chain-code-body .token.variable { color: #b45309; font-weight: bold; }
 /* 修复 Bulma .number 泄漏 */
 .km-chain-code-body .token.number {
   display:inline !important; font-size:inherit !important; line-height:inherit !important;
-  color:#905 !important; height:auto !important; vertical-align:baseline !important;
+  color:#0074bd !important; height:auto !important; vertical-align:baseline !important;
   background:transparent !important; border-radius:0 !important; margin:0 !important;
   padding:0 !important; min-width:0 !important;
 }
@@ -446,8 +562,8 @@ var currentTaskId = {{ task.id }};
 // 注入漏洞链数据（Django 后端渲染）—— 必须在 chain-panel.js 之前
 var chainDataMap = {{ chain_json|safe }};
 </script>
-<script src="{% static 'js/prism.js' %}"></script>
-<script src="{% static 'js/chain-panel.js' %}"></script>
+<script src="{% static 'js/prism.js' %}?v=39"></script>
+<script src="{% static 'js/chain-panel.js' %}?v=39"></script>
 
 <script>
 var activeVulRow = null;
@@ -528,8 +644,8 @@ function renderChainNodes(vulId, nodes) {
       html += '<div class="km-chain-summary">' + summaryParts.map(function(s){return escapeHtml(s);}).join(' → ') + '</div>';
     }
   }
-  html += ' <a href="' + graphUrl + '" target="_blank" class="btn btn-default btn-xs" style="margin-left:8px;font-size:10px;" title="在图分析中查看"><i class="fa fa-project-diagram"></i> 图</a>';
-  html += ' <button type="button" class="btn btn-default btn-xs" style="margin-left:4px;font-size:10px;" title="内嵌链路图" onclick="event.stopPropagation(); toggleChainGraph(\'' + vulId + '\')"><i class="fa fa-share-alt"></i> 链路图</button>';
+  html += ' <a href="' + graphUrl + '" target="_blank" class="btn btn-default btn-sm" style="margin-left:8px;font-size:10px;" title="在图分析中查看"><i class="fa fa-project-diagram"></i> 图</a>';
+  html += ' <button type="button" class="btn btn-default btn-sm" style="margin-left:4px;font-size:10px;" title="内嵌链路图" onclick="event.stopPropagation(); toggleChainGraph(\'' + vulId + '\')"><i class="fa fa-share-alt"></i> 链路图</button>';
   html += '</div><div class="km-chain-nodes">';
   for (var i = 0; i < nodes.length; i++) {
     var node = nodes[i];
@@ -585,13 +701,20 @@ function selectChainNodeInline(vulId, idx) {
     for (var i = 0; i < sourceLines.length; i++) {
       var m = sourceLines[i].match(/^(\s*)(\d+):\s?(.*)/);
       if (m) { lineNums.push(parseInt(m[2])); rawLines.push(m[3]); }
-      else { rawLines.push(sourceLines[i]); lineNums.push(0); }
+      // 跳过空行
+    }
+    // 去掉末尾空行
+    while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '' && lineNums[lineNums.length - 1] === 0) {
+      rawLines.pop(); lineNums.pop();
     }
     var fullText = rawLines.join('\n');
     var lang = inferLang(node.path);
     var highlightedText = fullText;
     try {
-      if (window.Prism && Prism.languages[lang]) highlightedText = Prism.highlight(fullText, Prism.languages[lang], lang);
+      if (window.Prism && Prism.languages[lang]) {
+        highlightedText = Prism.highlight(fullText, Prism.languages[lang], lang);
+        if (typeof sanitizeHighlightedCode === 'function') highlightedText = sanitizeHighlightedCode(highlightedText);
+      }
     } catch (e) {}
     var highlightedLines = highlightedText.split('\n');
     var targetLineno = parseInt(node.lineno) || 0;
@@ -599,12 +722,12 @@ function selectChainNodeInline(vulId, idx) {
     var html = '<div class="km-chain-code-header">';
     html += '<span style="color:' + style.color + '"><i class="fa ' + style.icon + '"></i> ' + (style.label || node.type) + '</span>';
     if (node.path) html += ' <span class="km-chain-code-path">' + escapeHtml(node.path.split('/').pop()) + ':' + node.lineno + '</span>';
-    html += '</div><div class="km-chain-code-body"><table class="km-chain-code-table"><tbody>';
+    html += '</div><div class="km-chain-code-body"><table class="km-code-table"><tbody>';
     for (var i = 0; i < highlightedLines.length; i++) {
       var isTarget = (lineNums[i] === targetLineno);
-      html += '<tr class="' + (isTarget ? 'km-chain-line-highlight' : '') + '">';
-      html += '<td class="km-chain-lineno">' + (lineNums[i] || '') + '</td>';
-      html += '<td class="km-chain-code-line">' + highlightedLines[i] + '</td></tr>';
+      html += '<tr class="' + (isTarget ? 'km-code-line-highlight' : '') + '">';
+      html += '<td class="km-code-lineno">' + (lineNums[i] || '') + '</td>';
+      html += '<td class="km-code-line">' + highlightedLines[i] + '</td></tr>';
     }
     html += '</tbody></table></div>';
     codeArea.innerHTML = html;

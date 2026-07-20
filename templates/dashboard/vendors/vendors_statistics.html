@@ -1,17 +1,21 @@
 {% extends "dashboard/base.html" %}
 {% block title %}依赖统计{% endblock %}
+{% block body_header %}
+<h1>依赖统计 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div>
 
 <div class="row">
-        <div class="col-xs-12">
-          <div class="box">
-            <div class="box-header">
-              <h3 class="box-title">依赖统计</h3>
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <h3 class="card-title">依赖统计</h3>
             </div>
             <!-- /.box-header -->
-            <div class="box-body table-responsive no-padding">
+            <div class="box-body table-responsive">
               <table class="table table-hover km-table">
                 <thead>
                   <tr>
@@ -35,7 +39,7 @@
             </div>
             <!-- /.box-body -->
 
-            <div class="box-footer">
+            <div class="card-footer">
             <ul class="pagination pagination-sm m-0 float-right">
                   <li class="page-item"><a class="page-link" href="{% url 'dashboard:vendors_statistics' %}">«</a></li>
                 {% for i in page_range %}

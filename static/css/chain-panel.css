@@ -1,216 +1,260 @@
-/* ── 漏洞链面板（inline row 版本） ── */
+/* ── 漏洞链面板（横向链 + 深色代码区） ── */
 
-/* 面板容器（在 <td> 内的 flex 布局） */
-.km-chain-panel {
-    display: flex;
-    border: 1px solid #d8dce0;
-    border-top: 2px solid #3c8dbc;
-    min-height: 300px;
-    max-height: 500px;
-    overflow: hidden;
-    background: #eaedf1;
-}
-
-/* ── 左侧节点链 ── */
-.km-chain-sidebar {
-    width: 280px;
-    min-width: 280px;
+/* 面板容器 */
+.km-vul-detail {
     background: #fff;
-    border-right: 1px solid #d8dce0;
-    overflow-y: auto;
-    padding: 12px 8px;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-.km-chain-sidebar::-webkit-scrollbar { display: none; }
-
-.km-chain-title {
-    font-size: 14px;
-    font-weight: bold;
-    color: #333;
-    padding: 4px 12px 12px;
-    border-bottom: 1px solid #eee;
-    margin-bottom: 8px;
+    border: 1px solid #e0e0e0;
+    border-top: 2px solid #3b82f6;
 }
 
-.km-chain-nodes { }
-
-.km-chain-node {
+/* ── 上方：横向传播链 ── */
+.km-chain-flow {
     display: flex;
-    align-items: flex-start;
-    padding: 8px 12px;
+    align-items: center;
+    gap: 0;
+    padding: 12px 16px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 transparent;
+}
+.km-chain-flow::-webkit-scrollbar { height: 4px; }
+.km-chain-flow::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 2px; }
+
+.km-chain-flow-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    margin-right: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.km-chain-flow-nodes {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+/* 节点 */
+.km-flow-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
     border-radius: 6px;
     cursor: pointer;
     transition: background 0.15s;
+    flex-shrink: 0;
+    min-width: 60px;
 }
-.km-chain-node:hover { background: #f0f7ff; }
-.km-chain-node-active { background: #e1effc !important; }
+.km-flow-node:hover {
+    background: rgba(59, 130, 246, 0.08);
+}
+.km-flow-node.km-flow-node-active {
+    background: rgba(59, 130, 246, 0.14);
+}
 
-.km-chain-node-icon {
+.km-flow-node-dot {
     width: 28px;
-    min-width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #fff;
+    border: 2px solid;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.km-flow-node:hover .km-flow-node-dot {
+    transform: scale(1.1);
+}
+.km-flow-node.km-flow-node-active .km-flow-node-dot {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.km-flow-node-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: #374151;
     text-align: center;
-    font-size: 14px;
-    padding-top: 2px;
-}
-
-.km-chain-node-info { flex: 1; min-width: 0; }
-
-.km-chain-node-type {
-    font-size: 12px;
-    font-weight: bold;
-}
-
-.km-chain-node-content {
-    font-size: 12px;
-    color: #555;
-    margin-top: 2px;
+    max-width: 80px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.km-chain-node-loc {
-    font-size: 11px;
-    color: #999;
-    margin-top: 2px;
+.km-flow-node-meta {
+    font-size: 10px;
+    color: #6b7280;
+    text-align: center;
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.km-chain-connector {
-    display: flex;
-    justify-content: center;
-    padding: 2px 0;
-}
-.km-chain-connector-line {
-    width: 2px;
-    height: 16px;
-    background: #ccc;
-    border-radius: 1px;
+/* 箭头 */
+.km-flow-arrow {
+    color: #9ca3af;
+    font-size: 10px;
+    margin: 0 2px;
+    flex-shrink: 0;
+    padding-bottom: 22px; /* align with dots */
 }
 
 .km-chain-empty {
-    padding: 20px;
+    padding: 12px 16px;
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+/* ── 下方：深色代码区 ── */
+.km-chain-code-section {
+    background: #fdf8f0;
+    color: #3d3529;
+    max-height: 320px;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #d4cfc4 transparent;
+}
+.km-chain-code-section::-webkit-scrollbar { width: 6px; height: 6px; }
+.km-chain-code-section::-webkit-scrollbar-thumb { background: #d4cfc4; border-radius: 3px; }
+.km-chain-code-section::-webkit-scrollbar-track { background: transparent; }
+
+.km-chain-code-placeholder {
+    padding: 32px;
     text-align: center;
-    color: #999;
+    color: #484f58;
     font-size: 13px;
 }
 
-/* ── 右侧代码区 ── */
-.km-chain-code {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: #eaedf1;
-}
-
-.km-chain-code-header {
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: bold;
-    background: #e2e6ea;
-    border-bottom: 1px solid #d8dce0;
+/* 代码区 header */
+.km-code-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
-
-.km-chain-code-path {
+.km-code-path {
     font-size: 12px;
-    color: #666;
+    color: #64748b;
     font-weight: normal;
 }
 
-.km-chain-code-body {
-    flex: 1;
-    overflow: auto;
+/* 代码 body */
+.km-code-body {
     padding: 0;
-    background: #eaedf1;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
 }
-.km-chain-code-body::-webkit-scrollbar { display: none; }
 
 /* 代码表格 */
-.km-chain-code-table {
+.km-code-table {
     width: 100%;
     border-collapse: collapse;
     font-family: 'Fira Code', Consolas, 'Courier New', monospace;
-    font-size: 14px;
-    line-height: 1.15;
-    background: #eaedf1;
+    font-size: 13px;
+    line-height: 1.5;
     table-layout: fixed;
+    background: #fdf8f0;
 }
 
 /* 行号 */
-.km-chain-lineno {
-    width: 50px;
-    min-width: 50px;
+.km-code-lineno {
+    width: 85px;
+    min-width: 85px;
     text-align: right;
-    padding: 0 12px 0 0 !important;
-    color: #6a737d;
-    background: #eaedf1;
-    user-select: none;
-    cursor: pointer;
-    font-size: 14px;
-    font-family: Consolas, monospace;
-    border-right: 1px solid #d8dce0;
-    line-height: 1.15;
+    padding: 0 12px 0 8px !important;
+    color: #9ca3af;
+    background: #f3f1eb;
+    font-size: 13px;
+    border-right: 1px solid #e0dbd0;
     vertical-align: top;
+    white-space: nowrap;
 }
 
 /* 代码行 */
-.km-chain-code-line {
-    padding: 0 12px !important;
-    color: #24292e;
+.km-code-line {
+    padding: 0 16px !important;
+    color: #3d3529;
     white-space: pre;
-    line-height: 1.15;
     border: none !important;
     vertical-align: top;
 }
 
 /* 目标行高亮 */
-.km-chain-line-highlight {
-    background: rgba(255, 235, 59, 0.18) !important;
+.km-code-line-highlight td {
+    background: rgba(255, 167, 38, 0.15) !important;
+    border-left: 2px solid #f59e0b;
+}
+.km-code-line-highlight .km-code-lineno {
+    color: #d97706;
 }
 
 /* 行 hover */
-.km-chain-code-table tr:hover td {
-    background: rgba(0, 0, 0, 0.02);
+.km-code-table tr:hover td {
+    background: rgba(180, 160, 120, 0.08);
 }
-.km-chain-line-highlight:hover td {
-    background: rgba(255, 235, 59, 0.25) !important;
-}
-/* ── 链路迷你图容器（Cytoscape.js） ── */
-.km-chain-graph-container {
-    width: 100%;
-    height: 280px;
-    background: rgb(26, 26, 46);
-    border-radius: 4px;
-    margin-top: 8px;
-    position: relative;
-    overflow: hidden;
-}
-.km-chain-graph-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: rgba(255,255,255,0.4);
-    font-size: 13px;
-    user-select: none;
+.km-code-line-highlight:hover td {
+    background: rgba(255, 167, 38, 0.22) !important;
 }
 
-/* 调用链摘要 */
-.km-chain-summary {
-    font-size: 12px;
-    font-weight: normal;
-    color: #666;
-    margin-top: 6px;
-    padding: 4px 8px;
-    background: #f5f7fa;
-    border-radius: 3px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+/* ── Prism 浅色暖色主题 ── */
+.km-code-body .token.comment,
+.km-code-body .token.prolog,
+.km-code-body .token.doctype,
+.km-code-body .token.cdata { color: #8b8070; font-style: italic; }
+.km-code-body .token.punctuation { color: #3d3529; }
+.km-code-body .token.property,
+.km-code-body .token.boolean,
+.km-code-body .token.number,
+.km-code-body .token.constant,
+.km-code-body .token.symbol { color: #0074bd; }
+/* 修复 Tabler .tag 样式泄漏到 .token.tag */
+.km-code-body .token.tag { color: #0074bd; background:transparent !important; border:none !important; padding:0 !important; border-radius:0 !important; box-shadow:none !important; display:inline !important; gap:0 !important; align-items:inherit !important; }
+.km-code-body .token.selector,
+.km-code-body .token.attr-name,
+.km-code-body .token.string,
+.km-code-body .token.char,
+.km-code-body .token.builtin { color: #a5173a; }
+.km-code-body .token.operator,
+.km-code-body .token.entity,
+.km-code-body .token.url { color: #7c3aed; }
+.km-code-body .token.atrule,
+.km-code-body .token.attr-value,
+.km-code-body .token.keyword { color: #b91c1c; }
+.km-code-body .token.function,
+.km-code-body .token.class-name { color: #7c3aed; }
+.km-code-body .token.regex,
+.km-code-body .token.important,
+.km-code-body .token.variable { color: #b45309; font-weight: bold; }
+.km-code-body .token.template-variable { color: #b45309; }
+
+/* ── 行点击展开 ── */
+tr.km-chain-clickable {
+    cursor: pointer;
+}
+tr.km-chain-clickable:hover {
+    background: rgba(59, 130, 246, 0.06) !important;
+}
+tr.km-chain-clickable.km-chain-row-active {
+    background: rgba(59, 130, 246, 0.1) !important;
+}
+.km-chain-indicator {
+    color: #94a3b8;
+    font-size: 13px;
+    margin-right: 4px;
+    transition: color 0.15s;
+}
+tr.km-chain-clickable:hover .km-chain-indicator {
+    color: #3b82f6;
 }

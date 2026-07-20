@@ -63,28 +63,8 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 文件读取
-    'std::fs::read_to_string',
-    'std::fs::read',
-    'std::io::stdin',
-    'std::io::BufReader',
-    'std::io::Read::read_to_string',
-    'std::io::Read::read',
-    'std::io::BufRead::lines',
-    # 网络
-    'std::net::TcpStream::connect',
-    'std::net::UdpSocket::bind',
-    'std::net::TcpListener::accept',
-    # 编码解析
-    'serde_json::from_str',
-    'serde_json::from_value',
-    'serde_json::from_reader',
-    'serde_yaml::from_str',
-    'toml::from_str',
-    # 进程
-    'std::process::Command::output',
-    'std::process::Command::status',
-    'std::process::Stdio',
+    # 注意：文件/IO/网络操作已全部移除，它们是 CLI/file 操作，不是 Web source
+    # Web source 通过框架检测注入（actix-web/axum/rocket: HttpRequest.*）
 }
 
 # ---------------------------------------------------------------------------

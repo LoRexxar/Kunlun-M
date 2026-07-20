@@ -1,153 +1,183 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-	<title>{{ title }}</title>
-	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>{{ title }} | 注册</title>
+  {% load static %}
+  <link rel="icon" href="{% static 'favicon.ico' %}">
 
-    {% load static %}
-    <link rel="icon" href="{% static 'favicon.ico' %}" ><link rel="stylesheet" href="{% static 'css/bulma.css' %}">
-    <link rel="stylesheet" href="{% static 'css/default.css' %}?v=9">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/css/tabler.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="{% static 'font-awesome/css/font-awesome.min.css' %}">
 
-	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <style>
+    :root {
+      --tblr-primary: #2f5bcc;
+      --tblr-primary-rgb: 47, 91, 204;
+      --tblr-primary-fg: #ffffff;
+    }
+
+    body.layout-fluid {
+      background: #f5f7fb;
+      min-height: 100vh;
+    }
+
+    .km-auth-page {
+      min-height: 100vh;
+      background: radial-gradient(circle at top right,
+        rgba(74, 107, 255, 0.18),
+        rgba(245, 247, 251, 0.6) 60%);
+    }
+
+    .km-auth-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 0;
+    }
+
+    .km-auth-brand {
+      text-align: center;
+      margin-bottom: 18px;
+    }
+    .km-auth-brand a {
+      color: #2f5bcc;
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: .3px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .km-auth-card {
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      border: 1px solid rgba(47, 91, 204, 0.08);
+      border-radius: 14px;
+      box-shadow: 0 18px 40px rgba(31, 45, 61, .12);
+    }
+    .km-auth-card .card-body {
+      padding: 32px;
+    }
+    .km-auth-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1f2a39;
+      margin: 0;
+    }
+    .km-auth-subtitle {
+      color: #64748b;
+      font-size: 13px;
+      margin: 4px 0 24px;
+    }
+    .km-auth-back-home {
+      color: #64748b;
+      font-size: 13px;
+      text-decoration: none;
+    }
+    .km-auth-back-home:hover {
+      color: #2f5bcc;
+    }
+  </style>
 </head>
 
-<body class="auth-body">
-  <section class="hero is-medium is-bold auth-hero">
-
-  <div class="hero-head">
-    <nav class="navbar">
+<body class="layout-fluid">
+<div class="page km-auth-page">
+  <div class="page-wrapper">
+    <main class="page-body">
       <div class="container">
-        <div class="navbar-brand">
-          <a class="navbar-item">
-            <h3>{{ title }}</h3>
-          </a>
-          <span class="navbar-burger burger" data-target="navbarMenuHeroB">
-            <span></span>
-            <span></span>
-            <span></span>
-          </span>
-        </div>
-        <div id="navbarMenuHeroB" class="navbar-menu">
-          <div class="navbar-end">
-            <a class="navbar-item is-active" href="/">
-              首页
-            </a>
-
-{% block index %}
-            <span class="navbar-item">
-              <a class="button is-info is-inverted" href="{% url 'index:register' %}">
-                <span class="icon">
-                  <i class="fa fa-sign-in"></i>
-                </span>
-                <span>注册</span>
+        <div class="km-auth-wrap">
+          <div>
+            <div class="km-auth-brand">
+              <a href="/">
+                <i class="ti ti-shield-lock"></i>
+                <span>{{ title }}</span>
               </a>
-            </span>
-            <span class="navbar-item">
-              <a class="button is-info is-inverted" href="{% url 'index:login' %}">
-                <span class="icon">
-                  <i class="fa fa-sign-in"></i>
-                </span>
-                <span>登录</span>
-              </a>
-            </span>
-{% endblock %}
-
             </div>
+
+            <div class="card card-md km-auth-card">
+              <div class="card-body">
+                <h1 class="km-auth-title text-center">创建账户</h1>
+                <p class="km-auth-subtitle text-center">注册以开始使用 {{ title }}</p>
+
+{% if messages %}
+                <div>
+{% for message in messages %}
+                  <div class="alert alert-danger">{{ message }}</div>
+{% endfor %}
+                </div>
+{% endif %}
+
+                <form id="reg" method="post" action="{% url 'index:register' %}">
+                  {% csrf_token %}
+                  <div class="mb-3">
+                    <label class="form-label">用户名</label>
+                    <input id="user" type="text" class="form-control" placeholder="请输入用户名" name="username" autofocus>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">密码</label>
+                    <input id="pass" type="password" class="form-control" placeholder="请输入密码" name="password1" value="">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">确认密码</label>
+                    <input id="pass2" type="password" class="form-control" placeholder="请再次输入密码" name="password2" value="">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">邮箱</label>
+                    <input id="email" type="email" class="form-control" placeholder="请输入邮箱" name="email" value="">
+                  </div>
+                  <div class="form-footer d-flex gap-2">
+                    <button id="reg-btn" type="submit" class="btn btn-primary flex-fill">
+                      <i class="fa fa-user-plus me-1"></i>提交
+                    </button>
+                    <button id="cancel-btn" type="button" class="btn btn-link">
+                      取消
+                    </button>
+                  </div>
+                  <div class="hr-text">或</div>
+                  <div class="text-center text-muted">
+                    已有账号？
+                    <a href="{% url 'index:login' %}" class="text-primary">立即登录</a>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <div class="text-center mt-3">
+              <a href="/" class="km-auth-back-home">
+                <i class="fa fa-arrow-left me-1"></i>返回首页
+              </a>
+            </div>
+          </div>
         </div>
       </div>
-    </nav>
-  </div>
-
-    <div class="hero-body">
-    	<div class="container">
-	      <h1 class="title">
-	        {{ title }}
-	      </h1>
-	      <p class="subtitle">
-	        注册页面（{{ title }}）
-	      </p>
-
-<div class="box auth-card">
-
-<form id="reg" method="post" class="form-signin" action="{% url 'index:register' %}">
-
-{% csrf_token %}
-
-<div class="field">
-  <label class="label">用户名</label>
-  <div class="control">
-    <input id="user" class="input" type="text" placeholder="请输入用户名" name="username" autofocus>
+    </main>
   </div>
 </div>
-
-<div class="field">
-  <label class="label">密码</label>
-  <div class="control">
-    <input id="pass" class="input" type="password" placeholder="请输入密码" name="password1" value="">
-  </div>
-</div>
-
-<div class="field">
-  <label class="label">确认密码</label>
-  <div class="control">
-    <input id="pass" class="input" type="password" placeholder="请再次输入密码" name="password2" value="">
-  </div>
-</div>
-
-<div class="field">
-  <label class="label">邮箱</label>
-  <div class="control">
-    <input id="email" class="input" type="email" placeholder="请输入邮箱" name="email" value="">
-  </div>
-</div>
-
-<div class="field">
-    {% if messages %}
-    <ul class="messages">
-        {% for message in messages %}
-        <li{% if message.tags %} class="notification is-danger is-{{ message.tags }}"{% endif %}>{{ message }}</li>
-        {% endfor %}
-    </ul>
-    {% endif %}
-</div>
-
-<div class="field is-grouped columns">
-  <div class="control column">
-    <button id="reg-btn" class="button is-link">提交</button>
-  </div>
-  <div class="control column">
-    <button id="cancel-btn" class="button is-text">取消</button>
-  </div>
-</div>
-
-</form>
-
-</div>
-
-</div>
-</div>
-</section>
 
 <script>
-
 document.getElementById("reg-btn").addEventListener("click", function(e){
-	e.preventDefault();
-	e.stopPropagation();
-	document.getElementById("reg").submit();
-	return false;
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById("reg").submit();
+  return false;
 });
 
 document.getElementById("cancel-btn").addEventListener("click", function(e){
-	e.preventDefault();
-	e.stopPropagation();
-	location.href = '{% url 'index:index' %}';
-	return false;
+  e.preventDefault();
+  e.stopPropagation();
+  location.href = '{% url 'index:index' %}';
+  return false;
 });
-
-
 </script>
 
 <script src="{% static 'js/jquery.min.js' %}"></script>
-<script src="{% static 'js/bootstrap.min.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
 </body>
 </html>

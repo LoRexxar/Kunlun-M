@@ -55,7 +55,7 @@ class VendorListView(TemplateView):
         for row in context['vendors']:
             project = Project.objects.filter(id=row.project_id).first()
 
-            row.project_name = project.project_name
+            row.project_name = project.project_name if project else '-'
 
         return context
 

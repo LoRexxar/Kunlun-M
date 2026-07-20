@@ -13,9 +13,9 @@
 
 <!-- Scan 选择区 -->
 <div class="row">
-  <div class="col-xs-6 col-md-4">
-    <div class="box">
-      <div class="box-body">
+  <div class="col-6 col-md-4">
+    <div class="card">
+      <div class="card-body">
         <div class="input-group">
           <select id="scanSelect" class="form-control">
             <option value="">-- 选择 Scan --</option>
@@ -27,14 +27,43 @@
       </div>
     </div>
   </div>
-  <div class="col-xs-6 col-md-8">
-    <div class="box" id="scanInfoBox" style="display:none;">
-      <div class="box-body">
+  <div class="col-6 col-md-8">
+    <div class="card" id="scanInfoBox" style="display:none;">
+      <div class="card-body">
         <span class="km-muted">ID:</span> <span id="scanInfoId">-</span>&nbsp;&nbsp;
         <span class="km-muted">语言:</span> <span id="scanInfoLang">-</span>&nbsp;&nbsp;
         <span class="km-muted">节点:</span> <span id="scanInfoNodes">-</span>&nbsp;&nbsp;
         <span class="km-muted">边:</span> <span id="scanInfoEdges">-</span>&nbsp;&nbsp;
         <span class="km-muted">目标:</span> <span id="scanInfoTarget">-</span>
+        &nbsp;&nbsp;
+        <span id="graphLoadStatus"></span>
+        <button id="btnLoadGraph" class="btn btn-success btn-sm" style="margin-left:10px;">
+          <i class="fa fa-download"></i> 加载图数据
+        </button>
+        <button id="btnReleaseGraph" class="btn btn-outline-danger btn-sm" style="margin-left:5px; display:none;">
+          <i class="fa fa-eject"></i> 释放内存
+        </button>
+        <!-- 图 session 状态面板 -->
+        <div id="graphSessionPanel" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(52,152,219,0.08); border-radius:4px; border:1px solid rgba(52,152,219,0.2);">
+          <div style="display:flex; align-items:center; gap:15px; flex-wrap:wrap; font-size:12px;">
+            <span id="gsState">
+              <i class="fa fa-circle text-success" style="font-size:8px;"></i>
+              <span class="text-success" style="font-weight:600;">已加载</span>
+            </span>
+            <span class="km-muted">节点: <strong id="gsNodes">-</strong></span>
+            <span class="km-muted">边: <strong id="gsEdges">-</strong></span>
+            <span id="gsIdleWrap" class="km-muted">
+              空闲 <span id="gsIdleSec" style="font-weight:600;">0</span>s /
+              <span id="gsIdleMax">30</span>min
+              <div style="display:inline-block; vertical-align:middle; width:80px; height:6px; background:#ecf0f1; border-radius:3px; margin-left:4px; position:relative;">
+                <div id="gsIdleBar" style="height:100%; background:#2ecc71; border-radius:3px; width:0%; transition:width 1s linear;"></div>
+              </div>
+            </span>
+            <button id="btnReleaseGraph2" class="btn btn-outline-danger btn-xs" style="padding:1px 8px; font-size:11px;">
+              <i class="fa fa-eject"></i> 释放
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -42,7 +71,7 @@
 
 <!-- Tab 导航 -->
 <div class="row">
-  <div class="col-xs-12">
+  <div class="col-12">
     <div class="btn-group" style="margin-bottom: 15px;">
       <button class="btn btn-primary btn-sm tab-btn" data-tab="tab-overview">概览</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-file">文件查询</button>
@@ -57,7 +86,7 @@
 <!-- ==================== Tab 1: 概览 ==================== -->
 <div class="tab-pane" id="tab-overview">
   <div class="row">
-    <div class="col-xs-12">
+    <div class="col-12">
       <button id="btnLoadOverview" class="btn btn-primary btn-sm" style="margin-bottom:15px;">
         <i class="fa fa-refresh"></i> 加载概览
       </button>
@@ -66,32 +95,32 @@
 
   <!-- 统计卡片 -->
   <div class="row" id="overviewCards" style="display:none;">
-    <div class="col-xs-6 col-md-3">
-      <div class="box">
+    <div class="col-6 col-md-3">
+      <div class="card">
         <div class="box-body text-center">
           <div style="font-size:28px;font-weight:700;color:#3c8dbc;" id="statNodeCount">-</div>
           <div class="km-muted">节点总数</div>
         </div>
       </div>
     </div>
-    <div class="col-xs-6 col-md-3">
-      <div class="box">
+    <div class="col-6 col-md-3">
+      <div class="card">
         <div class="box-body text-center">
           <div style="font-size:28px;font-weight:700;color:#00a65a;" id="statEdgeCount">-</div>
           <div class="km-muted">边总数</div>
         </div>
       </div>
     </div>
-    <div class="col-xs-6 col-md-3">
-      <div class="box">
+    <div class="col-6 col-md-3">
+      <div class="card">
         <div class="box-body text-center">
           <div style="font-size:28px;font-weight:700;color:#f39c12;" id="statFuncCount">-</div>
           <div class="km-muted">函数数</div>
         </div>
       </div>
     </div>
-    <div class="col-xs-6 col-md-3">
-      <div class="box">
+    <div class="col-6 col-md-3">
+      <div class="card">
         <div class="box-body text-center">
           <div style="font-size:28px;font-weight:700;color:#dd4b39;" id="statSinkCount">-</div>
           <div class="km-muted">Sink 数</div>
@@ -102,33 +131,33 @@
 
   <div class="row">
     <!-- Label Summary -->
-    <div class="col-xs-12 col-md-5">
-      <div class="box">
-        <div class="box-header">
-          <h3 class="box-title">Label 分布</h3>
+    <div class="col-12 col-md-5">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title">Label 分布</h3>
         </div>
-        <div class="box-body">
+        <div class="card-body">
           <div id="labelChart"></div>
           <table class="table table-striped km-table" style="margin-top:10px;">
             <thead><tr><th>Label</th><th style="text-align:right;">数量</th><th style="width:40%;"></th></tr></thead>
             <tbody id="labelSummaryBody">
-              <tr><td colspan="3" class="text-center km-muted">未加载</td></tr>
+              <tr><td colspan="3" class="text-center km-muted" style="padding:15px;"><i class="fa fa-bar-chart" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </div>
     <!-- 文件列表 -->
-    <div class="col-xs-12 col-md-7">
-      <div class="box">
-        <div class="box-header">
-          <h3 class="box-title">文件列表</h3>
+    <div class="col-12 col-md-7">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title">文件列表</h3>
         </div>
-        <div class="box-body table-responsive no-padding">
+        <div class="box-body table-responsive">
           <table class="table table-hover km-table">
             <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th></tr></thead>
             <tbody id="fileListBody">
-              <tr><td colspan="3" class="text-center km-muted">未加载</td></tr>
+              <tr><td colspan="3" class="text-center km-muted" style="padding:15px;"><i class="fa fa-folder-open" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
           </table>
         </div>
@@ -138,17 +167,17 @@
 
   <!-- 边类型分布 -->
   <div class="row" style="margin-top:10px;" id="edgeTypeRow">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-header">
-          <h3 class="box-title">边类型分布</h3>
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title">边类型分布</h3>
         </div>
-        <div class="box-body">
+        <div class="card-body">
           <div id="edgeTypeChart"></div>
           <table class="table table-striped km-table" style="margin-top:10px;">
             <thead><tr><th>类型</th><th style="text-align:right;">数量</th><th>含义</th><th style="width:30%;"></th></tr></thead>
             <tbody id="edgeTypeBody">
-              <tr><td colspan="4" class="text-center km-muted">未加载</td></tr>
+              <tr><td colspan="4" class="text-center km-muted" style="padding:15px;"><i class="fa fa-arrows-alt" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
           </table>
         </div>
@@ -160,9 +189,9 @@
 <!-- ==================== Tab 2: 文件查询 ==================== -->
 <div class="tab-pane" id="tab-file" style="display:none;">
   <div class="row">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div class="input-group" style="max-width:600px;">
             <input type="text" id="fileQueryInput" class="form-control" placeholder="输入文件路径，如 src/app.php">
             <span class="input-group-btn">
@@ -175,11 +204,11 @@
   </div>
 
   <div class="row" id="fileResultArea" style="display:none;">
-    <div class="col-xs-12 col-md-6">
+    <div class="col-12 col-md-6">
       <!-- Classes -->
-      <div class="box" id="fileClassesBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">Classes</h3></div>
-        <div class="box-body table-responsive no-padding">
+      <div class="card" id="fileClassesBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Classes</h3></div>
+        <div class="box-body table-responsive">
           <table class="table table-striped km-table">
             <thead><tr><th>Name</th><th>Line</th></tr></thead>
             <tbody id="fileClassesBody"></tbody>
@@ -187,9 +216,9 @@
         </div>
       </div>
       <!-- Functions -->
-      <div class="box" id="fileFunctionsBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">Functions</h3></div>
-        <div class="box-body table-responsive no-padding">
+      <div class="card" id="fileFunctionsBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Functions</h3></div>
+        <div class="box-body table-responsive">
           <table class="table table-striped km-table">
             <thead><tr><th>Name</th><th>Line</th></tr></thead>
             <tbody id="fileFunctionsBody"></tbody>
@@ -197,9 +226,9 @@
         </div>
       </div>
       <!-- Operators -->
-      <div class="box" id="fileOperatorsBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">Operators (分支数: <span id="fileBranchCount">-</span>)</h3></div>
-        <div class="box-body table-responsive no-padding">
+      <div class="card" id="fileOperatorsBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Operators (分支数: <span id="fileBranchCount">-</span>)</h3></div>
+        <div class="box-body table-responsive">
           <table class="table table-striped km-table">
             <thead><tr><th>Operator</th><th>Line</th></tr></thead>
             <tbody id="fileOperatorsBody"></tbody>
@@ -207,11 +236,11 @@
         </div>
       </div>
     </div>
-    <div class="col-xs-12 col-md-6">
+    <div class="col-12 col-md-6">
       <!-- Imports -->
-      <div class="box" id="fileImportsBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">Imports</h3></div>
-        <div class="box-body table-responsive no-padding">
+      <div class="card" id="fileImportsBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Imports</h3></div>
+        <div class="box-body table-responsive">
           <table class="table table-striped km-table">
             <thead><tr><th>Import</th><th>Line</th></tr></thead>
             <tbody id="fileImportsBody"></tbody>
@@ -222,9 +251,9 @@
   </div>
 
   <div class="row" id="fileErrorArea" style="display:none;">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div id="fileErrorMsg" class="text-danger"></div>
         </div>
       </div>
@@ -235,9 +264,9 @@
 <!-- ==================== Tab 3: 函数查询 ==================== -->
 <div class="tab-pane" id="tab-function" style="display:none;">
   <div class="row">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div class="input-group" style="max-width:600px;">
             <input type="text" id="funcQueryInput" class="form-control" placeholder="输入函数名称，如 exec">
             <span class="input-group-btn">
@@ -251,10 +280,10 @@
 
   <div class="row" id="funcResultArea" style="display:none;">
     <!-- 基本信息 -->
-    <div class="col-xs-12 col-md-4">
-      <div class="box">
-        <div class="box-header"><h3 class="box-title">函数信息</h3></div>
-        <div class="box-body">
+    <div class="col-12 col-md-4">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">函数信息</h3></div>
+        <div class="card-body">
           <table class="table km-table" style="margin-bottom:0;">
             <tr><td class="km-muted" style="width:80px;">名称</td><td id="funcName">-</td></tr>
             <tr><td class="km-muted">全名</td><td id="funcFullname">-</td></tr>
@@ -265,25 +294,25 @@
         </div>
       </div>
       <!-- 参数列表 -->
-      <div class="box" id="funcParamsBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">参数列表</h3></div>
-        <div class="box-body">
+      <div class="card" id="funcParamsBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">参数列表</h3></div>
+        <div class="card-body">
           <ul id="funcParamsList" class="list-unstyled" style="margin:0;"></ul>
         </div>
       </div>
       <!-- Return Nodes -->
-      <div class="box" id="funcReturnBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">Return Nodes</h3></div>
-        <div class="box-body">
+      <div class="card" id="funcReturnBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Return Nodes</h3></div>
+        <div class="card-body">
           <ul id="funcReturnList" class="list-unstyled" style="margin:0;"></ul>
         </div>
       </div>
     </div>
     <!-- Callers / Callees -->
-    <div class="col-xs-12 col-md-4">
-      <div class="box" id="funcCallersBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">调用者 (Callers)</h3></div>
-        <div class="box-body table-responsive no-padding">
+    <div class="col-12 col-md-4">
+      <div class="card" id="funcCallersBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">调用者 (Callers)</h3></div>
+        <div class="box-body table-responsive">
           <table class="table table-hover km-table">
             <thead><tr><th>Name</th><th>Line</th><th>File</th></tr></thead>
             <tbody id="funcCallersBody"></tbody>
@@ -291,10 +320,10 @@
         </div>
       </div>
     </div>
-    <div class="col-xs-12 col-md-4">
-      <div class="box" id="funcCalleesBox" style="display:none;">
-        <div class="box-header"><h3 class="box-title">被调用 (Callees)</h3></div>
-        <div class="box-body table-responsive no-padding">
+    <div class="col-12 col-md-4">
+      <div class="card" id="funcCalleesBox" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">被调用 (Callees)</h3></div>
+        <div class="box-body table-responsive">
           <table class="table table-hover km-table">
             <thead><tr><th>Name</th><th>Line</th><th>File</th></tr></thead>
             <tbody id="funcCalleesBody"></tbody>
@@ -306,19 +335,19 @@
 
   <!-- 调用关系图 -->
   <div class="row" id="funcCallGraphRow" style="display:none;margin-top:15px;">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-header">
-          <h3 class="box-title">调用关系图</h3>
-          <div class="box-tools pull-right">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title">调用关系图</h3>
+          <div class="card-tools d-flex ms-auto">
             <div class="btn-group">
-              <button type="button" class="btn btn-default btn-xs" id="btnCallGraphBoth" title="双向"> callers+callees </button>
-              <button type="button" class="btn btn-default btn-xs" id="btnCallGraphIn" title="仅调用者"> callers </button>
-              <button type="button" class="btn btn-default btn-xs" id="btnCallGraphOut" title="仅被调用"> callees </button>
+              <button type="button" class="btn btn-default btn-sm" id="btnCallGraphBoth" title="双向"> callers+callees </button>
+              <button type="button" class="btn btn-default btn-sm" id="btnCallGraphIn" title="仅调用者"> callers </button>
+              <button type="button" class="btn btn-default btn-sm" id="btnCallGraphOut" title="仅被调用"> callees </button>
             </div>
           </div>
         </div>
-        <div class="box-body">
+        <div class="card-body">
           <div id="funcCallGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div>
         </div>
       </div>
@@ -326,9 +355,9 @@
   </div>
 
   <div class="row" id="funcErrorArea" style="display:none;">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div id="funcErrorMsg" class="text-danger"></div>
         </div>
       </div>
@@ -339,9 +368,9 @@
 <!-- ==================== Tab 4: 污点追踪 ==================== -->
 <div class="tab-pane" id="tab-trace" style="display:none;">
   <div class="row">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div class="input-group" style="max-width:600px;">
             <input type="text" id="traceInput" class="form-control" placeholder="file:line，如 src/app.php:42">
             <span class="input-group-btn">
@@ -358,9 +387,9 @@
   </div>
 
   <div class="row" id="traceErrorArea" style="display:none;">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div id="traceErrorMsg" class="text-danger"></div>
         </div>
       </div>
@@ -371,9 +400,9 @@
 <!-- ==================== Tab 5.5: 变量追踪 ==================== -->
 <div class="tab-pane" id="tab-vartrace" style="display:none;">
   <div class="row">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
           <div class="input-group" style="max-width:600px;">
             <input type="text" id="varTraceInput" class="form-control" placeholder="输入变量名，如 $cmd 或 $_GET">
             <span class="input-group-btn">
@@ -394,23 +423,23 @@
 <div class="tab-pane" id="tab-graph" style="display:none;">
   <!-- 控制栏 -->
   <div class="row">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-body" style="padding:10px 15px;">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body" style="padding:10px 15px;">
           <div class="row" style="align-items:center; gap:10px;">
-            <div class="col-xs-12 col-sm-4">
+            <div class="col-12 col-sm-4">
               <div class="input-group">
                 <span class="input-group-addon">节点 VID</span>
                 <input type="number" id="graphVidInput" class="form-control" placeholder="输入中心节点 VID">
               </div>
             </div>
-            <div class="col-xs-6 col-sm-2">
+            <div class="col-6 col-sm-2">
               <div class="input-group">
                 <span class="input-group-addon">深度</span>
                 <input type="number" id="graphDepthInput" class="form-control" value="2" min="1" max="5" style="width:60px;">
               </div>
             </div>
-            <div class="col-xs-6 col-sm-2">
+            <div class="col-6 col-sm-2">
               <select id="graphLayoutSelect" class="form-control">
                 <option value="breadthfirst">层级布局</option>
                 <option value="cose">力导向</option>
@@ -418,7 +447,7 @@
                 <option value="circle">环形</option>
               </select>
             </div>
-            <div class="col-xs-12 col-sm-4 text-right">
+            <div class="col-12 col-sm-4 text-right">
               <button id="btnLoadSubgraph" class="btn btn-primary btn-sm">
                 <i class="fa fa-project-diagram"></i> 加载子图
               </button>
@@ -429,7 +458,7 @@
           </div>
           <!-- 过滤栏 -->
           <div class="row" style="margin-top:8px;">
-            <div class="col-xs-12">
+            <div class="col-12">
               <label class="km-muted" style="font-size:12px; margin-right:10px;">节点类型:</label>
               <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="file" checked> file</label>
               <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="class" checked> class</label>
@@ -460,34 +489,34 @@
 
   <!-- 图容器 + 节点详情 -->
   <div class="row">
-    <div class="col-xs-12 col-md-9">
-      <div class="box">
-        <div class="box-header">
-          <h3 class="box-title">
+    <div class="col-12 col-md-9">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title">
             <i class="fa fa-project-diagram"></i> AST 图
             <span id="graphStats" class="km-muted" style="font-size:12px; margin-left:10px;"></span>
           </h3>
-          <div class="box-tools pull-right">
-            <button id="btnFitGraph" class="btn btn-default btn-xs" title="适应视图">
+          <div class="card-tools d-flex ms-auto">
+            <button id="btnFitGraph" class="btn btn-default btn-sm" title="适应视图">
               <i class="fa fa-expand"></i>
             </button>
-            <button id="btnClearGraph" class="btn btn-default btn-xs" title="清空">
+            <button id="btnClearGraph" class="btn btn-default btn-sm" title="清空">
               <i class="fa fa-trash"></i>
             </button>
           </div>
         </div>
-        <div class="box-body" style="padding:0;">
+        <div class="card-body" style="padding:0;">
           <div id="cyGraphContainer" style="width:100%; height:550px; background:#1a1a2e;"></div>
         </div>
       </div>
     </div>
     <!-- 节点详情面板 -->
-    <div class="col-xs-12 col-md-3">
-      <div class="box" id="nodeDetailBox">
-        <div class="box-header">
-          <h3 class="box-title">节点详情</h3>
+    <div class="col-12 col-md-3">
+      <div class="card" id="nodeDetailBox">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h3 class="card-title">节点详情</h3>
         </div>
-        <div class="box-body">
+        <div class="card-body">
           <div id="nodeDetailContent" class="km-muted text-center" style="padding:20px;">
             点击图中的节点查看详情
           </div>
@@ -515,6 +544,9 @@ $(document).ready(function () {
 
     var currentScanId = null;
     var scanProjectMap = {};  // scan_id → project_id 缓存
+    var graphLoaded = false;  // 当前 scan 的图是否已加载到后端
+    var graphIdleTimer = null;  // 定时轮询后端 idle 状态
+    var graphIdleMaxSec = 30 * 60;  // 默认 30 分钟
 
     // ===== 加载 scan 列表 =====
     function loadScans() {
@@ -581,6 +613,150 @@ $(document).ready(function () {
     }
     loadScans();
 
+    // ===== Graph 加载 / 释放 / 状态轮询 =====
+    function loadGraph(scanId, callback) {
+        if (!scanId) return;
+        var $btn = $('#btnLoadGraph');
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中（大图可能需要 10-30 秒）...');
+
+        $.ajax({
+            url: '/api/graph/load',
+            type: 'POST',
+            data: { scan_id: scanId },
+            dataType: 'json',
+            timeout: 120000,
+            success: function (resp) {
+                if (resp.code === 200) {
+                    graphLoaded = true;
+                    _showSessionPanel(resp);
+                    $btn.hide();
+                    $('#btnReleaseGraph').show();
+                    $('#graphLoadStatus').html('');
+                    // 自动加载概览
+                    _doLoadOverview(scanId);
+                    if (callback) callback();
+                } else {
+                    $('#graphLoadStatus').html('<span class="text-danger"><i class="fa fa-times-circle"></i> ' + (resp.error || '加载失败') + '</span>');
+                    $btn.prop('disabled', false).html('<i class="fa fa-download"></i> 加载图数据');
+                }
+            },
+            error: function (xhr) {
+                var msg = '网络错误';
+                try { var d = JSON.parse(xhr.responseText); msg = d.error || msg; } catch(e) {}
+                $('#graphLoadStatus').html('<span class="text-danger"><i class="fa fa-times-circle"></i> ' + msg + '</span>');
+                $btn.prop('disabled', false).html('<i class="fa fa-download"></i> 加载图数据');
+            }
+        });
+    }
+
+    function releaseGraph(scanId) {
+        _stopIdlePoll();
+        $.ajax({
+            url: '/api/graph/release',
+            type: 'POST',
+            data: { scan_id: scanId || '' },
+            dataType: 'json',
+            success: function (resp) {
+                graphLoaded = false;
+                $('#btnReleaseGraph').hide();
+                $('#btnLoadGraph').show().prop('disabled', false).html('<i class="fa fa-download"></i> 加载图数据');
+                $('#graphSessionPanel').hide();
+                $('#graphLoadStatus').html('<span class="text-muted"><i class="fa fa-check"></i> 已释放</span>');
+            }
+        });
+    }
+
+    function _showSessionPanel(data) {
+        var $panel = $('#graphSessionPanel').show();
+        $('#gsNodes').text(data.node_count || '-');
+        $('#gsEdges').text(data.edge_count || '-');
+        if (data.idle_timeout_minutes) {
+            graphIdleMaxSec = data.idle_timeout_minutes * 60;
+            $('#gsIdleMax').text(data.idle_timeout_minutes);
+        }
+        $('#gsIdleSec').text(0);
+        $('#gsIdleBar').css('width', '0%').css('background', '#2ecc71');
+        _startIdlePoll();
+    }
+
+    function _startIdlePoll() {
+        _stopIdlePoll();
+        graphIdleTimer = setInterval(function () {
+            if (!graphLoaded) { _stopIdlePoll(); return; }
+            $.ajax({
+                url: '/api/graph/status',
+                type: 'GET',
+                dataType: 'json',
+                success: function (resp) {
+                    if (resp.code !== 200 || !resp.loaded || resp.loaded.length === 0) {
+                        // 后端已自动释放
+                        graphLoaded = false;
+                        _stopIdlePoll();
+                        $('#graphSessionPanel').hide();
+                        $('#btnReleaseGraph').hide();
+                        $('#btnLoadGraph').show().prop('disabled', false).html('<i class="fa fa-download"></i> 加载图数据');
+                        $('#graphLoadStatus').html('<span class="text-warning"><i class="fa fa-clock-o"></i> 图数据已因空闲超时自动释放</span>');
+                        return;
+                    }
+                    var s = resp.loaded[0];
+                    var idle = s.idle_seconds || 0;
+                    var maxSec = (s.idle_timeout_minutes || 30) * 60;
+                    var pct = Math.min(100, (idle / maxSec) * 100);
+                    $('#gsIdleSec').text(idle);
+                    $('#gsIdleBar').css('width', pct + '%');
+                    // 颜色变化：绿 → 黄 → 红
+                    if (pct < 60) { $('#gsIdleBar').css('background', '#2ecc71'); }
+                    else if (pct < 85) { $('#gsIdleBar').css('background', '#f39c12'); }
+                    else { $('#gsIdleBar').css('background', '#e74c3c'); }
+                }
+            });
+        }, 5000);  // 每 5 秒轮询一次
+    }
+
+    function _stopIdlePoll() {
+        if (graphIdleTimer) { clearInterval(graphIdleTimer); graphIdleTimer = null; }
+    }
+
+    function requireGraph(callback) {
+        if (graphLoaded) { callback(); return; }
+        $('#graphLoadStatus').html('<span class="text-warning"><i class="fa fa-exclamation-triangle"></i> 请先加载图数据</span>');
+        alert('请先点击"加载图数据"按钮加载 AST 图。\n\n大图加载可能需要 10-30 秒，加载完成后可进行所有查询操作。');
+    }
+
+    $('#btnLoadGraph').on('click', function () {
+        loadGraph(currentScanId);
+    });
+
+    $('#btnReleaseGraph, #btnReleaseGraph2').on('click', function () {
+        if (confirm('确定释放当前图数据？\n\n释放后所有未保存的查询结果将丢失，后续查询需要重新加载。')) {
+            releaseGraph(currentScanId);
+        }
+    });
+
+    // 检查后端已有 session（页面刷新时复用缓存）
+    function checkGraphStatus() {
+        $.ajax({
+            url: '/api/graph/status',
+            type: 'GET',
+            dataType: 'json',
+            success: function (resp) {
+                if (resp.code === 200 && resp.loaded && resp.loaded.length > 0) {
+                    var s = resp.loaded[0];
+                    if (String(s.scan_id) === String(currentScanId)) {
+                        graphLoaded = true;
+                        $('#btnLoadGraph').hide();
+                        $('#btnReleaseGraph').show();
+                        $('#graphLoadStatus').html('');
+                        _showSessionPanel(s);
+                    } else {
+                        // 后端有其他 scan 的 session，释放它
+                        releaseGraph(s.scan_id);
+                    }
+                }
+            }
+        });
+    }
+
     // ===== 选择 scan =====
     function selectScan(scanId) {
         currentScanId = scanId;
@@ -599,6 +775,12 @@ $(document).ready(function () {
             $('#scanInfoNodes').text(nodeMatch ? nodeMatch[1] : '-');
             $('#scanInfoEdges').text(edgeMatch ? edgeMatch[1] : '-');
             $('#scanInfoTarget').text(targetMatch ? targetMatch[1] : '-');
+            // 切换 scan 时重置加载状态，检查后端缓存
+            graphLoaded = false;
+            $('#btnLoadGraph').show().prop('disabled', false).html('<i class="fa fa-download"></i> 加载图数据');
+            $('#btnReleaseGraph').hide();
+            $('#graphLoadStatus').html('');
+            checkGraphStatus();
         } else {
             $('#scanInfoBox').hide();
         }
@@ -634,8 +816,18 @@ $(document).ready(function () {
 
     function loadOverview(scanId) {
         if (!scanId) { alert('请先选择一个 Scan'); return; }
+        requireGraph(function() {
+            _doLoadOverview(scanId);
+        });
+    }
+    function _doLoadOverview(scanId) {
         var $btn = $('#btnLoadOverview');
-        $btn.prop('disabled', true).text('加载中...');
+        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
+        // 显示 loading 占位
+        var loadingHtml = '<tr><td colspan="3" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>';
+        $('#labelSummaryBody').html(loadingHtml);
+        $('#fileListBody').html('<tr><td colspan="3" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
+        $('#edgeTypeBody').html('<tr><td colspan="4" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
 
         $.ajax({
             url: '/api/graph/query',
@@ -771,6 +963,9 @@ $(document).ready(function () {
 
     function queryFile(scanId, filePath) {
         if (!scanId) { alert('请先选择一个 Scan'); return; }
+        requireGraph(function() { _doQueryFile(scanId, filePath); });
+    }
+    function _doQueryFile(scanId, filePath) {
         $('#fileResultArea').hide();
         $('#fileErrorArea').hide();
 
@@ -794,7 +989,7 @@ $(document).ready(function () {
                     var $tb = $('#fileClassesBody').empty();
                     $.each(d.classes, function (i, c) {
                         var vid = c.vid || c.id;
-                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-sm btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
                         $tb.append('<tr><td>' + escHtml(c.name || c) + viewBtn + '</td><td>' + (c.lineno || '-') + '</td></tr>');
                     });
                 } else { $('#fileClassesBox').hide(); }
@@ -805,7 +1000,7 @@ $(document).ready(function () {
                     var $tb = $('#fileFunctionsBody').empty();
                     $.each(d.functions, function (i, f) {
                         var vid = f.vid || f.id;
-                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-sm btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
                         $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(f.name || f) + '">' + escHtml(f.name || f) + '</a>' + viewBtn + '</td><td>' + (f.lineno || '-') + '</td></tr>');
                     });
                 } else { $('#fileFunctionsBox').hide(); }
@@ -874,6 +1069,9 @@ $(document).ready(function () {
 
     function queryFunction(scanId, funcName) {
         if (!scanId) { alert('请先选择一个 Scan'); return; }
+        requireGraph(function() { _doQueryFunction(scanId, funcName); });
+    }
+    function _doQueryFunction(scanId, funcName) {
         $('#funcResultArea').hide();
         $('#funcErrorArea').hide();
 
@@ -922,7 +1120,7 @@ $(document).ready(function () {
                     var $tb = $('#funcCallersBody').empty();
                     $.each(d.callers, function (i, c) {
                         var vid = c.vid;
-                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-sm btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
                         $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a>' + viewBtn + '</td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
                     });
                 } else { $('#funcCallersBox').hide(); }
@@ -933,7 +1131,7 @@ $(document).ready(function () {
                     var $tb = $('#funcCalleesBody').empty();
                     $.each(d.callees, function (i, c) {
                         var vid = c.vid;
-                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
+                        var viewBtn = vid != null ? ' <button type="button" class="btn btn-default btn-sm btn-view-graph" data-vid="' + vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>' : '';
                         $tb.append('<tr><td><a href="#" class="func-link" data-name="' + escHtml(c.name || c) + '">' + escHtml(c.name || c) + '</a>' + viewBtn + '</td><td>' + (c.lineno || '-') + '</td><td>' + escHtml(c.file_path || '-') + '</td></tr>');
                     });
                 } else { $('#funcCalleesBox').hide(); }
@@ -1010,7 +1208,10 @@ $(document).ready(function () {
 
     function traceLine(scanId, fileLine) {
         if (!scanId) { alert('请先选择一个 Scan'); return; }
-        $('#traceResultArea').html('<div class="text-center km-muted" style="padding:20px;">加载中...</div>');
+        requireGraph(function() { _doTraceLine(scanId, fileLine); });
+    }
+    function _doTraceLine(scanId, fileLine) {
+        $('#traceResultArea').html('<div class="text-center km-muted" style="padding:20px;"><i class="fa fa-spinner fa-spin"></i> 加载中...</div>');
         $('#traceErrorArea').hide();
 
         $.ajax({
@@ -1038,7 +1239,7 @@ $(document).ready(function () {
     function renderTraceResults(data) {
         var $container = $('#traceResultArea').empty();
         if (!data || data.length === 0) {
-            $container.html('<div class="box"><div class="box-body text-center km-muted">无追踪结果</div></div>');
+            $container.html('<div class="card"><div class="box-body text-center km-muted">无追踪结果</div></div>');
             return;
         }
 
@@ -1052,9 +1253,9 @@ $(document).ready(function () {
             var statusClass = resultCode === 0 ? 'label-success' : (resultCode === 1 ? 'label-danger' : 'label-warning');
             var statusText = resultCode === 0 ? '安全' : (resultCode === 1 ? '危险' : '未知');
 
-            var html = '<div class="row"><div class="col-xs-12"><div class="box">';
-            html += '<div class="box-header"><h3 class="box-title">Sink #' + (idx + 1) + ': ' + escHtml(sink.name || '-') + '</h3></div>';
-            html += '<div class="box-body">';
+            var html = '<div class="row"><div class="col-12"><div class="card">';
+            html += '<div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Sink #' + (idx + 1) + ': ' + escHtml(sink.name || '-') + '</h3></div>';
+            html += '<div class="card-body">';
 
             // Sink 信息
             html += '<table class="table km-table" style="margin-bottom:10px;">';
@@ -1075,12 +1276,12 @@ $(document).ready(function () {
             // Chain
             if (chain.length > 0) {
                 html += '<h4>追踪链</h4>';
-                html += '<div class="row"><div class="col-xs-12 col-md-6">';
+                html += '<div class="row"><div class="col-12 col-md-6">';
                 html += '<div style="border-left:3px solid #3c8dbc;padding-left:15px;margin-left:10px;">';
                 $.each(chain, function (ci, step) {
                     html += '<div style="margin-bottom:10px;padding:8px;background:#f9f9f9;border-radius:3px;">';
                     html += '<div><strong>Step ' + (ci + 1) + '</strong>';
-                    if (step.type) html += ' <span class="label label-info">' + escHtml(step.type) + '</span>';
+                    if (step.type) html += ' <span class="badge bg-info">' + escHtml(step.type) + '</span>';
                     html += '</div>';
                     if (step.name) html += '<div>名称: <code>' + escHtml(step.name) + '</code></div>';
                     if (step.path || step.file_path) html += '<div>路径: ' + escHtml(step.path || step.file_path) + '</div>';
@@ -1094,7 +1295,7 @@ $(document).ready(function () {
                     if (step.vid != null) traceVids.push(step.vid);
                 });
                 if (traceVids.length > 1) {
-                    html += '<div class="col-xs-12 col-md-6"><div class="km-chain-graph-container" style="display:block;" id="traceGraph_' + idx + '">';
+                    html += '<div class="col-12 col-md-6"><div class="km-chain-graph-container" style="display:block;" id="traceGraph_' + idx + '">';
                     html += '<div class="km-chain-graph-placeholder">加载中...</div>';
                     html += '</div></div>';
                 }
@@ -1219,6 +1420,9 @@ $(document).ready(function () {
 
     function traceVariable(scanId, varName) {
         if (!scanId) { alert('请先选择一个 Scan'); return; }
+        requireGraph(function() { _doTraceVariable(scanId, varName); });
+    }
+    function _doTraceVariable(scanId, varName) {
         var $r = $('#varTraceResult');
         $r.html('<div class="text-center km-muted" style="padding:20px;">追踪中...</div>');
         $.ajax({
@@ -1235,14 +1439,14 @@ $(document).ready(function () {
                     $r.html('<div class="text-center km-muted" style="padding:20px;">未找到匹配的变量节点</div>');
                     return;
                 }
-                var html = '<div class="row"><div class="col-xs-12"><div class="box"><div class="box-header"><h3 class="box-title">找到 ' + d.total_seeds + ' 个匹配节点</h3></div><div class="box-body table-responsive no-padding"><table class="table table-hover km-table"><thead><tr><th>变量名</th><th>文件</th><th>行号</th><th></th></tr></thead><tbody>';
+                var html = '<div class="row"><div class="col-12"><div class="card"><div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">找到 ' + d.total_seeds + ' 个匹配节点</h3></div><div class="box-body table-responsive"><table class="table table-hover km-table"><thead><tr><th>变量名</th><th>文件</th><th>行号</th><th></th></tr></thead><tbody>';
                 $.each(d.seed_nodes, function (i, s) {
-                    var viewBtn = ' <button type="button" class="btn btn-default btn-xs btn-view-graph" data-vid="' + s.vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>';
+                    var viewBtn = ' <button type="button" class="btn btn-default btn-sm btn-view-graph" data-vid="' + s.vid + '" title="在图可视化中查看"><i class="fa fa-project-diagram"></i></button>';
                     html += '<tr><td><code>' + escHtml(s.name) + '</code></td><td>' + escHtml(s.file_path || '-') + '</td><td>' + s.lineno + '</td><td>' + viewBtn + '</td></tr>';
                 });
                 html += '</tbody></table></div></div></div></div>';
                 if (d.subgraph && d.subgraph.nodes && d.subgraph.nodes.length > 0) {
-                    html += '<div class="row" style="margin-top:10px;"><div class="col-xs-12"><div class="box"><div class="box-header"><h3 class="box-title">数据流传播图（' + d.subgraph.total_nodes + ' 节点, ' + d.subgraph.total_edges + ' 边）</h3></div><div class="box-body"><div id="varTraceGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div></div></div></div></div>';
+                    html += '<div class="row" style="margin-top:10px;"><div class="col-12"><div class="card"><div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">数据流传播图（' + d.subgraph.total_nodes + ' 节点, ' + d.subgraph.total_edges + ' 边）</h3></div><div class="card-body"><div id="varTraceGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div></div></div></div></div>';
                 }
                 $r.html(html);
                 if (d.subgraph && d.subgraph.nodes && d.subgraph.nodes.length > 0) {
@@ -1437,19 +1641,19 @@ $(document).ready(function () {
         if (data.type) html += '<tr><td class="km-muted">Type</td><td><code>' + escHtml(data.type) + '</code></td></tr>';
         if (data.file_path) html += '<tr><td class="km-muted">File</td><td style="word-break:break-all;">' + escHtml(data.file_path) + '</td></tr>';
         if (data.lineno) html += '<tr><td class="km-muted">Line</td><td>' + data.lineno + '</td></tr>';
-        if (data.taint_type) html += '<tr><td class="km-muted">Taint</td><td><span class="label label-' + (data.taint_type === 'source' ? 'warning' : 'info') + '">' + escHtml(data.taint_type) + '</span></td></tr>';
+        if (data.taint_type) html += '<tr><td class="km-muted">Taint</td><td><span class="badge bg-' + (data.taint_type === 'source' ? 'warning' : 'info') + '">' + escHtml(data.taint_type) + '</span></td></tr>';
         html += '</table>';
 
         // Action buttons
         html += '<div style="margin-top:10px;">';
-        html += '<button class="btn btn-primary btn-xs" onclick="loadSubgraph(currentScanId(), ' + data.id + ')"><i class="fa fa-expand"></i> 展开此节点</button> ';
+        html += '<button class="btn btn-primary btn-sm" onclick="loadSubgraph(currentScanId(), ' + data.id + ')"><i class="fa fa-expand"></i> 展开此节点</button> ';
         if (data.file_path) {
-            html += '<button class="btn btn-default btn-xs" onclick="loadFileGraph(currentScanId(), \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
+            html += '<button class="btn btn-default btn-sm" onclick="loadFileGraph(currentScanId(), \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
         }
         if (data.file_path && data.lineno) {
-            html += ' <a href="#" class="btn btn-default btn-xs" title="在源码浏览器中查看" onclick="event.preventDefault(); openFileBrowse(' + data.id + ',\'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\',' + data.lineno + ')"><i class="fa fa-external-link"></i> 源码</a>';
+            html += ' <a href="#" class="btn btn-default btn-sm" title="在源码浏览器中查看" onclick="event.preventDefault(); openFileBrowse(' + data.id + ',\'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\',' + data.lineno + ')"><i class="fa fa-external-link"></i> 源码</a>';
         }
-        html += '<button class="btn btn-default btn-xs" onclick="loadNodeSource(currentScanId, ' + data.id + ')" title="查看此节点的源码上下文"><i class="fa fa-code"></i> 查看源码</button>';
+        html += '<button class="btn btn-default btn-sm" onclick="loadNodeSource(currentScanId, ' + data.id + ')" title="查看此节点的源码上下文"><i class="fa fa-code"></i> 查看源码</button>';
         html += '</div>';
 
         $('#nodeDetailContent').html(html);
@@ -1554,47 +1758,50 @@ $(document).ready(function () {
     }
 
     function loadSubgraph(scanId, vid, depth) {
-        ensureCytoscape(function() {
-            if (!scanId || vid === undefined || vid === null) { alert('请先选择 Scan 并输入节点 VID'); return; }
-            depth = depth || parseInt($('#graphDepthInput').val()) || 2;
+        requireGraph(function() {
+            ensureCytoscape(function() {
+                if (!scanId || vid === undefined || vid === null) { alert('请先选择 Scan 并输入节点 VID'); return; }
+                depth = depth || parseInt($('#graphDepthInput').val()) || 2;
 
-            var edgeLabels = [];
-            $('.graph-edge-filter:checked').each(function() { edgeLabels.push($(this).val()); });
-            var params = {
-                scan_id: scanId, vid: vid, depth: depth,
-                edge_labels: edgeLabels.join(','),
-                max_nodes: 500
-            };
+                var edgeLabels = [];
+                $('.graph-edge-filter:checked').each(function() { edgeLabels.push($(this).val()); });
+                var params = {
+                    scan_id: scanId, vid: vid, depth: depth,
+                    edge_labels: edgeLabels.join(','),
+                    max_nodes: 500
+                };
 
-            $('#btnLoadSubgraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
-            $.ajax({
-                url: '/api/graph/subgraph',
-                type: 'GET', data: params, dataType: 'json',
-                success: function(resp) {
-                    $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
-                    if (resp.code === 200 && resp.data) {
-                        if (resp.data.error) {
-                            alert(resp.data.error); return;
+                $('#btnLoadSubgraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
+                $.ajax({
+                    url: '/api/graph/subgraph',
+                    type: 'GET', data: params, dataType: 'json',
+                    success: function(resp) {
+                        $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
+                        if (resp.code === 200 && resp.data) {
+                            if (resp.data.error) {
+                                alert(resp.data.error); return;
+                            }
+                            renderGraph(resp.data);
+                            // Highlight center node
+                            cy.$('#' + String(vid)).addClass('highlighted');
+                        } else {
+                            alert(resp.error || '加载失败');
                         }
-                        renderGraph(resp.data);
-                        // Highlight center node
-                        cy.$('#' + String(vid)).addClass('highlighted');
-                    } else {
-                        alert(resp.error || '加载失败');
+                    },
+                    error: function() {
+                        $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
+                        alert('请求失败');
                     }
-                },
-                error: function() {
-                    $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
-                    alert('请求失败');
-                }
-            });
-        });
+                });
+            }); // ensureCytoscape
+        }); // requireGraph
     }
 
     function loadFileGraph(scanId, filePath) {
-        ensureCytoscape(function() {
-            if (!scanId || !filePath) { alert('请先选择 Scan 并输入文件路径'); return; }
-            var params = { scan_id: scanId, file_path: filePath, max_nodes: 1000 };
+        requireGraph(function() {
+            ensureCytoscape(function() {
+                if (!scanId || !filePath) { alert('请先选择 Scan 并输入文件路径'); return; }
+                var params = { scan_id: scanId, file_path: filePath, max_nodes: 1000 };
 
             $('#btnLoadFileGraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> ...');
             $.ajax({
@@ -1613,8 +1820,9 @@ $(document).ready(function () {
                     $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
                     alert('请求失败');
                 }
-            });
-        });
+            }); // ajax
+            }); // ensureCytoscape
+        }); // requireGraph
     }
 
 

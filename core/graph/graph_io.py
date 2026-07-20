@@ -28,6 +28,34 @@ def _md5_file(path: str) -> str:
     return h.hexdigest()
 
 
+def _sanitize_graph_attrs(graph: "igraph.Graph") -> None:  # type: ignore[name-defined]
+    """清理图节点/边属性中的控制字符，防止 GraphML 写入失败。
+
+    GraphML 格式禁止 XML 1.0 控制字符（0x00-0x1F 除了 0x09/0x0A/0x0D）。
+    将非法字符替换为 '�'（U+FFFD REPLACEMENT CHARACTER）。
+    """
+    import re
+    _ctrl_pat = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+    for attr_name in graph.vertex_attributes():
+        vals = graph.vs[attr_name]
+        cleaned = []
+        for v in vals:
+            if isinstance(v, str) and _ctrl_pat.search(v):
+                cleaned.append(_ctrl_pat.sub("\ufffd", v))
+            else:
+                cleaned.append(v)
+        graph.vs[attr_name] = cleaned
+    for attr_name in graph.edge_attributes():
+        vals = graph.es[attr_name]
+        cleaned = []
+        for v in vals:
+            if isinstance(v, str) and _ctrl_pat.search(v):
+                cleaned.append(_ctrl_pat.sub("\ufffd", v))
+            else:
+                cleaned.append(v)
+        graph.es[attr_name] = cleaned
+
+
 class AstGraphIO:
     """igraph 图的持久化和加载。
 
@@ -64,6 +92,7 @@ class AstGraphIO:
         """
         os.makedirs(self.graph_dir, exist_ok=True)
 
+        _sanitize_graph_attrs(graph)
         graph.write(self.graph_path, format="graphmlz")
 
         content_hash = _md5_file(self.graph_path)

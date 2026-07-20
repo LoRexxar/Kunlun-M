@@ -53,7 +53,8 @@ _sd_registry = None
 
 # TypeScript 特有的可控输入源
 TS_CONTROLLED_SOURCES = [
-    "process.env", "process.argv",
+    "process.env",
+    # process.argv removed: CLI-only, not web-controllable
     "req.query", "req.body", "req.params", "req.headers",
     "req.cookies", "req.files", "req.url",
     "request.query", "request.body", "request.params",

@@ -1,14 +1,18 @@
 {% extends "dashboard/base.html" %}
 {% block title %}依赖漏洞详情{% endblock %}
+{% block body_header %}
+<h1>依赖漏洞详情 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div>
 
-<div class="box box-primary">
+<div class="card">
 <div class="box-header with-border">
-  <h3 class="box-title">依赖漏洞详情</h3>
+  <h3 class="card-title">依赖漏洞详情</h3>
 </div>
-<div class="box-body">
+<div class="card-body">
   <!-- Date -->
   <!-- Date and time range -->
   <div class="form-group">
@@ -18,7 +22,7 @@
       <div class="input-group-addon">
         <i class="fa fa-laptop "></i>
       </div>
-      <input type="text" class="form-control pull-right" name="filename" value="{{ vvuln.vuln_id }}" disabled>
+      <input type="text" class="form-control float-end" name="filename" value="{{ vvuln.vuln_id }}" disabled>
     </div>
     <!-- /.input group -->
   </div>
@@ -30,7 +34,7 @@
       <div class="input-group-addon">
         <i class="fa fa-laptop "></i>
       </div>
-        <div type="text" class="form-control pull-right" disabled>{{ vvuln.title }}</div>
+        <div type="text" class="form-control float-end" disabled>{{ vvuln.title }}</div>
     </div>
     <!-- /.input group -->
   </div>
@@ -42,7 +46,7 @@
       <div class="input-group-addon">
         <i class="fa fa-laptop "></i>
       </div>
-        <div type="text" class="form-control pull-right" disabled>{{ vvuln.vendor_name }}</div>
+        <div type="text" class="form-control float-end" disabled>{{ vvuln.vendor_name }}</div>
     </div>
     <!-- /.input group -->
   </div>
@@ -64,7 +68,7 @@
     <label>参考链接：</label>
 
     <div class="input-group">
-        <div type="text" class="pull-right" >
+        <div type="text" class="float-end" >
             {% for vr in vvuln_references %}
                 <a href="{{ vr }}">{{ vr }}</a><br>
             {% endfor %}
@@ -78,13 +82,13 @@
 
     <div class="input-group">
       {% if vvuln.severity > 7 %}
-      <span class="label label-danger">高危</span>
+      <span class="badge bg-danger">高危</span>
       {% elif vvuln.severity > 4 %}
-      <span class="label label-warning">中危</span>
+      <span class="badge bg-warning">中危</span>
       {% elif vvuln.severity > 0 %}
-      <span class="label label-success">低危</span>
+      <span class="badge bg-success">低危</span>
       {% else %}
-      <span class="label label-success">{{ vvuln.severity }}</span>
+      <span class="badge bg-success">{{ vvuln.severity }}</span>
       {% endif %}
     </div>
     <!-- /.input group -->

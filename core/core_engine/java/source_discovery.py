@@ -26,12 +26,14 @@ logger = logging.getLogger('KunlunLog')
 # 内置 source 成员 — Servlet API 标准方法
 # ---------------------------------------------------------------------------
 _BUILTIN_SOURCE_MEMBERS = frozenset({
-    # HttpServletRequest 方法
+    # HttpServletRequest 方法 - 用户可控输入
     "getParameter", "getHeader", "getInputStream", "getReader",
     "getQueryString", "getCookies", "getParameterValues", "getParameterMap",
-    "getRemoteHost", "getRequestURI", "getRequestURL",
-    "getContextPath", "getPathInfo", "getPart", "getParts",
-    "getAttribute", "getSession",
+    "getPart", "getParts",
+    # 注意：以下方法已移除，它们不是用户可控输入：
+    # getSession, getAttribute - 服务端 session/attribute，非用户直接输入
+    # getContextPath, getPathInfo - 路径信息，服务端配置
+    # getRemoteHost, getRequestURI, getRequestURL - 服务端信息
 })
 
 # 内置 source producer 函数（方法名匹配）
@@ -167,6 +169,12 @@ _FRAMEWORK_CONFIGS = {
             'tomcat-servlet-api',
         ],
         'source_members': set(_BUILTIN_SOURCE_MEMBERS),
+    },
+    'dubbo': {
+        'detect_packages': [
+            'dubbo', 'org.apache.dubbo',
+        ],
+        'source_members': set(),  # Dubbo URL parameters are config, not user input
     },
 }
 

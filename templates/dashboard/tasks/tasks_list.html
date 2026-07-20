@@ -1,20 +1,24 @@
 {% extends "dashboard/base.html" %}
 {% load tz %}
 {% block title %}任务列表{% endblock %}
+{% block body_header %}
+<h1>任务列表 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div class="row">
-        <div class="col-xs-12">
-          <div class="box">
-            <div class="box-header">
-              <h3 class="box-title">任务列表</h3>
-              <div class="box-tools km-box-tools">
-                <a class="btn btn-primary btn-xs" href="{% url 'dashboard:task_new' %}">新建扫描</a>
-                <input id="allTaskFilterInput" class="form-control input-sm" style="width: 240px;" placeholder="搜索任务...">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">任务列表</h3>
+              <div class="card-tools km-box-tools">
+                <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_new' %}">新建扫描</a>
+                <input id="allTaskFilterInput" class="form-control form-control-sm" style="width: 240px;" placeholder="搜索任务...">
               </div>
             </div>
             <!-- /.box-header -->
-            <div class="box-body table-responsive no-padding">
+            <div class="card-body table-responsive">
               <table id="allTaskTable" class="table table-hover km-table">
                 <thead>
                   <tr>
@@ -46,17 +50,17 @@
                       <td class="km-td-time" data-time="{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
                       <td class="km-td-nowrap">
                         {% if task.is_finished == 0 %}
-                        <span class="label label-danger status-label">失败</span>
+                        <span class="badge bg-danger status-label">失败</span>
                         {% elif task.is_finished == -1 %}
-                        <span class="label label-danger status-label">失败</span>
+                        <span class="badge bg-danger status-label">失败</span>
                         {% elif task.is_finished == 2 %}
-                        <span class="label label-warning status-label">运行中</span>
+                        <span class="badge bg-warning status-label">运行中</span>
                         {% elif task.is_finished == 1 %}
-                        <span class="label label-success status-label">成功</span>
+                        <span class="badge bg-success status-label">成功</span>
                         {% elif task.is_finished == 3 %}
-                        <span class="label label-info status-label">队列中</span>
+                        <span class="badge bg-info status-label">队列中</span>
                         {% else %}
-                        <span class="label label-success status-label">{{ task.is_finished }}</span>
+                        <span class="badge bg-success status-label">{{ task.is_finished }}</span>
                         {% endif %}
                       </td>
                       <td>
@@ -64,7 +68,7 @@
                       </td>
                       <td class="km-td-actions">
                         <div class="km-actions">
-                          <a class="btn btn-primary btn-xs" href="{% url 'dashboard:task_detail' task.id %}">查看日志</a>
+                          <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_detail' task.id %}">查看日志</a>
                         </div>
                       </td>
                     </tr>
@@ -74,7 +78,7 @@
             </div>
             <!-- /.box-body -->
 
-            <div class="box-footer">
+            <div class="card-footer">
             <ul class="pagination pagination-sm m-0 float-right">
                   <li class="page-item"><a class="page-link" href="{% url 'dashboard:tasks_list' %}">«</a></li>
                 {% for i in page_range %}

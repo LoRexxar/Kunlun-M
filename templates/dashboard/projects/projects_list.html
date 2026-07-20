@@ -1,19 +1,23 @@
 {% extends "dashboard/base.html" %}
 {% load tz %}
 {% block title %}项目列表{% endblock %}
+{% block body_header %}
+<h1>项目列表 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div class="row">
-<div class="col-xs-12">
+<div class="col-12">
 
 <form id="fileform" role="form" method="get" enctype="multipart/form-data" action="{% url 'dashboard:projects_list' %}">
 
 
-<div class="box box-primary">
-    <div class="box-header with-border">
-  <h3 class="box-title">搜索项目</h3>
+<div class="card box-primary">
+    <div class="card-header with-border">
+  <h3 class="card-title">搜索项目</h3>
 </div>
-<div class="box-body">
+<div class="card-body">
   <!-- Date -->
   <!-- Date and time range -->
   <div class="form-group">
@@ -23,14 +27,14 @@
       <div class="input-group-addon">
         <i class="fa fa-laptop "></i>
       </div>
-      <input type="text" class="form-control pull-right" name="project_name" value="{{ search_project_name }}" >
+      <input type="text" class="form-control float-end" name="project_name" value="{{ search_project_name }}" >
     </div>
               说明：可用 * 作为通配符，例如 *test*。
     <!-- /.input group -->
   </div>
   </div>
   <!-- /.box -->
-    <div class="box-footer">
+    <div class="card-footer">
         <div class="btn-group">
           <button id="submit" type="submit" class="btn btn-primary">搜索</button>
         </div>
@@ -39,13 +43,13 @@
 </form>
 </div>
 
-<div class="col-xs-12">
-  <div class="box">
-    <div class="box-header">
-      <h3 class="box-title">项目列表</h3>
+<div class="col-12">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">项目列表</h3>
     </div>
     <!-- /.box-header -->
-    <div class="box-body table-responsive no-padding">
+    <div class="card-body table-responsive">
       <table class="table table-hover km-table">
         <thead>
           <tr>
@@ -81,7 +85,7 @@
     </div>
     <!-- /.box-body -->
 
-    <div class="box-footer">
+    <div class="card-footer">
         <ul class="pagination pagination-sm m-0 float-right">
           <li class="page-item"><a class="page-link" href="{% url 'dashboard:projects_list' %}">«</a></li>
         {% for i in page_range %}

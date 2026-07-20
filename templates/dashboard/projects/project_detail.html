@@ -2,59 +2,49 @@
 {% load static %}
 {% load tz %}
 {% block title %}项目详情{% endblock %}
+{% block body_header %}
+<h1>项目详情 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div>
 
-<div class="box box-primary">
-<div class="box-header with-border
-">
-  <h3 class="box-title">项目详情</h3>
-  <div class="box-tools pull-right">
+<div class="card">
+<div class="card-header">
+  <h3 class="card-title">项目详情</h3>
+  <div class="card-tools d-flex ms-auto">
     <a class="btn btn-sm btn-primary" href="{% url 'dashboard:project_files' project.id %}"><i class="fa fa-code"></i> 源码浏览</a>
     <a class="btn btn-sm btn-default" href="{% url 'dashboard:graph_analysis' %}"><i class="fa fa-project-diagram"></i> 图分析</a>
   </div>
 </div>
-<div class="box-body">
-  <!-- Date -->
-  <!-- Date and time range -->
-  <div class="form-group">
-    <label>项目名称：</label>
-
-    <div class="input-group">
-      <input type="text" class="form-control pull-right" name="project_name" value="{{ project.project_name }}" disabled>
+<div class="card-body">
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <label class="form-label">项目名称</label>
+      <input type="text" class="form-control" value="{{ project.project_name }}" disabled>
     </div>
-    <!-- /.input group -->
+    <div class="col-md-6">
+      <label class="form-label">来源</label>
+      <input type="text" class="form-control" value="{{ project.project_origin }}" disabled>
+    </div>
   </div>
-
-  <div class="form-group">
-    <label>来源：</label>
-
-      <input type="text" class="form-control pull-right" name="project_origin" value="{{ project.project_origin }}" disabled>
-    </div>
-
-  <div class="form-group">
-      <label>描述：</label>
-      <textarea class="form-control" rows="3" placeholder="项目描述" name="project_desc" disabled>{{ project.project_desc }}</textarea>
-    </div>
-
-
-    <!-- /.input group -->
+  <div class="mb-3">
+    <label class="form-label">描述</label>
+    <textarea class="form-control" rows="2" disabled>{{ project.project_desc }}</textarea>
   </div>
-  <!-- /.form group -->
 </div>
-<!-- /.box-body -->
 </div>
 
-<div class="box box-warning">
+<div class="card">
 <div class="box-header with-border">
-  <h3 class="box-title">任务列表</h3>
+  <h3 class="card-title">任务列表</h3>
 </div>
 <!-- /.box-header -->
-<div class="box">
+<div class="card">
 
 <!-- /.box-header -->
-<div class="box-body table-responsive no-padding">
+<div class="box-body table-responsive">
   <table class="table table-hover km-table km-table-wide">
     <thead>
       <tr>
@@ -79,15 +69,15 @@
         <td class="km-td-time" data-time="{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
         <td class="km-td-nowrap">
           {% if task.is_finished == 0 %}
-          <span class="label label-danger status-label">失败</span>
+          <span class="badge bg-danger status-label">失败</span>
           {% elif task.is_finished == -1 %}
-          <span class="label label-danger status-label">失败</span>
+          <span class="badge bg-danger status-label">失败</span>
           {% elif task.is_finished == 2 %}
-          <span class="label label-warning status-label">运行中</span>
+          <span class="badge bg-warning status-label">运行中</span>
           {% elif task.is_finished == 1 %}
-          <span class="label label-success status-label">成功</span>
+          <span class="badge bg-success status-label">成功</span>
           {% else %}
-          <span class="label label-success status-label">{{ task.is_finished }}</span>
+          <span class="badge bg-success status-label">{{ task.is_finished }}</span>
           {% endif %}
         </td>
         <td><div class="km-cell-config" title="{{ task.parameter_config|escape }}">{{ task.parameter_config }}</div></td>
@@ -100,14 +90,14 @@
 <!-- /.box-body -->
 </div>
 
-<div class="box box-warning">
+<div class="card">
 <div class="box-header with-border">
-  <h3 class="box-title">结果</h3>
+  <h3 class="card-title">结果</h3>
 </div>
 <!-- /.box-header -->
-<div class="box-body">
-    <div class="box-body table-responsive no-padding">
-              <table class="table table-hover km-table km-table-wide">
+<div class="card-body">
+    <div class="box-body table-responsive">
+              <table class="table table-hover km-table km-table-wide" id="resultTable">
                 <thead>
                   <tr>
                     <th class="km-col-id">ID</th>
@@ -123,7 +113,7 @@
                 </thead>
                 <tbody>
                   {% for taskresult in taskresults %}
-                  <tr>
+                  <tr class="km-chain-row{% if taskresult.has_chain %} km-chain-clickable{% endif %}" data-vul-id="{{ taskresult.id }}">
                     <td class="km-td-nowrap">{{ taskresult.id }}</td>
                     <td class="km-td-nowrap">{{ taskresult.cvi_id }}</td>
                     <td class="km-td-nowrap">{{ taskresult.language }}</td>
@@ -146,34 +136,34 @@
                     {% endif %}
                     <td class="km-td-nowrap">
                       {% if taskresult.level|lower == 'critical' %}
-                      <span class="label label-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
+                      <span class="badge bg-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
                       {% elif taskresult.level|lower == 'high' %}
-                      <span class="label label-danger">高危</span>
+                      <span class="badge bg-danger">高危</span>
                       {% elif taskresult.level|lower == 'medium' %}
-                      <span class="label label-warning">中危</span>
+                      <span class="badge bg-warning">中危</span>
                       {% elif taskresult.level|lower == 'low' %}
-                      <span class="label label-info">低危</span>
+                      <span class="badge bg-info">低危</span>
                       {% else %}
                       {{ taskresult.level }}
                       {% endif %}
                     </td>
-                    <td class="km-td-nowrap">{{ taskresult.result_type }}</td>
+                    <td><span class="badge bg-light text-dark border" title="{{ taskresult.result_type|escape }}">{{ taskresult.rule_name|default:taskresult.cvi_id }}</span></td>
 
                     <td class="km-td-nowrap">
                       {% if taskresult.is_unconfirm == 0 %}
-                      <span class="label label-success">是</span>
+                      <span class="badge bg-success">是</span>
                       {% elif  taskresult.is_unconfirm  == 1 %}
-                      <span class="label label-danger">否</span>
+                      <span class="badge bg-danger">否</span>
                       {% else %}
-                      <span class="label label-success">{{ taskresult.is_unconfirm }}</span>
+                      <span class="badge bg-success">{{ taskresult.is_unconfirm }}</span>
                       {% endif %}
                     </td>
                     <td class="km-col-actions">
                       <div class="km-actions">
                         {% if taskresult.has_chain %}
-                        <button type="button" class="btn btn-xs btn-chain" data-vul-id="{{ taskresult.id }}" onclick="toggleChainPanel(this)" title="查看传播链"><i class="fa fa-sitemap"></i></button>
+                        <i class="fa fa-sitemap km-chain-indicator" title="点击行展开传播链"></i>
                         {% endif %}
-                        <button type="button" class="btn btn-danger btn-xs" onclick="delVul('{{ taskresult.id }}')">删除</button>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="delVul('{{ taskresult.id }}')">删除</button>
                       </div>
                     </td>
                   </tr>
@@ -183,9 +173,14 @@
                   <tr id="chainPanel" class="km-chain-panel-row" style="display:none;">
                     <td colspan="9" style="padding:0 !important; border:none !important;">
                       <div class="km-vul-detail">
-                        <div class="km-vul-chain-area">
-                          <div class="km-chain-sidebar" id="chainSidebar"></div>
-                          <div class="km-chain-code" id="chainCode"></div>
+                        <!-- 上方：横向传播链 -->
+                        <div class="km-chain-flow">
+                          <div class="km-chain-flow-label">传播链</div>
+                          <div class="km-chain-flow-nodes" id="chainSidebar"></div>
+                        </div>
+                        <!-- 下方：代码区 -->
+                        <div class="km-chain-code-section" id="chainCode">
+                          <div class="km-chain-code-placeholder">点击上方节点查看代码</div>
                         </div>
                       </div>
                     </td>
@@ -201,12 +196,12 @@
 <!-- /.box-body -->
 
 
-<div class="box box-success">
+<div class="card">
     <div class="box-header with-border">
-      <h3 class="box-title">依赖列表</h3>
+      <h3 class="card-title">依赖列表</h3>
     </div>
     <!-- /.box-header -->
-    <div class="box-body table-responsive no-padding">
+    <div class="box-body table-responsive">
       <table class="table table-hover km-table km-table-wide">
         <thead>
           <tr>
@@ -236,12 +231,12 @@
 </div>
 
     {% if newevilfuncs %}
-    <div class="box box-success">
+    <div class="card">
     <div class="box-header with-border">
-      <h3 class="box-title">新增危险函数</h3>
+      <h3 class="card-title">新增危险函数</h3>
     </div>
     <!-- /.box-header -->
-    <div class="box-body table-responsive no-padding">
+    <div class="box-body table-responsive">
       <table class="table table-hover km-table">
         <thead>
           <tr>
@@ -261,11 +256,11 @@
             <td><div class="km-cell-config" title="{{ newevilfunc.origin_func_name|escape }}">{{ newevilfunc.origin_func_name }}</div></td>
             <td class="km-td-nowrap">
               {% if newevilfunc.is_active %}
-              <span class="label label-success">是</span>
+              <span class="badge bg-success">是</span>
               {% elif not newevilfunc.is_active %}
-              <span class="label label-danger">否</span>
+              <span class="badge bg-danger">否</span>
               {% else %}
-              <span class="label label-success">{{ newevilfunc.is_active }}</span>
+              <span class="badge bg-success">{{ newevilfunc.is_active }}</span>
               {% endif %}
             </td>
           </tr>
@@ -282,10 +277,10 @@
 
 {% block script %}
 
-<link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
-<link rel="stylesheet" href="{% static 'css/prism.css' %}">
-<script src="{% static 'js/prism.js' %}"></script>
-<script src="{% static 'js/chain-panel.js' %}"></script>
+<link rel="stylesheet" href="{% static 'css/chain-panel.css' %}?v=39">
+<link rel="stylesheet" href="{% static 'css/prism.css' %}?v=39">
+<script src="{% static 'js/prism.js' %}?v=39"></script>
+<script src="{% static 'js/chain-panel.js' %}?v=39"></script>
 <script>
 var chainDataMap = {{ chain_json|safe }};
 </script>
@@ -303,6 +298,13 @@ function delVul(vulid){
 }
 
 $(document).ready(function(){
+  // 行点击展开/收起传播链
+  $('#resultTable tbody').on('click', 'tr.km-chain-clickable', function(e) {
+    // 忽略点击链接和按钮
+    if ($(e.target).closest('a, button').length) return;
+    toggleChainPanel($(this).data('vul-id'));
+  });
+
   $("#dashboard").removeClass("active menu-open");
   $("#dashboard").find("ul li").removeClass("active");
   $("#projects").addClass("menu-open");

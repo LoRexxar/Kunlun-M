@@ -1,0 +1,111 @@
+{% extends "dashboard/base.html" %}
+{% load tz %}
+{% block title %}总览{% endblock %}
+{% block body_header %}
+<h1>总览 <small>系统总览</small></h1>
+{% endblock %}
+
+{% block body %}
+<div class="page-wrapper">
+  <div class="page-header d-print-none">
+    <div class="container-xl">
+      <div class="page-pretitle">概览</div>
+      <h2 class="page-title">系统总览</h2>
+    </div>
+  </div>
+  <div class="page-body">
+    <div class="container-xl">
+      <div class="row row-deck row-cards">
+        <div class="col-sm-6 col-lg-3">
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center">
+                <div class="subheader-icon me-3"><i class="fa fa-list text-blue"></i></div>
+                <div>
+                  <div class="subheader text-muted">任务总数</div>
+                  <h3 class="card-title mb-0">{{ tasks|length }}</h3>
+                </div>
+              </div>
+            </div>
+            <div class="card-footer">
+              <a href="{% url 'dashboard:tasks_list' %}" class="text-muted">查看全部 <i class="fa fa-arrow-circle-right"></i></a>
+            </div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center">
+                <div class="subheader-icon me-3"><i class="fa fa-check-circle text-green"></i></div>
+                <div>
+                  <div class="subheader text-muted">成功</div>
+                  <h3 class="card-title mb-0">{{ status_count.success }}</h3>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center">
+                <div class="subheader-icon me-3"><i class="fa fa-spinner text-yellow"></i></div>
+                <div>
+                  <div class="subheader text-muted">运行中</div>
+                  <h3 class="card-title mb-0">{{ status_count.running }}</h3>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center">
+                <div class="subheader-icon me-3"><i class="fa fa-times-circle text-red"></i></div>
+                <div>
+                  <div class="subheader text-muted">失败</div>
+                  <h3 class="card-title mb-0">{{ status_count.error }}</h3>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mt-4">
+        <div class="col-lg-6">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">最新扫描</h3>
+            </div>
+            <div class="card-body">
+              {% if latest_task %}
+              <p><strong>任务：</strong>{{ latest_task.task_name|default:latest_task.target_path }}</p>
+              <p><strong>路径：</strong>{{ latest_task.target_path }}</p>
+              <p><strong>时间：</strong>{{ latest_scan_time }}</p>
+              <a href="{% url 'dashboard:task_detail' latest_task.id %}" class="btn btn-primary btn-sm">查看详情</a>
+              {% else %}
+              <p class="text-muted">暂无扫描记录</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">快捷操作</h3>
+            </div>
+            <div class="card-body">
+              <a href="{% url 'dashboard:task_new' %}" class="btn btn-primary me-2"><i class="fa fa-plus me-1"></i>新建扫描</a>
+              <a href="{% url 'dashboard:projects_list' %}" class="btn btn-secondary me-2"><i class="fa fa-folder-open me-1"></i>项目列表</a>
+              <a href="{% url 'dashboard:rules_list' %}" class="btn btn-secondary me-2"><i class="fa fa-book me-1"></i>规则列表</a>
+              <a href="{% url 'dashboard:graph_analysis' %}" class="btn btn-secondary"><i class="fa fa-project-diagram me-1"></i>图分析</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

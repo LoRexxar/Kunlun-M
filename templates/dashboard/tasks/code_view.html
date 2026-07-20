@@ -1,15 +1,19 @@
 {% extends "dashboard/base.html" %}
 {% block title %}代码查看 - {{ task.task_name }}{% endblock %}
+{% block body_header %}
+<h1>代码查看 - {{ task.task_name }} <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div class="row">
   <!-- 目录树 -->
   <div class="col-md-3">
-    <div class="box box-solid">
+    <div class="card">
       <div class="box-header with-border">
-        <h3 class="box-title"><i class="fa fa-folder-open"></i> 文件树</h3>
+        <h3 class="card-title"><i class="fa fa-folder-open"></i> 文件树</h3>
       </div>
-      <div class="box-body" style="padding:0; max-height:80vh; overflow-y:auto;">
+      <div class="card-body" style="padding:0; max-height:80vh; overflow-y:auto;">
         <ul class="nav nav-pills nav-stacked" id="fileTree">
           {% if tree %}
           {% for item in tree %}
@@ -45,22 +49,22 @@
     {% if error %}
     <div class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> {{ error }}</div>
     {% elif file_content %}
-    <div class="box">
+    <div class="card">
       <div class="box-header with-border">
-        <h3 class="box-title"><i class="fa fa-code"></i> {{ rel_path }}</h3>
-        <div class="box-tools pull-right">
+        <h3 class="card-title"><i class="fa fa-code"></i> {{ rel_path }}</h3>
+        <div class="card-tools d-flex ms-auto">
           <span class="badge bg-gray">{{ file_content|length }} 行</span>
         </div>
       </div>
-      <div class="box-body" style="padding:0;">
+      <div class="card-body" style="padding:0;">
         <pre style="margin:0; padding:12px; font-size:12px; line-height:1.6; background:#1e1e1e; color:#d4d4d4; overflow-x:auto; max-height:80vh;"><code>{% for line in file_content %}
 <span class="line-num" style="display:inline-block; width:40px; text-align:right; color:#6e7681; margin-right:16px; user-select:none;{% if forloop.counter == highlight_line %} background:#6e2c00; color:#fff; font-weight:bold;{% endif %}">{{ forloop.counter }}</span><span{% if forloop.counter == highlight_line %} style="background:#6e2c00;"{% endif %}>{{ line|force_escape }}</span>{% endfor %}
 </code></pre>
       </div>
     </div>
     {% else %}
-    <div class="box">
-      <div class="box-body">
+    <div class="card">
+      <div class="card-body">
         <p style="color:#999; text-align:center; padding:60px 0;">
           <i class="fa fa-hand-pointer" style="font-size:32px;"></i><br>
           <br>从左侧文件树选择文件查看
