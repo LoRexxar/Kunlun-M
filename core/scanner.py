@@ -176,9 +176,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     detected_framework = detect_framework_project(target_directory)
     if detected_framework:
         logger.info('[SCAN] Detected framework project: %s', detected_framework)
-        # 设置框架检测结果，供文件过滤使用
-        import utils.file as file_utils
-        file_utils._detected_framework = detected_framework
     
     r = Rule(language)
     rules = r.rules(special_rules)
@@ -1076,9 +1073,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 'target_directory': target_directory
             }
         })
-    # 清理框架检测状态
-    import utils.file as file_utils
-    file_utils._detected_framework = None
     return True
 
 
