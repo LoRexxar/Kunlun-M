@@ -5,11 +5,10 @@
     ~~~~~~
 
     readfile by open/read for windows
-
     :author:    LoRexxar
-    :homepage:  https://github.com/LoRexxar/Kunlun-M
+    :homepage:  https://github.com/wufeifei/cobra
     :license:   MIT, see LICENSE for more details.
-    :copyright: Copyright (c) 2017 Feei. All rights reserved
+    :copyright: Copyright (c) 2017 Feei. All rights reserved.
 """
 
 import re
@@ -18,6 +17,9 @@ import time
 import json
 import codecs
 import zipfile
+
+# 框架检测结果（由 scanner 设置）
+_detected_framework = None
 import traceback
 import jsbeautifier
 from utils.log import logger
@@ -739,6 +741,13 @@ class Directory(object):
                                 break
                     if is_black:
                         continue
+
+                    # 框架内部代码跳过
+                    if _detected_framework:
+                        from Kunlun_M.const import is_framework_code_file
+                        if is_framework_code_file(directory, _detected_framework):
+                            logger.debug('[PICKUP] [FRAMEWORK] Skip framework code: %s', directory)
+                            continue
 
                     if not check_kunlunignore(directory):
                         continue
