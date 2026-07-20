@@ -126,6 +126,20 @@ default_black_list = [
     'rails', 'sinatra',
     'gin', 'echo', 'chi', 'fiber', 'beego', 'revel',
     'actix', 'axum', 'rocket',
+    # Java 生态框架
+    'nacos', 'dubbo', 'sentinel', 'seata', 'rocketmq',
+    'spring-boot', 'spring-boot-admin', 'spring-cloud', 'spring-framework',
+    'mybatis', 'hibernate', 'jackson', 'netty', 'grpc',
+    'consul', 'eureka', 'zuul', 'gateway',
+    # PHP 生态框架
+    'laravel', 'symfony', 'thinkphp', 'codeigniter', 'codeigniter4', 'yii',
+    'joomla', 'drupal', 'wordpress',
+    # Python 生态框架
+    'flask', 'django', 'fastapi', 'tornado', 'bottle',
+    # Go 生态框架
+    'go-kit', 'go-micro', 'kratos', 'go-zero',
+    # 微服务框架
+    'istio', 'envoy', 'linkerd', 'consul', 'etcd',
 ]
 IGNORE_LIST = []
 
