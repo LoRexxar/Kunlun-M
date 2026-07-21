@@ -25,7 +25,7 @@ from Kunlun_M import settings
 from web.index.controller import login_or_token_required
 from utils.utils import del_sensitive_for_config
 
-from web.index.models import ScanTask, VendorVulns, Rules, FrameworkTamper, NewEvilFunc, Project
+from web.index.models import ScanTask, VendorVulns, Rules, FrameworkTamper, NewEvilFunc, Project, ScanResultTask
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, get_and_check_evil_func, check_and_new_project_id
 
 
@@ -53,6 +53,22 @@ class TaskListView(TemplateView):
 
         rows = ScanTask.objects.all().order_by('-id')[(page-1)*50: page*50]
 
+        # 批量获取每个任务的扫描结果：总数 + 已确认数
+        task_ids = [t.id for t in rows]
+        from django.db.models import Count, Q
+        result_totals = dict(
+            ScanResultTask.objects.filter(scan_task_id__in=task_ids)
+            .values('scan_task_id')
+            .annotate(cnt=Count('id'))
+            .values_list('scan_task_id', 'cnt')
+        )
+        verified_counts = dict(
+            ScanResultTask.objects.filter(scan_task_id__in=task_ids, verification_status__in=['tp', 'fp'])
+            .values('scan_task_id')
+            .annotate(cnt=Count('id'))
+            .values_list('scan_task_id', 'cnt')
+        )
+
         context['tasks'] = rows
 
         context['page'] = page
@@ -63,6 +79,8 @@ class TaskListView(TemplateView):
         for task in context['tasks']:
             task.is_finished = int(task.is_finished)
             task.parameter_config = del_sensitive_for_config(task.parameter_config)
+            task.result_count = result_totals.get(task.id, 0)
+            task.verified_count = verified_counts.get(task.id, 0)
 
             project_id = get_and_check_scantask_project_id(task.id)
             project = Project.objects.filter(id=project_id).first()

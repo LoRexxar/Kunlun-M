@@ -27,6 +27,7 @@
                     <th class="km-col-name">名称</th>
                     <th class="km-col-time">时间</th>
                     <th class="km-col-status">状态</th>
+                    <th class="km-col-results">结果数</th>
                     <th class="km-col-config">参数</th>
                     <th class="km-col-actions">操作</th>
                   </tr>
@@ -61,6 +62,13 @@
                         <span class="badge bg-info status-label">队列中</span>
                         {% else %}
                         <span class="badge bg-success status-label">{{ task.is_finished }}</span>
+                        {% endif %}
+                      </td>
+                      <td class="km-td-nowrap">
+                        {% if task.result_count > 0 %}
+                        <a href="{% url 'dashboard:task_detail' task.id %}"><span class="badge bg-primary">{{ task.verified_count }}/{{ task.result_count }}</span></a>
+                        {% else %}
+                        <span class="km-muted">0</span>
                         {% endif %}
                       </td>
                       <td>

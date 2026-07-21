@@ -449,6 +449,7 @@ class TaskStatusApiView(View):
         })
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class TaskCreateApiView(View):
     """通过 API 创建扫描任务（仅支持本地路径模式）。
 
