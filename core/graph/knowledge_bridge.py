@@ -295,7 +295,9 @@ def _enrich_from_source_registry(
     simple_name = _get_simple_name(func_name)
 
     # 1. source producer 函数（用户定义的返回可控数据的函数）
-    info = source_registry.is_source_producer(simple_name)
+    #    传完整 func_name（如 tree.getParameter）而不是 simple_name，
+    #    这样 Java is_source_producer 可以检查调用者前缀。
+    info = source_registry.is_source_producer(func_name)
     if info:
         graph.vs[func_vid]["taint_type"] = "source"
         return True
