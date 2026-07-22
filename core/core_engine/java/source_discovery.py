@@ -21,6 +21,13 @@ except ImportError:
 
 logger = logging.getLogger('KunlunLog')
 
+# Known request variable name prefixes — used to gate bare-name suffix matching
+# so that tree.getParameter doesn't match getParameter.
+_JAVA_REQUEST_PREFIXES: frozenset[str] = frozenset({
+    "request", "req", "httpRequest", "httpServletRequest",
+    "servletRequest", "httpReq",
+})
+
 
 # ---------------------------------------------------------------------------
 # 内置 source 成员 — Servlet API 标准方法
@@ -116,6 +123,12 @@ class SourceRegistry:
             return info
         # 匹配 builtin source members
         if short in self.source_members:
+            # 对于含点的调用名（如 tree.getParameter），裸名匹配太泛。
+            # 要求调用者的变量名是已知 request 对象（如 request.getParameter）。
+            if "." in func_name:
+                caller = func_name.rsplit(".", 1)[0]
+                if caller not in _JAVA_REQUEST_PREFIXES:
+                    return None
             return SourceInfo(type='builtin', name=short, origin='Servlet API')
         # 匹配 builtin source producers
         for full_name, origin in _BUILTIN_SOURCE_PRODUCERS.items():
