@@ -107,6 +107,7 @@ class SourceRegistry:
         """Initialize framework-specific source patterns."""
         self.framework = framework
         config = FRAMEWORK_CONFIGS[framework]
+        self._fw_config = config  # 保留完整配置供 knowledge_bridge 使用
 
         self.framework_request_objects = set(config['request_object_names'])
 
@@ -181,6 +182,12 @@ FRAMEWORK_CONFIGS = {
         # 这些通过链式调用（query→get）使用，需要特殊处理
         'parameter_bag_methods': {'get', 'all', 'has', 'set', 'remove'},
         'global_source_functions': set(),
+        # 方法返回值经过安全转换（hash/枚举/常量），不应传播污点
+        'safe_return_methods': {
+            'getCacheKey', 'getScheme', 'getHost', 'getPort',
+            'getHttpHost', 'getBaseUrl', 'getBasePath', 'getPathInfo',
+            'getSchemeAndHttpHost',
+        },
     },
 }
 

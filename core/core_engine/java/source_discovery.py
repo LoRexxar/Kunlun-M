@@ -26,7 +26,20 @@ logger = logging.getLogger('KunlunLog')
 # 内置 source 成员 — Servlet API 标准方法
 # ---------------------------------------------------------------------------
 _BUILTIN_SOURCE_MEMBERS = frozenset({
-    # HttpServletRequest 方法 - 用户可控输入
+    # HttpServletRequest/ServletRequest 方法
+    # 限定名用于精确匹配，裸名用于 suffix fallback（_is_source_variable
+    # 中 Java 语言额外检查 prefix 是否为已知 request 变量名）
+    "HttpServletRequest.getParameter", "HttpServletRequest.getHeader",
+    "HttpServletRequest.getInputStream", "HttpServletRequest.getReader",
+    "HttpServletRequest.getQueryString", "HttpServletRequest.getCookies",
+    "HttpServletRequest.getParameterValues", "HttpServletRequest.getParameterMap",
+    "HttpServletRequest.getPart", "HttpServletRequest.getParts",
+    "ServletRequest.getParameter", "ServletRequest.getHeader",
+    "ServletRequest.getInputStream", "ServletRequest.getReader",
+    "ServletRequest.getQueryString", "ServletRequest.getCookies",
+    "ServletRequest.getParameterValues", "ServletRequest.getParameterMap",
+    "ServletRequest.getPart", "ServletRequest.getParts",
+    # 裸名 — suffix fallback 受 _JAVA_REQUEST_PREFIXES 门控
     "getParameter", "getHeader", "getInputStream", "getReader",
     "getQueryString", "getCookies", "getParameterValues", "getParameterMap",
     "getPart", "getParts",

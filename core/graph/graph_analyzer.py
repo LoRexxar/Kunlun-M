@@ -41,6 +41,13 @@ _SUPERGLOBALS: frozenset[str] = frozenset({
     "flask.request", "django.http.HttpRequest",
 })
 
+# Java known request variable name prefixes — gates suffix fallback in
+# _is_source_variable so tree.getParameter doesn't match getParameter.
+_JAVA_REQUEST_PREFIXES: frozenset[str] = frozenset({
+    "request", "req", "httpRequest", "httpServletRequest",
+    "servletRequest", "httpReq",
+})
+
 # $_SERVER keys that are NOT directly user-controlled (server config / runtime info).
 # Keys not in this set (HTTP_*, REQUEST_URI, PHP_SELF, QUERY_STRING, etc.)
 # are treated as user-controlled sources.
@@ -2138,6 +2145,13 @@ class GraphAnalyzer:
                         for i in range(1, len(parts)):
                             sfx = sep.join(parts[i:])
                             if self._source_registry.is_source_member(sfx):
+                                # Java: suffix match alone is too broad (e.g.
+                                # tree.getParameter matches getParameter).
+                                # Require prefix to be a known request type.
+                                if self.language == 'java' and i == len(parts) - 1:
+                                    prefix = parts[0]
+                                    if prefix not in _JAVA_REQUEST_PREFIXES:
+                                        continue
                                 return True
                         # Direction 2: check if any SR entry ends with
                         # sep+name (e.g., env::var → std::env::var)

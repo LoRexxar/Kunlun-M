@@ -129,7 +129,17 @@ def enrich_taint(
         fw_param_count = _enrich_framework_request_params(graph, source_registry)
         count += fw_param_count
 
-    # 6. 传播 safe taint: 将 sanitizer call 的 safe 标记传播到赋值 LHS 变量
+    # 6. 框架 safe 方法标注
+    #    某些框架方法返回值经过安全转换（hash/枚举/常量），不应传播污点。
+    #    例如 Symfony Request::getCacheKey() 返回 URL 的 MD5 hash。
+    if source_registry is not None and hasattr(source_registry, 'framework') and source_registry.framework:
+        config = getattr(source_registry, '_fw_config', None) or {}
+        safe_methods = config.get('safe_return_methods', set())
+        if safe_methods:
+            safe_method_count = _enrich_framework_safe_methods(graph, safe_methods)
+            count += safe_method_count
+
+    # 7. 传播 safe taint: 将 sanitizer call 的 safe 标记传播到赋值 LHS 变量
     safe_prop_count = _propagate_safe_taint(graph)
     count += safe_prop_count
 
@@ -488,6 +498,25 @@ def _enrich_annotated_params(graph: ig.Graph) -> int:
                 break
     return count
 
+
+def _enrich_framework_safe_methods(graph: ig.Graph, safe_methods: set[str]) -> int:
+    """标注框架 safe 方法的 call 节点为 taint_type=safe。
+
+    这些方法的返回值经过安全转换（hash/枚举/常量），不应传播污点。
+    """
+    count = 0
+    for v in graph.vs:
+        vlabel = _vattr(v, "label", "")
+        vtype = _vattr(v, "type", "")
+        if vlabel != NodeLabel.OPERATOR.value or vtype not in ("method_call", "static_call"):
+            continue
+        if _vattr(v, "taint_type"):
+            continue
+        name = _vattr(v, "name", "")
+        if name in safe_methods:
+            graph.vs[v.index]["taint_type"] = "safe"
+            count += 1
+    return count
 
 def _enrich_framework_request_params(graph: ig.Graph, source_registry) -> int:
     """标注图中匹配框架 request 对象名称的 parameter 节点为 source。
