@@ -29,7 +29,7 @@ class CVI_9406(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"Net::HTTP\.(get|post|put|delete|head)|URI\.open\s*\(|HTTParty\.(get|post)|Faraday\.(get|post)"
 
-        self.vul_function = ["get", "post", "put", "delete", "head"]
+        self.vul_function = ["Net::HTTP.get", "Net::HTTP.post", "Net::HTTP.put", "Net::HTTP.delete", "Net::HTTP.head"]
 
     def main(self, regex_string):
         """
