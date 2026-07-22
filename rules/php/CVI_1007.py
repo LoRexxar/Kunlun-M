@@ -28,6 +28,7 @@ class CVI_1007(SingleRuleMixin):
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = r"include|include_once|require|require_once|parsekit_compile_file|php_check_syntax|runkit_import|virtual"
+        self.vul_function = ["include", "require", "include_once", "require_once"]
 
     def main(self, regex_string):
         """
