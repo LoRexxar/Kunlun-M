@@ -77,7 +77,7 @@ C_CONTROLLED_SOURCES = [
     "getenv", "secure_getenv",
     "scanf", "fscanf", "sscanf",
     "gets",
-    "stdin", "STDIN_FILENO", "FILE stdin", "std::cin",
+    "stdin", "FILE stdin", "std::cin",
     "cin",
 ]
 
@@ -2179,7 +2179,7 @@ def scan_parser(rule_match, vul_lineno, file_path,
         "getenv", "secure_getenv",
         "scanf", "fscanf", "sscanf",
         "gets",
-        "stdin", "STDIN_FILENO", "FILE stdin", "std::cin",
+        "stdin", "FILE stdin", "std::cin",
         "cin",
     ]
     _trace_cache.clear()

@@ -69,7 +69,7 @@ _BUILTIN_SOURCE_MEMBERS = {
     # read/fread/fgets/getc/fgetc 已移除：这些是文件/网络 I/O 函数，
     # 不是用户 HTTP 输入。C 语言没有内置 web source，source 来自
     # 框架检测（CGI/libcurl/OpenSSL）注入的 source_members。
-    'STDIN_FILENO', 'FILE stdin',
+    'FILE stdin',
     # C++ IO（交互式输入流）
     'std::cin', 'cin',
     'std::getline',

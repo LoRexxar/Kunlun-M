@@ -76,7 +76,7 @@ C_CONTROLLED_SOURCES = [
     "scanf", "fscanf", "sscanf",
     "fgets", "gets", "getline", "getdelim",
     "read", "fread", "recv", "recvfrom", "recvmsg",
-    "stdin", "STDIN_FILENO", "FILE stdin", "std::cin",
+    "stdin", "FILE stdin", "std::cin",
     "cin",
 ]
 
@@ -2180,7 +2180,7 @@ def scan_parser(rule_match, vul_lineno, file_path,
         "scanf", "fscanf", "sscanf",
         "fgets", "gets", "getline", "getdelim",
         "read", "fread", "recv", "recvfrom", "recvmsg",
-        "stdin", "STDIN_FILENO", "FILE stdin", "std::cin",
+        "stdin", "FILE stdin", "std::cin",
         "cin",
     ]
     _trace_cache.clear()
