@@ -73,4 +73,8 @@ class CVI_8007(SingleRuleMixin):
         if re.search(r'(?:json|yaml|xml|toml)\.Unmarshal\s*\(', regex_string):
             return True
 
+        # Decode 到类型化结构体是安全的（如 gin 的 jsonBinding.Bind）
+        if re.search(r'\bDecode\s*\(', regex_string):
+            return False
+
         return None
