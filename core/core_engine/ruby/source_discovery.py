@@ -97,7 +97,6 @@ _FRAMEWORK_CONFIGS = {
             'request.path_info',
             'request.url',
             'request.fullpath',
-            'render',
         },
     },
     'sinatra': {
