@@ -72,10 +72,11 @@ _sd_registry = None  # Source Discovery 注册表
 # ---------------------------------------------------------------------------
 C_CONTROLLED_SOURCES = [
     # argv/argc removed: CLI-only, not web-controllable
+    # read/fread/fgets/getc/getdelim/recv/recvfrom/recvmsg removed:
+    # file/network I/O functions, not user HTTP input
     "getenv", "secure_getenv",
     "scanf", "fscanf", "sscanf",
-    "fgets", "gets", "getline", "getdelim",
-    "read", "fread", "recv", "recvfrom", "recvmsg",
+    "gets",
     "stdin", "STDIN_FILENO", "FILE stdin", "std::cin",
     "cin",
 ]
@@ -2173,10 +2174,11 @@ def scan_parser(rule_match, vul_lineno, file_path,
     global C_CONTROLLED_SOURCES
     C_CONTROLLED_SOURCES = [
         # argv/argc removed: CLI-only, not web-controllable
+        # read/fread/fgets/getc/getdelim/recv/recvfrom/recvmsg removed:
+        # file/network I/O functions, not user HTTP input
         "getenv", "secure_getenv",
         "scanf", "fscanf", "sscanf",
-        "fgets", "gets", "getline", "getdelim",
-        "read", "fread", "recv", "recvfrom", "recvmsg",
+        "gets",
         "stdin", "STDIN_FILENO", "FILE stdin", "std::cin",
         "cin",
     ]
