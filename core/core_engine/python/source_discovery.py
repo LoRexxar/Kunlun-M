@@ -140,11 +140,12 @@ _FRAMEWORK_CONFIGS = {
             # Django forms
             'form.cleaned_data',
             'self.cleaned_data',
-            # Django URL params
-            # 'kwargs' removed: too generic, matches non-view code (Wagtail, system checks)
-            'self.kwargs',  # Class-based view URL params (user-controllable)
-            # 'args' removed: too generic
-            'self.args',  # Class-based view positional URL params
+            # self.kwargs/self.args removed: too generic.
+            # They appear in pytest fixtures, celery extensions, and non-view
+            # code. Framework detection in setup.py can also false-positive
+            # (e.g. celery lists 'django' as an optional extra dependency).
+            # If needed, these can be re-added as user_source_functions via
+            # _walk_for_functions when Django CBV patterns are detected.
         },
     },
     'fastapi': {
