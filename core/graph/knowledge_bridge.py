@@ -103,7 +103,7 @@ def enrich_taint(
         #    传完整 func_name（如 "document.cookie"），内部用短名查 source producer，
         #    用完整 chain 查 source member。
         if source_registry is not None:
-            if _enrich_from_source_registry(graph, func_vid, func_name, source_registry):
+            if _enrich_from_source_registry(graph, func_vid, full_lookup, source_registry):
                 count += 1
                 continue
 
