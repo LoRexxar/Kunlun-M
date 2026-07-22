@@ -28,6 +28,7 @@ class CVI_1002(SingleRuleMixin):
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = r"file_get_contents"
+        self.vul_function = ["file_get_contents"]
 
     def main(self, regex_string):
         """
