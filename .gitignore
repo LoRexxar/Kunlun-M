@@ -139,6 +139,8 @@ rules/*
 !rules/nodejs/__init__.py
 !rules/php/
 !rules/php/*
+!rules/ruby/
+!rules/ruby/*
 
 # upload
 uploads/*.zip
