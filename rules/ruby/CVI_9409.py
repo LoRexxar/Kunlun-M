@@ -23,6 +23,7 @@ class CVI_9409(SingleRuleMixin):
         self.vulnerability = "日志注入"
         self.description = "将未经验证的用户输入写入日志可能导致信息泄露或日志注入攻击。攻击者可伪造日志条目、注入恶意内容或遮蔽真实攻击痕迹。建议对日志输出进行过滤和编码。"
         self.level = 8
+        self.status = False  # 禁用：日志注入在web扫描场景中不构成实际威胁
 
         # 部分配置
         self.match_mode = "function-param-regex"
