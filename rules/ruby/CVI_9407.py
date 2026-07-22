@@ -29,7 +29,7 @@ class CVI_9407(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"\.raw\s*\(|\.html_safe|content_tag\s*\("
 
-        self.vul_function = ["raw", "html_safe", "content_tag"]
+        self.vul_function = ["html_safe", "content_tag"]
 
     def main(self, regex_string):
         """
