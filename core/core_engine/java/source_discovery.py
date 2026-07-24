@@ -347,8 +347,9 @@ def _process_method_declaration(method_node, source_members, annotated_params):
             if hasattr(param, 'type') and param.type:
                 param_type = param.type.name if hasattr(param.type, 'name') else str(param.type)
 
-            # HttpServletRequest / MultipartFile / InputStream / Principal 类型
-            if any(t in param_type for t in ('Request', 'MultipartFile', 'InputStream', 'Principal')):
+            # HttpServletRequest / InputStream / Principal 类型
+            # (MultipartFile excluded: carries uploaded file metadata, not direct user string source)
+            if any(t in param_type for t in ('Request', 'InputStream', 'Principal')):
                 annotated_params.add(param.name)
                 continue
 

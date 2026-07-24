@@ -126,7 +126,7 @@ _TYPE_CAST_SAFE: frozenset[str] = frozenset({
 
 _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "system", "exec", "passthru", "shell_exec", "popen", "proc_open", "pcntl_exec", "expect_popen",
-    "eval", "assert", "create_function",
+    "eval", "create_function",
     "call_user_func", "call_user_func_array", "register_tick_function", "register_shutdown_function", "dl",
     "usort", "uasort", "array_map", "array_filter",
     "echo", "print", "printf", "vprintf", "sprintf", "vsprintf", "print_r", "var_dump",

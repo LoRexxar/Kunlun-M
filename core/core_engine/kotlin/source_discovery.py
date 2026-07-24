@@ -79,7 +79,7 @@ _BUILTIN_SOURCE_MEMBERS = {
     'org.json.JSONObject', 'com.google.gson.Gson',
     'jackson.ObjectMapper',
     # 进程
-    'Runtime.getRuntime', 'ProcessBuilder',
+    'Runtime.getRuntime',
     # Kotlin IO
     'kotlinx.io.files.readFile',
     'kotlinx.coroutines.channels.Channel',
