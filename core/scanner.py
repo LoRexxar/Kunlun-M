@@ -161,6 +161,9 @@ def score2level(score):
 
 def scan_single(target_directory, single_rule, files=None, language=None, tamper_name=None, is_unconfirm=False,
                 newcore_function_list=None):
+    raise RuntimeError(
+        "scan_single() is DEPRECATED. All scans must use the graph-based scan() engine. "
+        "This legacy regex-based engine is no longer callable.")
     try:
         return SingleRule(target_directory, single_rule, files, language, tamper_name, is_unconfirm,
                           newcore_function_list).process()
@@ -1066,6 +1069,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=None, framework=None, file_count=0,
             extension_count=0, files=None, tamper_name=None, is_unconfirm=False):
+    raise RuntimeError(
+        "oldscan() is DEPRECATED. All scans must use the graph-based scan() engine. "
+        "This legacy regex-based engine is no longer callable.")
     r = Rule(language)
     vulnerabilities = r.vulnerabilities
     rules = r.rules(special_rules)
@@ -1238,8 +1244,11 @@ old_scan = oldscan
 
 
 class SingleRule(object):
+    """DEPRECATED: Legacy single-rule regex engine. Use graph-based scan() instead."""
     def __init__(self, target_directory, single_rule, files, language=None, tamper_name=None, is_unconfirm=False,
                  newcore_function_list=None):
+        raise RuntimeError(
+            "SingleRule is DEPRECATED. All scans must use the graph-based scan() engine.")
         self.target_directory = target_directory
         self.sr = single_rule
         self.files = files
