@@ -88,7 +88,6 @@ _FRAMEWORK_CONFIGS = {
             'c.ShouldBindQuery',
             'c.ShouldBindXML',
             'c.ShouldBindYAML',
-            'c.Request',
         },
     },
     'echo': {
@@ -102,7 +101,6 @@ _FRAMEWORK_CONFIGS = {
             'c.FormValue',
             'c.Param',
             'c.Cookie',
-            'c.Request',
         },
     },
     'fiber': {
@@ -131,7 +129,6 @@ _FRAMEWORK_CONFIGS = {
             'this.GetString',
             'this.GetStrings',
             'this.Ctx.Input',
-            'this.Ctx.Request',
         },
     },
     'chi': {
