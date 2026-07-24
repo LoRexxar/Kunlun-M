@@ -60,16 +60,18 @@ _SERVER_UNCONTROLLED_KEYS: frozenset[str] = frozenset({
     "REMOTE_PORT", "REQUEST_TIME", "REQUEST_TIME_FLOAT", "HTTPS",
 })
 
-# $_FILES keys that are NOT user-controlled (server-generated metadata).
-# Keys not in this set ('name', 'type') are treated as user-controlled sources.
+# \$_FILES keys that are NOT user-controlled (server-generated metadata).
+# 'name' is the client-side original filename, not a server-side path;
+# it should not be treated as a source for path traversal / RFI rules.
+# Keys not in this set ('type') are treated as user-controlled sources.
 _FILES_NON_SOURCE_MEMBERS: frozenset[str] = frozenset({
-    "tmp_name", "size", "error", "full_path",
+    "tmp_name", "size", "error", "full_path", "name",
 })
 
-# $_FILES member keys that ARE user-controlled (original filename / MIME type).
-# $_FILES without these keys in the member chain is NOT a valid source.
+# \$_FILES member keys that ARE user-controlled (MIME type only).
+# \$_FILES without these keys in the member chain is NOT a valid source.
 _FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
-    "name", "type",
+    "type",
 })
 
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)

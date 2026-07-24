@@ -1302,6 +1302,16 @@ def extract_constraints_from_php_expr(expr):
                             var_name=var_name, op='regex_validated',
                             value=pattern
                         ))
+        elif func_name == 'in_array':
+            # in_array($needle, $haystack) — $needle is constrained to
+            # values present in $haystack.  Treat as whitelist validation.
+            if expr.params and len(expr.params) >= 2:
+                var_name = _extract_var_name(expr.params[0])
+                if var_name:
+                    constraints.append(BranchConstraint(
+                        var_name=var_name, op='in_array',
+                        value=None,
+                    ))
 
     elif isinstance(expr, php.BinaryOp):
         if expr.op == '&&':
@@ -1522,7 +1532,7 @@ def _parameters_back_impl(param, nodes, function_params=None, lineno=0,
                 true_names = _collect_var_names(terna1)
                 false_names = _collect_var_names(terna2)
                 for c in constraints:
-                    if c.op in ('==', '===', 'in', 'type_validated', 'regex_validated'):
+                    if c.op in ('==', '===', 'in', 'type_validated', 'regex_validated', 'in_array'):
                         if c.var_name in true_names and c.var_name not in false_names:
                             # 约束变量只在 true 分支 → true 路径中 var == fixed → 阻断
                             logger.info("[AST] Ternary constraint BLOCKS: {} {} {}".format(c.var_name, c.op, c.value))
@@ -1906,8 +1916,8 @@ def _parameters_back_impl(param, nodes, function_params=None, lineno=0,
             # 3. 立即检查约束（仅在 sink 在具体分支内时执行，即 sink_branch != 'outside'）
             if sink_branch != 'outside':
                 for c in constraints:
-                    if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated'):
-                        # 等值约束：变量被限定为固定值，不可控
+                    if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated', 'in_array'):
+                        # 等值/白名单约束：变量被限定，不可控
                         logger.info("[AST] Branch constraint BLOCKS param {}: {} {}".format(param_name, c.op, c.value))
                         return -1, param, 0
 
@@ -1947,7 +1957,7 @@ def _parameters_back_impl(param, nodes, function_params=None, lineno=0,
                 if body_start and body_end and body_start <= _lineno <= body_end:
                     constraints = extract_constraints_from_php_expr(node.expr)
                     for c in constraints:
-                        if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated'):
+                        if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated', 'in_array'):
                             logger.info("[AST] While constraint BLOCKS param {}: {} {}".format(param_name, c.op, c.value))
                             return -1, param, 0
 
