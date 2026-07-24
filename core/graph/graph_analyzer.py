@@ -101,6 +101,19 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # Java
     "StringEscapeUtils.escapeSql",
     "org.apache.commons.lang3.StringEscapeUtils.escapeSql",
+    "org.apache.commons.lang3.StringEscapeUtils.escapeHtml4",
+    "org.apache.commons.lang3.StringEscapeUtils.escapeHtml3",
+    "org.apache.commons.lang3.StringEscapeUtils.escapeXml11",
+    "org.apache.commons.text.StringEscapeUtils.escapeHtml4",
+    "org.apache.owasp.esapi.ESAPI.encoder.encodeForHTML",
+    "org.apache.owasp.esapi.ESAPI.encoder.encodeForHTMLAttribute",
+    "org.apache.owasp.esapi.ESAPI.encoder.encodeForJavaScript",
+    "org.apache.owasp.esapi.ESAPI.encoder.encodeForURL",
+    "org.apache.owasp.esapi.ESAPI.encoder.encodeForSQL",
+    "org.apache.tomcat.util.security.Escape.htmlElementContent",
+    "Escape.htmlElementContent",
+    "org.apache.tomcat.util.security.Escape.xml",
+    "Escape.xml",
     # Go
     "html.EscapeString", "url.QueryEscape",
     "shellescape.Quote",
@@ -3026,14 +3039,21 @@ class GraphAnalyzer:
                 if resolved_name and " " not in resolved_name:
                     return resolved_name
         # Prefer the last identifier callee (actual method name in chains)
-        for name, tvid in reversed(callee_names):
+        for idx in range(len(callee_names) - 1, -1, -1):
+            name, tvid = callee_names[idx]
             if _vattr(self.graph.vs[tvid], "label") == "identifier":
                 vtype = _vattr(self.graph.vs[tvid], "type", "")
                 # Property-type identifiers (member access like obj.method)
-                # are method names, not variables — return directly.
-                # Only attempt variable resolution for variable-type callees
-                # (e.g., PHP $func = 'system'; $func()).
+                # are method names, not variables.
                 if vtype == "property":
+                    # For qualified calls (a.b.method), try to build the
+                    # full qualified name by prepending qualifier names.
+                    # This enables _is_repair_function / _is_source_variable
+                    # to match on complete references (e.g.
+                    # Escape.htmlElementContent) rather than bare short names.
+                    if idx > 0:
+                        qualifier_name = callee_names[idx - 1][0]
+                        return qualifier_name + "." + name
                     return name
                 resolved = self._resolve_variable_callee(tvid, name)
                 if resolved:
