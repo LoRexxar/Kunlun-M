@@ -526,6 +526,10 @@ def _enrich_framework_request_params(graph: ig.Graph, source_registry) -> int:
     当 source_registry 中有框架的 request_object_names 配置时（如 Symfony 的
     {'request', '$request'}），函数参数名匹配该集合的 parameter 节点被标记为
     taint_type=source。适用于 PHP/Symfony、PHP/Laravel 等通过 DI 注入 request 的框架。
+
+    要求参数同时满足以下至少一个条件，避免参数名碰巧叫 request 的误标：
+    - 参数名在 request_object_names 中
+    - 参数的 type_hint 包含 'Request'（如 Request, RequestInterface）
     """
     from core.graph.node_edge_schema import NodeLabel
 
@@ -548,10 +552,18 @@ def _enrich_framework_request_params(graph: ig.Graph, source_registry) -> int:
             continue
         # PHP 参数名含 $ 前缀（如 $request），也检查不含 $ 的版本
         clean = name.lstrip("$")
-        if name in request_names or clean in request_names:
-            graph.vs[v.index]["taint_type"] = "source"
-            graph.vs[v.index]["taint_origin"] = "framework_request_param"
-            count += 1
+        name_match = name in request_names or clean in request_names
+        if not name_match:
+            continue
+        # Verify the parameter is actually an HTTP Request object:
+        # check type_hint for 'Request' substring (e.g. Request,
+        # RequestInterface, ServerRequestInterface, HttpFoundation\Request).
+        type_hint = _vattr(v, "type_hint", "")
+        if "Request" not in type_hint:
+            continue
+        graph.vs[v.index]["taint_type"] = "source"
+        graph.vs[v.index]["taint_origin"] = "framework_request_param"
+        count += 1
     return count
 
 def _get_simple_name(name: str) -> str:
