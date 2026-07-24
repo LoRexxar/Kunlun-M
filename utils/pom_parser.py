@@ -150,6 +150,9 @@ def version_in_range(version, version_range):
     """
     if not version or version == "unknown":
         return False
+    # 跳过未解析的占位符（如 ${revision}、${project.version}）
+    if '${' in version:
+        return False
     
     conditions = [c.strip() for c in version_range.split(',')]
     
