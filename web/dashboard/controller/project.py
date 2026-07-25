@@ -44,7 +44,7 @@ class ProjectListView(TemplateView):
             search_project_name = self.request.GET['project_name']
 
         rows = search_project_by_name(search_project_name)
-        project_count = Project.objects.all().count()
+        project_count = len(rows)
 
         # 分页
         if 'p' in self.request.GET:
@@ -66,7 +66,23 @@ class ProjectListView(TemplateView):
 
             vendors_count = ProjectVendors.objects.filter(project_id=project.id).count()
 
-            results_count = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1).count()
+            results_qs = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1)
+            results_count = results_qs.count()
+            tp_count = results_qs.filter(verification_status='tp').count()
+            fp_count = results_qs.filter(verification_status='fp').count()
+            unconfirmed_count = results_qs.filter(verification_status='').count()
+            langs = list(results_qs.values_list('language', flat=True).distinct().order_by('language'))
+            if not langs:
+                # 从任务的 parameter_config 或路径提取语言
+                for t in tasks[:1]:
+                    m = re.search(r"'-lan',\s*'([^']+)'", t.parameter_config or '')
+                    if m:
+                        langs = [m.group(1)]
+                    else:
+                        path = t.source_dir or t.target_path or ''
+                        m2 = re.search(r'/realworld_scan(?:_new)?/(\w+)/', path)
+                        if m2:
+                            langs = [m2.group(1)]
 
             last_scan_time = None
             if tasks:
@@ -74,6 +90,10 @@ class ProjectListView(TemplateView):
 
             project.tasks_count = tasks_count
             project.results_count = results_count
+            project.tp_count = tp_count
+            project.fp_count = fp_count
+            project.unconfirmed_count = unconfirmed_count
+            project.languages = ', '.join(langs) if langs else '-'
             project.last_scan_time = last_scan_time
             project.vendors_count = vendors_count
 
@@ -133,7 +153,6 @@ class ProjectDetailView(View):
                 logging.getLogger('django').warning('[chain] load chain data failed: %s', e)
 
         for taskresult in taskresults:
-            taskresult.is_unconfirm = int(taskresult.is_unconfirm)
             taskresult.level = 0
             taskresult.vid = 0
             taskresult.chain_nodes = chain_map.get(taskresult.id, [])

@@ -12,7 +12,7 @@ from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 from django.conf import settings
 import os
-from web.index.models import ScanTask, Project
+from web.index.models import ScanTask, Project, ScanResultTask
 from web.index.models import get_and_check_scantask_project_id
 
 from utils.utils import del_sensitive_for_config
@@ -305,9 +305,6 @@ def overview(req):
         "other": 0,
     }
 
-    latest_task = None
-    latest_scan_time = None
-
     for task in tasks:
         task_status = int(task.is_finished)
         if task_status == 1:
@@ -319,22 +316,36 @@ def overview(req):
         else:
             status_count["other"] += 1
 
-        if latest_scan_time is None and task.last_scan_time:
-            latest_scan_time = timezone.localtime(
-                task.last_scan_time,
-                timezone.get_fixed_timezone(8 * 60)
-            ).strftime("%Y-%m-%d %H:%M:%S")
-            latest_task = {
-                "id": task.id,
-                "task_name": task.task_name,
-                "target_path": task.target_path
-            }
+    # 最新10个任务，带结果数
+    latest_tasks = ScanTask.objects.all().order_by("-id")[:10]
+    lt_ids = [t.id for t in latest_tasks]
+    from django.db.models import Count
+    result_totals = dict(
+        ScanResultTask.objects.filter(scan_task_id__in=lt_ids)
+        .values('scan_task_id').annotate(cnt=Count('id'))
+        .values_list('scan_task_id', 'cnt')
+    )
+    verified_counts = dict(
+        ScanResultTask.objects.filter(scan_task_id__in=lt_ids, verification_status__in=['tp', 'fp'])
+        .values('scan_task_id').annotate(cnt=Count('id'))
+        .values_list('scan_task_id', 'cnt')
+    )
+    status_map = {0: '失败', 1: '成功', 2: '运行中', 3: '队列中'}
+    latest_tasks_data = []
+    for t in latest_tasks:
+        t_status = int(t.is_finished)
+        latest_tasks_data.append({
+            'id': t.id,
+            'task_name': t.task_name or os.path.basename(str(t.target_path)),
+            'status': status_map.get(t_status, str(t_status)),
+            'result_count': result_totals.get(t.id, 0),
+            'verified_count': verified_counts.get(t.id, 0),
+        })
 
     context = {
         "tasks": tasks,
         "status_count": status_count,
-        "latest_task": latest_task,
-        "latest_scan_time": latest_scan_time,
+        "latest_tasks": latest_tasks_data,
     }
     return render(req, "dashboard/overview.html", context)
 

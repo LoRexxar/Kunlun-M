@@ -55,10 +55,13 @@
           <tr>
             <th class="km-col-id">ID</th>
             <th>项目</th>
-            <th>来源</th>
+            <th>语言</th>
             <th class="km-col-time">时间</th>
             <th class="km-td-nowrap">任务数</th>
             <th class="km-td-nowrap">漏洞数</th>
+            <th class="km-td-nowrap" style="width:70px;">确认</th>
+            <th class="km-td-nowrap" style="width:70px;">误报</th>
+            <th class="km-td-nowrap" style="width:70px;">未确认</th>
             <th class="km-td-nowrap">依赖数</th>
           </tr>
         </thead>
@@ -71,12 +74,13 @@
                 <a class="km-link-strong" href="{% url 'dashboard:project_detail' project.id %}" title="{{ project.project_name|escape }}">{{ project.project_name }}</a>
               </div>
             </td>
-            <td>
-              <div class="km-cell-config" title="{{ project.project_origin|escape }}">{{ project.project_origin }}</div>
-            </td>
+            <td class="km-td-nowrap">{{ project.languages }}</td>
             <td class="km-td-time" data-time="{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
             <td class="km-td-nowrap">{{ project.tasks_count }}</td>
             <td class="km-td-nowrap">{{ project.results_count }}</td>
+            <td class="km-td-nowrap">{{ project.tp_count }}</td>
+            <td class="km-td-nowrap">{{ project.fp_count }}</td>
+            <td class="km-td-nowrap">{{ project.unconfirmed_count }}</td>
             <td class="km-td-nowrap">{{ project.vendors_count }}</td>
           </tr>
           {% endfor %}

@@ -74,33 +74,37 @@
       </div>
 
       <div class="row mt-4">
-        <div class="col-lg-6">
+        <div class="col-lg-12">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">最新扫描</h3>
+              <h3 class="card-title">最新任务</h3>
+              <a href="{% url 'dashboard:tasks_list' %}" class="text-muted" style="font-size:13px;">查看全部 <i class="fa fa-arrow-circle-right"></i></a>
             </div>
-            <div class="card-body">
-              {% if latest_task %}
-              <p><strong>任务：</strong>{{ latest_task.task_name|default:latest_task.target_path }}</p>
-              <p><strong>路径：</strong>{{ latest_task.target_path }}</p>
-              <p><strong>时间：</strong>{{ latest_scan_time }}</p>
-              <a href="{% url 'dashboard:task_detail' latest_task.id %}" class="btn btn-primary btn-sm">查看详情</a>
-              {% else %}
-              <p class="text-muted">暂无扫描记录</p>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-        <div class="col-lg-6">
-          <div class="card">
-            <div class="card-header">
-              <h3 class="card-title">快捷操作</h3>
-            </div>
-            <div class="card-body">
-              <a href="{% url 'dashboard:task_new' %}" class="btn btn-primary me-2"><i class="fa fa-plus me-1"></i>新建扫描</a>
-              <a href="{% url 'dashboard:projects_list' %}" class="btn btn-secondary me-2"><i class="fa fa-folder-open me-1"></i>项目列表</a>
-              <a href="{% url 'dashboard:rules_list' %}" class="btn btn-secondary me-2"><i class="fa fa-book me-1"></i>规则列表</a>
-              <a href="{% url 'dashboard:graph_analysis' %}" class="btn btn-secondary"><i class="fa fa-project-diagram me-1"></i>图分析</a>
+            <div class="card-body table-responsive p-0">
+              <table class="table table-hover km-table mb-0">
+                <thead>
+                  <tr>
+                    <th style="width:64px;">ID</th>
+                    <th>名称</th>
+                    <th style="width:90px;">状态</th>
+                    <th style="width:90px;text-align:center;">结果数</th>
+                    <th style="width:90px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for t in latest_tasks %}
+                  <tr>
+                    <td class="km-td-nowrap"><a href="{% url 'dashboard:task_detail' t.id %}">{{ t.id }}</a></td>
+                    <td>{{ t.task_name }}</td>
+                    <td class="km-td-nowrap">{{ t.status }}</td>
+                    <td style="width:90px;" class="km-td-nowrap">
+                      <span>{{ t.verified_count }}/{{ t.result_count }}</span>
+                    </td>
+                    <td><a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_detail' t.id %}">查看</a></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

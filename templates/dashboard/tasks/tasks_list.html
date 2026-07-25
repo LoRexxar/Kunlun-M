@@ -65,11 +65,7 @@
                         {% endif %}
                       </td>
                       <td class="km-td-nowrap">
-                        {% if task.result_count > 0 %}
-                        <a href="{% url 'dashboard:task_detail' task.id %}"><span class="badge bg-primary">{{ task.verified_count }}/{{ task.result_count }}</span></a>
-                        {% else %}
-                        <span class="km-muted">0</span>
-                        {% endif %}
+                        <span>{{ task.verified_count }}/{{ task.result_count }}</span>
                       </td>
                       <td>
                         <div class="km-cell-config" title="{{ task.parameter_config|escape }}">{{ task.parameter_config }}</div>

@@ -329,7 +329,6 @@ class TaskDetailView(View):
         source_root = task.source_dir or task.target_path or ''
 
         for taskresult in taskresults:
-            taskresult.is_unconfirm = int(taskresult.is_unconfirm)
             taskresult.level = 0
             taskresult.chain_nodes = chain_map.get(taskresult.id, [])
             taskresult.has_chain = len(taskresult.chain_nodes) > 0

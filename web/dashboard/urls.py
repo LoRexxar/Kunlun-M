@@ -64,6 +64,7 @@ urlpatterns = [
     # interface
     # scan result
     path('vuls/<int:vul_id>/del', scanresult.ScanResultDelInterfaceView.as_view(), name="vul_del"),
+    path('vuls/<int:vul_id>/verify', scanresult.ScanResultVerifyView.as_view(), name="vul_verify"),
 
     # graph analysis
     path('graph', login_required(graph_analysis.GraphAnalysisView.as_view()), name='graph_analysis'),
