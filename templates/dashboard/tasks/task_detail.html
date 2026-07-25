@@ -182,17 +182,29 @@
                     <td><span class="badge bg-light text-dark border" title="{{ taskresult.result_type|escape }}">{{ taskresult.rule_name|default:taskresult.cvi_id }}</span></td>
 
                     <td class="km-td-nowrap">
-                      {% if taskresult.is_unconfirm == 0 %}
-                      <span class="badge bg-success">是</span>
-                      {% elif  taskresult.is_unconfirm  == 1 %}
-                      <span class="badge bg-danger">否</span>
-                      {% else %}
-                      <span class="badge bg-success">{{ taskresult.is_unconfirm }}</span>
+                      {% if taskresult.verification_status == 'tp' %}确认
+                      {% elif taskresult.verification_status == 'fp' %}误报
+                      {% elif taskresult.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
+                      {% else %}未确认
                       {% endif %}
                     </td>
                     <td class="km-col-actions">
                       <div class="km-actions">
-                        <button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); delVul('{{ taskresult.id }}')">删除</button>
+                        <div class="dropdown">
+                          <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation()">操作 <i class="fa fa-caret-down" style="font-size:12px;"></i></button>
+                          <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul('{{ taskresult.id }}', 'tp')">标记确认</a></li>
+                            <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul('{{ taskresult.id }}', 'fp')">标记误报</a></li>
+                            {% if taskresult.verification_status != 'stale' %}
+                            <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul('{{ taskresult.id }}', 'stale')">标记过期</a></li>
+                            {% endif %}
+                            {% if taskresult.verification_status %}
+                            <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul('{{ taskresult.id }}', 'unconfirm')">撤销</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            <li><a class="dropdown-item text-danger" href="javascript:;" onclick="event.stopPropagation(); delVul('{{ taskresult.id }}')">删除</a></li>
+                          </ul>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -877,6 +889,20 @@ function renderChainGraph(vulId, container, graphData, chainNodes) {
   });
 
   chainGraphInstances[vulId] = cy;
+}
+
+function verifyVul(vulid, action){
+  $.post(
+    "{% url 'dashboard:vul_verify' 654321 %}".replace('654321', vulid),
+    {action: action, csrfmiddlewaretoken: $('[name=csrfmiddlewaretoken]').val() || $("meta[name='csrf-token']").attr('content')},
+    function(data){
+      if(data.code == 200){
+          location.reload();
+      }else{
+          alert(data.message)
+      }
+    }
+  )
 }
 
 function delVul(vulid){

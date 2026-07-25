@@ -32,7 +32,7 @@ class TaskResultVerifyApiView(View):
         notes = data.get('notes', '')
         verified_by = data.get('verified_by', request.user.username if request.user.is_authenticated else 'unknown')
 
-        valid_statuses = ['pending', 'tp', 'fp', 'unknown']
+        valid_statuses = ['pending', 'tp', 'fp', 'stale', 'unknown']
         if status not in valid_statuses:
             return JsonResponse({"code": 400, "error": f"Invalid status. Must be one of: {valid_statuses}"})
 
@@ -74,7 +74,7 @@ class TaskVerifyBatchApiView(View):
         status = data.get('status')
         verified_by = data.get('verified_by', request.user.username if request.user.is_authenticated else 'unknown')
 
-        valid_statuses = ['pending', 'tp', 'fp', 'unknown']
+        valid_statuses = ['pending', 'tp', 'fp', 'stale', 'unknown']
         if status not in valid_statuses:
             return JsonResponse({"code": 400, "error": f"Invalid status. Must be one of: {valid_statuses}"})
 

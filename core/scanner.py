@@ -198,6 +198,25 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     # 尝试加载缓存或构建 AST 图
     graph = None
+
+    # no_cache 扫描：标记同 target 旧 task 的结果为过期（排除 tp）
+    if no_cache and a_sid:
+        try:
+            from web.index.models import ScanResultTask, ScanTask
+            task = ScanTask.objects.get(id=a_sid)
+            target = task.target_path.rstrip('/')
+            old_tasks = ScanTask.objects.filter(target_path__startswith=target).exclude(id=a_sid)
+            old_task_ids = list(old_tasks.values_list('id', flat=True))
+            if old_task_ids:
+                updated = ScanResultTask.objects.filter(
+                    scan_task_id__in=old_task_ids
+                ).exclude(
+                    verification_status__in=['tp', 'stale']
+                ).update(verification_status='stale')
+                logger.info('[SCAN] Marked %d old results as stale (excluded tp)', updated)
+        except Exception as e:
+            logger.warning('[SCAN] Failed to mark stale results: %s', e)
+
     if not no_cache:
         try:
             from core.graph.graph_pipeline import load_cached_graph

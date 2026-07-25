@@ -58,8 +58,10 @@ def search_project_by_name(project_name):
         :param project_name:
         :return:
         """
+    base = Project.objects.filter(id__in=ScanTask.objects.values('project_id').distinct())
+
     if not project_name:
-        ps = Project.objects.all().order_by('-id')
+        ps = base.order_by('-id')
         return ps
 
     # 去除自定义 * 通配符后，转义 SQL LIKE 通配符 % 和 _
@@ -68,17 +70,17 @@ def search_project_by_name(project_name):
 
     if project_name.startswith('*'):
         if project_name.endswith('*'):
-            ps = Project.objects.filter(project_name__icontains=safe_name).order_by('-id')
+            ps = base.filter(project_name__icontains=safe_name).order_by('-id')
 
         else:
-            ps = Project.objects.filter(project_name__iendswith=safe_name).order_by('-id')
+            ps = base.filter(project_name__iendswith=safe_name).order_by('-id')
 
     else:
         if project_name.endswith('*'):
-            ps = Project.objects.filter(project_name__istartswith=safe_name).order_by('-id')
+            ps = base.filter(project_name__istartswith=safe_name).order_by('-id')
 
         else:
-            ps = Project.objects.filter(project_name__iexact=safe_name).order_by('-id')
+            ps = base.filter(project_name__iexact=safe_name).order_by('-id')
 
     return ps
 
@@ -270,9 +272,10 @@ def check_and_new_project_id(scantask_id, task_name, project_origin, project_des
 #          'Commit(Author)', 'Source Code Content', 'Analysis'])
 class ScanResultTask(models.Model):
     VERIFICATION_CHOICES = [
-        ('pending', '待验证'),
+        ('', '未确认'),
         ('tp', 'True Positive'),
         ('fp', 'False Positive'),
+        ('pending', '待验证'),
         ('unknown', '无法判断'),
     ]
 
@@ -291,7 +294,7 @@ class ScanResultTask(models.Model):
     verification_status = models.CharField(
         max_length=10,
         choices=VERIFICATION_CHOICES,
-        default='pending',
+        default='',
         db_index=True
     )
     verified_by = models.CharField(max_length=100, default='')
@@ -363,7 +366,7 @@ def get_and_check_scanresult(scan_task_id):
 
 
 def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path, source_code, result_type,
-                                   is_unconfirm, is_active):
+                                   is_unconfirm=None, is_active=True):
     # 优化基础扫描结果
     if str(cvi_id).startswith('5'):
         vulfile_path = vulfile_path.split(':')[0]
@@ -382,7 +385,9 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         sr.vulfile_path = vulfile_path
         sr.source_code = source_code
         sr.result_type = result_type
-        sr.is_unconfirm = is_unconfirm
+        # 过期状态重置为未确认（新扫描重新发现了这个漏洞）
+        if sr.verification_status == 'stale':
+            sr.verification_status = ''
 
         try:
             sr.save()
@@ -393,7 +398,7 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
 
     else:
         sr = ScanResultTask(scan_project_id=scan_project_id, scan_task_id=scan_task_id, cvi_id=cvi_id, language=language, vulfile_path=vulfile_path, source_code=source_code, result_type=result_type,
-                            is_unconfirm=is_unconfirm, is_active=is_active)
+                            is_active=is_active, verification_status='', is_unconfirm=False)
         sr.save()
 
     return sr
