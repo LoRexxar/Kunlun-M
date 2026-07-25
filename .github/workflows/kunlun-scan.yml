@@ -32,13 +32,13 @@ jobs:
           django.setup()
           from core.core_engine.go.parser import scan_parser as go_scan_parser, _HAS_TREE_SITTER, _parse_go_ast
           print('_HAS_TREE_SITTER:', _HAS_TREE_SITTER)
-          tree = _parse_go_ast(os.path.abspath('ci_target/cmd_inject.go'))
+          tree = _parse_go_ast(os.path.abspath('ci_cases/cmd_inject.go'))
           print('AST tree:', 'OK' if tree else 'None')
-          result = go_scan_parser(['exec.Command'], 11, os.path.abspath('ci_target/cmd_inject.go'), svid=8001)
+          result = go_scan_parser(['exec.Command'], 11, os.path.abspath('ci_cases/cmd_inject.go'), svid=8001)
           print('scan_parser result:', result)
           "
       - name: Run KunLun CI scan
-        run: python tools/ci_scan.py --target ci_target --language all --output artifacts/kunlun-ci.json
+        run: python tools/ci_scan.py --target ci_cases --language all --output artifacts/kunlun-ci.json
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
