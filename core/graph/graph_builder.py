@@ -60,8 +60,6 @@ class AstGraphBuilder:
             for node in nodes:
                 if "attrs" not in node or not isinstance(node["attrs"], dict):
                     node["attrs"] = {}
-                if "path" not in node["attrs"]:
-                    node["attrs"]["path"] = file_loc
                 if "file_path" not in node["attrs"]:
                     node["attrs"]["file_path"] = file_loc
         self._nodes.extend(nodes)
@@ -104,6 +102,10 @@ class AstGraphBuilder:
             node_attr_keys.update(k for k in n.keys() if k != "attrs")
             node_attr_keys.update(n.get("attrs", {}).keys())
         node_attr_keys.discard("attrs")
+        # Exclude vertex attrs that are redundant or analysis-irrelevant:
+        # - 'location': identical to 'file_path' (set by all normalizers)
+        # - 'content_hash': only for cache validation, not analysis queries
+        node_attr_keys -= {"location", "content_hash"}
 
         # Build vertex attribute lists
         n_count = len(self._nodes)
@@ -138,6 +140,10 @@ class AstGraphBuilder:
             edge_attr_keys.update(k for k in e.keys() if k != "attrs")
             edge_attr_keys.update(e.get("attrs", {}).keys())
         edge_attr_keys.discard("attrs")
+        # 'source'/'target' define edge topology (consumed at L147-148);
+        # igraph already stores them as e.source/e.target. No need to also
+        # keep them as attributes (~31MB each on large graphs).
+        edge_attr_keys -= {"source", "target"}
 
         if self._edges:
             e_list: list[tuple[int, int]] = []
