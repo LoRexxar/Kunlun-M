@@ -142,18 +142,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
         self._vlocation = [''] * vc
         self._vraw_type = [''] * vc
         self._vsource = [''] * vc
+        from utils.igraph_compat import _vattr
         for v in self.graph.vs:
             vi = v.index
-            self._vlabel[vi] = v['label'] or ''
-            self._vtype[vi] = v['type'] or ''
-            self._vname[vi] = v['name'] or ''
-            self._vpath[vi] = v['path'] or ''
-            self._vfile_path[vi] = v['file_path'] or ''
-            self._vlineno[vi] = v['lineno'] or 0
-            self._vfullname[vi] = v['fullname'] or ''
-            self._vlocation[vi] = v['location'] or ''
-            self._vraw_type[vi] = v['raw_type'] or ''
-            self._vsource[vi] = v['source'] or ''
+            self._vlabel[vi] = _vattr(v, 'label', '')
+            self._vtype[vi] = _vattr(v, 'type', '')
+            self._vname[vi] = _vattr(v, 'name', '')
+            self._vpath[vi] = _vattr(v, 'path', '')
+            self._vfile_path[vi] = _vattr(v, 'file_path', '')
+            self._vlineno[vi] = _vattr(v, 'lineno', 0) or 0
+            self._vfullname[vi] = _vattr(v, 'fullname', '')
+            self._vlocation[vi] = _vattr(v, 'location', '')
+            self._vraw_type[vi] = _vattr(v, 'raw_type', '')
+            self._vsource[vi] = _vattr(v, 'source', '')
 
         # 预构建边索引：O(E) 一次遍历，替代后续所有 es.select() 的 O(E) 逐次查询
         self._edge_src_idx = defaultdict(list)
