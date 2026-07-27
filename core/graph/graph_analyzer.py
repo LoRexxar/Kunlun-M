@@ -326,15 +326,8 @@ class GraphAnalyzer:
             if vn:
                 self._nname.setdefault((vl, vn), []).append(v.index)
 
-        # 节点 file_path 索引: (label, name, file_path) → [vid, ...]
-        # （_find_identifier_by_name 需要 file_path 过滤）
-        self._nfile: dict[tuple[str, str, str], list[int]] = {}
-        for v in graph.vs:
-            vl = _vattr(v, 'label', '') or ''
-            vn = _vattr(v, 'name', '') or ''
-            fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
-            if vl and vn:
-                self._nfile.setdefault((vl, vn, fp), []).append(v.index)
+        # _nfile 索引延迟构建：只在 _find_identifier_by_name 首次调用时构建
+        self._nfile: dict[tuple[str, str, str], list[int]] | None = None
 
         # branch_safe DFG 边集合：(source_vid, target_vid)}
         # 替代 edge attribute 查询，O(1) lookup
@@ -3166,6 +3159,14 @@ class GraphAnalyzer:
         Replaced O(V) full scan with O(1) dict lookup using prebuilt indexes
         (_nfile, _nname).
         """
+        if self._nfile is None:
+            self._nfile = {}
+            for v in self.graph.vs:
+                vl = _vattr(v, 'label', '') or ''
+                vn = _vattr(v, 'name', '') or ''
+                fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
+                if vl and vn:
+                    self._nfile.setdefault((vl, vn, fp), []).append(v.index)
         scope = None
         if context_vid is not None:
             scope = _vattr(self.graph.vs[context_vid], "file_path", None)
