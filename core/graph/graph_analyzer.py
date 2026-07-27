@@ -360,15 +360,21 @@ class GraphAnalyzer:
         # 但方法链中间有自身 arg 的节点是真正的调用点，不应跳过
         callee_targets: set[int] = set()
         callee_with_args: set[int] = set()
-        for e in self.graph.es.select(label="ast"):
-            if _vattr(e, "role") == "callee":
-                callee_targets.add(e.target)
+        try:
+            for e in self.graph.es.select(label="ast"):
+                if _vattr(e, "role") == "callee":
+                    callee_targets.add(e.target)
+        except KeyError:
+            pass  # graph has no edges or no 'label' attribute
         # Identify callee_targets with their own args
         for ct_vid in callee_targets:
-            has_arg = any(
-                _vattr(e, "role") == "arg"
-                for e in self.graph.es.select(_source=ct_vid, label="ast")
-            )
+            try:
+                has_arg = any(
+                    _vattr(e, "role") == "arg"
+                    for e in self.graph.es.select(_source=ct_vid, label="ast")
+                )
+            except KeyError:
+                has_arg = False
             if has_arg:
                 callee_with_args.add(ct_vid)
 
