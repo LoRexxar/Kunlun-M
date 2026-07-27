@@ -810,7 +810,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # Try each matched rule; first whose main() passes reports
                     # rule.main() 二次筛选
                     main_input = sink_name  # default: sink function name
-                    sink_file = _vattr(graph.vs[sink['vid']], 'path', '')
+                    sink_file = _vattr(graph.vs[sink['vid']], 'file_path', '') or _vattr(graph.vs[sink['vid']], 'path', '')
                     sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
                     # Pre-read source line for main() input
                     if sink_file:
@@ -867,7 +867,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         continue
 
                     # 文件路径过滤：vendor/test/third-party 目录
-                    vuln_file_path = _vattr(graph.vs[sink['vid']], 'path', '')
+                    vuln_file_path = _vattr(graph.vs[sink['vid']], 'file_path', '') or _vattr(graph.vs[sink['vid']], 'path', '')
                     if vuln_file_path:
                         vuln_file_norm = os.path.normpath(vuln_file_path)
                         # vendor 目录
@@ -890,13 +890,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         v = graph.vs[vid]
                         node_label = _vattr(v, 'label', '')
                         node_name = _vattr(v, 'name', '')
-                        node_file = _vattr(v, 'path', '')
+                        node_file = _vattr(v, 'file_path', '') or _vattr(v, 'path', '')
                         node_lineno = int(_vattr(v, 'lineno', 0) or 0)
                         chain.append((node_label, node_name, node_file, node_lineno, vid))
 
                     # 构建 VulnerabilityResult
                     sink_vid = sink['vid']
-                    file_path = _vattr(graph.vs[sink_vid], 'path', '')
+                    file_path = _vattr(graph.vs[sink_vid], 'file_path', '') or _vattr(graph.vs[sink_vid], 'path', '')
                     lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
 
                     vuln = VulnerabilityResult.from_match(
