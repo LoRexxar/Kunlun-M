@@ -916,6 +916,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     logger.debug('[SCAN] [GRAPH] Sink analysis error: %s', e)
                     continue
 
+            # Release analyzer indexes (~148MB) before next language iteration
+            del analyzer
 
     # ── Framework-dependency rules (independent of graph) ──
     if _fw_dep_rules:

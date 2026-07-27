@@ -159,17 +159,23 @@ class AstGraphBuilder:
 
             g.add_edges(e_list, attributes=e_attrs if e_attrs else None)
 
+        # Release accumulated node/edge dicts — igraph now holds all data in C.
+        # Keeping these alive until builder is GC'd wastes ~50MB on large graphs.
+        self._nodes = None
+        self._edges = None
+        self._node_offset = 0
+
         return g
 
     @property
     def node_count(self) -> int:
         """Number of accumulated nodes (including file nodes)."""
-        return len(self._nodes)
+        return len(self._nodes) if self._nodes is not None else 0
 
     @property
     def edge_count(self) -> int:
         """Number of accumulated edges."""
-        return len(self._edges)
+        return len(self._edges) if self._edges is not None else 0
 
     def clear(self) -> None:
         """Reset the builder, discarding all accumulated nodes and edges."""
