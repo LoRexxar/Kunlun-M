@@ -1028,6 +1028,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     # 跳过不同 file 的
                     if self._vpath[ident_vid] != func_path:
                         continue
+                    # 跳过不同 function 的（同名参数在不同方法里不应连接）
+                    ident_scope = self._get_scope_parent(ident_vid)
+                    if ident_scope != func_vid:
+                        continue
                     # 创建 parameter → identifier 的 DFG 边
                     for pvid in param_vids:
                         self._add_dfg_edge(
