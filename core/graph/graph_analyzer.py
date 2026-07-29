@@ -1367,12 +1367,36 @@ class GraphAnalyzer:
                     # 沿 use 边找到 function 定义节点，读 taint_type
                     func_taint = ""
                     func_vid = None
+                    # Iterate ALL use-edge targets, prefer a function node
+                    # that has a non-empty taint_type.  A call may have
+                    # multiple use edges (e.g. a placeholder/external node
+                    # plus the real definition); taking the first one blindly
+                    # can miss safe/passthrough annotations on the real def.
                     for ce in self.graph.es.select(_source=up_vid, label="use"):
                         fv = self.graph.vs[ce.target]
                         if _vattr(fv, "label") == NodeLabel.FUNCTION.value:
-                            func_vid = ce.target
-                            func_taint = _vattr(fv, "taint_type", "")
-                            break
+                            ft = _vattr(fv, "taint_type", "")
+                            if ft:
+                                # Found an annotated function — use it
+                                func_vid = ce.target
+                                func_taint = ft
+                                break
+                            # Remember the first unannotated function as fallback
+                            if func_vid is None:
+                                func_vid = ce.target
+
+                    # If the use-edge target has no taint annotation, follow
+                    # alias edges to find the real function definition that
+                    # does (e.g. placeholder node → alias → Core_Upgrader.upgrade).
+                    if not func_taint and func_vid is not None:
+                        for ae in self.graph.es.select(_source=func_vid, label="alias"):
+                            av = self.graph.vs[ae.target]
+                            if _vattr(av, "label") == NodeLabel.FUNCTION.value:
+                                at = _vattr(av, "taint_type", "")
+                                if at:
+                                    func_vid = ae.target
+                                    func_taint = at
+                                    break
 
                     # 如果 use 边没找到 function 定义，检查 call 节点自身的 taint 属性
                     # （builtin 函数调用被 enrich_taint 直接标注在 call 节点上）
@@ -1460,7 +1484,9 @@ class GraphAnalyzer:
                     # 4d: graph-based function trace (unknown or no taint attribute)
                     # Skip if use-edge already resolved the callee — re-searching by
                     # short name would match unrelated same-named methods across classes.
-                    if callee and callee not in self._call_stack and func_vid is None:
+                    # BUT: if use-edge found a placeholder node (no taint annotation),
+                    # still try find_function_def to locate the real definition.
+                    if callee and callee not in self._call_stack and (func_vid is None or not func_taint):
                         func_vids = self.find_function_def(callee, from_vid=up_vid)
                         if func_vids:
                             self._call_stack.append(callee)
