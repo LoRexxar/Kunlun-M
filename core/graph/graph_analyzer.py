@@ -122,6 +122,11 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "NamedParameterJdbcTemplate.queryForList",
     "NamedParameterJdbcTemplate.update",
     "SqlParameterSource.addValue",
+    # Framework internal resource locators (not user input, resolve internal protocols)
+    "FlexibleLocation.resolveLocation",
+    "resolveLocation",
+    "getLocation",
+    "getURL",
     # Go
     "html.EscapeString", "url.QueryEscape",
     "shellescape.Quote",
