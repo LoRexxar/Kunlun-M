@@ -565,11 +565,34 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     }
                     sink_name_lower = sink.get("name", "").lower()
                     callable_only = sink_name_lower in _CALLABLE_ONLY_SINK
+                    # Format-string functions: only the format string argument
+                    # is dangerous if user-controlled (format string vulnerability).
+                    # Value arguments (%s expansion) are NOT dangerous regardless
+                    # of controllability.
+                    #   printf(fmt, ...)       → arg 0 is format string
+                    #   fprintf(fp, fmt, ...)  → arg 1 is format string
+                    #   sprintf(dst, fmt, ...) → arg 1 is format string
+                    #   snprintf(dst, sz, fmt, ...) → arg 2 is format string
+                    _FMT_SINK_FMT_INDEX = {
+                        "printf": 0, "vprintf": 0,
+                        "fprintf": 1, "vfprintf": 1,
+                        "sprintf": 1, "vsprintf": 1,
+                        "snprintf": 2, "vsnprintf": 2,
+                    }
+                    fmt_only_idx = -1
+                    for _fn, _idx in _FMT_SINK_FMT_INDEX.items():
+                        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
+                            fmt_only_idx = _idx
+                            break
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
                     unconfirmed_result = None
                     for i, arg_vid in enumerate(arg_vids):
+                        # Format-string sinks: only check the format string argument.
+                        # Value arguments (printf %s values) are not dangerous.
+                        if fmt_only_idx >= 0 and i != fmt_only_idx:
+                            continue
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
                             continue
