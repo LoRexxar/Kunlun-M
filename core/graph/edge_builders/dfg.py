@@ -543,6 +543,16 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     src_name = self._vname[src_vid]
                     if src_name in self_names:
                         continue
+                    # Skip array offset member edges ($arr[$key]) —
+                    # the subscript value comes from the array, not from
+                    # the index key. Creating a DFG edge here would
+                    # propagate taint from key to subscript result,
+                    # causing FPs like call_user_func($callbacks[$user_input]).
+                    edge_idx = self.graph.get_eid(src_vid, tgt_vid, error=False)
+                    if edge_idx != -1:
+                        at = self.graph.es[edge_idx]["access_type"] or ""
+                        if at == "array_offset":
+                            continue
                     self._add_dfg_edge(
                         src_vid, tgt_vid, DfgType.FORWARD_SLICE.value
                     )
@@ -975,6 +985,14 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 for i, vid in enumerate(vids_sorted):
                     if vid in assign_lhs_vids:
                         continue  # LHS 不向前链接（已有 dfg(RHS→LHS)）
+                    # 跳过 array offset index 节点 ($arr[$key] 中的 $key)
+                    # — index 是 lookup key，不是 subscript 值。
+                    if any(
+                        True for eid in self.graph.incident(vid, mode="in")
+                        if self.graph.es[eid]["label"] == "member"
+                        and (self.graph.es[eid]["access_type"] or "") == "array_offset"
+                    ):
+                        continue
                     # 找前方最近的 LHS
                     found = False
                     for j in range(i - 1, -1, -1):
@@ -1057,6 +1075,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         continue
                     # 跳过 assign LHS
                     if ident_vid in assign_lhs_vids:
+                        continue
+                    # 跳过 array offset index 节点 ($arr[$key] 中的 $key)
+                    # — index 是 lookup key，不是 subscript 值本身。
+                    # 同名 parameter 传播到 index 节点会导致 FP：
+                    # call_user_func($callbacks[$user_input]) 中
+                    # $user_input 是 key，不是被调用的函数。
+                    if any(
+                        True for eid in self.graph.incident(ident_vid, mode="in")
+                        if self.graph.es[eid]["label"] == "member"
+                        and (self.graph.es[eid]["access_type"] or "") == "array_offset"
+                    ):
                         continue
                     # 跳过不同 file 的
                     if self._vpath[ident_vid] != func_path:
