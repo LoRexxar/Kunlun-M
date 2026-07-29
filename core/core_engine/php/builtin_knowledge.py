@@ -195,6 +195,14 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "wp_html_excerpt":      {"passthrough": [0], "safe": True},
         "wp_unslash":           {"passthrough": [0], "safe": True},
         "sanitize_key":          {"passthrough": [0], "safe": True},
+        # WordPress cache/DB functions: return values come from storage,
+        # not from function parameters. Mark as safe to prevent FPs where
+        # query parameters are mistaken for the source of return data.
+        "get_option":            {"passthrough": [], "safe": True},
+        "get_site_option":       {"passthrough": [], "safe": True},
+        "get_transient":         {"passthrough": [], "safe": True},
+        "get_site_transient":    {"passthrough": [], "safe": True},
+        "wp_cache_get":          {"passthrough": [], "safe": True},
 
         # ===== CodeIgniter =====
         "xss_clean":            {"passthrough": [0], "safe": True},
