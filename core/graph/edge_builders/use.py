@@ -335,6 +335,11 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                         dtype = self._vjava_type[src_vid] or self._vdtype[src_vid]
                         if dtype:
                             return dtype
+                        # PHP/JS "new ClassName" operator: name IS the type
+                        if self._vtype[src_vid] == OperatorType.NEW.value:
+                            new_name = self._vname[src_vid]
+                            if new_name and new_name[0:1].isupper():
+                                return new_name
                         if self._vlabel[src_vid] == NodeLabel.IDENTIFIER.value:
                             current = src_vid
                             break
