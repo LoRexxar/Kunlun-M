@@ -132,6 +132,16 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "createFileWithNormalizedPath",
     "SecuredUpload.isValidFile",
     "isValidFile",
+    # ORM / database query results — data from DB tables is not direct
+    # user input. Taint chain terminates at DB queries; query results
+    # come from stored data, not from the HTTP request.
+    "queryOne",
+    "queryList",
+    "queryFirst",
+    "delegator.findOne",
+    "delegator.findByAnd",
+    "delegator.findAll",
+    "delegator.makeValue",
     # Go
     "html.EscapeString", "url.QueryEscape",
     "shellescape.Quote",
@@ -2320,7 +2330,16 @@ class GraphAnalyzer:
         clean = name.lstrip("\\")
         if "\\" in clean:
             clean = clean.rsplit("\\", 1)[-1]
-        return clean in _REPAIR_FUNCTIONS
+        if clean in _REPAIR_FUNCTIONS:
+            return True
+        # For fluent API chains (e.g. "EntityQuery.use().from().where().queryOne"),
+        # check the final method segment.
+        dot = clean.rfind(".")
+        if dot >= 0:
+            tail = clean[dot + 1:]
+            if tail in _REPAIR_FUNCTIONS:
+                return True
+        return False
 
     def _is_sink_function(self, name: str) -> bool:
         if not name:

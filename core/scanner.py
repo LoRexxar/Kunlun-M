@@ -704,6 +704,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             elif not r.is_uncontrollable and not found_unconfirmed:
                                 found_unconfirmed = True
                                 unconfirmed_result = r
+                            # Repair/safe result from parameters_back — set flag
+                            # so receiver tracing is skipped (arg is sanitized).
+                            if r.code == 2:
+                                any_arg_repaired = True
                     if not found_controllable:
                         # unconfirm 模式：记录疑似漏洞
                         if found_unconfirmed and is_unconfirm:
