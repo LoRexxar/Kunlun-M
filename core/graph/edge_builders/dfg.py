@@ -699,6 +699,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # 获取函数定义的参数（按 own index）
             param_map = self._get_own_children_by_index(resolved_vid)
 
+            # 对于 method_call，函数定义的第一个参数是 self/this，
+            # 但调用参数中不包含 receiver（receiver 通过 member chain 传递）。
+            # 因此 arg_index 需要 +1 来对齐函数定义的参数 index。
+            is_method_call = self._vtype[vid] == OperatorType.METHOD_CALL.value
+            # 检查第一个参数是否是 self/this（确认需要偏移）
+            if is_method_call and param_map:
+                first_param_vid = param_map.get(0)
+                if first_param_vid is not None:
+                    first_param_name = self._vname[first_param_vid]
+                    if first_param_name in ("self", "this", "$this", "Me"):
+                        # 重建偏移后的 param_map
+                        param_map = {k + 1: v for k, v in param_map.items()}
+
             # 匹配 arg_index → parameter own index
             for arg_idx, arg_vid in arg_children.items():
                 param_vid = param_map.get(arg_idx)
