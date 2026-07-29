@@ -127,6 +127,11 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "resolveLocation",
     "getLocation",
     "getURL",
+    # Path normalization / upload validation (OFBiz)
+    "FileUtil.createFileWithNormalizedPath",
+    "createFileWithNormalizedPath",
+    "SecuredUpload.isValidFile",
+    "isValidFile",
     # Go
     "html.EscapeString", "url.QueryEscape",
     "shellescape.Quote",
