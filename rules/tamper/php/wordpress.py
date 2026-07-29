@@ -14,6 +14,8 @@ def detect(project_dir, language='php'):
 
 FILTER_FUNCTIONS = {
     'esc_url': {'safe_for': [1000]},
+    'sanitize_url': {'safe_for': [1000]},
+    'sanitize_key': {'safe_for': [1000]},
     'esc_js': {'safe_for': [1000]},
     'esc_html': {'safe_for': [1000, 10001, 10002]},
     'esc_attr': {'safe_for': [1000, 10001, 10002]},
