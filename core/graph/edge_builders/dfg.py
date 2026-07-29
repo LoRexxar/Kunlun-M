@@ -1695,6 +1695,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
         identifier 节点通常通过 ast 边挂在 operator 下，operator 再通过 own
         边挂在 function/file 下，因此需要同时遍历 own 和 ast 两种边。
 
+        PHP method receiver ($obj in $obj->method()) 没有 ast 边连到
+        method_call operator — 它只通过 member 边连到 callee property。
+        对这类节点，沿 member/dfg 边间接找到关联的 operator，再向上找 scope。
+
         Args:
             vid: 任意节点的索引。
 
@@ -1716,10 +1720,36 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 # 回退：沿 ast 边向上（identifier → operator）
                 ast_sources = self._edges_to(cur, "ast")
                 cur = ast_sources[0] if ast_sources else None
-        # Fallback: if no scope found via edges, use file node from path
+        # Fallback for nodes without ast/own parents (e.g. PHP method receiver):
+        # try reaching an operator via member or dfg edges, then resume scope search.
+        if cur is None:
+            for edge_label in ("member", "dfg"):
+                for nbr in self._edges_from(vid, edge_label):
+                    if nbr == vid or nbr in seen:
+                        continue
+                    scope = self._scope_from_node(nbr, seen | {vid})
+                    if scope is not None:
+                        return scope
+        # Final fallback: use file node from path
         node_path = self._vpath[vid]
         if node_path:
             return self._path_to_file_vid.get(node_path)
+        return None
+
+    def _scope_from_node(self, vid: int, seen: set[int]) -> int | None:
+        """Resume scope search from a node reached via member/dfg edges."""
+        cur = vid
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            label = self._vlabel[cur]
+            if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                return cur
+            own_sources = self._edges_to(cur, "own")
+            if own_sources:
+                cur = own_sources[0]
+            else:
+                ast_sources = self._edges_to(cur, "ast")
+                cur = ast_sources[0] if ast_sources else None
         return None
 
     def _get_callee_name(self, vid: int) -> str:
