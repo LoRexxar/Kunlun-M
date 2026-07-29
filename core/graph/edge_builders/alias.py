@@ -398,13 +398,21 @@ class AliasBuilder:
         identifier has no DFG upstream within its own scope, but a same-name
         variable definition exists in an outer scope.
 
-        Only searches within the same file to avoid cross-language pollution
-        (e.g. C's 'system' resolving to Python's os.system).
+        Only searches within the same file AND same enclosing function to
+        avoid cross-method pollution (e.g. all methods in a 1200-line file
+        having a 'prefix' parameter getting connected).
         """
-        # Get the file of the current identifier to scope the search
-        current_file = _vattr(self.graph.vs[current], "file_path", "") or _vattr(self.graph.vs[current], "path", "")
+        # Get the file and enclosing function of the current identifier
+        current_v = self.graph.vs[current]
+        current_file = _vattr(current_v, "file_path", "") or _vattr(current_v, "path", "")
         if not current_file:
             return None
+
+        # Find enclosing function for current node
+        current_func = self._find_own_parent_function(current)
+        if current_func is None:
+            return None  # Cannot verify same scope without function context
+
         # O(1) 索引查找：candidates = [(vid, has_dfg), ...]
         key = f"{current_file}\x00{name}"
         candidates = self._file_name_idents.get(key, [])
@@ -412,6 +420,10 @@ class AliasBuilder:
         best_has_dfg = False
         for vid, has_dfg in candidates:
             if vid == current:
+                continue
+            # Only connect identifiers within the same enclosing function
+            cand_func = self._find_own_parent_function(vid)
+            if cand_func != current_func:
                 continue
             if has_dfg and not best_has_dfg:
                 best = vid

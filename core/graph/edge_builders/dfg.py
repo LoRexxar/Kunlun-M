@@ -925,6 +925,13 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         # 对每个作用域中同名 identifier，建立使用→最近LHS 的 same 链
         for scope_key, name_groups in scope_vars.items():
+            scope_vid, scope_label = scope_key
+            # Skip file-level scope: same-name identifiers at file level
+            # may belong to different functions/classes. Connecting them
+            # causes cross-method taint pollution (e.g. all 'prefix' params
+            # in a 1200-line file getting linked).
+            if scope_label == NodeLabel.FILE.value:
+                continue
             for name, vids in name_groups.items():
                 if len(vids) < 2:
                     continue
