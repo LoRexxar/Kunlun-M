@@ -855,6 +855,26 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if (vid, receiver_vid) in self._dfg_edges:
                 continue
 
+            # 跳过已知的 mutator 方法名 — 这些方法修改对象但不返回 this，
+            # 不应创建 fluent API 回传边。
+            # 例: trackingCode.set("field", value) — set() 是 void mutator，
+            # 不会返回 trackingCode 对象用于链式调用。
+            # 创建回传边会导致 field-insensitivity FP：
+            # set(field_A, user_input) 的 DFG 回传到 trackingCode，
+            # 使 getString(field_B) 的返回值被误判为受污染。
+            _MUTATOR_NAMES = frozenset({
+                "set", "put", "remove", "clear", "delete",
+                "addCookie", "setHeader", "setAttribute",
+            })
+            callee_short = self._vname[vid]
+            dot = callee_short.rfind(".")
+            if dot >= 0:
+                method_short = callee_short[dot + 1:]
+            else:
+                method_short = callee_short
+            if method_short in _MUTATOR_NAMES:
+                continue
+
             # 创建 call → receiver 的 DFG 回传边
             self._add_dfg_edge(vid, receiver_vid, DfgType.FORWARD_SLICE.value)
 
