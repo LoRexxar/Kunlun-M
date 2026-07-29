@@ -35,4 +35,11 @@ class CVI_1009(SingleRuleMixin):
         :regex_string: regex match string
         :return:
         """
-        pass
+        # assert() in PHP 8.0+ no longer evaluates string arguments as code.
+        # Skip assert() calls that are instanceof/null checks (type assertions).
+        if regex_string and regex_string.lstrip().startswith('assert'):
+            stripped = regex_string.lstrip()
+            # Type assertion patterns: assert($x instanceof Y), assert(null !== $x)
+            if 'instanceof' in stripped or 'null' in stripped.lower():
+                return False
+        return None

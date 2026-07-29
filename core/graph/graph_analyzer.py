@@ -116,6 +116,12 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Escape.htmlElementContent",
     "org.apache.tomcat.util.security.Escape.xml",
     "Escape.xml",
+    # Parameterized query APIs (taint bound as parameters, not concatenated)
+    "NamedParameterJdbcTemplate.query",
+    "NamedParameterJdbcTemplate.queryForObject",
+    "NamedParameterJdbcTemplate.queryForList",
+    "NamedParameterJdbcTemplate.update",
+    "SqlParameterSource.addValue",
     # Go
     "html.EscapeString", "url.QueryEscape",
     "shellescape.Quote",
@@ -129,6 +135,11 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Shellwords.escape", "Shellwords.shellescape",
     "ActiveRecord::SanitizationHelper.sanitize_sql",
     "params.to_unsafe_h",
+    # Framework-specific sanitizer aliases
+    "hsc",  # DokuWiki htmlspecialchars alias
+    "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
+    "sanitize_file_name", "sanitize_title", "sanitize_text_field",  # WordPress
+    "wp_kses", "wp_filter_post_kses", "wp_kses_post",  # WordPress
 })
 
 # Fix 14: PHP type cast operators that sanitize taint.
@@ -716,16 +727,17 @@ class GraphAnalyzer:
         a JSON content type (produces=application/json) and skips if so —
         JSON responses are not interpreted as HTML by browsers.
         """
-        # 检测 JSON Content-Type：扫描函数的 own 子节点中是否有
-        # MimeTypeUtils.APPLICATION_JSON_VALUE 等常量 operator
-        is_json_ct = False
+        # @ResponseBody 默认通过 Jackson 序列化为 JSON（application/json），
+        # 浏览器不会将 JSON 解析为 HTML，XSS 不成立。
+        # 只有当方法显式声明 text/html Content-Type 时才 unsafe。
+        is_json_ct = True
         for fe in self.graph.es.select(_source=func_vid, label='own'):
             child_name = _vattr(self.graph.vs[fe.target], 'name', '')
-            for jp in self._JSON_CT_PATTERNS:
-                if jp in child_name:
-                    is_json_ct = True
+            for html_pat in ('TEXT_HTML_VALUE', 'text/html', '"text/html"'):
+                if html_pat in child_name:
+                    is_json_ct = False
                     break
-            if is_json_ct:
+            if not is_json_ct:
                 break
 
         for fe in self.graph.es.select(_source=func_vid, label='own'):

@@ -54,8 +54,11 @@ class CVI_8007(SingleRuleMixin):
             return True
 
         # 检测 json.NewDecoder 后接 .Decode() 到 interface{}
-        if re.search(r'json\.NewDecoder\s*\(', regex_string):
-            return True
+        # 注意：json.NewDecoder().Decode() 到明确结构体是安全的（如 gin 的 binding）
+        # 只有到 interface{} 才危险，但这里我们无法从 regex_string 判断目标类型，
+        # 暂时不标记 json.NewDecoder，依赖后续 taint analysis 判断
+        # if re.search(r'json\.NewDecoder\s*\(', regex_string):
+        #     return True
 
         # 检测 yaml.Unmarshal/xml.Unmarshal 到 interface{}
         if re.search(r'(?:yaml|xml)\.Unmarshal\s*\([^)]*interface\s*\{\s*\}', regex_string):

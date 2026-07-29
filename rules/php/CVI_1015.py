@@ -27,7 +27,7 @@ class CVI_1015(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"is_a|unserialize"
+        self.match = r"unserialize"
 
     def main(self, regex_string):
         """
@@ -35,4 +35,4 @@ class CVI_1015(SingleRuleMixin):
         :regex_string: regex match string
         :return:
         """
-        pass
+        return None
