@@ -520,7 +520,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         例: request.args → identifier(request) --dfg--> identifier(args)
         例: request.data → identifier(request) --dfg--> identifier(data)
+
+        注意: self/this/$this 的字段访问不创建 DFG 边。
+        对象字段 (self._pattern vs self._host) 是独立的，整体传播会导致
+        field-insensitivity 误报（如 aiohttp self._pattern 被误判为
+        受 self._host = request.headers 污染）。
         """
+        # self/this 变量名集合（各语言）
+        self_names = {"self", "this", "$this", "Me", "@me"}
+
         for (elabel, src_vid), tgt_vids in self._edge_src_idx.items():
             if elabel != EdgeLabel.MEMBER.value:
                 continue
@@ -529,6 +537,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 tgt_label = self._vlabel[tgt_vid]
                 if (src_label == NodeLabel.IDENTIFIER.value
                         and tgt_label == NodeLabel.IDENTIFIER.value):
+                    # Skip self/this member access — field insensitivity
+                    # causes FP when one field is tainted from user input
+                    # and another field is read in a different method.
+                    src_name = self._vname[src_vid]
+                    if src_name in self_names:
+                        continue
                     self._add_dfg_edge(
                         src_vid, tgt_vid, DfgType.FORWARD_SLICE.value
                     )
