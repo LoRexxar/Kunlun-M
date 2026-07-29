@@ -385,6 +385,7 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         sr.vulfile_path = vulfile_path
         sr.source_code = source_code
         sr.result_type = result_type
+        sr.is_active = is_active
         # 过期状态重置为未确认（新扫描重新发现了这个漏洞）
         if sr.verification_status == 'stale':
             sr.verification_status = ''
@@ -394,7 +395,7 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         except IntegrityError:
             logger.warn("[Model Save] Model param not changed")
 
-        return False
+        return sr
 
     else:
         sr = ScanResultTask(scan_project_id=scan_project_id, scan_task_id=scan_task_id, cvi_id=cvi_id, language=language, vulfile_path=vulfile_path, source_code=source_code, result_type=result_type,
