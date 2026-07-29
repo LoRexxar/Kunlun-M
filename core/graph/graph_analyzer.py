@@ -159,6 +159,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "hsc",  # DokuWiki htmlspecialchars alias
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
     "sanitize_file_name", "sanitize_title", "sanitize_text_field",  # WordPress
+    "sanitize_url",  # WordPress (alias of esc_url since WP 5.3)
     "wp_kses", "wp_filter_post_kses", "wp_kses_post",  # WordPress
 })
 
