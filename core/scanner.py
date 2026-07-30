@@ -387,6 +387,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 for m in members:
                                     if expr == m or expr.startswith(m + '.') or expr.startswith(m + '('):
                                         return True
+                                    # 后缀匹配：request.getParameter → matches getParameter
+                                    # example.setOrderByClause → matches setOrderByClause
+                                    if '.' in expr and expr.rsplit('.', 1)[-1] == m:
+                                        return True
                                 return False
                             return _ism
                         sr.is_source_member = _make_ism(_src_members)
@@ -426,6 +430,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 )
                 if count:
                     logger.info('[SCAN] [GRAPH] Enriched %d function taint annotations for %s', count, lang)
+                    # Debug: verify taint_type was actually set
+                    _tt_count = 0
+                    for _v in graph.vs:
+                        try:
+                            if _v['taint_type']:
+                                _tt_count += 1
+                        except (KeyError, ValueError):
+                            pass
+                    logger.debug('[SCAN] [GRAPH] taint_type set on %d nodes (enrich returned %d)', _tt_count, count)
 
             # ── 用户自定义函数摘要（DFG 反向追踪 return → parameter） ──
             # 在 enrich_taint 之后运行：读取 builtin 函数的 taint_type 注解，

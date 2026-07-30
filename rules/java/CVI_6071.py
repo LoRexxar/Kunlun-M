@@ -47,24 +47,31 @@ class CVI_6071(SingleRuleMixin):
 
         self.unmatch = []
 
-        # 图引擎需要追踪的 sink 函数（限定到 Mapper 接口方法）
-        # Example/Criteria 相关方法 — 这些 setter 控制 ${} 的值
+        # 图引擎需要追踪的 sink 函数
+        # 使用限定名（带 .）让 find_sinks 的 qualified match 生效，
+        # 避免被 bare-name guard (L506-517) 跳过
         self.vul_function = [
 
             # MyBatis Generator Example 方法
-            "setOrderByClause",
-            "or",
+            # setOrderByClause 是 ${orderByClause} 的控制点
+            "Example.setOrderByClause",
+
+            # MyBatis Mapper 方法 — 接收 Example 参数，触发 ${criterion.condition}
+            "Mapper.selectByExample",
+            "Mapper.updateByExample",
+            "Mapper.deleteByExample",
+            "Mapper.countByExample",
 
             # MyBatis-Plus Wrapper 方法
-            "apply",
-            "last",
-            "orderBy",
+            "Wrapper.apply",
+            "Wrapper.last",
 
-            # MyBatis @SelectProvider / @InsertProvider 等
-            "@SelectProvider",
-            "@InsertProvider",
-            "@UpdateProvider",
-            "@DeleteProvider",
+            # 通用名（不限定的也会通过 use edge 解析到 qualified name）
+            "setOrderByClause",
+            "selectByExample",
+            "updateByExample",
+            "deleteByExample",
+            "countByExample",
 
         ]
 
