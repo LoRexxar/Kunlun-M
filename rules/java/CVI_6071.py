@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
 
 """
-    Java MyBatis SQL Injection Rule (File Pattern + Content)
+    Java MyBatis SQL Injection Rule (Graph-Engine Enhanced)
     ~~~~
-    检测MyBatis mapper XML文件中使用${param}而非#{param}导致的SQL注入。
-    MyBatis的${}直接拼接SQL字符串，不同于#{}使用预编译参数。
+    检测 MyBatis 中用户可控数据流入 ${} 拼接导致的 SQL 注入。
+
+    原理：MyBatis 的 ${} 直接拼接 SQL 字符串（不同于 #{} 预编译）。
+    当 Mapper 方法被调用时，如果传入的 Example/Criteria 对象或 @Param 参数
+    的值可以被用户控制，则构成 SQL 注入。
+
+    检测方式：
+      1. 通过图引擎污点追踪，检测用户输入是否到达 Mapper 方法的参数
+      2. 关注 Mapper 接口中的 selectByExample/updateByExample/deleteByExample 等方法
+      3. 关注 setOrderByClause 等 Example 方法的调用
+
+    注意：本规则不再使用 file-pattern 纯正则模式。XML 中的 ${} 仍然存在，
+    但只有当 Java 侧的用户输入能追溯到 Mapper 调用时才报告。
+
     :author:    KunLun-M
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
@@ -13,26 +25,6 @@
 import re
 
 from utils.api import *
-
-# MyBatis Generator 模板文件中的 FreeMarker 变量（非运行时 SQL）
-# 这些出现在 Generator 的 .ftl 模板或生成的模板占位符中，不是 MyBatis 运行时变量
-_MYBATIS_GEN_TEMPLATE_VARS = frozenset({
-    "table.className", "table.tableName",
-    "column.columnName", "column.columnNameFirstLower", "column.jdbcType",
-    "_column.columnName", "basePackage",
-    'r"#{', 'r"{"',
-})
-
-# MyBatis Generator Example/Criteria 标准模式变量
-# 这些由 MyBatis Generator 自动生成，SQL 片段由 Java Criteria 类构建
-# 虽然理论上有注入风险，但需要过程间分析回溯到 setOrderByClause 等方法
-_MYBATIS_GEN_CRITERIA_VARS = frozenset({
-    "criterion.condition", "criterion.value", "criterion.secondValue",
-    "criterion.noValue", "criterion.singleValue", "criterion.betweenValue",
-    "criterion.listValue", "criterion.typeHandler",
-    "orderByClause", "distinct",
-})
-
 
 class CVI_6071(SingleRuleMixin):
     """
@@ -43,52 +35,72 @@ class CVI_6071(SingleRuleMixin):
         self.svid = 6071
         self.language = "java"
         self.vulnerability = "SQL Injection (MyBatis)"
-        self.description = "检测MyBatis mapper XML文件中使用${param}拼接SQL导致的SQL注入漏洞。MyBatis的${}直接拼接SQL字符串，不同于#{}使用预编译参数。建议使用#{}参数化查询替代${}。"
+        self.description = "检测MyBatis中用户可控数据流入${}拼接导致的SQL注入。MyBatis的${}直接拼接SQL字符串，不同于#{}使用预编译参数。当Mapper方法的参数（如Example/Criteria对象）被用户输入控制时，构成SQL注入。"
         self.level = 9
 
-        # 部分配置
-        self.match_mode = "file-pattern"
-        self.file_pattern = r'.*Mapper\.xml$'
-        self.match = r"\$\{[^}]+\}"
+        # 使用 function-param-regex 模式，走图引擎污点追踪
+        self.match_mode = "function-param-regex"
+
+        # 匹配 Mapper 接口中可能触发 ${} 拼接的方法调用
+        # selectByExample / updateByExample / deleteByExample / countByExample
+        # 这些方法接收 Example 参数，Example 内部的 orderByClause / criteria.condition
+        # 会被 MyBatis 用 ${} 拼接进 SQL
+        self.match = r"selectByExample|updateByExample|deleteByExample|countByExample|selectByExampleWithBLOBs|updateByExampleSelective|selectByExampleWithBLOBs"
+
         self.unmatch = []
 
-        self.vul_function = []
+        # 图引擎需要追踪的 sink 函数（限定到 Mapper 接口方法）
+        # Example/Criteria 相关方法 — 这些 setter 控制 ${} 的值
+        self.vul_function = [
 
-    def main(self, match_string):
-        """二次筛选：确认匹配的${}存在，并过滤已知的框架内部模板变量。
+            # MyBatis Generator Example 方法
+            "setOrderByClause",
+            "or",
 
-        降噪策略（按确定性排序）：
+            # MyBatis-Plus Wrapper 方法
+            "apply",
+            "last",
+            "orderBy",
 
-        1. **FreeMarker 模板变量**（确定性 FP）：
-           MyBatis Generator 的代码生成模板中使用 ${table.className} 等变量，
-           这些不是 MyBatis 运行时 SQL 变量，而是 Generator 生成 Java 代码的模板占位符。
+            # MyBatis @SelectProvider / @InsertProvider 等
+            "@SelectProvider",
+            "@InsertProvider",
+            "@UpdateProvider",
+            "@DeleteProvider",
 
-        2. **Example/Criteria 标准模式**（高概率 FP，降级不消除）：
-           MyBatis Generator 自动生成的 Example 模式中使用 ${criterion.condition}、
-           ${orderByClause} 等。这些 SQL 片段由 Java Criteria 类的方法构建
-           （如 andIdEqualTo、setOrderByClause），不是直接拼接用户输入。
-           理论上如果 setOrderByClause 的参数来自用户输入则有风险，
-           但在实际中几乎都是内部调用。降级为 medium 而非消除。
+        ]
 
-        3. **普通变量名**（保留报告）：
-           ${id}、${value}、${tableName} 等直接拼接用户输入的场景。
+    def main(self, regex_string):
+        """二次筛选：排除明显的框架内部调用。
+
+        主要排除：
+        - import 语句
+        - 注释行
+        - 方法声明（非调用）
         """
-        if not isinstance(match_string, str):
-            match_string = str(match_string)
+        if not isinstance(regex_string, str):
+            regex_string = str(regex_string)
 
-        # 提取 ${...} 中的变量名
-        m = re.search(r'\$\{([^}]+)\}', match_string)
-        if not m:
-            return None
+        code = regex_string.strip()
 
-        var_name = m.group(1).strip()
-
-        # 1. 排除 FreeMarker/Generator 模板变量（确定性 FP）
-        if var_name in _MYBATIS_GEN_TEMPLATE_VARS:
+        # 排除 import 语句
+        if code.startswith("import "):
             return False
 
-        # 2. Example/Criteria 标准模式 → 降级为 medium（不消除，但降低优先级）
-        # 通过返回 True 但在 report 中标记
-        # TODO: 未来可通过过程间分析回溯 setOrderByClause 调用链确认是否用户可控
+        # 排除方法声明（interface 中的方法定义不是调用）
+        if re.search(r'(selectByExample|updateByExample|deleteByExample|countByExample)\s*\(', code):
+            # 确认是方法调用而非定义 — 定义行不会在参数中有赋值
+            if re.search(r'=\s*\w+\.(selectByExample|updateByExample|deleteByExample|countByExample)\s*\(', code):
+                return None  # 调用：xxx.selectByExample(example)
+            if re.search(r'\w+\.(selectByExample|updateByExample|deleteByExample|countByExample)\s*\(', code):
+                return None  # 调用：mapper.selectByExample(example)
 
-        return True
+        # setOrderByClause 是关键的 ${} 控制点
+        if re.search(r'setOrderByClause\s*\(', code):
+            return None
+
+        # MyBatis-Plus Wrapper apply/last/orderBy
+        if re.search(r'\.(apply|last|orderBy)\s*\(', code):
+            return None
+
+        return False
