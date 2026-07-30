@@ -31,20 +31,30 @@ class CVI_1009(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        regex string input
-        :regex_string: regex match string
-        :return:
+        Graph-based: check if assert() arg contains instanceof/null (type check).
         """
-        # assert() in PHP 8.0+ no longer evaluates string arguments as code.
-        # Skip assert() calls that are instanceof/null checks (type assertions).
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # operator arg → check callee name for instanceof pattern
+                if arg0.get('label') == 'operator':
+                    arg_name = arg0.get('name', '').lower()
+                    if 'instanceof' in arg_name:
+                        return False
+                # const arg → static string, check content
+                val = arg0.get('resolved_value', '') or ''
+                if not val and (arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant')):
+                    val = arg0.get('name', '')
+                if val and ('instanceof' in val.lower() or 'null' in val.lower()):
+                    return False
+            return None
+
+        # Regex fallback
         if regex_string:
             stripped = regex_string.lstrip().lstrip('\\')
             if stripped.startswith('assert'):
-                # Type assertion patterns: assert($x instanceof Y), assert(null !== $x)
                 if 'instanceof' in stripped or 'null' in stripped.lower():
                     return False
-        # is_a() is a PHP type-check function, not a code execution sink.
-        # It checks if an object is of a given class — always returns bool.
         if regex_string:
             stripped2 = regex_string.lstrip().lstrip('\\')
             if stripped2.startswith('is_a'):

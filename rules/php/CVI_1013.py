@@ -31,10 +31,23 @@ class CVI_1013(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        regex string input
-        :regex_string: regex match string
-        :return:
+        Graph-based: only header("Location: ...") is redirect.
+        Check arg[0] for "location:" prefix.
         """
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # Check resolved_value or direct const
+                val = arg0.get('resolved_value', '') or ''
+                if not val and (arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant')):
+                    val = arg0.get('name', '')
+                if val:
+                    if 'location:' in val.lower():
+                        return None
+                    return False
+            return None
+
+        # Regex fallback
         if "location:" in regex_string.lower():
             return None
         return False
