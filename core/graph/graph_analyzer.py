@@ -76,7 +76,11 @@ _FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
 
 # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
 _JS_SOURCE_ROOTS: frozenset[str] = frozenset({
-    "location", "document", "window", "process",
+    "location", "document", "window",
+    # "process" removed: only process.env is a source (registered in
+    # SourceRegistry), not process.execPath/process.cwd/etc.
+    # _is_source_via_member_chain rebuilds "process.env" from the
+    # member edge and matches SourceRegistry.
 })
 
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({

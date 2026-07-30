@@ -593,6 +593,7 @@ def _is_source_var(name: str) -> bool:
     }:
         return True
     # JS/TS source roots（通过 member chain 访问的根对象）
-    if clean in {"location", "document", "window", "process"}:
+    # "process" removed: only process.env is a source (via SourceRegistry)
+    if clean in {"location", "document", "window"}:
         return True
     return False
