@@ -13,8 +13,9 @@ class CVI_7008(SingleRuleMixin):
         self.description = "可能存在XSS跨站脚本风险: 未转义的用户输入直接输出到响应"
         self.level = 5
         self.match_mode = "function-param-regex"
-        self.match = r"HttpResponse\(|make_response\(|\.write\(|Markup\(|mark_safe\(|\.safe|jsonify\(|Response\("
-        self.vul_function = ["HttpResponse", "make_response", "write", "Markup", "mark_safe", "jsonify", "Response"]
+        # jsonify 已移除：Flask jsonify 返回 application/json，浏览器不解析为 HTML，无 XSS 风险
+        self.match = r"HttpResponse\(|make_response\(|Markup\(|mark_safe\(|\.safe|Response\("
+        self.vul_function = ["HttpResponse", "make_response", "Markup", "mark_safe", "Response"]
 
     def main(self, regex_string):
         """
@@ -39,15 +40,7 @@ class CVI_7008(SingleRuleMixin):
         if resp_match:
             arg = resp_match.group(1).strip()
             # 纯字符串
-            if re.match(r'^[\'\"][^\'\"]*[\'\"]\s*\)', arg):
-                return False
-
-        # jsonify 硬编码字典/列表
-        jsonify_match = re.search(r'jsonify\s*\(\s*(.+)', regex_string, re.I)
-        if jsonify_match:
-            arg = jsonify_match.group(1).strip()
-            # 纯字面量字典/列表（不包含变量）
-            if re.match(r'^[\{\[]["\'].*["\'][\}\]]\s*\)', arg):
+            if re.match(r'^[\'"][^\'"]*[\'"]\s*\)', arg):
                 return False
 
         return None
