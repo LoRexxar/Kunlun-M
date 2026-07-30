@@ -16,7 +16,7 @@ class CVI_7010(SingleRuleMixin):
         self.match = r"ldap\.search\(|connection\.search\(|conn\.search\(|ldap\.search_s\(|ldap\.search_ext\(|l\.search\(|l\.search_s\(|l\.search_ext\("
         self.vul_function = ["search", "search_s", "search_ext"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：只保留 LDAP 搜索调用，过滤 re.search 等
 

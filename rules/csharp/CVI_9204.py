@@ -31,7 +31,7 @@ class CVI_9204(SingleRuleMixin):
         self.vul_function = ["GetStringAsync", "GetAsync", "PostAsync", "PutAsync",
                              "DeleteAsync", "SendAsync", "Create", "HttpWebRequest"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的SSRF调用，
         排除硬编码URL参数（如 HttpClient.GetStringAsync("https://api.example.com/health")）。

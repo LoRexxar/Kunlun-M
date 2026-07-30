@@ -33,7 +33,7 @@ class CVI_3107(SingleRuleMixin):
             "parseString", "parseXml", "parseHtml", "parseXmlString",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：确认是 XML 解析相关调用
         """

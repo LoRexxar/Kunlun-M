@@ -16,7 +16,7 @@ class CVI_7009(SingleRuleMixin):
         self.match = r"redirect\(|HttpResponseRedirect\(|RedirectResponse\(|Redirect\(|flask\.redirect|django\.http\.HttpResponseRedirect"
         self.vul_function = ["redirect", "HttpResponseRedirect", "RedirectResponse", "Redirect"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：过滤硬编码URL重定向
 

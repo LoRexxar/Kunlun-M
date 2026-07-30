@@ -41,5 +41,5 @@ class CVI_3100_graph():
 
         self.vul_function = ["exec", "execSync", "execFile", "execFileSync", "spawn", "spawnSync", "fork"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

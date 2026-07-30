@@ -33,7 +33,7 @@ class CVI_9605(SingleRuleMixin):
 
         self.vul_function = ["socket.connect", "http.request", "wget"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正存在SSRF风险，
         排除硬编码地址。

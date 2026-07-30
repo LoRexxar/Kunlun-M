@@ -31,7 +31,7 @@ class CVI_9401(SingleRuleMixin):
 
         self.vul_function = ["system", "exec", "popen", "spawn", "capture2", "capture3"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除所有参数都是硬编码字符串字面量的情况。
         如果所有参数都是硬编码字符串（如 system("ls")），返回 False（安全）。

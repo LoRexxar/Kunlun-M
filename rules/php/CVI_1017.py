@@ -31,7 +31,7 @@ class CVI_1017(SingleRuleMixin):
         self.match = r"copy\s*\(|rename\s*\(|unlink\s*\(|mkdir\s*\(|rmdir\s*\(|file_put_contents\s*\(|file_get_contents\s*\(|fopen\s*\(|readfile\s*\(|file\s*\(|touch\s*\(|chmod\s*\(|chown\s*\(|link\s*\(|symlink\s*\("
         self.vul_function = ["mkdir", "rmdir", "unlink", "rename", "copy", "file_put_contents", "fopen", "chmod", "chown", "chgrp"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

@@ -31,7 +31,7 @@ class CVI_1001(SingleRuleMixin):
 
         self.vul_function = "curl_setopt"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         just for curl

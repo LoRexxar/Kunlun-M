@@ -35,7 +35,7 @@ class CVI_8006(SingleRuleMixin):
             "os.Open", "os.ReadFile", "ioutil.ReadFile", "os.Stat",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查是否使用 filepath.Clean 或有路径校验，
         标记存在路径穿越风险的代码。

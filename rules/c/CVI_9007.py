@@ -32,7 +32,7 @@ class CVI_9007(SingleRuleMixin):
 
         self.vul_function = ["open", "pread"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除 fopen/fread 等（属其他 CVI 范畴），仅关注 POSIX open()/pread()。
         """

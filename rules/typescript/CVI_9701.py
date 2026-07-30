@@ -33,7 +33,7 @@ class CVI_9701(SingleRuleMixin):
 
         self.vul_function = ["innerHTML", "outerHTML", "write", "writeln", "insertAdjacentHTML"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的XSS操作，
         排除硬编码字符串参数的情况。

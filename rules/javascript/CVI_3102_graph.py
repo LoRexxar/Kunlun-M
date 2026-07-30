@@ -43,5 +43,5 @@ class CVI_3102_graph():
         self.vul_function = ["http.get", "http.request", "https.get", "https.request",
                              "net.connect", "net.createConnection"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

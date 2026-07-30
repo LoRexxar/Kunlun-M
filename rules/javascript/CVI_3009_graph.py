@@ -41,5 +41,5 @@ class CVI_3009_graph():
 
         self.vul_function = ["globalEval"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

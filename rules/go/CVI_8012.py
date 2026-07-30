@@ -31,7 +31,7 @@ class CVI_8012(SingleRuleMixin):
 
         self.vul_function = ["os.WriteFile", "ioutil.WriteFile", "os.Create", "os.OpenFile"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否为危险的文件写入调用，
         排除文件路径是硬编码字符串字面量的情况。

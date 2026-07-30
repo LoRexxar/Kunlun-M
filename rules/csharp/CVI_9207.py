@@ -30,7 +30,7 @@ class CVI_9207(SingleRuleMixin):
 
         self.vul_function = ["Deserialize", "DeserializeAsync"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的反序列化调用，
         排除硬编码输入参数（如 BinaryFormatter.Deserialize(memoryStream) 在已知安全上下文中）。

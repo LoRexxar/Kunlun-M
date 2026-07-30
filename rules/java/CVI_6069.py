@@ -50,7 +50,7 @@ class CVI_6069(SingleRuleMixin):
 
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除有路径规范化和文件名白名单检查的安全写法。
         """

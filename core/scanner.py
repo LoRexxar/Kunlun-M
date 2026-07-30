@@ -957,21 +957,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     for candidate_rule in matched_rules:
                         if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
                             try:
-                                # Try new signature main(regex_string, sink_args)
-                                # first. Rules that accept sink_args can use
-                                # structured graph info (arg types/values) for
-                                # precise filtering. Old rules ignore the
-                                # second arg via *args or a simple positional.
-                                import inspect as _inspect
-                                try:
-                                    _sig = _inspect.signature(candidate_rule.main)
-                                    _nparams = len(_sig.parameters)
-                                except Exception:
-                                    _nparams = 1
-                                if _nparams >= 2 and sink_args:
-                                    main_result = candidate_rule.main(main_input, sink_args)
-                                else:
-                                    main_result = candidate_rule.main(main_input)
+                                # All rules use unified signature:
+                                # main(self, regex_string, sink_args=None)
+                                # sink_args is a list of {name, type, label, vid, resolved_value}
+                                # dicts from graph arg nodes, or empty list.
+                                main_result = candidate_rule.main(main_input, sink_args)
                                 if main_result is False:
                                     logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip rule for sink {sink}'.format(
                                         cvi=candidate_rule.svid, sink=sink_name))

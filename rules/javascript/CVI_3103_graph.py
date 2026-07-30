@@ -43,5 +43,5 @@ class CVI_3103_graph():
         self.vul_function = ["eval", "vm.runInContext", "vm.runInNewContext",
                              "vm.runInThisContext", "vm.compileFunction", "Function"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

@@ -31,7 +31,7 @@ class CVI_8011(SingleRuleMixin):
 
         self.vul_function = ["xpath.Query", "xpath.Evaluate"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         if re.search(r'xpath\.(Query|Evaluate)', regex_string):

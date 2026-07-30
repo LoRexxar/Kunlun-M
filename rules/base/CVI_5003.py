@@ -30,5 +30,5 @@ class CVI_5003(SingleRuleMixin):
 
         self.unmatch = []
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

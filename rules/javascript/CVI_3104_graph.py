@@ -41,5 +41,5 @@ class CVI_3104_graph():
 
         self.vul_function = ["query", "raw", "whereRaw", "literal", "sequelize.query", "knex.raw"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

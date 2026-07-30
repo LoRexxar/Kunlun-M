@@ -15,5 +15,5 @@ class CVI_7015(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"force_text|force_str|smart_str|avoid_ahead|send_file|send_from_directory|serve|@csrf_exempt|csrf_exempt|@login_not_required|ALLOWED_HOSTS|CORS_ORIGIN_ALLOW_ALL|CORS_ALLOW_ALL_ORIGINS"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

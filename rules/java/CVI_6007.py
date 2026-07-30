@@ -50,7 +50,7 @@ class CVI_6007(SingleRuleMixin):
             "XMLInputFactory.createXMLEventReader",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """XML 解析器工厂名已足够精确，不需要额外筛选"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)

@@ -32,7 +32,7 @@ class CVI_9702(SingleRuleMixin):
 
         self.vul_function = ["exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除所有参数都是硬编码字符串字面量的情况。
         如果所有参数都是硬编码字符串（如 exec('echo hello')），返回 False（安全）。

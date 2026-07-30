@@ -32,7 +32,7 @@ class CVI_9705(SingleRuleMixin):
 
         self.vul_function = ["query", "execute", "raw", "createQueryBuilder"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的SQL操作。
         排除硬编码SQL字符串参数的情况（如 .query('SELECT 1')）。

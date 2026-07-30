@@ -31,7 +31,7 @@ class CVI_9205(SingleRuleMixin):
 
         self.vul_function = ["Write"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的XSS输出调用，
         排除硬编码字符串参数（如 Response.Write("<div>Hello</div>")）。

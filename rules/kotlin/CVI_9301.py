@@ -35,7 +35,7 @@ class CVI_9301(SingleRuleMixin):
             "query", "execSQL",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除使用了预编译语句或参数化查询的安全写法。
         """

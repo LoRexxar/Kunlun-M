@@ -41,7 +41,7 @@ class CVI_3006_graph():
 
         self.vul_function = ["setAttribute"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除硬编码属性值
         """

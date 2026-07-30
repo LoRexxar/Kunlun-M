@@ -42,7 +42,7 @@ class CVI_8002(SingleRuleMixin):
             "gorm.DB.Raw", "gorm.DB.Where", "gorm.DB.Select", "gorm.DB.Having",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查是否为参数化查询（占位符?或$1）。
         如果包含参数化查询特征，返回 False（安全）。

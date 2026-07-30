@@ -31,7 +31,7 @@ class CVI_9402(SingleRuleMixin):
 
         self.vul_function = ["execute", "find_by_sql", "delete_all", "update_all"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除纯字符串字面量的情况。
         如果参数是纯硬编码字符串且不包含字符串插值，返回 False（安全）。

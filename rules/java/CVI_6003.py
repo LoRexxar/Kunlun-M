@@ -34,7 +34,7 @@ class CVI_6003(SingleRuleMixin):
 
         self.vul_function = ["Runtime.exec", "Process.start", "ProcessBuilder"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：确认 Runtime.exec 或 ProcessBuilder.start 调用"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)

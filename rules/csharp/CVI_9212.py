@@ -32,7 +32,7 @@ class CVI_9212(SingleRuleMixin):
         "DirectorySearcher", "SearchControls"
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除所有参数都是硬编码字符串字面量的情况。
         """

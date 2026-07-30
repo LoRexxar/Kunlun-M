@@ -18,7 +18,7 @@ class CVI_6023(SingleRuleMixin):
         # Graph engine: identify ProcessBuilder as sink
         self.vul_function = ["ProcessBuilder"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # Validate: source line should contain ProcessBuilder constructor

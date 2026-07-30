@@ -18,7 +18,7 @@ class CVI_7014(SingleRuleMixin):
         # 真正的风险是 format_map（可读取任意属性）和 Template.substitute（可注入模板）
         self.vul_function = ["format_map", "Template", "substitute", "safe_substitute"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：过滤 str.format() 常规用法，只保留高风险场景
 

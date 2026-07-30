@@ -20,7 +20,7 @@ class CVI_6013(SingleRuleMixin):
         self.unmatch = [r"encodeForLDAP", r"escapeLDAPSearchFilter", r"LdapEncoder"]
         self.vul_function = ["DirContext.search", "LdapContext.search"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：只保留 DirContext/LdapContext 上下文"""
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'DirContext|LdapContext|InitialDirContext|InitialLdapContext|ldap', code, re.I):

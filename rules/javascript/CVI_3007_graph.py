@@ -42,5 +42,5 @@ class CVI_3007_graph():
         self.vul_function = ["html", "before", "insertBefore", "insertAfter", "after", "append",
                              "prepend", "wrap", "wrapAll", "wrapInner", "appendTo", "prependTo"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

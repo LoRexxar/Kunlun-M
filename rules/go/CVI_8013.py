@@ -31,7 +31,7 @@ class CVI_8013(SingleRuleMixin):
 
         self.vul_function = ["http.Redirect"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         if re.search(r'http\.Redirect\s*\(', regex_string):

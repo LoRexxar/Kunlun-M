@@ -36,7 +36,7 @@ class CVI_9303(SingleRuleMixin):
             "Scanner",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查文件操作是否使用了用户可控的路径参数，
         排除硬编码路径的安全写法。

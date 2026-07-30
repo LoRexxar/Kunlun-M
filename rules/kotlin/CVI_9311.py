@@ -32,7 +32,7 @@ class CVI_9311(SingleRuleMixin):
             "search", "lookup",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查是否为 LDAP 搜索/查找调用，且参数包含可控输入。
         排除硬编码的搜索过滤器。

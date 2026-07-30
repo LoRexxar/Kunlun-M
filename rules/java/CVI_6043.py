@@ -34,7 +34,7 @@ class CVI_6043(SingleRuleMixin):
             "NamedParameterJdbcTemplate.update",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：确认是 JdbcTemplate 调用上下文"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)

@@ -31,7 +31,7 @@ class CVI_8010(SingleRuleMixin):
 
         self.vul_function = ["xml.Unmarshal", "xml.NewDecoder", "xml.Decoder.Token"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查是否存在XML解析调用，且未设置安全选项（Strict、AutoClose等）。
         如果有安全配置包裹则返回 False，否则返回 True。

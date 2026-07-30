@@ -15,5 +15,5 @@ class CVI_7011(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"xml\.etree\.ElementTree\.parse|xml\.etree\.ElementTree\.fromstring|ET\.parse|ET\.fromstring|lxml\.etree\.parse|lxml\.etree\.fromstring|etree\.parse|etree\.fromstring|xmltodict\.parse|minidom\.parse|xml\.sax\.parse|xml\.dom\.minidom\.parse"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

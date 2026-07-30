@@ -53,7 +53,7 @@ class CVI_6002(SingleRuleMixin):
 
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除 import 语句

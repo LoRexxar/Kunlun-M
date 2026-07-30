@@ -18,7 +18,7 @@ class CVI_7008(SingleRuleMixin):
         self.match = r"HttpResponse\(|make_response\(|Markup\(|mark_safe\(|\.safe"
         self.vul_function = ["HttpResponse", "make_response", "Markup", "mark_safe"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：过滤纯静态响应
 

@@ -29,7 +29,7 @@ class CVI_1011(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"(system|passthru|exec|pcntl_exec|shell_exec|popen|proc_open|expect_popen|mb_send_mail|w32api_register_function|w32api_invoke_function|ssh2_exec)"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

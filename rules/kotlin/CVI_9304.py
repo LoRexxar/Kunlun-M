@@ -37,7 +37,7 @@ class CVI_9304(SingleRuleMixin):
             "Html.fromHtml",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除使用了安全转义函数的写法。
         """

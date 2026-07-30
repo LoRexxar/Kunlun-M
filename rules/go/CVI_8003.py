@@ -33,7 +33,7 @@ class CVI_8003(SingleRuleMixin):
             "template.HTMLAttr", "template.Srcset",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否属于危险的XSS相关调用。
         排除硬编码字符串和安全写法。

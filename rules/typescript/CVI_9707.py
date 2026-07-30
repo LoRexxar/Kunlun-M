@@ -34,7 +34,7 @@ class CVI_9707(SingleRuleMixin):
         self.vul_function = ["eval", "Function", "runInContext", "runInNewContext",
                              "runInThisContext", "compileFunction", "createScript", "createContext"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的代码注入调用，
         排除硬编码字符串参数的情况。

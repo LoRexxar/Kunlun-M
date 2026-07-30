@@ -33,7 +33,7 @@ class CVI_9604(SingleRuleMixin):
 
         self.vul_function = ["execute", "query", "fetch", "prepare"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正存在SQL注入风险，
         排除硬编码SQL和使用参数化查询的情况。

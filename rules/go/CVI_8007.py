@@ -38,7 +38,7 @@ class CVI_8007(SingleRuleMixin):
             "gob.NewDecoder",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查反序列化目标是否为interface{}等不安全类型，
         排除反序列化到明确结构体的安全写法。

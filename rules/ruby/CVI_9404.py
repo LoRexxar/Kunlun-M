@@ -31,7 +31,7 @@ class CVI_9404(SingleRuleMixin):
 
         self.vul_function = ["eval", "instance_eval", "class_eval", "send"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除所有参数都是硬编码字符串字面量的情况。
         如果所有参数都是硬编码字符串（如 eval("1+1")），返回 False（安全）。

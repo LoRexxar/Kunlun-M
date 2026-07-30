@@ -41,7 +41,7 @@ class CVI_30061_graph():
 
         self.vul_function = ["attr"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除单参数 attr（getter，非 setter）和硬编码值
         """

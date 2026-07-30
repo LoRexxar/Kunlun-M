@@ -45,7 +45,7 @@ class CVI_9503(SingleRuleMixin):
             "query_one", "query_optional", "execute_unchecked",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的SQL执行调用，
         排除纯硬编码SQL参数和明显的非数据库调用。

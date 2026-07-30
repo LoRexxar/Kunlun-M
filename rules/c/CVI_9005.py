@@ -32,7 +32,7 @@ class CVI_9005(SingleRuleMixin):
 
         self.vul_function = ["malloc", "calloc", "realloc", "alloca"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的内存分配调用，
         排除纯数字参数（如 malloc(1024)）和硬编码大小的调用。

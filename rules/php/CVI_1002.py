@@ -30,7 +30,7 @@ class CVI_1002(SingleRuleMixin):
         self.match = r"file_get_contents"
         self.vul_function = ["file_get_contents"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

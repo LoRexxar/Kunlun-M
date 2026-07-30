@@ -32,7 +32,7 @@ class CVI_9002(SingleRuleMixin):
 
         self.vul_function = ["printf", "fprintf", "sprintf", "vprintf", "vfprintf", "vsnprintf"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的格式化字符串调用。
         排除第一个参数为硬编码格式串的情况（printf("hello %s", user_input)）。

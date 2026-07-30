@@ -32,7 +32,7 @@ class CVI_8008(SingleRuleMixin):
             "fmt.Fprintf",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         精确筛选 fmt.Fprintf 调用是否可能引发 XSS。
         """

@@ -20,6 +20,6 @@ class CVI_6012(SingleRuleMixin):
         self.unmatch = [r"SimpleEvaluationContext"]
         self.vul_function = ["ExpressionParser.parseExpression", "StandardEvaluationContext.getValue", "SpelExpression.getValue"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """函数名足够精确，不做额外筛选"""
         return None

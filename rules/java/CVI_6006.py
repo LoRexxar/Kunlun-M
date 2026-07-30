@@ -49,7 +49,7 @@ class CVI_6006(SingleRuleMixin):
             "Request.Post",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除有白名单校验的写法

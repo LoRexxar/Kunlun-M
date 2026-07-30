@@ -33,7 +33,7 @@ class CVI_9011(SingleRuleMixin):
 
         self.vul_function = ["access", "stat", "lstat", "fstat"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：
         - 如果 access/stat/lstat/fstat 的路径参数是硬编码字符串字面量，排除（风险极低）

@@ -30,7 +30,7 @@ class CVI_9201(SingleRuleMixin):
 
         self.vul_function = ["Start", "ShellExecute"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除所有参数都是硬编码字符串字面量的情况。
         如果所有参数都是硬编码字符串（如 Process.Start("cmd.exe", "/c dir")），返回 False（安全）。

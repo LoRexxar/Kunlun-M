@@ -31,7 +31,7 @@ class CVI_10002(SingleRuleMixin):
         # for chrome ext
         self.keyword = "is_echo_statement"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

@@ -41,5 +41,5 @@ class CVI_3105_graph():
 
         self.vul_function = ["unserialize", "deserialize"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

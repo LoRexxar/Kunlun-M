@@ -37,7 +37,7 @@ class CVI_8004(SingleRuleMixin):
             "os.Mkdir", "os.MkdirAll", "os.CreateTemp", "os.ReadDir",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查文件路径是否为硬编码，排除安全写法。
         """

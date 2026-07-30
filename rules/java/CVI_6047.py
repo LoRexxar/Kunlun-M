@@ -25,7 +25,7 @@ class CVI_6047(SingleRuleMixin):
         self.vul_function = ["ObjectMapper.enableDefaultTyping"]
         self.is_config_vuln = True
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：确认是 enableDefaultTyping 调用"""
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'enableDefaultTyping', code):

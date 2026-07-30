@@ -20,7 +20,7 @@ class CVI_6037(SingleRuleMixin):
         self.unmatch = [r"SafeMode", r"autoTypeFilter", r"ParserConfig.getGlobalInstance\\(\\).setAutoTypeSupport"]
         self.vul_function = ["JSON.parseObject", "JSON.parse", "JSON.parseArray"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：只保留 JSON/Fastjson 上下文"""
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'JSON|json|fastjson|alibaba', code, re.I):

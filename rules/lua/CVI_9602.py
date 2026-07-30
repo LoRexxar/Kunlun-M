@@ -33,7 +33,7 @@ class CVI_9602(SingleRuleMixin):
 
         self.vul_function = ["loadstring", "load", "dofile", "dostring"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的代码注入调用，
         排除硬编码字符串参数。

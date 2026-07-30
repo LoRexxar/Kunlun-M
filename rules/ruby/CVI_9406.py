@@ -31,7 +31,7 @@ class CVI_9406(SingleRuleMixin):
 
         self.vul_function = ["Net::HTTP.get", "Net::HTTP.post", "Net::HTTP.put", "Net::HTTP.delete", "Net::HTTP.head"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除硬编码URL的情况。
         如果URL参数是纯硬编码字符串字面量，返回 False（安全）。

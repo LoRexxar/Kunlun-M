@@ -29,7 +29,7 @@ class CVI_1009(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"(array_map|create_function|call_user_func|call_user_func_array|assert|eval|dl|register_tick_function|register_shutdown_function)"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

@@ -33,7 +33,7 @@ class CVI_3105(SingleRuleMixin):
             "unserialize", "deserialize",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：所有 unserialize/deserialize 调用都标记为危险
         """

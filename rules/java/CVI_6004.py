@@ -50,7 +50,7 @@ class CVI_6004(SingleRuleMixin):
             "File.delete",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """File 等构造函数已足够精确，不需要额外筛选"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)

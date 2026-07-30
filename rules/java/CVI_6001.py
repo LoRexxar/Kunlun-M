@@ -50,7 +50,7 @@ class CVI_6001(SingleRuleMixin):
 
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的SQL执行调用，
         排除PreparedStatement等安全写法。

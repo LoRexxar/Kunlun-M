@@ -31,7 +31,7 @@ class CVI_9006(SingleRuleMixin):
 
         self.vul_function = ["setenv", "putenv", "unsetenv"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的环境变量操作调用，
         排除硬编码字符串参数（如 setenv("PATH", "/usr/bin", 1)）。

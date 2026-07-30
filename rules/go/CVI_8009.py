@@ -31,7 +31,7 @@ class CVI_8009(SingleRuleMixin):
 
         self.vul_function = ["db.Query", "db.Exec", "db.Raw"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：片段模式下无法判断参数是否拼接。
         保守策略：匹配到 raw query 函数就检出。

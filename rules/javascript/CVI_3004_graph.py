@@ -41,5 +41,5 @@ class CVI_3004_graph():
 
         self.vul_function = ["document.location.replace", "window.location.replace"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

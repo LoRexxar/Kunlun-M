@@ -16,7 +16,7 @@ class CVI_7002(SingleRuleMixin):
         self.match = r"cursor\.execute|connection\.execute|session\.execute|engine\.execute|db\.execute|\.raw\(|\.extra\(|RawSQL\(|cursor\.executemany|connection\.cursor|text\(|\.from_statement\("
         self.vul_function = ["execute", "cursor.execute", "raw", "extra"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检测参数化查询和安全的ORM用法
 

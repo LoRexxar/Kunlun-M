@@ -32,7 +32,7 @@ class CVI_9008(SingleRuleMixin):
 
         self.vul_function = ["sqlite3_exec", "sqlite3_prepare", "mysql_query", "mysql_real_query", "PQexec", "PQexecParams"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除SQL语句参数是硬编码字符串字面量的情况。
         对于sqlite3_exec，SQL语句是第2个参数；其余函数SQL语句通常是第1或第2个参数。

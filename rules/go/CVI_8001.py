@@ -31,7 +31,7 @@ class CVI_8001(SingleRuleMixin):
 
         self.vul_function = ["exec.Command", "exec.CommandContext", "os.StartProcess", "syscall.Exec"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的命令执行调用，
         排除硬编码字符串参数。

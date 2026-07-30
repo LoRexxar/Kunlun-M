@@ -28,7 +28,7 @@ class CVI_6044(SingleRuleMixin):
         ]
         self.vul_function = ["XStream.fromXML"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：只保留 XStream 上下文"""
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'XStream|xStream|xstream', code):

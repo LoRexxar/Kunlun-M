@@ -32,7 +32,7 @@ class CVI_9203(SingleRuleMixin):
                              "File.Delete", "File.Copy", "File.Move", "File.Open", "File.Create", "File.AppendAllText",
                              "FileInfo", "Directory.GetFiles", "Directory.GetDirectories", "Directory.CreateDirectory"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的路径遍历调用，
         排除硬编码路径参数（如 File.ReadAllText("config.ini")）。

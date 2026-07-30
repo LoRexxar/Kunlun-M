@@ -31,7 +31,7 @@ class CVI_9202(SingleRuleMixin):
 
         self.vul_function = ["CommandText", "ExecuteReader", "ExecuteNonQuery", "ExecuteScalar"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的SQL操作。
         排除 CommandText 赋值为纯硬编码字符串字面量的情况。

@@ -34,5 +34,5 @@ class CVI_6036(SingleRuleMixin):
         self.unmatch = []
         self.vul_function = ["InitialContext.lookup", "Context.lookup"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

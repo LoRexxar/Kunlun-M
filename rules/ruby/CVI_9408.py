@@ -31,7 +31,7 @@ class CVI_9408(SingleRuleMixin):
 
         self.vul_function = ["cp", "mv", "mkdir_p", "rm_rf", "touch", "ln_s", "chmod", "chown"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的文件操作调用，
         排除硬编码路径参数（如 FileUtils.rm_rf("/tmp/cache")）。

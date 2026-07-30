@@ -35,7 +35,7 @@ class CVI_9305(SingleRuleMixin):
             "execute", "AsyncHttpClient",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除纯硬编码URL的安全写法。
         """

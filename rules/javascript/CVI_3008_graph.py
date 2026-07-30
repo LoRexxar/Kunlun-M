@@ -41,5 +41,5 @@ class CVI_3008_graph():
 
         self.vul_function = ["chrome.tabs.update", "chrome.tabs.executeScript"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

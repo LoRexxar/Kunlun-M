@@ -35,7 +35,7 @@ class CVI_4003(SingleRuleMixin):
         # for regex
         self.unmatch = []
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

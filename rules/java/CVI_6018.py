@@ -19,7 +19,7 @@ class CVI_6018(SingleRuleMixin):
         self.match = "forName|getDeclaredMethod|getMethod"
         self.vul_function = ["Class.forName", "Class.getDeclaredMethod", "Class.getMethod"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """过滤编译器反射获取类型名的场景（非用户输入）"""
         if regex_string and re.search(r'MirroredTypeException|getQualifiedName|getTypeMirror', regex_string):
             return False

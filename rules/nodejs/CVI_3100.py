@@ -34,7 +34,7 @@ class CVI_3100(SingleRuleMixin):
             "spawn", "spawnSync", "fork",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除硬编码命令字符串，排除非 child_process 的 exec 调用
         """

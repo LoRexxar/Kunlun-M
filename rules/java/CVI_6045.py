@@ -29,7 +29,7 @@ class CVI_6045(SingleRuleMixin):
         # 不依赖外部输入可控性，调用本身 + 危险参数值 = 漏洞
         self.config_vuln_args = [r'^true$']
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：只有参数为 true 时才继续 AST 分析"""
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'setAutoTypeSupport\s*\(\s*true\s*\)', code, re.I):

@@ -32,7 +32,7 @@ class CVI_9010(SingleRuleMixin):
 
         self.vul_function = ["execl", "execle", "execlp", "execv", "execve", "execvp", "popen", "system", "posix_spawn"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除命令参数是硬编码字符串字面量的情况。
         system("echo hello")、popen("ls -la") 等硬编码命令应排除。

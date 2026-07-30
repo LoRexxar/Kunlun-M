@@ -34,5 +34,5 @@ class CVI_6035(SingleRuleMixin):
         self.unmatch = []
         self.vul_function = ["ObjectInputStream.readObject"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

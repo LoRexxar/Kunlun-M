@@ -20,7 +20,7 @@ class CVI_6011(SingleRuleMixin):
         self.unmatch = [r"isValidExtension", r"checkFileType", r"MimeTypeUtils"]
         self.vul_function = ["MultipartFile.transferTo", "MultipartFile.getOriginalFilename", "MultipartFile.write"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除有扩展名白名单校验的写法

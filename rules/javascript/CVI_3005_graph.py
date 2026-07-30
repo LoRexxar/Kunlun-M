@@ -41,7 +41,7 @@ class CVI_3005_graph():
 
         self.vul_function = ["innerHTML"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除硬编码字符串赋值
         """

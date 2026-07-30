@@ -30,7 +30,7 @@ class CVI_1007(SingleRuleMixin):
         self.match = r"include|include_once|require|require_once|parsekit_compile_file|php_check_syntax|runkit_import|virtual"
         self.vul_function = ["include", "require", "include_once", "require_once"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

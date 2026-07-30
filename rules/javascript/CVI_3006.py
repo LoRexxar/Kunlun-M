@@ -30,7 +30,7 @@ class CVI_3006(SingleRuleMixin):
 
         self.vul_function = r"setAttribute"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         just for sql statements

@@ -34,7 +34,7 @@ class CVI_9708(SingleRuleMixin):
 
         self.vul_function = ["unserialize", "parse"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的反序列化调用。
         unserialize 总是危险的（可直接 RCE），标记为 True。

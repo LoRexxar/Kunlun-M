@@ -45,5 +45,5 @@ class CVI_10003():
 
         self.vul_function = None
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         return None

@@ -46,5 +46,5 @@ class CVI_3101_graph():
                              "openSync", "open", "unlinkSync", "unlink",
                              "readdirSync", "readdir", "renameSync", "rename"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

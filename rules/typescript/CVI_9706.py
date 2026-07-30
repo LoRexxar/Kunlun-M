@@ -34,7 +34,7 @@ class CVI_9706(SingleRuleMixin):
         self.vul_function = ["assign", "merge", "mergeWith", "mergeAll", "extend", "extendDeep",
                              "defaultsDeep", "deepmerge"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的原型污染调用。
         Object.assign 不递归合并，风险较低但仍然标记。

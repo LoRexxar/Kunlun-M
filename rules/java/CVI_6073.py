@@ -44,7 +44,7 @@ class CVI_6073(SingleRuleMixin):
 
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：确认模板内容来自用户输入"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)

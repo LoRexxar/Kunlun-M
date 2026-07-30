@@ -19,7 +19,7 @@ class CVI_6048(SingleRuleMixin):
         # AST 搜索 sink 函数名
         self.vul_function = ["EntityManager.createQuery", "Session.createQuery"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：确认是 createQuery 调用上下文"""
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)

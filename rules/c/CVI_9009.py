@@ -31,7 +31,7 @@ class CVI_9009(SingleRuleMixin):
 
         self.vul_function = ["open", "fopen", "rename"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：
         - open(): 检测是否包含 O_WRONLY、O_CREAT、O_RDWR 等写入标志

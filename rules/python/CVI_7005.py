@@ -25,7 +25,7 @@ class CVI_7005(SingleRuleMixin):
             "tempfile.mktemp",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：过滤非文件操作的同名函数调用 + 硬编码路径
 

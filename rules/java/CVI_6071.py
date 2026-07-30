@@ -61,7 +61,7 @@ class CVI_6071(SingleRuleMixin):
             "last",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：排除明显的框架内部调用。
 
         主要排除：

@@ -15,5 +15,5 @@ class CVI_7003(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"pickle\.loads|pickle\.load|yaml\.load|yaml\.unsafe_load|yaml\.full_load|marshal\.loads|marshal\.load|shelve\.open|jsonpickle\.decode|pandas\.read_pickle|torch\.load|numpy\.load|joblib\.load|dill\.loads|dill\.load|cloudpickle\.loads|cloudpickle\.load"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

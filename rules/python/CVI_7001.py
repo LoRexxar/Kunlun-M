@@ -16,5 +16,5 @@ class CVI_7001(SingleRuleMixin):
         self.match = r"eval|exec|compile|__import__|ast\.literal_eval|importlib\.import_module"
         self.vul_function = ["eval", "exec", "compile", "__import__", "import_module"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

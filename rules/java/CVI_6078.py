@@ -36,7 +36,7 @@ class CVI_6078(SingleRuleMixin):
 
         self.vul_function = ["a:ResponseBody"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         if regex_string.lstrip().startswith("import "):

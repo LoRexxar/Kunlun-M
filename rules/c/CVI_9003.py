@@ -31,7 +31,7 @@ class CVI_9003(SingleRuleMixin):
 
         self.vul_function = ["strcpy", "strcat", "gets", "wcscpy", "wcscat"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的不安全字符串函数调用，
         排除硬编码字符串参数（如 strcpy(buf, "hello")）。

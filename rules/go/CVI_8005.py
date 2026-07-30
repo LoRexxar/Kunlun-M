@@ -35,7 +35,7 @@ class CVI_8005(SingleRuleMixin):
             "net.Dial", "net.DialTimeout",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查URL参数是否为硬编码，排除安全写法。
         """

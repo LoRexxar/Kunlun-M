@@ -35,7 +35,7 @@ class CVI_9306(SingleRuleMixin):
             "newInstance", "defineClass",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除硬编码类名的安全写法。
         """
