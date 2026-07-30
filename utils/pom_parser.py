@@ -48,9 +48,11 @@ def parse_pom_dependencies(pom_path):
                     if gid and aid:
                         # 处理 ${property} 引用
                         ver = _resolve_version(ver, root, prefix)
-                        # 如果版本为空，尝试从 parent 继承
-                        if not ver and parent_version:
-                            ver = parent_version
+                        # 如果版本为空，不使用 parent 版本替代——
+                        # parent 版本是项目自身的版本，不是依赖的版本。
+                        # 依赖版本通常在父 POM 的 dependencyManagement 中定义，
+                        # 这里无法解析到那个值，所以保持 "unknown"。
+                        # version_in_range 会对 unknown 返回 False，避免 FP。
                         deps.append({
                             "group_id": gid,
                             "artifact_id": aid,
