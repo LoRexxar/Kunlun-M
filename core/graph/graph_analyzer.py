@@ -95,6 +95,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
+    "glob",  # glob() returns filesystem entries — not user-controlled
     # Python
     "shlex.quote", "shlex.quote_plus",
     "html.escape", "html.unescape",
