@@ -111,21 +111,15 @@ default_black_list = [
     'docs', 'documentation', 'doc',
     # 构建和输出目录
     'build', 'dist', 'out', 'output', 'target',
-    # 脚本目录（减少构建脚本误报）
-    'scripts', 'script',
     # 版本控制
     '.git', '.svn', '.hg',
     # 编辑器和IDE
     '.idea', '.vscode', '.vs', '.eclipse',
     # 二进制和编译产物（保留 .class 用于 Java 反编译）
     '__pycache__', '*.pyc', '*.pyo', '*.o', '*.so', '*.dll',
-    # 框架源码目录（减少框架内部代码误报）
-    'flask', 'django', 'tornado', 'bottle', 'falcon',
-    'express', 'koa', 'hapi', 'fastify', 'nest',
-    'spring', 'struts', 'play',
-    'rails', 'sinatra',
-    'gin', 'echo', 'chi', 'fiber', 'beego', 'revel',
-    'actix', 'axum', 'rocket',
+    # NOTE: 框架源码目录（如 flask/django/spring/express 等）已移除
+    # 这些名称会导致业务代码被误过滤（如 com.app.spring 包、echo 目录等）
+    # 框架源码应通过 vendor/ 依赖目录过滤，而非框架名称
 ]
 IGNORE_LIST = []
 
