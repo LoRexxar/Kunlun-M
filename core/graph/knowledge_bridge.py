@@ -300,6 +300,7 @@ def _enrich_from_source_registry(
     info = source_registry.is_source_producer(func_name)
     if info:
         graph.vs[func_vid]["taint_type"] = "source"
+        graph.vs[func_vid]["taint_origin"] = info.type  # 'user_defined' or 'framework'
         return True
 
     # 2. builtin source member expression（JS/TS: document.cookie, location.hash, process.env 等）

@@ -1439,6 +1439,20 @@ class GraphAnalyzer:
 
                     # 4a: source — 函数本身产生可控数据
                     if func_taint == "source":
+                        # For user-defined source producers (functions whose
+                        # body contains a superglobal but may also sanitize),
+                        # try inline return analysis first — the return value
+                        # may pass through a sanitizer (basename, md5, etc.)
+                        # before reaching the caller.
+                        source_type = _vattr(self.graph.vs[func_vid], "taint_origin", "")
+                        if source_type == "user_defined" and func_vid is not None:
+                            ret = self.analyze_function_return(up_vid, func_vid)
+                            if ret is not None and not ret.is_controllable:
+                                # Inline analysis found sanitizer → safe
+                                return self._cached(cache_key, ret)
+                            if ret is not None and ret.is_controllable:
+                                return self._cached(cache_key, ret)
+                            # Fall through to default if inline analysis inconclusive
                         return self._cached(cache_key, AnalysisResult(
                             code=1, reason=f"taint source '{callee}'",
                             chain=[{"step": "taint_source", "vid": func_vid,
