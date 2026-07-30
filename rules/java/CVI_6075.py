@@ -28,7 +28,7 @@ class CVI_6075(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r'\.setHeader\s*\(|\.addHeader\s*\(|\.addCookie\s*\('
+        self.match = r'\.setHeader\s*\(|\.addHeader\s*\(|\.setIntHeader\s*\('
 
         # for regex
         self.unmatch = []
@@ -38,8 +38,6 @@ class CVI_6075(SingleRuleMixin):
             "HttpServletResponse.setHeader",
 
             "HttpServletResponse.addHeader",
-
-            "HttpServletResponse.addCookie",
 
             "HttpServletResponse.setIntHeader",
 
@@ -60,11 +58,13 @@ class CVI_6075(SingleRuleMixin):
                         header_val = arg0.get('name', '')
                 if header_val:
                     header_name = header_val.strip('"').strip("'").lower()
+                    # All Access-Control-* headers use constant names,
+                    # not injectable via CRLF.
+                    if header_name.startswith('access-control-'):
+                        return False
                     safe_headers = {'content-type', 'content-length', 'content-disposition',
                                     'x-frame-options', 'x-content-type-options',
-                                    'x-xss-protection', 'access-control-max-age',
-                                    'access-control-allow-methods',
-                                    'access-control-allow-credentials'}
+                                    'x-xss-protection'}
                     if header_name in safe_headers:
                         return False
             return None
