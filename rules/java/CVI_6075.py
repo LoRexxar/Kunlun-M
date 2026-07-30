@@ -53,8 +53,13 @@ class CVI_6075(SingleRuleMixin):
         if sink_args:
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
-                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                    header_name = arg0.get('name', '').strip('"').strip("'").lower()
+                # Try resolved_value first, then direct const
+                header_val = arg0.get('resolved_value', '')
+                if not header_val:
+                    if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                        header_val = arg0.get('name', '')
+                if header_val:
+                    header_name = header_val.strip('"').strip("'").lower()
                     safe_headers = {'content-type', 'content-length', 'content-disposition',
                                     'x-frame-options', 'x-content-type-options',
                                     'x-xss-protection', 'access-control-max-age',

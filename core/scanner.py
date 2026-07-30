@@ -868,12 +868,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # Each arg's node label/type/name tells us whether it's a
                     # string literal, variable, method call, etc. — no need
                     # to regex-parse source code lines.
-                    sink_args = []  # list of {name, type, label, vid}
+                    # For identifier args, trace one DFG hop upstream to find
+                    # constant assignments (e.g. String h = "Content-Disposition").
+                    sink_args = []  # list of {name, type, label, vid, resolved_value}
                     for _av in arg_vids:
                         _avn = _vattr(graph.vs[_av], 'name', '')
                         _avt = _vattr(graph.vs[_av], 'type', '')
                         _avl = _vattr(graph.vs[_av], 'label', '')
-                        sink_args.append({'name': _avn, 'type': _avt, 'label': _avl, 'vid': _av})
+                        _resolved = ''
+                        if _avl == 'identifier':
+                            # Trace one DFG hop upstream for const assignment
+                            for _de in graph.es.select(_target=_av, label='dfg'):
+                                _sv = graph.vs[_de.source]
+                                _sl = _vattr(_sv, 'label', '')
+                                if _sl == 'const':
+                                    _resolved = _vattr(_sv, 'name', '')
+                                    break
+                        sink_args.append({
+                            'name': _avn, 'type': _avt, 'label': _avl,
+                            'vid': _av, 'resolved_value': _resolved,
+                        })
 
                     main_input = sink_name  # default: sink function name
                     # Pre-read source line for main() input (kept as fallback)

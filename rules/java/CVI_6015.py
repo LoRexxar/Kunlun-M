@@ -30,32 +30,35 @@ class CVI_6015(SingleRuleMixin):
         setHeader("Content-Disposition", ...) is file download, not redirect.
         sendRedirect is always redirect (no filtering needed).
 
-        sink_args: list of {name, type, label, vid} from graph arg nodes.
+        sink_args: list of {name, type, label, vid, resolved_value} from graph arg nodes.
+        resolved_value: if arg is identifier with const assignment upstream,
+                        this holds the constant value (e.g. "Content-Disposition").
         """
         if sink_args:
             sn_lower = regex_string.lower()
             # setHeader: check arg[0] for header name
             if 'setheader' in sn_lower and 'sendredirect' not in sn_lower:
-                if sink_args:
-                    arg0 = sink_args[0]
-                    # const/string node → arg0['name'] is the literal value
+                arg0 = sink_args[0]
+                # Try resolved_value first (identifier with const assignment)
+                header_val = arg0.get('resolved_value', '')
+                if not header_val:
+                    # Direct const/string node
                     if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                        header_name = arg0.get('name', '').strip('"').strip("'")
-                        if header_name.lower() != 'location':
-                            return False
-                    # identifier node → header name is a variable (unknown), let through.
+                        header_val = arg0.get('name', '')
+                if header_val:
+                    header_name = header_val.strip('"').strip("'")
+                    if header_name.lower() != 'location':
+                        return False
+                # Can't determine header name → let it through.
             return None
 
         # Regex fallback (source-line based)
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-        # 排除有白名单校验的写法
         if re.search(r"isUrlAllowed|ALLOWED_HOSTS|allowedHosts|whitelist|urlWhitelist|isValidRedirect", regex_string, re.I):
             return False
-        # Content-Disposition 不是 URL 重定向
         if re.search(r"Content-Disposition", regex_string):
             return False
-        # ModelAndView 无参构造 + 随后 setViewName("redirect:...") 模式:
         if "ModelAndView" in regex_string:
             if re.search(r"redirect:|RedirectView|setViewName\s*\(\s*\"redirect:", regex_string):
                 return None
