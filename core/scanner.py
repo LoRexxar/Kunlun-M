@@ -1014,7 +1014,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 continue
                         except Exception:
                             continue
-                    # Content matching
+                    # Content matching — 同文件同模式去重
                     pattern = getattr(rule, 'match', None)
                     if not pattern:
                         continue
@@ -1022,6 +1022,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         compiled = re.compile(pattern)
                     except Exception:
                         continue
+                    _fp_seen_in_file: set[str] = set()  # (rule_svid, file, matched_text) 去重
                     for m in compiled.finditer(content):
                         lineno = content[:m.start()].count('\n') + 1
                         matched_text = m.group(0)
@@ -1044,6 +1045,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         norm_path = os.path.normpath(fp_path)
                         if '/vendor/' in norm_path or '/test/' in norm_path or '/tests/' in norm_path:
                             continue
+                        # 同文件同 matched_text 去重（如 ${criterion.condition} 在一个 Mapper 中出现多次）
+                        _dedup_key = matched_text
+                        if _dedup_key in _fp_seen_in_file:
+                            continue
+                        _fp_seen_in_file.add(_dedup_key)
                         vuln = VulnerabilityResult.from_match(
                             (fp_path, lineno, matched_text),
                             svid=rule.svid,
