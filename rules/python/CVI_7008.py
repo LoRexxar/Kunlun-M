@@ -13,9 +13,10 @@ class CVI_7008(SingleRuleMixin):
         self.description = "可能存在XSS跨站脚本风险: 未转义的用户输入直接输出到响应"
         self.level = 5
         self.match_mode = "function-param-regex"
-        # jsonify 已移除：Flask jsonify 返回 application/json，浏览器不解析为 HTML，无 XSS 风险
-        self.match = r"HttpResponse\(|make_response\(|Markup\(|mark_safe\(|\.safe|Response\("
-        self.vul_function = ["HttpResponse", "make_response", "Markup", "mark_safe", "Response"]
+        # jsonify/Response 已移除：Flask jsonify 和 DRF Response 返回 application/json，
+        # 浏览器不解析为 HTML，无 XSS 风险
+        self.match = r"HttpResponse\(|make_response\(|Markup\(|mark_safe\(|\.safe"
+        self.vul_function = ["HttpResponse", "make_response", "Markup", "mark_safe"]
 
     def main(self, regex_string):
         """
