@@ -36,6 +36,16 @@ class CVI_6043(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """二次筛选：确认是 JdbcTemplate 调用上下文"""
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 确认代码行包含 JdbcTemplate 相关调用

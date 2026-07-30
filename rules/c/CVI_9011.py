@@ -40,6 +40,16 @@ class CVI_9011(SingleRuleMixin):
         - 如果参数是变量，返回 True（存在TOCTOU风险）
         - fstat 的第一个参数是文件描述符(fd)，需特殊处理
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

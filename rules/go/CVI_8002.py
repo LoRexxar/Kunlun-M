@@ -47,6 +47,16 @@ class CVI_8002(SingleRuleMixin):
         二次筛选：检查是否为参数化查询（占位符?或$1）。
         如果包含参数化查询特征，返回 False（安全）。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 检查 unmatch 规则（参数化查询特征）

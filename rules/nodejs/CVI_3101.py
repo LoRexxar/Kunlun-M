@@ -40,6 +40,16 @@ class CVI_3101(SingleRuleMixin):
         """
         二次筛选：排除纯硬编码路径
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

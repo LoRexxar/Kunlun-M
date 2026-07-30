@@ -34,11 +34,21 @@ class CVI_9702(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：排除所有参数都是硬编码字符串字面量的情况。
-        如果所有参数都是硬编码字符串（如 exec('echo hello')），返回 False（安全）。
-        对于 spawn/execFile 类函数，第一个参数（命令名）为硬编码是正常的，
-        重点关注后续参数（命令参数数组或选项对象）中是否包含变量。
+        Graph-based: all args const → safe (hardcoded command).
+        For spawn/execFile, arg[0] is command name (often const),
+        but arg[1+] may contain user input — check ALL args.
         """
+        if sink_args:
+            # All args const → fully hardcoded, safe
+            all_const = True
+            for a in sink_args:
+                if not (a.get('label') == 'const' or a.get('type') in ('string', 'constant') or a.get('resolved_value', '')):
+                    all_const = False
+                    break
+            if all_const and sink_args:
+                return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

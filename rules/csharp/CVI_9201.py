@@ -35,6 +35,16 @@ class CVI_9201(SingleRuleMixin):
         二次筛选：排除所有参数都是硬编码字符串字面量的情况。
         如果所有参数都是硬编码字符串（如 Process.Start("cmd.exe", "/c dir")），返回 False（安全）。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

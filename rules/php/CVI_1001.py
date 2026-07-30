@@ -37,6 +37,16 @@ class CVI_1001(SingleRuleMixin):
         just for curl
         :return: 
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         sql_sen = regex_string[0]
         reg = r"\$[\w+\->]*"
         if re.search(reg, sql_sen, re.I):

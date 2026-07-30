@@ -37,6 +37,16 @@ class CVI_9004(SingleRuleMixin):
         二次筛选：检查匹配到的代码行是否真正属于危险的路径穿越调用，
         排除硬编码路径参数（如 fopen("/etc/passwd", "r")）。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

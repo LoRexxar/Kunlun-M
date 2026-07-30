@@ -39,6 +39,16 @@ class CVI_9009(SingleRuleMixin):
         - rename(): 直接视为危险操作
         排除文件路径是硬编码字符串字面量的情况。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

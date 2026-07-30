@@ -37,6 +37,16 @@ class CVI_9407(SingleRuleMixin):
         如果参数是纯硬编码字符串字面量，返回 False（安全）。
         注意：html_safe 不带参数（后缀调用），需要单独处理。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

@@ -28,6 +28,16 @@ class CVI_7010(SingleRuleMixin):
         - conn.search(filter, ...)       LDAP 连接搜索
         - ldap.search(base, filter)      LDAP 模块搜索
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not regex_string:
             return None
 

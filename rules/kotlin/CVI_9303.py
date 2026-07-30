@@ -41,6 +41,16 @@ class CVI_9303(SingleRuleMixin):
         二次筛选：检查文件操作是否使用了用户可控的路径参数，
         排除硬编码路径的安全写法。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

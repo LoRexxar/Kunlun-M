@@ -36,6 +36,16 @@ class CVI_30061(SingleRuleMixin):
         just for sql statements
         :return:
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         sql_sen = regex_string[0][1]
         reg = r"[\w_.]+"
         if re.search(reg, sql_sen, re.I):
