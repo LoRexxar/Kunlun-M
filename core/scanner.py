@@ -388,8 +388,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         })
                         def _make_ism(members, java_prefixes, lang):
                             def _ism(expr):
+                                # Reject expressions containing operators/special chars.
+                                # These are not valid source member names (e.g.
+                                # "request.META.get() || ''" should not match "request.META").
+                                if any(op in expr for op in ('||', '&&', ' and ', ' or ')):
+                                    return False
                                 for m in members:
                                     if expr == m or expr.startswith(m + '.') or expr.startswith(m + '('):
+                                        # Don't let startswith match if expr contains expression chars
+                                        # like "request.META.get() || ''"
+                                        rest = expr[len(m):] if expr.startswith(m) else ''
+                                        if rest and rest[0] == '.' and '(' in rest:
+                                            continue  # expr is like "request.META.get(...)" — too broad
                                         return True
                                     # 后缀匹配：request.getParameter → matches getParameter
                                     # example.setOrderByClause → matches setOrderByClause
