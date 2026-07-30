@@ -1222,11 +1222,38 @@ class GraphAnalyzer:
                     if uname == "$_FILES":
                         logger.debug("$_FILES blocked: bare form not a scalar source, vid=%d", up_vid)
                         continue
-                    logger.debug("source found '%s' vid=%d", uname, up_vid)
-                    return self._cached(cache_key, AnalysisResult(
-                        code=1, reason=f"superglobal '{uname}'",
-                        chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
-                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Branch constraint check on the source variable itself.
+                    # Even though the sink arg may have a different name, the
+                    # source variable (e.g. $_GET['page']) might be directly
+                    # constrained by an enclosing if(preg_match(...)) branch.
+                    if uname and _vattr(uv, "label") == NodeLabel.IDENTIFIER.value:
+                        src_branch_chain = self.get_branch_chain(up_vid)
+                        if src_branch_chain:
+                            for sbvid in src_branch_chain:
+                                if self.check_branch_constraint(sbvid, uname):
+                                    logger.debug(
+                                        "source '%s' vid=%d blocked by branch constraint in %s('%s')",
+                                        uname, up_vid,
+                                        _vattr(self.graph.vs[sbvid], "type", ""),
+                                        _vattr(self.graph.vs[sbvid], "condition", ""),
+                                    )
+                                    # This DFG path is safe — skip it, but
+                                    # continue BFS in case other paths reach
+                                    # an unconstrained source.
+                                    break
+                            else:
+                                # No branch constraint blocked this source
+                                logger.debug("source found '%s' vid=%d", uname, up_vid)
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1, reason=f"superglobal '{uname}'",
+                                    chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
+                                    path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                        else:
+                            logger.debug("source found '%s' vid=%d", uname, up_vid)
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1, reason=f"superglobal '{uname}'",
+                                chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
+                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 1b: member/field identifier — check full_text and member
                 # chain for source (e.g., environ → os.environ → source)
