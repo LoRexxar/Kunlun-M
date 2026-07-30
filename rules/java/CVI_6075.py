@@ -45,14 +45,29 @@ class CVI_6075(SingleRuleMixin):
 
         ]
 
-    def main(self, regex_string):
-        """二次筛选：确认不是已知安全的header设置"""
+    def main(self, regex_string, sink_args=None):
+        """
+        Graph-based CRLF filtering: known safe headers are not CRLF vectors.
+        sink_args: list of {name, type, label, vid} from graph arg nodes.
+        """
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    header_name = arg0.get('name', '').strip('"').strip("'").lower()
+                    safe_headers = {'content-type', 'content-length', 'content-disposition',
+                                    'x-frame-options', 'x-content-type-options',
+                                    'x-xss-protection', 'access-control-max-age',
+                                    'access-control-allow-methods',
+                                    'access-control-allow-credentials'}
+                    if header_name in safe_headers:
+                        return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-        # 排除固定值或白名单校验的header设置
         if re.search(r'Content-Type|Content-Length|Content-Disposition|X-Frame-Options|X-Content-Type|X-XSS', regex_string):
-            # 这些header如果值固定则安全，但有变量拼接则危险
-            # 简单判断：如果包含+号拼接则可能是CRLF
             if not re.search(r'\+\s*\w+', regex_string):
                 return False
         return None

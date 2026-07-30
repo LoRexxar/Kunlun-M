@@ -24,7 +24,29 @@ class CVI_6015(SingleRuleMixin):
             "ModelAndView",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
+        """
+        Graph-based filtering: for setHeader, only "Location" header is Open Redirect.
+        setHeader("Content-Disposition", ...) is file download, not redirect.
+        sendRedirect is always redirect (no filtering needed).
+
+        sink_args: list of {name, type, label, vid} from graph arg nodes.
+        """
+        if sink_args:
+            sn_lower = regex_string.lower()
+            # setHeader: check arg[0] for header name
+            if 'setheader' in sn_lower and 'sendredirect' not in sn_lower:
+                if sink_args:
+                    arg0 = sink_args[0]
+                    # const/string node → arg0['name'] is the literal value
+                    if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                        header_name = arg0.get('name', '').strip('"').strip("'")
+                        if header_name.lower() != 'location':
+                            return False
+                    # identifier node → header name is a variable (unknown), let through.
+            return None
+
+        # Regex fallback (source-line based)
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除有白名单校验的写法
@@ -34,11 +56,8 @@ class CVI_6015(SingleRuleMixin):
         if re.search(r"Content-Disposition", regex_string):
             return False
         # ModelAndView 无参构造 + 随后 setViewName("redirect:...") 模式:
-        # 单行 new ModelAndView() 不含 redirect 语义 → 无重定向风险
         if "ModelAndView" in regex_string:
-            # 有 redirect: / RedirectView → 真正的重定向
             if re.search(r"redirect:|RedirectView|setViewName\s*\(\s*\"redirect:", regex_string):
                 return None
-            # 无 redirect 语义的 ModelAndView 构造 → FP
             return False
         return None

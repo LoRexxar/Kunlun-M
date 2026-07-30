@@ -860,11 +860,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         continue
 
                     # Try each matched rule; first whose main() passes reports
-                    # rule.main() 二次筛选
-                    main_input = sink_name  # default: sink function name
+                    # rule.main() 二次筛选 — build structured sink context from graph
                     sink_file = _vattr(graph.vs[sink['vid']], 'file_path', '') or _vattr(graph.vs[sink['vid']], 'path', '')
                     sink_lineno = _vattr(graph.vs[sink['vid']], 'lineno', 0) or 0
-                    # Pre-read source line for main() input
+
+                    # Extract structured argument info from graph nodes.
+                    # Each arg's node label/type/name tells us whether it's a
+                    # string literal, variable, method call, etc. — no need
+                    # to regex-parse source code lines.
+                    sink_args = []  # list of {name, type, label, vid}
+                    for _av in arg_vids:
+                        _avn = _vattr(graph.vs[_av], 'name', '')
+                        _avt = _vattr(graph.vs[_av], 'type', '')
+                        _avl = _vattr(graph.vs[_av], 'label', '')
+                        sink_args.append({'name': _avn, 'type': _avt, 'label': _avl, 'vid': _av})
+
+                    main_input = sink_name  # default: sink function name
+                    # Pre-read source line for main() input (kept as fallback)
                     if sink_file:
                         try:
                             with open(sink_file, 'r', encoding='utf-8', errors='replace') as mf:
@@ -904,7 +916,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     for candidate_rule in matched_rules:
                         if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
                             try:
-                                main_result = candidate_rule.main(main_input)
+                                # Try new signature main(regex_string, sink_args)
+                                # first. Rules that accept sink_args can use
+                                # structured graph info (arg types/values) for
+                                # precise filtering. Old rules ignore the
+                                # second arg via *args or a simple positional.
+                                import inspect as _inspect
+                                try:
+                                    _sig = _inspect.signature(candidate_rule.main)
+                                    _nparams = len(_sig.parameters)
+                                except Exception:
+                                    _nparams = 1
+                                if _nparams >= 2 and sink_args:
+                                    main_result = candidate_rule.main(main_input, sink_args)
+                                else:
+                                    main_result = candidate_rule.main(main_input)
                                 if main_result is False:
                                     logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip rule for sink {sink}'.format(
                                         cvi=candidate_rule.svid, sink=sink_name))
