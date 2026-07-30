@@ -41,11 +41,9 @@ class CVI_6071(SingleRuleMixin):
         # 使用 function-param-regex 模式，走图引擎污点追踪
         self.match_mode = "function-param-regex"
 
-        # 匹配 Mapper 接口中可能触发 ${} 拼接的方法调用
-        # selectByExample / updateByExample / deleteByExample / countByExample
-        # 这些方法接收 Example 参数，Example 内部的 orderByClause / criteria.condition
-        # 会被 MyBatis 用 ${} 拼接进 SQL
-        self.match = r"selectByExample|updateByExample|deleteByExample|countByExample|selectByExampleWithBLOBs|updateByExampleSelective|selectByExampleWithBLOBs"
+        # match: grep 正则，在源码中搜索潜在 sink 调用行
+        # 之后图引擎对这些行做污点追踪，判断参数是否用户可控
+        self.match = r"selectByExample|updateByExample|deleteByExample|countByExample|setOrderByClause|\.apply\(|\.last\(|\.orderBy\("
 
         self.unmatch = []
 
