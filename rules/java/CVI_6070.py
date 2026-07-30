@@ -52,6 +52,15 @@ class CVI_6070(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """二次筛选：排除已配置安全特性的XML解析器"""
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # 排除已显式禁用外部实体的安全配置

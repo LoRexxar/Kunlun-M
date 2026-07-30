@@ -19,6 +19,15 @@ class CVI_6023(SingleRuleMixin):
         self.vul_function = ["ProcessBuilder"]
 
     def main(self, regex_string, sink_args=None):
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         # Validate: source line should contain ProcessBuilder constructor
