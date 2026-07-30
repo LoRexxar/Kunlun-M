@@ -609,6 +609,19 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
                             fmt_only_idx = _idx
                             break
+
+                    # Path-only sinks: only the path argument is dangerous for
+                    # Path Traversal (CVI-1017). The content/data argument is
+                    # user input but does not control WHERE the file is written.
+                    #   file_put_contents(path, data)  → arg 0 is path
+                    _PATH_SINK_INDEX = {
+                        "file_put_contents": 0,
+                    }
+                    path_only_idx = -1
+                    for _fn, _idx in _PATH_SINK_INDEX.items():
+                        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
+                            path_only_idx = _idx
+                            break
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
@@ -617,6 +630,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # Format-string sinks: only check the format string argument.
                         # Value arguments (printf %s values) are not dangerous.
                         if fmt_only_idx >= 0 and i != fmt_only_idx:
+                            continue
+                        # Path-only sinks (file_put_contents): only check the
+                        # path argument. Content data does not cause Path Traversal.
+                        if path_only_idx >= 0 and i != path_only_idx:
                             continue
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
