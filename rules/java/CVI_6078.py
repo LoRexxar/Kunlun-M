@@ -37,6 +37,18 @@ class CVI_6078(SingleRuleMixin):
         self.vul_function = ["a:ResponseBody"]
 
     def main(self, regex_string, sink_args=None):
+        """Graph path: import filtering handled by graph engine (not operator)."""
+        if sink_args:
+            # const response body → static, safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         if regex_string.lstrip().startswith("import "):

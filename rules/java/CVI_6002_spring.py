@@ -38,12 +38,22 @@ class CVI_6002_spring(SingleRuleMixin):
         self.vul_function = ["ModelAndView.addObject"]
 
     def main(self, regex_string, sink_args=None):
+        """Graph path: import filtering handled by graph engine."""
+        if sink_args:
+            # const model value → static, safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-        # 排除 import 语句
         if regex_string.lstrip().startswith("import "):
             return False
-        # 排除非 ModelAndView 的 addObject (如自定义对象)
         if not re.search(r"addObject\s*\(", regex_string):
             return False
         return None

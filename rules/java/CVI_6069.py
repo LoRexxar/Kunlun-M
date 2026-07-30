@@ -52,32 +52,32 @@ class CVI_6069(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：排除有路径规范化和文件名白名单检查的安全写法。
+        Graph-based: const filename/path is hardcoded (safe).
         """
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-
-        # 排除有安全校验的写法
         safe_patterns = [
-            r"normalize\(\)",
-            r"getCanonicalPath",
-            r"whitelist",
-            r"ALLOWED_EXTENSIONS",
-            r"allowedExtensions",
+            r"normalize\(\)", r"getCanonicalPath",
+            r"whitelist", r"ALLOWED_EXTENSIONS", r"allowedExtensions",
         ]
         for safe_pat in safe_patterns:
             if re.search(safe_pat, regex_string):
                 return False
-
-        # 确认包含文件上传相关的 sink 调用
         upload_patterns = [
-            r"\.write\s*\(",
-            r"\.getSubmittedFileName\s*\(",
-            r"\.transferTo\s*\(",
-            r"\.getOriginalFilename\s*\(",
+            r"\.write\s*\(", r"\.getSubmittedFileName\s*\(",
+            r"\.transferTo\s*\(", r"\.getOriginalFilename\s*\(",
         ]
         for pat in upload_patterns:
             if re.search(pat, regex_string):
                 return True
-
         return None
