@@ -21,7 +21,7 @@ from core.graph.node_edge_schema import (
 from utils.igraph_compat import _vattr
 
 __all__ = ["GraphAnalyzer", "AnalysisResult"]
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("KunlunLog")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1384,7 +1384,24 @@ class GraphAnalyzer:
                 # e.g., std::env::var("INPUT") in Rust, document.cookie in JS
                 if ulabel == NodeLabel.OPERATOR.value:
                     node_taint = _vattr(uv, "taint_type", "")
-                    if node_taint == "source":
+                    if node_taint == "source" or node_taint == "source:user":
+                        # For user-defined source producers, try inline return
+                        # analysis — the function body may sanitize the source
+                        # (basename, md5, whitelist) before returning.
+                        if node_taint == "source:user":
+                            # Find function def via use edge
+                            func_def_vid = None
+                            for ue in self.graph.es.select(_source=up_vid, label="use"):
+                                if _vattr(self.graph.vs[ue.target], "label") == NodeLabel.FUNCTION.value:
+                                    func_def_vid = ue.target
+                                    break
+                            if func_def_vid is not None:
+                                ret = self.analyze_function_return(up_vid, func_def_vid)
+                                if ret is not None and not ret.is_controllable:
+                                    return self._cached(cache_key, ret)
+                                if ret is not None and ret.is_controllable:
+                                    return self._cached(cache_key, ret)
+                                # Inconclusive → fall through to default
                         return self._cached(cache_key, AnalysisResult(
                             code=1,
                             reason=f"source function '{uname}'",
@@ -1438,21 +1455,15 @@ class GraphAnalyzer:
                             func_vid = up_vid
 
                     # 4a: source — 函数本身产生可控数据
-                    if func_taint == "source":
-                        # For user-defined source producers (functions whose
-                        # body contains a superglobal but may also sanitize),
-                        # try inline return analysis first — the return value
-                        # may pass through a sanitizer (basename, md5, etc.)
-                        # before reaching the caller.
-                        source_type = _vattr(self.graph.vs[func_vid], "taint_origin", "")
-                        if source_type == "user_defined" and func_vid is not None:
+                    if func_taint == "source" or func_taint == "source:user":
+                        # For user-defined source producers, try inline return analysis
+                        if func_taint == "source:user" and func_vid is not None:
                             ret = self.analyze_function_return(up_vid, func_vid)
                             if ret is not None and not ret.is_controllable:
-                                # Inline analysis found sanitizer → safe
                                 return self._cached(cache_key, ret)
                             if ret is not None and ret.is_controllable:
                                 return self._cached(cache_key, ret)
-                            # Fall through to default if inline analysis inconclusive
+                            # Inconclusive → fall through to default
                         return self._cached(cache_key, AnalysisResult(
                             code=1, reason=f"taint source '{callee}'",
                             chain=[{"step": "taint_source", "vid": func_vid,

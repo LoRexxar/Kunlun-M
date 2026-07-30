@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 __all__ = ["build_function_summaries"]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("KunlunLog")
 
 # BFS 递归深度上限
 _MAX_TRACE_DEPTH = 15
@@ -213,7 +213,10 @@ def build_function_summaries(
             # 同步到 taint 属性（仅当 enrich_taint 未标注时）
             existing_taint = _vattr(graph.vs[vid], "taint_type", "")
             if not existing_taint and summary_type in ("passthrough", "source", "safe"):
-                graph.vs[vid]["taint_type"] = summary_type
+                # Use "source:user" for source to distinguish from framework/builtin
+                # sources, allowing inline return analysis in graph_analyzer.
+                sync_type = "source:user" if summary_type == "source" else summary_type
+                graph.vs[vid]["taint_type"] = sync_type
                 if summary_type == "passthrough" and dep_params:
                     sorted_deps = sorted(dep_params)
                     graph.vs[vid]["taint_passthrough"] = sorted_deps
