@@ -382,7 +382,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # 接口适配：确保有 is_source_member（Java 没有）
                     if not hasattr(sr, 'is_source_member'):
                         _src_members = sr.source_members if hasattr(sr, 'source_members') else set()
-                        def _make_ism(members):
+                        _java_prefixes = frozenset({
+                            'request', 'req', 'httpRequest', 'httpServletRequest',
+                            'servletRequest', 'httpReq',
+                        })
+                        def _make_ism(members, java_prefixes, lang):
                             def _ism(expr):
                                 for m in members:
                                     if expr == m or expr.startswith(m + '.') or expr.startswith(m + '('):
@@ -390,10 +394,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     # 后缀匹配：request.getParameter → matches getParameter
                                     # example.setOrderByClause → matches setOrderByClause
                                     if '.' in expr and expr.rsplit('.', 1)[-1] == m:
+                                        # Java: suffix match alone is too broad.
+                                        # url.getParameter should NOT match getParameter
+                                        # because 'url' is not a known HTTP request variable.
+                                        if lang == 'java':
+                                            prefix = expr.rsplit('.', 1)[0]
+                                            if prefix not in java_prefixes:
+                                                continue
                                         return True
                                 return False
                             return _ism
-                        sr.is_source_member = _make_ism(_src_members)
+                        sr.is_source_member = _make_ism(_src_members, _java_prefixes, lang)
                     return sr
                 except Exception as e:
                     logger.debug('[SCAN] [GRAPH] discover_sources(%s) failed: %s', lang, e)
