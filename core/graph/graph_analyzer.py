@@ -105,6 +105,9 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "int", "float", "str",
     "json.dumps", "json.loads",
     "pickle.dumps", "pickle.loads",
+    "reverse",  # Django URL reverse — returns fixed internal path
+    "url_for",  # Flask URL builder — returns fixed internal path
+    "path",     # Django/Flask path() — fixed URL pattern
     # Java
     "StringEscapeUtils.escapeSql",
     "org.apache.commons.lang3.StringEscapeUtils.escapeSql",
