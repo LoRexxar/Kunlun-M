@@ -27,7 +27,7 @@ from utils.igraph_compat import _vattr
 
 __all__ = ["DataFlowBuilder"]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("KunlunLog")
 
 # PHP type casts that sanitize taint by destroying string content.
 # Must match graph_analyzer._TYPE_CAST_SAFE — when the DFG builder encounters
@@ -703,6 +703,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # 尝试解析到真正的函数定义（占位节点无 own 子节点）
             resolved_vid = self._resolve_function(func_vid)
 
+            # Java overload resolution: if the resolved function's parameter
+            # types don't match the call site arg types, try other overloads
+            # with the same name in the same file.
+            resolved_vid = self._resolve_overload(vid, resolved_vid)
+
             # 获取该调用的所有 arg 子节点
             arg_children = self._get_ast_children_by_arg_index(vid)
 
@@ -737,8 +742,104 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         if arg_jt and arg_jt not in ("", "Object"):
                             # Check type compatibility (handle autoboxing)
                             if not self._java_type_compatible(arg_jt, param_jt):
+                                logger.debug("[DFG] overload skip: arg java_type=%s → param java_type=%s (mismatch)", arg_jt, param_jt)
                                 continue  # Skip: type mismatch → wrong overload
                     self._add_dfg_edge(arg_vid, param_vid, DfgType.FORWARD_SLICE.value)
+
+    def _resolve_overload(self, call_vid: int, resolved_vid: int) -> int:
+        """Java overload resolution: find the correct overload by matching
+        call site argument types to parameter java_type.
+
+        If the resolved function's parameter types don't match the call args,
+        search for other same-name overloads in the same file and return the
+        best-matching one.
+        """
+        # Only applicable to Java
+        call_lang = _vattr(self.graph.vs[call_vid], "language", "")
+        if call_lang != "java":
+            return resolved_vid
+
+        # Get call site arg types
+        arg_children = self._get_ast_children_by_arg_index(call_vid)
+        call_arg_types = []
+        for _idx in sorted(arg_children.keys()):
+            arg_vid = arg_children[_idx]
+            arg_jt = _vattr(self.graph.vs[arg_vid], "java_type", "")
+            if not arg_jt:
+                arg_jt = self._resolve_arg_java_type(arg_vid)
+            call_arg_types.append(arg_jt)
+
+        if not call_arg_types:
+            return resolved_vid  # No args → no overload ambiguity
+
+        # Get resolved function's parameter types
+        resolved_name = self._vname[resolved_vid]
+        resolved_params = self._get_own_children_by_index(resolved_vid)
+        param_types = []
+        for _idx in sorted(resolved_params.keys()):
+            param_jt = _vattr(self.graph.vs[resolved_params[_idx]], "java_type", "")
+            param_types.append(param_jt)
+
+        # Check if current resolution matches
+        if self._types_match(call_arg_types, param_types):
+            return resolved_vid  # Good match, keep it
+
+        # Search for other overloads with the same name
+        candidates = self._func_name_index.get(resolved_name, [])
+        best_match = resolved_vid
+        best_score = 0
+        for cand_vid in candidates:
+            if cand_vid == resolved_vid:
+                continue
+            if not self._has_function_body(cand_vid):
+                continue
+            cand_params = self._get_own_children_by_index(cand_vid)
+            # For method calls, skip the self/this param offset
+            cand_param_types = []
+            for _idx in sorted(cand_params.keys()):
+                cand_param_types.append(
+                    _vattr(self.graph.vs[cand_params[_idx]], "java_type", ""))
+            # Adjust for self/this offset
+            if self._vtype[call_vid] == OperatorType.METHOD_CALL.value and cand_params:
+                first_pname = self._vname[cand_params.get(0, -1)] if 0 in cand_params else ""
+                if first_pname in ("self", "this", "$this", "Me"):
+                    cand_param_types = cand_param_types[1:]
+            score = self._match_score(call_arg_types, cand_param_types)
+            if score > best_score:
+                best_score = score
+                best_match = cand_vid
+
+        if best_match != resolved_vid:
+            logger.debug("[DFG] overload resolved: %s → %s (score=%d)",
+                        resolved_name, _vattr(self.graph.vs[best_match], "signature", ""), best_score)
+        return best_match
+
+    @staticmethod
+    def _types_match(call_types: list[str], param_types: list[str]) -> bool:
+        """Check if call arg types are compatible with param types."""
+        if len(call_types) != len(param_types):
+            return False
+        for ct, pt in zip(call_types, param_types):
+            if not ct or not pt:
+                continue  # Unknown types → assume compatible
+            if not DataFlowBuilder._java_type_compatible(ct, pt):
+                return False
+        return True
+
+    @staticmethod
+    def _match_score(call_types: list[str], param_types: list[str]) -> int:
+        """Score how well call types match param types (higher = better)."""
+        if len(call_types) != len(param_types):
+            return 0
+        score = 0
+        for ct, pt in zip(call_types, param_types):
+            if not ct or not pt:
+                score += 1  # Unknown → partial match
+            elif DataFlowBuilder._java_type_compatible(ct, pt):
+                score += 2
+            else:
+                return 0  # Mismatch → no match
+        return score
 
     def _resolve_arg_java_type(self, arg_vid: int) -> str:
         """Try to determine the java_type of a call argument.
@@ -761,7 +862,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 e = self.graph.es[eid]
                 if self._elabel[e.index] == EdgeLabel.USE.value:
                     fv = self.graph.vs[e.target]
-                    ret_type = _vattr(fv, "java_return_type", "")
+                    ret_type = _vattr(fv, "return_type", "") or _vattr(fv, "java_return_type", "")
                     if ret_type:
                         return ret_type
         return ""
