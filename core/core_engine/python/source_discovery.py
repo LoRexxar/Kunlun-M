@@ -50,6 +50,10 @@ class SourceRegistry:
         
         支持前缀匹配：注册了 'request.args' 则 'request.args.get("x")' 也匹配
         """
+        # 拒绝包含运算符的表达式名称（如 "request.META.get() || ''"）
+        # 这些不是合法的 source member 名称
+        if any(op in expr_str for op in ('||', '&&', ' and ', ' or ')):
+            return False
         for sm in self.source_members:
             if sm == expr_str or expr_str.startswith(sm + '.') or expr_str.startswith(sm + '['):
                 return True
