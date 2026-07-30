@@ -51,10 +51,19 @@ class CVI_6004(SingleRuleMixin):
         ]
 
     def main(self, regex_string, sink_args=None):
-        """File 等构造函数已足够精确，不需要额外筛选"""
+        """Graph-based: const path arg is hardcoded (safe)."""
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-        # 排除明显的安全写法
         if re.search(r'normalize\(\)|getCanonicalPath', regex_string):
             return False
         return None

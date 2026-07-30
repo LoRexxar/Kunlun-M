@@ -52,36 +52,40 @@ class CVI_6001(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：检查匹配到的代码行是否真正属于危险的SQL执行调用，
-        排除PreparedStatement等安全写法。
+        Graph-based filtering: the graph's find_sinks already resolves
+        receiver type via use edges (Path 2), so PreparedStatement vs
+        Statement is handled at sink-name matching level.
+        
+        Here we check sink_args for additional context: if the SQL
+        query arg is a hardcoded const string, it's not injectable.
         """
+        if sink_args:
+            # executeQuery("SELECT ...") with const string → not injectable
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback: filter safe APIs
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-
-        # 排除安全的 PreparedStatement/prepareStatement 写法
         safe_patterns = [
-            r"PreparedStatement",
-            r"prepareStatement",
-            r"@Query",
-            r"\.newCall\s*\(",         # OkHttp: client.newCall(request).execute()
-            r"HttpResponse\.execute",  # Apache HttpClient response
-            r"CloseableHttpClient",    # Apache HttpClient context
-            r"DefaultHttpClient",       # Apache HttpClient context
+            r"PreparedStatement", r"prepareStatement", r"@Query",
+            r"\.newCall\s*\(", r"HttpResponse\.execute",
+            r"CloseableHttpClient", r"DefaultHttpClient",
         ]
         for safe_pat in safe_patterns:
             if re.search(safe_pat, regex_string):
                 return False
-
-        # 确认包含危险的 Statement 执行调用（不要求 . 前缀）
         dangerous_patterns = [
             r"createStatement\s*\(\s*\)",
-            r"executeQuery\s*\(",
-            r"executeUpdate\s*\(",
-            r"execute\s*\(",
-            r"addBatch\s*\(",
+            r"executeQuery\s*\(", r"executeUpdate\s*\(",
+            r"execute\s*\(", r"addBatch\s*\(",
         ]
         for pat in dangerous_patterns:
             if re.search(pat, regex_string):
                 return True
-
         return None

@@ -54,18 +54,28 @@ class CVI_6002(SingleRuleMixin):
         ]
 
     def main(self, regex_string, sink_args=None):
+        """
+        Graph-based filtering: const arg is static output (safe).
+        File/stream writer detection via sink_name (graph already
+        resolves receiver type via use edges).
+        """
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # const string → static output, safe
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-        # 排除 import 语句
-        if regex_string.lstrip().startswith("import "):
-            return False
-        # 排除 System.out/System.err (标准输出/错误，非HTTP响应)
         if re.search(r"System\.out\.|System\.err\.", regex_string):
             return False
-        # 排除文件写入操作 (变量名如 fileWriter/outputStream 也是文件操作)
         if re.search(r"[Ff]ile[Ww]riter|FileOutputStream|BufferedWriter|Files\.write|os\.write|OutputStream", regex_string):
             return False
-        # 排除经过转义的安全输出
         if re.search(r"escapeHtml|htmlEscape|escapeHtml4|HtmlUtils|encode|sanitize|ESAPI|StringEscapeUtils|URLEncoder", regex_string, re.I):
             return False
         return None

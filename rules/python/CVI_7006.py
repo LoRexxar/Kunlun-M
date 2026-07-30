@@ -18,35 +18,30 @@ class CVI_7006(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：过滤纯静态模板字符串
-
-        安全模式 (return False):
-        - Template("static string")  纯静态
-        - render_template_string("<h1>Hello</h1>")  无变量插值
-
-        危险模式 (return None):
-        - Template("Hello " + name)  变量拼接
-        - render_template_string(user_input)  变量参数
-        - Template(f"Hello {name}")  f-string插值
+        Graph-based filtering: filter static template strings.
+        Template("static") → False (const)
+        render_template_string(user_input) → None (variable)
         """
-        if not regex_string:
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # const/string literal → static template, safe
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
             return None
 
-        # 检查 Template/render_template_string 的参数
+        # Regex fallback
+        if not regex_string:
+            return None
         template_match = re.search(
             r'(?:Template|render_template_string|Markup)\s*\(\s*(.+)', regex_string, re.I)
         if not template_match:
             return None
-
         arg = template_match.group(1).strip()
-
-        # 纯字符串字面量（无拼接、无变量）
-        # "static string" 或 'static string'
         if re.match(r'^[\'\"][^\'\"]*[\'\"]\s*(?:\)|,|$)', arg):
             return False
-
-        # render_template("template.html", ...) 是安全的（模板文件名，不是内容）
         if re.match(r'^[\'\"][\w/\-\.]+\.html[\'\"]', arg):
             return False
-
         return None

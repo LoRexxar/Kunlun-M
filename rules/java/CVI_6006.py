@@ -50,13 +50,27 @@ class CVI_6006(SingleRuleMixin):
         ]
 
     def main(self, regex_string, sink_args=None):
+        """
+        Graph-based: const URL arg is hardcoded (safe).
+        Empty args = no-arg constructor (just client creation, not SSRF).
+        """
+        if sink_args is not None:
+            # No args → new RestTemplate() — just creating client object
+            if not sink_args:
+                return False
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        # Regex fallback
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
-        # 排除有白名单校验的写法
         if re.search(r"allowedHosts|ALLOWED_HOSTS|isUrlAllowed|whitelist|urlWhitelist|allowedDomains", regex_string, re.I):
             return False
-        # 排除无参构造：new RestTemplate(), new OkHttpClient() 等仅创建client对象，
-        # 不涉及用户可控URL → FP
         if re.search(r"new\s+(RestTemplate|OkHttpClient|DefaultHttpClient|HttpClient)\s*\(\s*\)", regex_string):
             return False
         return None
