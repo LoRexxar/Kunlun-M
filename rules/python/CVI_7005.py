@@ -13,17 +13,15 @@ class CVI_7005(SingleRuleMixin):
         self.description = "使用了可能存在路径遍历或文件操作风险的函数"
         self.level = 6
         self.match_mode = "function-param-regex"
-        self.match = r"open\(|os\.path\.join|shutil\.copy|shutil\.copyfile|shutil\.move|os\.remove|os\.unlink|os\.rename|send_file|FileResponse|pathlib\.Path|os\.mkdir|os\.makedirs|shutil\.rmtree|shutil\.make_archive|shutil\.unpack_archive|tempfile\.mktemp"
+        # 仅保留执行实际文件 I/O 的函数
+        # path.join/basename/dirname/exists/abspath 已移除：纯字符串操作，不执行文件 I/O
+        self.match = r"\bopen\s*\(|shutil\.copy|shutil\.copyfile|shutil\.move|os\.remove|os\.unlink|os\.rename|send_file|FileResponse|os\.mkdir|os\.makedirs|shutil\.rmtree|shutil\.make_archive|shutil\.unpack_archive|tempfile\.mktemp"
         self.vul_function = [
-            # 精确匹配（无歧义）
+            # 实际执行文件 I/O 的函数
             "open", "send_file", "FileResponse",
-            # 模块限定名（Python normalizer 实际 callee 输出）
-            "path.join", "path.abspath", "path.basename", "path.dirname",
-            "path.exists", "path.expanduser", "path.realpath",
             "os.remove", "os.unlink", "os.rename", "os.mkdir", "os.makedirs",
             "shutil.copy", "shutil.copyfile", "shutil.move",
             "shutil.rmtree", "shutil.make_archive", "shutil.unpack_archive",
-            "pathlib.Path",
             "tempfile.mktemp",
         ]
 
