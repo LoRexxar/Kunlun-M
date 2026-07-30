@@ -877,13 +877,40 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         _avl = _vattr(graph.vs[_av], 'label', '')
                         _resolved = ''
                         if _avl == 'identifier':
-                            # Trace one DFG hop upstream for const assignment
-                            for _de in graph.es.select(_target=_av, label='dfg'):
-                                _sv = graph.vs[_de.source]
-                                _sl = _vattr(_sv, 'label', '')
-                                if _sl == 'const':
-                                    _resolved = _vattr(_sv, 'name', '')
+                            # Trace DFG upstream (up to 3 hops) to find const
+                            # assignment. Covers: direct (const→id) and
+                            # indirect via assignment operator (const→op→id).
+                            _visited = {_av}
+                            _frontier = [_av]
+                            for _ in range(3):
+                                _next_frontier = []
+                                for _fv in _frontier:
+                                    for _de in graph.es.select(_target=_fv, label='dfg'):
+                                        _sv = graph.vs[_de.source]
+                                        _sl = _vattr(_sv, 'label', '')
+                                        _svid = _de.source
+                                        if _svid in _visited:
+                                            continue
+                                        _visited.add(_svid)
+                                        if _sl == 'const':
+                                            _resolved = _vattr(_sv, 'name', '')
+                                            break
+                                        # Also check ast children of operators
+                                        # for embedded const (assignment RHS)
+                                        if _sl == 'operator':
+                                            for _ae in graph.es.select(_source=_svid, label='ast'):
+                                                _cv = graph.vs[_ae.target]
+                                                if _vattr(_cv, 'label', '') == 'const':
+                                                    _resolved = _vattr(_cv, 'name', '')
+                                                    break
+                                            if _resolved:
+                                                break
+                                        _next_frontier.append(_svid)
+                                    if _resolved:
+                                        break
+                                if _resolved:
                                     break
+                                _frontier = _next_frontier
                         sink_args.append({
                             'name': _avn, 'type': _avt, 'label': _avl,
                             'vid': _av, 'resolved_value': _resolved,
