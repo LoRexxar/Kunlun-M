@@ -13,8 +13,10 @@ class CVI_7014(SingleRuleMixin):
         self.description = "用户输入可能被用于字符串格式化，存在格式化字符串攻击风险"
         self.level = 5
         self.match_mode = "function-param-regex"
-        self.match = r"\.format_map|\.format\(|string\.Template|\.substitute\(|\.safe_substitute\("
-        self.vul_function = ["format_map", "format", "Template", "substitute", "safe_substitute"]
+        self.match = r"\.format_map|string\.Template|\.substitute\(|\.safe_substitute\("
+        # str.format() 已移除：Python str.format 是纯字符串格式化，不是代码执行
+        # 真正的风险是 format_map（可读取任意属性）和 Template.substitute（可注入模板）
+        self.vul_function = ["format_map", "Template", "substitute", "safe_substitute"]
 
     def main(self, regex_string):
         """

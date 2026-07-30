@@ -37,10 +37,14 @@ class CVI_7009(SingleRuleMixin):
         if redirect_match:
             arg = redirect_match.group(1).strip()
             # 纯字符串字面量（硬编码路径）
-            if re.match(r'^[\'\"][^\'\"]*[\'\"]\s*\)', arg):
+            if re.match(r'^[\'"][^\'"]*[\'"]\s*\)', arg):
                 return False
             # url_for() 内部路由是安全的
             if re.match(r'^url_for\s*\(', arg):
+                return False
+            # Flask PRG (Post-Redirect-Get): redirect(request.url) 重定向回
+            # 当前页面，不是开放重定向（用户已经在该页面）
+            if re.match(r'^request\.url\s*\)', arg):
                 return False
 
         return None
