@@ -1413,6 +1413,12 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
                     callee = self._resolve_callee_name(up_vid)
 
+                    # Count actual args at the call site for overload resolution.
+                    call_arg_count = 0
+                    for _ae in self.graph.es.select(_source=up_vid, label="ast"):
+                        if _vattr(_ae, "role", "") == "arg":
+                            call_arg_count += 1
+
                     # 沿 use 边找到 function 定义节点，读 taint_type
                     func_taint = ""
                     func_vid = None
@@ -1421,17 +1427,36 @@ class GraphAnalyzer:
                     # multiple use edges (e.g. a placeholder/external node
                     # plus the real definition); taking the first one blindly
                     # can miss safe/passthrough annotations on the real def.
-                    for ce in self.graph.es.select(_source=up_vid, label="use"):
+                    # Also resolve overloads: prefer function defs whose
+                    # parameter count matches the call site.
+                    use_targets = list(self.graph.es.select(_source=up_vid, label="use"))
+                    # Partition: matching param count vs non-matching
+                    matching_arity = []
+                    other = []
+                    for ce in use_targets:
                         fv = self.graph.vs[ce.target]
-                        if _vattr(fv, "label") == NodeLabel.FUNCTION.value:
-                            ft = _vattr(fv, "taint_type", "")
-                            if ft:
-                                # Found an annotated function — use it
-                                func_vid = ce.target
-                                func_taint = ft
-                                break
-                            # Remember the first unannotated function as fallback
-                            if func_vid is None:
+                        if _vattr(fv, "label") != NodeLabel.FUNCTION.value:
+                            continue
+                        # Count function def parameters
+                        param_count = sum(
+                            1 for pe in self.graph.es.select(_source=ce.target, label="own")
+                            if _vattr(self.graph.vs[pe.target], "label", "") == "parameter"
+                        )
+                        if param_count == call_arg_count:
+                            matching_arity.append(ce)
+                        else:
+                            other.append(ce)
+                    # Search matching-arity targets first, then fall back
+                    for ce in matching_arity + other:
+                        fv = self.graph.vs[ce.target]
+                        ft = _vattr(fv, "taint_type", "")
+                        if ft:
+                            # Found an annotated function — use it
+                            func_vid = ce.target
+                            func_taint = ft
+                            break
+                        # Remember the first unannotated function as fallback
+                        if func_vid is None:
                                 func_vid = ce.target
 
                     # If the use-edge target has no taint annotation, follow

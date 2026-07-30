@@ -726,7 +726,88 @@ class DataFlowBuilder(BaseEdgeBuilder):
             for arg_idx, arg_vid in arg_children.items():
                 param_vid = param_map.get(arg_idx)
                 if param_vid is not None:
+                    # Overload resolution: skip if arg java_type doesn't
+                    # match param java_type (e.g. String arg → File param).
+                    param_jt = _vattr(self.graph.vs[param_vid], "java_type", "")
+                    if param_jt and param_jt not in ("", "Object"):
+                        arg_jt = _vattr(self.graph.vs[arg_vid], "java_type", "")
+                        if not arg_jt:
+                            # Try resolving type from callee (method return type)
+                            arg_jt = self._resolve_arg_java_type(arg_vid)
+                        if arg_jt and arg_jt not in ("", "Object"):
+                            # Check type compatibility (handle autoboxing)
+                            if not self._java_type_compatible(arg_jt, param_jt):
+                                continue  # Skip: type mismatch → wrong overload
                     self._add_dfg_edge(arg_vid, param_vid, DfgType.FORWARD_SLICE.value)
+
+    def _resolve_arg_java_type(self, arg_vid: int) -> str:
+        """Try to determine the java_type of a call argument.
+
+        For method call args (e.g. obj.getMethod()), resolve the return
+        type of the callee by following use → function → java_return_type.
+        """
+        arg_v = self.graph.vs[arg_vid]
+        arg_type = _vattr(arg_v, "type", "")
+        arg_label = _vattr(arg_v, "label", "")
+        # Direct identifier with java_type
+        jt = _vattr(arg_v, "java_type", "")
+        if jt:
+            return jt
+        # Method call: resolve return type via use edge
+        if arg_label == NodeLabel.OPERATOR.value and arg_type in (
+            "call", "method_call", "static_call"
+        ):
+            for eid in self.graph.incident(arg_vid, mode="out"):
+                e = self.graph.es[eid]
+                if self._elabel[e.index] == EdgeLabel.USE.value:
+                    fv = self.graph.vs[e.target]
+                    ret_type = _vattr(fv, "java_return_type", "")
+                    if ret_type:
+                        return ret_type
+        return ""
+
+    @staticmethod
+    def _java_type_compatible(arg_type: str, param_type: str) -> bool:
+        """Check if arg java_type is assignment-compatible with param java_type.
+
+        Handles autoboxing (int→Integer) and inheritance for common cases.
+        Returns True if compatible (or if either type is unknown/generic).
+        """
+        if not arg_type or not param_type:
+            return True
+        if arg_type == param_type:
+            return True
+        # Autoboxing pairs
+        box_pairs = {
+            "int": "Integer", "Integer": "int",
+            "long": "Long", "Long": "long",
+            "boolean": "Boolean", "Boolean": "boolean",
+            "char": "Character", "Character": "char",
+            "byte": "Byte", "Byte": "byte",
+            "short": "Short", "Short": "short",
+            "float": "Float", "Float": "float",
+            "double": "Double", "Double": "double",
+        }
+        if box_pairs.get(arg_type) == param_type:
+            return True
+        # String → char[] or char[] → String is NOT compatible
+        # (Java does not auto-convert these)
+        string_types = {"String", "java.lang.String"}
+        file_types = {"File", "java.io.File"}
+        char_array_types = {"char[]", "char[]", "[C"}
+        if arg_type in string_types and param_type in file_types:
+            return False
+        if arg_type in string_types and param_type in char_array_types:
+            return False
+        if arg_type in file_types and param_type in string_types:
+            return False
+        if arg_type in char_array_types and param_type in string_types:
+            return False
+        # Same simple name (ignore package prefix)
+        if arg_type.split(".")[-1] == param_type.split(".")[-1]:
+            return True
+        # Default: allow if we can't determine (avoid false negatives)
+        return True
 
     # -- 分析步骤 3：返回值传播 -----------------------------------------------
 
