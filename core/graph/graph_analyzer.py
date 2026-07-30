@@ -509,11 +509,14 @@ class GraphAnalyzer:
             # e.g. $filesystem->copy() should NOT match the built-in copy().
             # Require qualified match (Path 2 use-edge or dotted name) for
             # method_call/static_call to avoid this class of false positives.
+            # Exception: if the operator's full name (op_name) contains ".",
+            # the call is qualified (e.g. example.setOrderByClause).
             if (not _is_qualified_match and
                     _vattr(v, "type") in (
                         OperatorType.METHOD_CALL.value,
                         OperatorType.STATIC_CALL.value,
-                    ) and "." not in normalized_callee and "::" not in normalized_callee):
+                    ) and "." not in normalized_callee and "::" not in normalized_callee
+                    and "." not in op_name):
                 continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
@@ -1014,9 +1017,6 @@ class GraphAnalyzer:
                 if up_vid in visited:
                     continue
                 # Skip DFG edges marked as branch-safe (pre-processed).
-                # These edges carry data that has been validated by a
-                # branch condition (e.g., is_numeric guard).
-                # Scope gate: only respect branch-safe when the target node
                 # (cur_vid) shares a branch scope with the sink.  Cross-scope
                 # branch-safe marks should not block BFS traversal — e.g.
                 # vid=28 (cmd in if-A) is marked branch-safe, but BFS from
