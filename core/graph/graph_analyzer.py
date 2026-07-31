@@ -164,6 +164,10 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Shellwords.escape", "Shellwords.shellescape",
     "ActiveRecord::SanitizationHelper.sanitize_sql",
     "params.to_unsafe_h",
+    # Rails ActionView helpers — auto HTML-escape content
+    "content_tag", "tag", "safe_join", "safe_concat",
+    "sanitize", "strip_links", "strip_tags",
+    "truncate", "excerpt", "word_wrap", "simple_format",
     # Framework-specific sanitizer aliases
     "hsc",  # DokuWiki htmlspecialchars alias
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
