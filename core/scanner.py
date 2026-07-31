@@ -807,7 +807,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 有调用者（或不在函数中），但无参数 sink 无法沿 DFG 追溯，
                             # 改为 receiver 追溯（与有参但不可控时的逻辑一致）。
                             # 对 callable_only sink 不追踪 receiver。
-                            if callable_only:
+                            # Path-only sinks also skip: receiver tracing would
+                            # find content data flow, not path flow.
+                            if callable_only or path_only_idx >= 0:
                                 continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
@@ -824,6 +826,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 对 callable_only sink（call_user_func），不追踪 receiver——
                             # 数据参数即使通过 receiver 链路可控也不构成 RCE。
                             if callable_only:
+                                continue
+                            # Path-only sinks (file_put_contents): skip receiver
+                            # tracing. The path arg was already checked and found
+                            # not controllable. Receiver tracing would re-discover
+                            # the content arg flow, which is NOT a path traversal.
+                            if path_only_idx >= 0:
                                 continue
                             # Sanitizer detected in args: skip receiver tracing.
                             # If any arg was sanitizer-wrapped (repair result),
