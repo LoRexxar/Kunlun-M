@@ -1069,6 +1069,19 @@ class GraphAnalyzer:
 
                 # Rule 0: function parameter (entry point)
                 if ulabel == "parameter":
+                    # Python/Ruby: 'self' / 'this' parameter is the class
+                    # instance, not user input. Skip it to avoid false
+                    # positives where BFS traces self.attribute → self →
+                    # request → POST.
+                    if uname in ("self", "this") and self.language in ("python", "ruby"):
+                        if param_fallback is None:
+                            param_fallback = AnalysisResult(
+                                code=-1,
+                                reason=f"instance parameter '{uname}'",
+                                chain=[{"step": "entry_param", "vid": up_vid,
+                                        "name": uname, "code": -1}],
+                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                     # Check for taint_type="source" annotation on parameter
                     # nodes (set by enrich_taint for framework-injected request
                     # objects like PHP $request, Python request, etc.).

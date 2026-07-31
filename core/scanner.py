@@ -616,6 +616,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     #   file_put_contents(path, data)  → arg 0 is path
                     _PATH_SINK_INDEX = {
                         "file_put_contents": 0,
+                        # Django/Flask redirect: only first arg is the URL target.
+                        # Subsequent args are URL reverse parameters.
+                        "redirect": 0,
+                        "HttpResponseRedirect": 0,
+                        "RedirectResponse": 0,
                     }
                     path_only_idx = -1
                     for _fn, _idx in _PATH_SINK_INDEX.items():
