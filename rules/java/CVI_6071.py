@@ -43,20 +43,23 @@ class CVI_6071(SingleRuleMixin):
 
         # match: grep 正则，在源码中搜索潜在 sink 调用行
         # 之后图引擎对这些行做污点追踪，判断参数是否用户可控
-        self.match = r"selectByExample|updateByExample|deleteByExample|countByExample|setOrderByClause|\.apply\(|\.last\(|\.orderBy\("
+        #
+        # MyBatis SQL 注入的真正风险点是 ${} 拼接，而不是方法名。
+        # selectByExample/countByExample/deleteByExample 等方法底层使用 #{}
+        # 参数化查询，方法名本身不可能注入——将它们作为 sink 只会产生大量误报。
+        # 真正危险的 sink：
+        #   1. setOrderByClause(userInput) — Example.orderByClause 走 ${} 拼接
+        #   2. MyBatis-Plus Wrapper.apply(userInput) / .last(userInput) — 直接拼 SQL 片段
+        #   3. .orderBy(userInput) — QueryWrapper orderBy 拼接
+        self.match = r"setOrderByClause|\.apply\(|\.last\(|\.orderBy\("
 
         self.unmatch = []
 
         # 图引擎需要追踪的 sink 函数
         self.vul_function = [
-            # MyBatis Generator Example 方法
+            # MyBatis Generator Example — orderByClause 走 ${} 拼接
             "setOrderByClause",
-            # MyBatis Mapper 方法
-            "selectByExample",
-            "updateByExample",
-            "deleteByExample",
-            "countByExample",
-            # MyBatis-Plus Wrapper 方法
+            # MyBatis-Plus Wrapper — 直接拼 SQL 片段
             "apply",
             "last",
         ]
@@ -68,14 +71,23 @@ class CVI_6071(SingleRuleMixin):
         - import 语句
         - 注释行
         - 方法声明（非调用）
+        - BiFunction.apply() 等 Java 泛型方法（非 MyBatis-Plus Wrapper.apply）
+
+        注意：不在 sink_args 中做 resolved_value 过滤。
+        DFG 追溯可能将 request.getParameter("name") 中的参数名 "name"
+        误认为变量的 resolved_value，导致真正的用户输入被当作常量跳过。
+        图引擎 BFS 已做了充分的污点追踪，这里不再二次过滤。
         """
-        if sink_args:
-            # Graph path: const arg is hardcoded → safe
+        if sink_args is None:
+            # Non-graph path (source code regex matching)
+            pass
+        else:
+            # Graph path: only filter out true string literals
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
-                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                    return False
-                if arg0.get('resolved_value', ''):
+                # Only skip if arg is a direct string literal, not a variable
+                # whose resolved_value was traced through DFG.
+                if arg0.get('label') == 'const':
                     return False
             return None
 
@@ -88,20 +100,18 @@ class CVI_6071(SingleRuleMixin):
         if code.startswith("import "):
             return False
 
-        # 排除方法声明（interface 中的方法定义不是调用）
-        if re.search(r'(selectByExample|updateByExample|deleteByExample|countByExample)\s*\(', code):
-            # 确认是方法调用而非定义 — 定义行不会在参数中有赋值
-            if re.search(r'=\s*\w+\.(selectByExample|updateByExample|deleteByExample|countByExample)\s*\(', code):
-                return None  # 调用：xxx.selectByExample(example)
-            if re.search(r'\w+\.(selectByExample|updateByExample|deleteByExample|countByExample)\s*\(', code):
-                return None  # 调用：mapper.selectByExample(example)
-
         # setOrderByClause 是关键的 ${} 控制点
         if re.search(r'setOrderByClause\s*\(', code):
             return None
 
         # MyBatis-Plus Wrapper apply/last/orderBy
         if re.search(r'\.(apply|last|orderBy)\s*\(', code):
+            # 排除 java.util.function.BiFunction.apply() / Function.apply()
+            # 等非 MyBatis-Plus 的 apply 调用。
+            # MyBatis-Plus 的 apply 出现在 QueryWrapper/LambdaQueryWrapper 链上，
+            # 而泛型 apply 的 receiver 是 function/BiFunction 类型。
+            if re.search(r'function\s*<.*>\s*.*\.apply\s*\(|BiFunction.*\.apply\s*\(', code):
+                return False
             return None
 
         return False
