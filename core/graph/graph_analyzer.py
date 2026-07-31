@@ -108,6 +108,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "reverse",  # Django URL reverse — returns fixed internal path
     "url_for",  # Flask URL builder — returns fixed internal path
     "path",     # Django/Flask path() — fixed URL pattern
+    "save",     # Django/Flask form.save()/model.save() — returns DB-persisted object, not raw user input
     # Java
     "StringEscapeUtils.escapeSql",
     "org.apache.commons.lang3.StringEscapeUtils.escapeSql",
