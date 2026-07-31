@@ -532,35 +532,32 @@ class GraphAnalyzer:
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")
                 if _vattr(e, "role") == "arg"
             ]
-            # Also collect dfg sources flowing directly into the sink node
-            # (e.g., Rust macro format args: user_input → dfg → log::info).
-            # Skip DFG sources from the callee chain (receiver object /
-            # nested calls in method chain).  The callee chain represents
-            # the call target, not data arguments — its controllability
-            # does NOT make the call dangerous.
-            for de in self.graph.es.select(_target=v.index, label="dfg"):
-                src = de.source
-                if src in arg_vids:
-                    continue
-                src_label = _vattr(self.graph.vs[src], "label", "")
-                # Skip operator nodes: nested calls in the method chain
-                # (e.g., getWriter() in resp.getWriter().write(x))
-                if src_label == NodeLabel.OPERATOR.value:
-                    continue
-                # Skip identifier nodes matching the receiver name
-                # extracted from the operator's qualified name prefix.
-                # E.g., for "resp.getWriter.write", receiver = "resp".
-                if _vattr(v, "type") in (
-                    OperatorType.METHOD_CALL.value,
-                    OperatorType.STATIC_CALL.value,
-                ):
-                    sink_op_name = _vattr(v, "name", "")
-                    if "." in sink_op_name:
-                        receiver_name = sink_op_name.split(".")[0]
-                        src_name = _vattr(self.graph.vs[src], "name", "")
-                        if src_name == receiver_name:
-                            continue
-                arg_vids.append(src)
+            # Only collect DFG sources if there are NO AST arg children.
+            # When AST args exist (e.g., echo show($input)), DFG sources
+            # may bypass safe function calls (show() → htmlspecialchars),
+            # creating false positive taint chains. BFS from AST args will
+            # correctly encounter the safe call node.
+            if not arg_vids:
+                for de in self.graph.es.select(_target=v.index, label="dfg"):
+                    src = de.source
+                    if src in arg_vids:
+                        continue
+                    src_label = _vattr(self.graph.vs[src], "label", "")
+                    # Skip operator nodes: nested calls in the method chain
+                    if src_label == NodeLabel.OPERATOR.value:
+                        continue
+                    # Skip identifier nodes matching the receiver name
+                    if _vattr(v, "type") in (
+                        OperatorType.METHOD_CALL.value,
+                        OperatorType.STATIC_CALL.value,
+                    ):
+                        sink_op_name = _vattr(v, "name", "")
+                        if "." in sink_op_name:
+                            receiver_name = sink_op_name.split(".")[0]
+                            src_name = _vattr(self.graph.vs[src], "name", "")
+                            if src_name == receiver_name:
+                                continue
+                    arg_vids.append(src)
             results.append({
                 "vid": v.index, "name": callee_name,
                 "lineno": _vattr(v, "lineno", 0),
@@ -818,6 +815,26 @@ class GraphAnalyzer:
 
         sv = self.graph.vs[start_vid]
         sname = _vattr(sv, "name", "")
+
+        # Pre-check: if start node is a call to a safe function, return not controllable.
+        # This catches cases where sink arg is a method_call like $field->show($input)
+        # where show() is a user-defined sanitizer (marked safe by function_summary).
+        if (_vattr(sv, "label") == NodeLabel.OPERATOR.value and
+                _vattr(sv, "type", "") in _CALL_TYPES):
+            for ue in self.graph.es.select(_source=start_vid, label="use"):
+                tgt = self.graph.vs[ue.target]
+                if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                    continue
+                tgt_taint = _vattr(tgt, "taint_type", "")
+                tgt_summary = _vattr(tgt, "func_summary_type", "")
+                if tgt_taint == "safe" or tgt_summary == "safe":
+                    return self._cached(cache_key, AnalysisResult(
+                        code=-1,
+                        reason=f"safe function '{_vattr(tgt, 'name', '')}' at sink arg",
+                        chain=[{"step": "safe_func_precheck", "vid": start_vid,
+                                "name": _vattr(tgt, "name", ""), "code": -1}],
+                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+                break
 
         # Pre-check: branch constraint on start node
         if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value and sname:
