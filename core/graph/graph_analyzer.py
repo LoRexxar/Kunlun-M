@@ -170,6 +170,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "truncate", "excerpt", "word_wrap", "simple_format",
     # Django open-redirect guard
     "url_has_allowed_host_and_scheme", "is_safe_url",
+    # Django/Wagtail model methods that return DB-backed objects/URLs
+    "get_translation", "get_success_url", "get_absolute_url",
     # Framework-specific sanitizer aliases
     "hsc",  # DokuWiki htmlspecialchars alias
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
@@ -862,6 +864,23 @@ class GraphAnalyzer:
                             chain=[{"step": "branch_constraint", "vid": branch_vid,
                                     "name": sname, "code": -1}],
                             path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+
+        # Post-guard check: scan ALL branches in the same function for
+        # guard functions (url_has_allowed_host_and_scheme, is_safe_url,
+        # etc.) that reference this variable.  This catches patterns like:
+        #   url = form.cleaned_data["url"]      # tainted
+        #   if not url_has_allowed_host_and_scheme(url, ...):
+        #       url = safe_default
+        #   redirect(url)                       # guarded, but outside if
+        if (_vattr(sv, "label") == NodeLabel.IDENTIFIER.value and sname
+                and self.language == "python"):
+            if self._has_function_level_guard(start_vid, sname):
+                return self._cached(cache_key, AnalysisResult(
+                    code=-1,
+                    reason=f"post-guard: '{sname}' validated by guard function",
+                    chain=[{"step": "post_guard", "vid": start_vid,
+                            "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Quick checks on start node itself
         # $_SERVER as a whole is not a source — only specific keys are.
@@ -2863,6 +2882,70 @@ class GraphAnalyzer:
         for e in self.graph.es.select(_source=root_vid, label="member"):
             if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
                 return True
+        return False
+
+    def _has_function_level_guard(self, vid: int, var_name: str) -> bool:
+        """Check if *any* branch in the same function contains a guard
+        function call (from ``_TYPE_VALIDATION_FUNCS``) that references
+        ``var_name``.
+
+        This catches the Django "post-guard" pattern::
+
+            url = form.cleaned_data["url"]
+            if not url_has_allowed_host_and_scheme(url, ...):
+                url = safe_default
+            redirect(url)   # outside the if-block, but guarded
+
+        The guard at the if-condition sanitises ``url`` even though the
+        sink is not inside the guard's branch.
+        """
+        # 1. Find the enclosing function.
+        func_vid = None
+        for fv in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+            # Check if vid is within this function's file+line range
+            fv_lineno = _vattr(self.graph.vs[fv], "lineno", 0)
+            fv_file = _vattr(self.graph.vs[fv], "file_path", "") or _vattr(self.graph.vs[fv], "path", "")
+            v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
+            v_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
+            if fv_file == v_file and fv_lineno <= v_lineno:
+                if func_vid is None or fv_lineno > _vattr(self.graph.vs[func_vid], "lineno", 0):
+                    func_vid = fv
+        if func_vid is None:
+            return False
+
+        # 2. Collect all branch nodes owned by this function.
+        branch_vids: list[int] = []
+        for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
+            bv_file = _vattr(self.graph.vs[bv], "file_path", "") or _vattr(self.graph.vs[bv], "path", "")
+            bv_lineno = _vattr(self.graph.vs[bv], "lineno", 0)
+            fv_lineno = _vattr(self.graph.vs[func_vid], "lineno", 0)
+            if bv_file == _vattr(self.graph.vs[func_vid], "file_path", "") and bv_lineno >= fv_lineno:
+                branch_vids.append(bv)
+
+        # 3. For each branch, check if its condition contains a guard call
+        #    whose arguments reference var_name.
+        for bvid in branch_vids:
+            cond_vid = self._get_condition_root(bvid)
+            if cond_vid is None:
+                continue
+            cond_type = _vattr(self.graph.vs[cond_vid], "type", "")
+            cond_label = _vattr(self.graph.vs[cond_vid], "label", "")
+            # Could be a unary_op (not ...) wrapping the actual call
+            search_vids = [cond_vid]
+            if cond_label == NodeLabel.OPERATOR.value and cond_type == "unary_op":
+                for ce in self.graph.es.select(_source=cond_vid, label="ast"):
+                    search_vids.append(ce.target)
+
+            for sv in search_vids:
+                sv_type = _vattr(self.graph.vs[sv], "type", "")
+                sv_name = _vattr(self.graph.vs[sv], "name", "")
+                if (sv_type in _CALL_TYPES
+                        and sv_name in _TYPE_VALIDATION_FUNCS):
+                    # Check if any arg references var_name
+                    for ae in self.graph.es.select(_source=sv, label="ast"):
+                        if _vattr(ae, "role") == "arg":
+                            if self._subtree_contains_name(ae.target, var_name):
+                                return True
         return False
 
     def check_branch_constraint(self, branch_vid: int, var_name: str) -> bool:
