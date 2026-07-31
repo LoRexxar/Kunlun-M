@@ -239,6 +239,7 @@ def build_function_summaries(
         "build_function_summaries: processed %d/%d functions, stats=%s",
         len(processed), len(func_data), stats,
     )
+
     return stats
 
 

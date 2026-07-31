@@ -1374,6 +1374,25 @@ class GraphAnalyzer:
 
                 # Rule 3b: superglobal method call (e.g., request.GET.get() in Python)
                 if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                    # Rule 3a2: call to function with func_summary_type="safe"
+                    # or taint_type="safe" on the function definition node.
+                    # This catches user-defined sanitizer functions (e.g.,
+                    # stripinput() that wraps htmlspecialchars) that were
+                    # marked safe by build_function_summaries.
+                    for ue in self.graph.es.select(_source=up_vid, label="use"):
+                        tgt = self.graph.vs[ue.target]
+                        if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                            continue
+                        tgt_taint = _vattr(tgt, "taint_type", "")
+                        tgt_summary = _vattr(tgt, "func_summary_type", "")
+                        if tgt_taint == "safe" or tgt_summary == "safe":
+                            return self._cached(cache_key, AnalysisResult(
+                                code=2, reason=f"safe function '{_vattr(tgt, 'name', '')}'",
+                                chain=[{"step": "dfg", "vid": up_vid,
+                                        "name": _vattr(tgt, "name", ""), "code": 2}],
+                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                        break  # only check first function target
+
                     is_sg, sg_name = self._is_superglobal_method_call(up_vid)
                     if is_sg:
                         callee = self._resolve_callee_name(up_vid)
