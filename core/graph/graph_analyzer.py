@@ -2778,6 +2778,35 @@ class GraphAnalyzer:
                 return e.target
         return None
 
+    def _subtree_contains_name(self, root_vid: int, var_name: str,
+                               depth: int = 0, visited: set | None = None) -> bool:
+        """Recursively check if var_name appears anywhere in the AST subtree."""
+        if depth > 8 or not var_name:
+            return False
+        if visited is None:
+            visited = set()
+        if root_vid in visited:
+            return False
+        visited.add(root_vid)
+
+        node_name = _vattr(self.graph.vs[root_vid], "name", "")
+        if node_name == var_name:
+            return True
+
+        # Walk AST children
+        for e in self.graph.es.select(_source=root_vid, label="ast"):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+                return True
+        # Walk DFG edges (Java normalizer may link via DFG)
+        for e in self.graph.es.select(_source=root_vid, label="dfg"):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+                return True
+        # Walk member edges (method chaining: matcher(cb) links cb)
+        for e in self.graph.es.select(_source=root_vid, label="member"):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+                return True
+        return False
+
     def check_branch_constraint(self, branch_vid: int, var_name: str) -> bool:
         """Check if the branch condition constrains var_name to a safe value.
 
@@ -3039,6 +3068,17 @@ class GraphAnalyzer:
                                 break
                         if pattern.startswith("^") and pattern.endswith("$"):
                             return True
+
+            # Java Pattern.matcher().matches() / Pattern.matches()
+            # e.g. validIdentifier.matcher(cb).matches()
+            # The method name in graph is 'matcher.matches' or 'matches'.
+            # Java method chaining means cb is nested inside matcher() subtree,
+            # not a direct child of the matches() condition root.
+            callee_name = name.split(".")[-1] if "." in name else name
+            if callee_name == "matches":
+                # Recursively search the entire condition subtree for var_name
+                if self._subtree_contains_name(cond_vid, var_name, depth=0):
+                    return True
 
             # preg_match: anchored regex without dot wildcard → safe
             if name == "preg_match":
