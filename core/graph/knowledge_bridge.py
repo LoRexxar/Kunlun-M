@@ -139,6 +139,14 @@ def enrich_taint(
             safe_method_count = _enrich_framework_safe_methods(graph, safe_methods)
             count += safe_method_count
 
+    # 6b. 内置 sanitizer call 节点标注
+    #     _REPAIR_FUNCTIONS (htmlspecialchars, intval, shlex.quote, etc.)
+    #     are built-in sanitizers. Mark their call nodes as taint_type=safe
+    #     so that function_summary._trace_return_value can detect them.
+    from core.graph.graph_analyzer import _REPAIR_FUNCTIONS
+    repair_count = _enrich_repair_calls(graph, _REPAIR_FUNCTIONS)
+    count += repair_count
+
     # 7. 传播 safe taint: 将 sanitizer call 的 safe 标记传播到赋值 LHS 变量
     safe_prop_count = _propagate_safe_taint(graph)
     count += safe_prop_count
@@ -520,6 +528,36 @@ def _enrich_framework_safe_methods(graph: ig.Graph, safe_methods: set[str]) -> i
             continue
         name = _vattr(v, "name", "")
         if name in safe_methods:
+            graph.vs[v.index]["taint_type"] = "safe"
+            count += 1
+    return count
+
+
+def _enrich_repair_calls(graph: ig.Graph, repair_funcs: frozenset[str]) -> int:
+    """标注内置 sanitizer 的 call 节点为 taint_type=safe。
+
+    _REPAIR_FUNCTIONS 中的函数（htmlspecialchars, intval, shlex.quote 等）
+    是内置 sanitizer。标记它们的 call 节点为 safe，使 function_summary
+    能正确识别包含 sanitizer 的 return path 为 safe。
+    """
+    from core.graph.node_edge_schema import NodeLabel as _NL
+    from core.graph.graph_analyzer import _CALL_TYPES
+    count = 0
+    for v in graph.vs:
+        vlabel = _vattr(v, "label", "")
+        vtype = _vattr(v, "type", "")
+        if vlabel != _NL.OPERATOR.value:
+            continue
+        if vtype not in _CALL_TYPES:
+            continue
+        if _vattr(v, "taint_type"):
+            continue
+        callee = _vattr(v, "callee", "")
+        name = _vattr(v, "name", "")
+        # Match by callee name (short name like "htmlspecialchars")
+        # or full name (like "html.escape", "shlex.quote")
+        short = callee or (name.split(".")[-1] if "." in name else name)
+        if short in repair_funcs or name in repair_funcs:
             graph.vs[v.index]["taint_type"] = "safe"
             count += 1
     return count

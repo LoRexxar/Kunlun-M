@@ -272,11 +272,14 @@ def _aggregate_flows(flows: list[dict]) -> tuple[str, set[int]]:
 
     规则：
     - 有任何 source → "source"
-    - 有 dep_params → "passthrough"
+    - 有 dep_params，且没有 safe flow → "passthrough"
+    - 有 dep_params + safe flow 混合 → "safe"（函数内部做了 sanitization，
+      param return 通常是特殊条件的 fallback，如 is_array 分支）
     - 全部 literal/safe → "safe"
     - 否则 → "unknown"
     """
     has_source = False
+    has_safe = False
     all_dep_params: set[int] = set()
     all_safe_or_literal = True
 
@@ -291,6 +294,7 @@ def _aggregate_flows(flows: list[dict]) -> tuple[str, set[int]]:
         elif ot == "literal":
             pass  # safe_or_literal stays True
         elif ot == "safe":
+            has_safe = True
             pass  # safe_or_literal stays True
         else:  # unknown
             all_safe_or_literal = False
@@ -298,6 +302,12 @@ def _aggregate_flows(flows: list[dict]) -> tuple[str, set[int]]:
     if has_source:
         return "source", all_dep_params
     if all_dep_params:
+        # Mixed safe + param: function has sanitization logic.
+        # The param return is typically a conditional fallback
+        # (e.g. if(is_array) return $text). Prefer "safe" so the
+        # sanitizer in the primary return path is respected.
+        if has_safe:
+            return "safe", set()
         return "passthrough", all_dep_params
     if flows and all_safe_or_literal:
         return "safe", all_dep_params
