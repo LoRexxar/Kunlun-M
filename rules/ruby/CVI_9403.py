@@ -29,7 +29,10 @@ class CVI_9403(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"File\.read\s*\(|File\.open\s*\(|File\.write\s*\(|File\.delete\s*\(|IO\.read\s*\(|Dir\.glob\s*\("
 
-        self.vul_function = ["read", "open", "write", "delete"]
+        # vul_function intentionally empty: match regex already requires
+        # File./IO./Dir. prefix. Using bare "delete"/"read"/"open"/"write"
+        # as vul_function would false-match cookies.delete, Hash.delete etc.
+        self.vul_function = []
 
     def main(self, regex_string, sink_args=None):
         """

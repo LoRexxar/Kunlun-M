@@ -168,6 +168,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "content_tag", "tag", "safe_join", "safe_concat",
     "sanitize", "strip_links", "strip_tags",
     "truncate", "excerpt", "word_wrap", "simple_format",
+    # Django open-redirect guard
+    "url_has_allowed_host_and_scheme", "is_safe_url",
     # Framework-specific sanitizer aliases
     "hsc",  # DokuWiki htmlspecialchars alias
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
@@ -271,6 +273,9 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "isupper", "islower", "istitle", "isspace",
     "isascii", "isidentifier", "isprintable",
     "isfinite", "isinf", "isnan",
+    # Django open-redirect / URL validation guards
+    "url_has_allowed_host_and_scheme", "is_safe_url",
+    "validate_unicode_slug", "iri_to_uri",
 })
 
 # Java/Kotlin parameter annotations that indicate the parameter is

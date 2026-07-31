@@ -45,7 +45,7 @@ class CVI_8013(SingleRuleMixin):
             regex_string = str(regex_string)
         if re.search(r'http\.Redirect\s*\(', regex_string):
             # 重定向到变量（如 rURL）通常是自身 URL 重定向
-            if re.search(r'req\.URL|request\.URL|r\.URL|rURL|c\.Request', regex_string):
+            if re.search(r'req\.URL|request\.URL|r\.URL|rURL|c\.Request|EscapedPath|URL\.Path', regex_string):
                 return False
             return True
         return None

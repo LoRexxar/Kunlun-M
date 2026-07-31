@@ -82,10 +82,12 @@ class CVI_8007(SingleRuleMixin):
         if re.search(r'gob\.NewDecoder\s*\(', regex_string):
             return True
 
-        # 通用匹配：只要有反序列化调用就标记（可能需要人工审查）
-        if re.search(r'(?:json|yaml|xml|toml)\.Unmarshal\s*\(', regex_string):
+        # 只有 gob.NewDecoder 是不安全的（gob 使用 gob 协议，可触发任意方法调用）
+        if re.search(r'gob\.NewDecoder\s*\(', regex_string):
             return True
 
+        # json/yaml/xml/toml Unmarshal 到 interface{} 的已在上面单独检测；
+        # Unmarshal 到明确 struct 是类型安全的，不再标记为漏洞。
         # Decode 到类型化结构体是安全的（如 gin 的 jsonBinding.Bind）
         if re.search(r'\bDecode\s*\(', regex_string):
             return False
