@@ -274,6 +274,7 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "ctype_digit", "ctype_alnum", "ctype_alpha", "ctype_xdigit",
     "ctype_lower", "ctype_upper", "ctype_graph", "ctype_print",
     "ctype_punct", "ctype_space", "ctype_cntrl",
+    "preg_match",  # PHP regex validation (whitelist/guard pattern)
     # Python
     "isinstance", "issubclass", "hasattr", "callable",
     "isdigit", "isalpha", "isalnum", "isdecimal", "isnumeric",
@@ -878,7 +879,7 @@ class GraphAnalyzer:
         #       url = safe_default
         #   redirect(url)                       # guarded, but outside if
         if (_vattr(sv, "label") == NodeLabel.IDENTIFIER.value and sname
-                and self.language == "python"):
+                and self.language in ("python", "php")):
             if self._has_function_level_guard(start_vid, sname):
                 return self._cached(cache_key, AnalysisResult(
                     code=-1,
