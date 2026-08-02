@@ -181,6 +181,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # Java type conversions — numeric/hash output cannot carry payload
     "Long.parseLong", "Integer.parseInt", "Double.parseDouble",
     "UUID.nameUUIDFromBytes",
+    # Python URL/path safety validators
+    "get_next_path", "is_safe_url", "is_safe_redirect",
 })
 
 # Fix 14: PHP type cast operators that sanitize taint.
