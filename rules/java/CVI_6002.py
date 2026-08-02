@@ -56,9 +56,14 @@ class CVI_6002(SingleRuleMixin):
     def main(self, regex_string, sink_args=None):
         """
         Graph-based filtering: const arg is static output (safe).
-        File/stream writer detection via sink_name (graph already
-        resolves receiver type via use edges).
+        Also excludes System.out/System.err and file I/O writers.
         """
+        # Check regex_string (source line) for non-HTTP output sinks
+        if isinstance(regex_string, str):
+            if re.search(r"System\.out\.|System\.err\.", regex_string):
+                return False
+            if re.search(r"[Ff]ile[Ww]riter|FileOutputStream|BufferedWriter|Files\.write|os\.write", regex_string):
+                return False
         if sink_args:
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
