@@ -139,7 +139,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "getServletContext":    {"passthrough": [0], "safe": True},  # Server-side context
 
         # ===== Response sinks =====
-        "getWriter":            {"passthrough": [0], "safe": False},
+        "getWriter":            {"passthrough": [], "safe": False},
         "getOutputStream":      {"passthrough": [0], "safe": False},
         "setHeader":            {"passthrough": [1], "safe": False},
         "addHeader":            {"passthrough": [1], "safe": False},
@@ -209,7 +209,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "HttpServletRequest.getRequestURI":    {"passthrough": [0], "safe": False},
         "HttpServletRequest.getInputStream":   {"passthrough": [0], "safe": False},
         "HttpServletRequest.getReader":        {"passthrough": [0], "safe": False},
-        "HttpServletResponse.getWriter":       {"passthrough": [0], "safe": False},
+        "HttpServletResponse.getWriter":       {"passthrough": [], "safe": False},
         "HttpServletResponse.getOutputStream": {"passthrough": [0], "safe": False},
         "HttpServletResponse.sendRedirect":    {"passthrough": [0], "safe": False},
         "HttpServletResponse.setHeader":       {"passthrough": [1], "safe": False},

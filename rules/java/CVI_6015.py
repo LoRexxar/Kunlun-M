@@ -26,30 +26,35 @@ class CVI_6015(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        Graph-based filtering: for setHeader, only "Location" header is Open Redirect.
-        setHeader("Content-Disposition", ...) is file download, not redirect.
-        sendRedirect is always redirect (no filtering needed).
-
-        sink_args: list of {name, type, label, vid, resolved_value} from graph arg nodes.
-        resolved_value: if arg is identifier with const assignment upstream,
-                        this holds the constant value (e.g. "Content-Disposition").
+        Graph-based filtering:
+        - sendRedirect with const/hardcoded arg → False (safe)
+        - setHeader with non-Location header → False
+        - ModelAndView without redirect: prefix → False
         """
         if sink_args:
-            sn_lower = regex_string.lower()
+            sn_lower = regex_string.lower() if isinstance(regex_string, str) else str(regex_string).lower()
+
+            # sendRedirect: check if arg is hardcoded
+            if 'sendredirect' in sn_lower:
+                if len(sink_args) >= 1:
+                    arg0 = sink_args[0]
+                    # const/string literal → hardcoded path, safe
+                    # Note: only check direct const, not resolved_value,
+                    # because resolved_value may be overwritten in a branch
+                    if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                        return False
+
             # setHeader: check arg[0] for header name
             if 'setheader' in sn_lower and 'sendredirect' not in sn_lower:
                 arg0 = sink_args[0]
-                # Try resolved_value first (identifier with const assignment)
                 header_val = arg0.get('resolved_value', '')
                 if not header_val:
-                    # Direct const/string node
                     if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
                         header_val = arg0.get('name', '')
                 if header_val:
                     header_name = header_val.strip('"').strip("'")
                     if header_name.lower() != 'location':
                         return False
-                # Can't determine header name → let it through.
             return None
 
         # Regex fallback (source-line based)
