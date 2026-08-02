@@ -178,6 +178,9 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "sanitize_file_name", "sanitize_title", "sanitize_text_field",  # WordPress
     "sanitize_url",  # WordPress (alias of esc_url since WP 5.3)
     "wp_kses", "wp_filter_post_kses", "wp_kses_post",  # WordPress
+    # Java type conversions — numeric/hash output cannot carry payload
+    "Long.parseLong", "Integer.parseInt", "Double.parseDouble",
+    "UUID.nameUUIDFromBytes",
 })
 
 # Fix 14: PHP type cast operators that sanitize taint.
