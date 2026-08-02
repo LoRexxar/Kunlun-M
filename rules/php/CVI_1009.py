@@ -31,15 +31,21 @@ class CVI_1009(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        Graph-based: check if assert() arg contains instanceof/null (type check).
+        Graph-based: check if assert() arg is a safe expression (instanceof, comparison).
+        assert($a instanceof B) → False (type check)
+        assert($a == $b) → False (comparison)
         """
         if sink_args:
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
-                # operator arg → check callee name for instanceof pattern
+                # operator arg → check callee/op name
                 if arg0.get('label') == 'operator':
                     arg_name = arg0.get('name', '').lower()
                     if 'instanceof' in arg_name:
+                        return False
+                    # boolean/comparison operators — assert(bool expr) is not RCE
+                    if arg_name in ('==', '===', '!=', '!==', '<', '>', '<=', '>=', 'bool_expression',
+                                    '||', '&&', '!', 'and', 'or'):
                         return False
                 # const arg → static string, check content
                 val = arg0.get('resolved_value', '') or ''
@@ -54,6 +60,9 @@ class CVI_1009(SingleRuleMixin):
             stripped = regex_string.lstrip().lstrip('\\')
             if stripped.startswith('assert'):
                 if 'instanceof' in stripped or 'null' in stripped.lower():
+                    return False
+                # assert($a == $b) comparison pattern
+                if re.search(r'assert\s*\([^)]*(?:==|===|!=|!==|<=|>=)\s*', stripped):
                     return False
         if regex_string:
             stripped2 = regex_string.lstrip().lstrip('\\')
