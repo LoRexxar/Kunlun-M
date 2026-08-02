@@ -21,6 +21,7 @@ class CVI_7009(SingleRuleMixin):
         Graph-based filtering: filter hardcoded URL redirects.
         redirect('/home') → False (const)
         redirect(url_for(...)) → False (operator with callee 'url_for')
+        redirect(request.url) → False (PRG self-redirect)
         redirect(url) → None (variable)
         """
         if sink_args:
@@ -37,6 +38,9 @@ class CVI_7009(SingleRuleMixin):
                     arg_name = arg0.get('name', '').lower()
                     if 'url_for' in arg_name or 'reverse' in arg_name:
                         return False
+                # member/property: request.url / request.path / request.full_path → PRG self-redirect
+                if arg0.get('type') == 'property' and arg0.get('name', '').lower() in ('url', 'path', 'full_path'):
+                    return False
             return None
 
         # Regex fallback
