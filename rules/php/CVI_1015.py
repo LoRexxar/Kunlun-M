@@ -32,12 +32,14 @@ class CVI_1015(SingleRuleMixin):
     def main(self, regex_string, sink_args=None):
         """
         Graph-based: unserialize with allowed_classes option is safe.
-        unserialize($data, ['allowed_classes' => [...]]) restricts
-        object instantiation to whitelist.
+        unserialize($data, ['allowed_classes' => false]) prevents
+        object instantiation.
         """
+        # Check regex_string (source line) first — applies to all paths
+        if isinstance(regex_string, str) and 'allowed_classes' in regex_string.lower():
+            return False
         if sink_args:
             # 2+ args means options array is passed
-            # Check if any arg contains 'allowed_classes'
             if len(sink_args) >= 2:
                 for a in sink_args[1:]:
                     rv = a.get('resolved_value', '') or ''
@@ -46,8 +48,4 @@ class CVI_1015(SingleRuleMixin):
                     if 'allowed_classes' in str(rv).lower():
                         return False
             return None
-
-        # Regex fallback
-        if regex_string and 'allowed_classes' in regex_string.lower():
-            return False
         return None

@@ -182,6 +182,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Long.parseLong", "Integer.parseInt", "Double.parseDouble",
     "UUID.nameUUIDFromBytes",
     "getWebSocketAccept",  # Tomcat SHA1+Base64 hash transformation
+    "canonicalize",  # Path canonicalization — prevents directory traversal
     # Python URL/path safety validators
     "get_next_path", "is_safe_url", "is_safe_redirect",
 })
