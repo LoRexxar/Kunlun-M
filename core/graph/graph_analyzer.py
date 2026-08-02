@@ -181,6 +181,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # Java type conversions — numeric/hash output cannot carry payload
     "Long.parseLong", "Integer.parseInt", "Double.parseDouble",
     "UUID.nameUUIDFromBytes",
+    "getWebSocketAccept",  # Tomcat SHA1+Base64 hash transformation
     # Python URL/path safety validators
     "get_next_path", "is_safe_url", "is_safe_redirect",
 })
