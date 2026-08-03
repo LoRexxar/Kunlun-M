@@ -39,7 +39,7 @@ class CVI_3002_graph():
         # for regex
         self.unmatch = None
 
-        self.vul_function = ["document.write", "document.writeln"]
+        self.vul_function = ["document.write", "document.writeln", "write", "writeln"]
 
     def main(self, regex_string, sink_args=None):
         pass

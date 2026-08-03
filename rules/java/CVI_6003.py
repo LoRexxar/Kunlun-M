@@ -38,11 +38,11 @@ class CVI_6003(SingleRuleMixin):
         """二次筛选：确认 Runtime.exec 或 ProcessBuilder.start 调用"""
         if sink_args:
             # Graph path: const arg is hardcoded → safe
+            # Note: only check direct const, not resolved_value,
+            # because resolved_value may be overwritten in a branch
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
                 if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                    return False
-                if arg0.get('resolved_value', ''):
                     return False
             return None
 

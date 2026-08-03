@@ -14,6 +14,13 @@ class CVI_7000(SingleRuleMixin):
         self.level = 8
         self.match_mode = "function-param-regex"
         self.match = r"os\.system|os\.popen|subprocess\.call|subprocess\.run|subprocess\.Popen|subprocess\.check_output|subprocess\.check_call|subprocess\.getoutput|subprocess\.getstatusoutput|commands\.getoutput|commands\.getstatusoutput"
+        self.vul_function = [
+            "os.system", "os.popen",
+            "subprocess.call", "subprocess.run", "subprocess.Popen",
+            "subprocess.check_output", "subprocess.check_call",
+            "subprocess.getoutput", "subprocess.getstatusoutput",
+            "commands.getoutput", "commands.getstatusoutput",
+        ]
 
     def main(self, regex_string, sink_args=None):
         """

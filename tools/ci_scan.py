@@ -176,6 +176,8 @@ def main(argv):
                 args.black_path,
                 bool(args.include_unconfirm),
                 bool(args.unprecom),
+                None,   # template_path
+                True,   # no_cache — always rebuild graph in CI
             )
         except Exception as e:
             s.is_finished = 0
