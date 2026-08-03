@@ -2940,17 +2940,26 @@ class GraphAnalyzer:
             if fv_file == v_file and fv_lineno <= v_lineno:
                 if func_vid is None or fv_lineno > _vattr(self.graph.vs[func_vid], "lineno", 0):
                     func_vid = fv
-        if func_vid is None:
-            return False
-
-        # 2. Collect all branch nodes owned by this function.
         branch_vids: list[int] = []
-        for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
-            bv_file = _vattr(self.graph.vs[bv], "file_path", "") or _vattr(self.graph.vs[bv], "path", "")
-            bv_lineno = _vattr(self.graph.vs[bv], "lineno", 0)
-            fv_lineno = _vattr(self.graph.vs[func_vid], "lineno", 0)
-            if bv_file == _vattr(self.graph.vs[func_vid], "file_path", "") and bv_lineno >= fv_lineno:
-                branch_vids.append(bv)
+        if func_vid is None:
+            # No enclosing function — for global-scope code, still check
+            # branches in the same file with lineno <= vid's lineno.
+            v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
+            v_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
+            for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
+                bv_file = _vattr(self.graph.vs[bv], "file_path", "") or _vattr(self.graph.vs[bv], "path", "")
+                bv_lineno = _vattr(self.graph.vs[bv], "lineno", 0)
+                if bv_file == v_file and bv_lineno <= v_lineno:
+                    branch_vids.append(bv)
+            if not branch_vids:
+                return False
+        else:            # 2. Collect all branch nodes owned by this function.
+            for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
+                bv_file = _vattr(self.graph.vs[bv], "file_path", "") or _vattr(self.graph.vs[bv], "path", "")
+                bv_lineno = _vattr(self.graph.vs[bv], "lineno", 0)
+                fv_lineno = _vattr(self.graph.vs[func_vid], "lineno", 0)
+                if bv_file == _vattr(self.graph.vs[func_vid], "file_path", "") and bv_lineno >= fv_lineno:
+                    branch_vids.append(bv)
 
         # 3. For each branch, check if its condition contains a guard call
         #    whose arguments reference var_name.
