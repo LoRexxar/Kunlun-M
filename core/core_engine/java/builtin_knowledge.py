@@ -331,6 +331,21 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "NameValuePair":                  {"passthrough": [0], "safe": False},
         "HttpClientBuilder.build":        {"passthrough": [], "safe": True},
         "HttpClientBuilder.create":       {"passthrough": [], "safe": True},
+
+        # ===== Framework config readers (return server-side values) =====
+        "expandString":                   {"passthrough": [], "safe": True},  # Ofbiz FlexibleStringExpander
+        "getProperty":                    {"passthrough": [], "safe": True},  # Properties.getProperty
+        "getPropertyValue":               {"passthrough": [], "safe": True},  # Ofbiz EntityUtilProperties
+        "getInitParameter":               {"passthrough": [], "safe": True},  # ServletConfig
+        "getServletContextName":          {"passthrough": [], "safe": True},  # ServletContext
+        "getRealPath":                    {"passthrough": [], "safe": True},  # ServletContext.getRealPath
+
+        # ===== Temp file/dir generators (return framework-controlled paths) =====
+        "createTempFile":                 {"passthrough": [], "safe": True},  # Files.createTempFile
+
+        # ===== Spring AOP compile-time constants =====
+        "getSignature":                   {"passthrough": [], "safe": True},  # JoinPoint.getSignature
+        "getStaticPart":                  {"passthrough": [], "safe": True},  # JoinPoint.getStaticPart
 }
 
 

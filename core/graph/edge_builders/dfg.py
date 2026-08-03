@@ -44,32 +44,11 @@ _CALL_TYPES_DFG: frozenset[str] = frozenset({
     "call", "method_call", "static_call", "new",
 })
 
-# Framework/config functions whose return values are server-side
-# constants or sanitized values — not user-controlled. When used as
-# an assignment RHS, no DFG edge should be created to the LHS.
-# This prevents taint from flowing through framework config readers
-# like Ofbiz's FlexibleStringExpander.expandString().
-_DFG_SAFE_CALLEES: frozenset[str] = frozenset({
-    "expandString",          # Ofbiz FlexibleStringExpander
-    "getProperty",           # Java Properties.getProperty
-    "getPropertyValue",      # Ofbiz EntityUtilProperties
-    "getInitParameter",      # ServletConfig.getInitParameter
-    "getServletContextName", # ServletContext
-    "getRealPath",           # ServletContext.getRealPath
-    "canonicalize",          # Path canonicalization — prevents traversal
-    "normalize",             # Path normalization
-    "sanitize",              # Generic sanitize functions
-    "createTempFile",        # Java Files.createTempFile — returns random path
-    "mkstemp",               # Python os.mkstemp — returns random path
-    "mkdtemp",               # Python os.mkdtemp — returns random path
-    "get_redirect_url",      # Django — returns internal redirect URL
-    "get_success_url",       # Django — returns internal success URL
-    "get_absolute_url",      # Django Model — returns DB-backed URL
-    "reverse",               # Django/Flask URL reverse — returns internal URL
-    "url_for",               # Flask — returns internal URL
-    "getSignature",          # Spring AOP — compile-time method signature
-    "getStaticPart",         # Spring AOP — compile-time join point
-})
+# NOTE: Safe-callee detection for assignment RHS is now delegated to the
+# per-language builtin_knowledge system.  When an assignment RHS is a call
+# whose callee is marked {"safe": True} in builtin_knowledge, no DFG edge
+# is created.  This avoids hard-coding function names in this module —
+# new framework sanitizers are added to the appropriate builtin_knowledge.py.
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +124,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if self.graph.vcount() == 0:
             return 0
 
-        # ── 预缓存属性数组 — O(V+E) 构建，O(1) 查询 ──
+        # 预缓存属性数组 — O(V+E) 构建，O(1) 查询 ──
+        self._language = language  # saved for _is_safe_callee lookups
         # 预缓存边属性数组
         ec = self.graph.ecount()
         self._elabel = [''] * ec
@@ -680,16 +660,14 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # Check if RHS is a safe/sanitizer function call.
             # If so, do NOT create a DFG edge — the return value is
             # framework-generated, not user-controlled data.
+            # Safe-callee detection uses the per-language builtin_knowledge
+            # system (same source as enrich_taint and _analyze_builtin_and_summary).
             if rhs_label == NodeLabel.OPERATOR.value:
                 rhs_type = self._vtype[rhs_vid]
                 if rhs_type in _CALL_TYPES_DFG:
                     callee = self._get_callee_name(rhs_vid)
-                    if callee:
-                        # Match both exact name and qualified name suffix
-                        # (e.g. PathCanonicalize::canonicalize → canonicalize)
-                        callee_tail = callee.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
-                        if callee in _DFG_SAFE_CALLEES or callee_tail in _DFG_SAFE_CALLEES:
-                            continue  # skip DFG edge
+                    if callee and self._is_safe_callee(callee, self._language):
+                        continue  # skip DFG edge
             if rhs_label in (
                 NodeLabel.IDENTIFIER.value,
                 NodeLabel.CONST.value,
@@ -2113,21 +2091,47 @@ class DataFlowBuilder(BaseEdgeBuilder):
         """加载指定语言的内置知识库。
 
         Args:
-            language: 语言标识（如 "php"、"c"）。
+            language: 语言标识（如 "php"、"java"、"python"）。
 
         Returns:
             内置知识字典，若无对应语言或导入失败返回 None。
         """
         try:
-            if language == "php":
-                from core.core_engine.php.builtin_knowledge import KNOWLEDGE as PHP_BUILTIN_KNOWLEDGE
-                return PHP_BUILTIN_KNOWLEDGE
-            elif language == "c":
+            mod_path = f"core.core_engine.{language}.builtin_knowledge"
+            import importlib
+            mod = importlib.import_module(mod_path)
+            return getattr(mod, 'KNOWLEDGE', None)
+        except (ImportError, AttributeError):
+            pass
+        try:
+            if language == "c":
                 from core.graph.normalizers.c.builtin_knowledge import C_BUILTIN_KNOWLEDGE
                 return C_BUILTIN_KNOWLEDGE
         except ImportError:
-            return None
+            pass
         return None
+
+    def _is_safe_callee(self, callee: str, language: str) -> bool:
+        """Check whether a callee is marked safe in builtin_knowledge.
+
+        Queries the per-language builtin_knowledge dict.  Both the exact
+        callee name and the tail segment (after '::' or '.') are tried.
+        A function is "safe" when its knowledge entry has safe: True,
+        meaning its return value is not user-controlled (sanitizer, type
+        cast to non-string, framework config reader, etc.).
+        """
+        bk = self._load_builtin_knowledge(language)
+        if not bk:
+            return False
+        entry = bk.get(callee)
+        if entry and entry.get("safe"):
+            return True
+        callee_tail = callee.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+        if callee_tail != callee:
+            entry = bk.get(callee_tail)
+            if entry and entry.get("safe"):
+                return True
+        return False
 
     def _apply_builtin_knowledge(
         self,

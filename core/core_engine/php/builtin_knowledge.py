@@ -2157,6 +2157,11 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     # 常见框架安全方法
     "Arr.random":             {"passthrough": [0], "safe": True},
     "Arr.subvalSort":          {"passthrough": [0, 1], "safe": False},
+
+    # Path sanitization / canonicalization
+    "canonicalize":           {"passthrough": [], "safe": True},  # prevents directory traversal
+    "normalize":              {"passthrough": [], "safe": True},  # path normalization
+    "sanitize":               {"passthrough": [], "safe": True},  # generic sanitize
 }
 
 

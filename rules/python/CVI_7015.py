@@ -26,9 +26,5 @@ class CVI_7015(SingleRuleMixin):
                 if arg0.get('resolved_value', ''):
                     return False
                 if arg0.get('is_func_return'):
-                    callee = arg0.get('return_callee', '')
-                    path_funcs = ('join', 'abspath', 'realpath', 'dirname',
-                                   'basename', 'normpath', 'expanduser')
-                    if callee not in path_funcs:
-                        return False
+                    return False
         return None

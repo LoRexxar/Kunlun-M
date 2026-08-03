@@ -171,11 +171,11 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # Django open-redirect guard
     "url_has_allowed_host_and_scheme", "is_safe_url",
     # Django/Wagtail model methods that return DB-backed objects/URLs
-    "get_translation", "get_success_url", "get_absolute_url", "get_redirect_url",
-    # Ofbiz framework: config/property readers that return server-side values
-    "expandString", "getProperty", "getPropertyValue",
-    # Spring AOP: method signature is compile-time constant
-    "getSignature", "getStaticPart",
+    "get_translation",
+    # NOTE: expandString, getProperty, getPropertyValue, getSignature,
+    # getStaticPart, get_success_url, get_absolute_url, get_redirect_url
+    # are now in builtin_knowledge (safe=True) and resolved automatically
+    # by _is_repair_function via that knowledge base.
     # Framework-specific sanitizer aliases
     "hsc",  # DokuWiki htmlspecialchars alias
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
@@ -366,6 +366,7 @@ class GraphAnalyzer:
         self.graph = graph
         self.language = language
         self._decision_cache: dict[int, AnalysisResult] = {}
+        self._builtin_knowledge_cache: dict | None = None
         self._call_stack: list[str] = []
         self._source_registry = source_registry
 
@@ -491,79 +492,77 @@ class GraphAnalyzer:
             # Normalize: Rust uses :: but sink names use .
             normalized_callee = callee_name.replace("::", ".")
             matched_name = None
-            _is_qualified_match = False  # Track if match is via qualified name (Path 2 or dotted Path 1)
+            _is_qualified_match = False
 
-            # Path 1: short name match (e.g. "unmarshal" in sink_set)
-            if normalized_callee in normalized_set:
-                matched_name = normalized_callee
-                callee_name = normalized_callee
-                if "." in normalized_callee:
-                    _is_qualified_match = True
+            # Sink matching strategy (by call type):
+            #
+            # call (global function): callee_name IS the fullname.
+            #   → direct match against sink_set is safe.
+            #
+            # method_call / static_call: callee_name is a short method name
+            #   (e.g. "apply", "system").  Short names are ambiguous — many
+            #   unrelated classes have methods with the same name.  These
+            #   MUST be resolved via the use-edge to the function definition
+            #   node, whose fullname encodes the receiver type (e.g.
+            #   "BiFunction.apply", "Runtime.exec").  Only the fullname is
+            #   matched against the sink_set.
+            #
+            #   Exception: if the callee_name already contains "." or "::",
+            #   it is a qualified name from the source text (e.g.
+            #   "document.write") and can be matched directly.
+            call_type = _vattr(v, "type", "")
+            _is_bare_call = call_type in (OperatorType.CALL.value, OperatorType.NEW.value)
+            # Build a list of candidate names to try for direct match.
+            # op_name may carry the qualified expression (e.g. "document.write")
+            # even when _resolve_callee_name only returns "write".
+            _candidates = []
+            if op_name and op_name != normalized_callee:
+                _candidates.append(op_name.replace("::", "."))
+            _candidates.append(normalized_callee)
+            _has_qualifier = any("." in c or "::" in c for c in _candidates)
 
-            # Path 1b: case-insensitive match (vul_function uses class names
-            # like "JdbcTemplate.queryForObject" while AST nodes use code-level
-            # names like "jdbcTemplate.queryForObject")
-            if not matched_name and normalized_callee.lower() in normalized_lower:
-                matched_name = normalized_callee
-                callee_name = normalized_callee
-                if "." in normalized_callee:
-                    _is_qualified_match = True
+            if _is_bare_call or _has_qualifier:
+                # Path A: direct match (global calls + qualified names)
+                for _cand in _candidates:
+                    if _cand in normalized_set:
+                        matched_name = _cand
+                        callee_name = _cand
+                        _is_qualified_match = "." in _cand or "::" in _cand
+                        break
+                    if _cand.lower() in normalized_lower:
+                        matched_name = _cand
+                        callee_name = _cand
+                        _is_qualified_match = "." in _cand or "::" in _cand
+                        break
 
-            # Path 2: fullname match via use edge target function node.
-            # UseEdgeBuilder resolves receiver type at graph build time,
-            # so external function fullname may be a qualified name like
-            # "Unmarshaller.unmarshal" rather than source text.
-            # Always attempt: if a qualified name matches, it is more
-            # specific than a short name from Path 1 and should win.
-            for ue in self.graph.es.select(_source=v.index, label="use"):
-                tgt = self.graph.vs[ue.target]
-                if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
-                    continue
-                tgt_fullname = _vattr(tgt, "fullname", "")
-                if not tgt_fullname:
-                    continue
-                norm_fn = tgt_fullname.replace("::", ".")
-                # Skip if fullname equals short name — no gain
-                if norm_fn == normalized_callee:
-                    continue
-                if norm_fn in normalized_set:
-                    matched_name = norm_fn
-                    callee_name = tgt_fullname
-                    _is_qualified_match = True
-                    break
+            if not matched_name:
+                # Path B: qualified fullname match via use-edge function node.
+                # This is the ONLY path for bare method_call/static_call.
+                for ue in self.graph.es.select(_source=v.index, label="use"):
+                    tgt = self.graph.vs[ue.target]
+                    if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                        continue
+                    tgt_fullname = _vattr(tgt, "fullname", "")
+                    if not tgt_fullname:
+                        continue
+                    norm_fn = tgt_fullname.replace("::", ".")
+                    if norm_fn == normalized_callee and not _is_bare_call:
+                        # fullname same as short name, no additional info
+                        continue
+                    if norm_fn in normalized_set:
+                        matched_name = norm_fn
+                        callee_name = tgt_fullname
+                        _is_qualified_match = True
+                        break
+                    if norm_fn.lower() in normalized_lower:
+                        matched_name = norm_fn
+                        callee_name = tgt_fullname
+                        _is_qualified_match = True
+                        break
 
             if not matched_name:
                 continue
 
-            # Guard: method_call/static_call with bare short-name match
-            # (no qualifier like "Class.method" or "::" separator) is likely
-            # an object method sharing a name with a built-in function.
-            # e.g. $filesystem->copy() should NOT match the built-in copy().
-            # Require qualified match (Path 2 use-edge or dotted name) for
-            # method_call/static_call to avoid this class of false positives.
-            # Exception: if the operator's full name (op_name) contains ".",
-            # the call is qualified (e.g. example.setOrderByClause).
-            if (not _is_qualified_match and
-                    _vattr(v, "type") in (
-                        OperatorType.METHOD_CALL.value,
-                        OperatorType.STATIC_CALL.value,
-                    ) and "." not in normalized_callee and "::" not in normalized_callee
-                    and "." not in op_name):
-                # Python exception: module.function calls (os.system, os.popen)
-                # use method_call type but the receiver is a module, not an
-                # object. Check if the source file imports the module and the
-                # call matches a known sink pattern via use-edge function node.
-                _allow = False
-                if self.language == "python":
-                    for ue in self.graph.es.select(_source=v.index, label="use"):
-                        tgt = self.graph.vs[ue.target]
-                        if _vattr(tgt, "label", "") == NodeLabel.FUNCTION.value:
-                            tgt_name = _vattr(tgt, "name", "")
-                            if tgt_name in normalized_set or tgt_name in name_set:
-                                _allow = True
-                                break
-                if not _allow:
-                    continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")
@@ -2569,10 +2568,29 @@ class GraphAnalyzer:
         # For fluent API chains (e.g. "EntityQuery.use().from().where().queryOne"),
         # check the final method segment.
         dot = clean.rfind(".")
-        if dot >= 0:
-            tail = clean[dot + 1:]
-            if tail in _REPAIR_FUNCTIONS:
+        tail = clean[dot + 1:] if dot >= 0 else clean
+        if tail != clean and tail in _REPAIR_FUNCTIONS:
+            return True
+        # Also check builtin_knowledge for this language — any function
+        # marked safe=True is a repair/sanitizer function.
+        bk = self._builtin_knowledge_cache
+        if bk is None:
+            try:
+                mod_path = f"core.core_engine.{self.language}.builtin_knowledge"
+                import importlib
+                mod = importlib.import_module(mod_path)
+                bk = getattr(mod, 'KNOWLEDGE', {})
+            except (ImportError, AttributeError):
+                bk = {}
+            self._builtin_knowledge_cache = bk
+        if bk:
+            entry = bk.get(clean)
+            if entry and entry.get("safe"):
                 return True
+            if tail != clean:
+                entry = bk.get(tail)
+                if entry and entry.get("safe"):
+                    return True
         return False
 
     def _is_sink_function(self, name: str) -> bool:

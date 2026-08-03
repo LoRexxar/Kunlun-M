@@ -41,20 +41,14 @@ class CVI_7005(SingleRuleMixin):
                 if arg0.get('resolved_value', ''):
                     return False
                 # send_file / FileResponse with function-return argument:
-                # if arg0 comes from a function call (e.g. dump_csv(),
-                # generate_csv(), BytesIO()), the return value is typically
-                # an in-memory content object, not a file path.
-                # Only applies to send_file/FileResponse (not open/shutil
-                # which always take paths).
+                # if arg0 comes from a function call, the return value is
+                # typically an in-memory content object (BytesIO, string),
+                # not a file path.  Path arguments are almost always string
+                # variables, not function returns.
                 sn = str(regex_string).lower() if regex_string else ''
                 if 'send_file' in sn or 'fileresponse' in sn:
                     if arg0.get('is_func_return'):
-                        callee = arg0.get('return_callee', '')
-                        # Whitelist of functions that DO return paths
-                        path_funcs = ('join', 'abspath', 'realpath', 'dirname',
-                                       'basename', 'normpath', 'expanduser')
-                        if callee not in path_funcs:
-                            return False
+                        return False
             return None
 
         # Regex fallback

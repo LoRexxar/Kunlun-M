@@ -89,28 +89,6 @@ class CVI_6071(SingleRuleMixin):
                 # whose resolved_value was traced through DFG.
                 if arg0.get('label') == 'const':
                     return False
-                # MyBatis-Plus .apply() always takes a SQL string fragment
-                # as first arg. If arg0 is a non-string variable (e.g.
-                # function.apply(params, callback)), it's Java Function.apply()
-                # not MyBatis, so exclude.
-                if arg0.get('type') not in ('string', 'constant', 'String'):
-                    if arg0.get('label') != 'const':
-                        return False
-            # Check main_input (source line) for non-MyBatis apply patterns.
-            # BiFunction.apply() / Function.apply() / custom class apply()
-            # are not SQL injection points.
-            code = str(regex_string).strip() if regex_string else ''
-            sn_lower = code.lower()
-            if 'apply' in sn_lower:
-                if re.search(r'function\s*<.*>.*\.apply\s*\(|BiFunction.*\.apply\s*\(', code):
-                    return False
-                # redaction.apply / configDotXml.apply etc — custom class apply
-                if re.search(r'\b(redaction|config|callback|handler|processor|consumer|provider|supplier|factory)\b.*\.apply\s*\(', code, re.I):
-                    return False
-                # Generic variable named 'function'/'func' calling .apply()
-                # — Java Function<T,R> / BiFunction<T,U,R> pattern
-                if re.search(r'\b(function|func)\b.*\.apply\s*\(', code, re.I):
-                    return False
             return None
 
         if not isinstance(regex_string, str):
