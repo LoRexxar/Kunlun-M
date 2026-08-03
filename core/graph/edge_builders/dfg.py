@@ -56,6 +56,9 @@ _DFG_SAFE_CALLEES: frozenset[str] = frozenset({
     "getInitParameter",      # ServletConfig.getInitParameter
     "getServletContextName", # ServletContext
     "getRealPath",           # ServletContext.getRealPath
+    "canonicalize",          # Path canonicalization — prevents traversal
+    "normalize",             # Path normalization
+    "sanitize",              # Generic sanitize functions
 })
 
 
