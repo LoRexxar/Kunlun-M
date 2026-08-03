@@ -575,6 +575,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
             for sink in sinks:
                 try:
+                    _sn = sink.get('name', '')
+                    # Skip sinks that are not actual call nodes
+                    # (e.g. identifier nodes that leaked into results)
+                    _stype = sink.get('type', '')
+                    if _stype and _stype not in ('call', 'method_call', 'static_call', 'new'):
+                        continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
@@ -693,7 +699,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")
                                 ]
+                                if not sub_arg_vids:
+                                    # No AST children — try DFG sources as fallback.
+                                    # This handles cases where the normalizer
+                                    # connects operator operands via DFG edges
+                                    # instead of AST edges (e.g. PHP string concat).
+                                    sub_arg_vids = [
+                                        e.source for e in graph.es.select(_target=op_vid, label="dfg")
+                                        if _vattr(graph.vs[e.source], "label") != "function"
+                                    ]
                                 checked_any = False
+                                u = None
                                 for sub_vid in sub_arg_vids:
                                     checked_any = True
                                     sub_label = _vattr(graph.vs[sub_vid], 'label', '')
@@ -723,6 +739,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             return sr, None
                                         if sr is not None and not sr.is_uncontrollable and u is None:
                                             u = sr
+                                # If any sub-arg was inconclusive (not safe,
+                                # not controllable), the operator is not
+                                # definitively safe — return inconclusive
+                                # rather than marking it safe.
+                                if u is not None:
+                                    return u, u
                                 if checked_any:
                                     from core.graph.graph_analyzer import AnalysisResult as _AR
                                     return _AR(
