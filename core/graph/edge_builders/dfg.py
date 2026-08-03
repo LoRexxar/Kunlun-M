@@ -39,6 +39,25 @@ _DFG_TYPE_CAST_SAFE: frozenset[str] = frozenset({
     "bool", "boolean", "array", "object",
 })
 
+# Call operator types that represent function/method invocations.
+_CALL_TYPES_DFG: frozenset[str] = frozenset({
+    "call", "method_call", "static_call", "new",
+})
+
+# Framework/config functions whose return values are server-side
+# constants or sanitized values — not user-controlled. When used as
+# an assignment RHS, no DFG edge should be created to the LHS.
+# This prevents taint from flowing through framework config readers
+# like Ofbiz's FlexibleStringExpander.expandString().
+_DFG_SAFE_CALLEES: frozenset[str] = frozenset({
+    "expandString",          # Ofbiz FlexibleStringExpander
+    "getProperty",           # Java Properties.getProperty
+    "getPropertyValue",      # Ofbiz EntityUtilProperties
+    "getInitParameter",      # ServletConfig.getInitParameter
+    "getServletContextName", # ServletContext
+    "getRealPath",           # ServletContext.getRealPath
+})
+
 
 # ---------------------------------------------------------------------------
 # DataFlowBuilder
@@ -645,6 +664,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             # RHS 可以是 identifier、const 或 operator（如函数调用）
             rhs_label = self._vlabel[rhs_vid]
+            # Check if RHS is a safe/sanitizer function call.
+            # If so, do NOT create a DFG edge — the return value is
+            # framework-generated, not user-controlled data.
+            if rhs_label == NodeLabel.OPERATOR.value:
+                rhs_type = self._vtype[rhs_vid]
+                if rhs_type in _CALL_TYPES_DFG:
+                    callee = self._get_callee_name(rhs_vid)
+                    if callee and callee in _DFG_SAFE_CALLEES:
+                        continue  # skip DFG edge
             if rhs_label in (
                 NodeLabel.IDENTIFIER.value,
                 NodeLabel.CONST.value,
