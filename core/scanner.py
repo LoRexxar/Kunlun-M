@@ -962,9 +962,24 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 if _resolved:
                                     break
                                 _frontier = _next_frontier
+                        # Check if arg's value comes from a function return
+                        # (DFG in-edge from a call operator). This helps rules
+                        # distinguish path arguments from content/BytesIO args.
+                        _is_func_return = False
+                        _return_callee = ''
+                        for _de in graph.es.select(_target=_av, label='dfg'):
+                            _sv = graph.vs[_de.source]
+                            _sl = _vattr(_sv, 'label', '')
+                            _st = _vattr(_sv, 'type', '')
+                            if _sl == 'operator' and _st in ('call', 'method_call', 'static_call'):
+                                _is_func_return = True
+                                _return_callee = _vattr(_sv, 'name', '')
+                                break
                         sink_args.append({
                             'name': _avn, 'type': _avt, 'label': _avl,
                             'vid': _av, 'resolved_value': _resolved,
+                            'is_func_return': _is_func_return,
+                            'return_callee': _return_callee,
                         })
 
                     main_input = sink_name  # default: sink function name

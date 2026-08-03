@@ -16,4 +16,19 @@ class CVI_7015(SingleRuleMixin):
         self.match = r"send_file|send_from_directory|serve|@csrf_exempt|csrf_exempt|@login_not_required|ALLOWED_HOSTS|CORS_ORIGIN_ALLOW_ALL|CORS_ALLOW_ALL_ORIGINS"
 
     def main(self, regex_string, sink_args=None):
-        pass
+        sn = str(regex_string).lower() if regex_string else ''
+        # send_file with function-return argument: content object, not path
+        if 'send_file' in sn:
+            if sink_args and len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False  # hardcoded path
+                if arg0.get('resolved_value', ''):
+                    return False
+                if arg0.get('is_func_return'):
+                    callee = arg0.get('return_callee', '')
+                    path_funcs = ('join', 'abspath', 'realpath', 'dirname',
+                                   'basename', 'normpath', 'expanduser')
+                    if callee not in path_funcs:
+                        return False
+        return None
