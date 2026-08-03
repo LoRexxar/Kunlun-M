@@ -32,8 +32,24 @@ class CVI_1002(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        regex string input
-        :regex_string: regex match string
-        :return:
+        Graph-based filtering: skip file_get_contents where the path
+        argument comes from a sanitizer/safe function.
         """
-        pass
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # const/string literal → hardcoded path, safe
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+                # If arg comes from a safe callee (canonicalize, normalize,
+                # sanitize, etc.), the return value is sanitized.
+                if arg0.get('is_func_return'):
+                    callee = arg0.get('return_callee', '')
+                    safe_callees = ('canonicalize', 'normalize', 'sanitize',
+                                    'realpath', 'realpathSync')
+                    if callee in safe_callees:
+                        return False
+            return None
+        return None

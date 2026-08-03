@@ -684,8 +684,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 rhs_type = self._vtype[rhs_vid]
                 if rhs_type in _CALL_TYPES_DFG:
                     callee = self._get_callee_name(rhs_vid)
-                    if callee and callee in _DFG_SAFE_CALLEES:
-                        continue  # skip DFG edge
+                    if callee:
+                        # Match both exact name and qualified name suffix
+                        # (e.g. PathCanonicalize::canonicalize → canonicalize)
+                        callee_tail = callee.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+                        if callee in _DFG_SAFE_CALLEES or callee_tail in _DFG_SAFE_CALLEES:
+                            continue  # skip DFG edge
             if rhs_label in (
                 NodeLabel.IDENTIFIER.value,
                 NodeLabel.CONST.value,

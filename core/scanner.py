@@ -734,6 +734,19 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                                 return r, u
                                             continue
                                     else:
+                                        # Check if this identifier is an assign
+                                        # LHS whose RHS is a repair function.
+                                        # If so, the variable is sanitized.
+                                        _rhs_call = analyzer._find_assign_rhs_call(sub_vid)
+                                        if _rhs_call is not None:
+                                            _rhs_callee = analyzer._resolve_callee_name(_rhs_call)
+                                            if _rhs_callee and analyzer._is_repair_function(_rhs_callee):
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=2, reason=f"assign RHS repair '{_rhs_callee}'",
+                                                    chain=[{"step": "repair", "vid": _rhs_call,
+                                                            "name": _rhs_callee, "code": 2}],
+                                                    path=[_rhs_call]), None
                                         sr = analyzer.parameters_back(sub_vid)
                                         if sr is not None and sr.is_controllable:
                                             return sr, None
@@ -974,6 +987,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             if _sl == 'operator' and _st in ('call', 'method_call', 'static_call'):
                                 _is_func_return = True
                                 _return_callee = _vattr(_sv, 'name', '')
+                                # Extract tail name for qualified calls
+                                # (PathCanonicalize::canonicalize → canonicalize)
+                                if _return_callee:
+                                    _return_callee = _return_callee.rsplit('::', 1)[-1].rsplit('.', 1)[-1]
                                 break
                         sink_args.append({
                             'name': _avn, 'type': _avt, 'label': _avl,

@@ -1097,6 +1097,20 @@ class GraphAnalyzer:
 
         while queue:
             cur_vid, depth, path = queue.popleft()
+            # Check if cur_vid is an assign LHS identifier whose RHS is a
+            # repair/safe function call. If so, taint stops here.
+            if (_vattr(self.graph.vs[cur_vid], "label", "") == NodeLabel.IDENTIFIER.value
+                    and not self._get_dfg_sources(cur_vid)):
+                _rhs = self._find_assign_rhs_call(cur_vid)
+                if _rhs is not None:
+                    _rhs_callee = self._resolve_callee_name(_rhs)
+                    if _rhs_callee and self._is_repair_function(_rhs_callee):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=2, reason=f"assign RHS repair '{_rhs_callee}'",
+                            chain=[{"step": "repair", "vid": _rhs,
+                                    "name": _rhs_callee, "code": 2}],
+                            path=path + [_rhs],
+                            expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
             for up_vid in self._get_dfg_sources(cur_vid):
                 if up_vid in visited:
                     continue
@@ -2679,6 +2693,29 @@ class GraphAnalyzer:
     def _get_dfg_sources(self, vid: int) -> list[int]:
         """Upstream vertices via dfg edges (target=vid → source)."""
         return self._et(vid, "dfg")
+
+    def _find_assign_rhs_call(self, lhs_vid: int) -> int | None:
+        """Find the RHS call operator of an assignment whose LHS is *lhs_vid*.
+
+        If ``lhs_vid`` is an identifier that is the LHS of an assignment,
+        and the RHS is a function/method call, return the RHS operator vid.
+        Otherwise return None.
+        """
+        # Walk AST parents to find an assign operator
+        for parent_vid in self._ef(lhs_vid, "ast"):
+            pass  # _ef gives edges FROM vid, but we need edges TO vid
+        # Use incoming AST edges
+        for parent_vid in self._et(lhs_vid, "ast"):
+            pv = self.graph.vs[parent_vid]
+            if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                    and _vattr(pv, "type", "") in ("assign", "aug_assign")):
+                # Found the assign operator — look for RHS child
+                for child_vid in self._ef(parent_vid, "ast"):
+                    cv = self.graph.vs[child_vid]
+                    if (_vattr(cv, "label", "") == NodeLabel.OPERATOR.value
+                            and _vattr(cv, "type", "") in _CALL_TYPES):
+                        return child_vid
+        return None
 
     def _ef(self, vid: int, label: str) -> list[int]:
         """edges FROM vid with given label → target vids"""
