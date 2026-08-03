@@ -570,7 +570,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
             all_sink_names = list(set(all_sink_names))
             logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
-
             sinks = analyzer.find_sinks(sink_names=all_sink_names)
             logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
 

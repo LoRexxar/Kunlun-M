@@ -545,7 +545,21 @@ class GraphAnalyzer:
                         OperatorType.STATIC_CALL.value,
                     ) and "." not in normalized_callee and "::" not in normalized_callee
                     and "." not in op_name):
-                continue
+                # Python exception: module.function calls (os.system, os.popen)
+                # use method_call type but the receiver is a module, not an
+                # object. Check if the source file imports the module and the
+                # call matches a known sink pattern via use-edge function node.
+                _allow = False
+                if self.language == "python":
+                    for ue in self.graph.es.select(_source=v.index, label="use"):
+                        tgt = self.graph.vs[ue.target]
+                        if _vattr(tgt, "label", "") == NodeLabel.FUNCTION.value:
+                            tgt_name = _vattr(tgt, "name", "")
+                            if tgt_name in normalized_set or tgt_name in name_set:
+                                _allow = True
+                                break
+                if not _allow:
+                    continue
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")

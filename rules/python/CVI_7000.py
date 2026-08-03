@@ -20,6 +20,9 @@ class CVI_7000(SingleRuleMixin):
             "subprocess.check_output", "subprocess.check_call",
             "subprocess.getoutput", "subprocess.getstatusoutput",
             "commands.getoutput", "commands.getstatusoutput",
+            # Short names for graph sink matching (Python normalizer uses
+            # method short name, not qualified module.method)
+            "system", "popen",
         ]
 
     def main(self, regex_string, sink_args=None):
@@ -33,10 +36,6 @@ class CVI_7000(SingleRuleMixin):
                 arg0 = sink_args[0]
                 # const/string literal → hardcoded command, not dangerous
                 if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                    return False
-                # resolved_value: identifier with const assignment upstream
-                rv = arg0.get('resolved_value', '')
-                if rv:
                     return False
             return None
 
