@@ -171,7 +171,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # Django open-redirect guard
     "url_has_allowed_host_and_scheme", "is_safe_url",
     # Django/Wagtail model methods that return DB-backed objects/URLs
-    "get_translation", "get_success_url", "get_absolute_url",
+    "get_translation", "get_success_url", "get_absolute_url", "get_redirect_url",
     # Ofbiz framework: config/property readers that return server-side values
     "expandString", "getProperty", "getPropertyValue",
     # Framework-specific sanitizer aliases

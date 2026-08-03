@@ -62,6 +62,11 @@ _DFG_SAFE_CALLEES: frozenset[str] = frozenset({
     "createTempFile",        # Java Files.createTempFile — returns random path
     "mkstemp",               # Python os.mkstemp — returns random path
     "mkdtemp",               # Python os.mkdtemp — returns random path
+    "get_redirect_url",      # Django — returns internal redirect URL
+    "get_success_url",       # Django — returns internal success URL
+    "get_absolute_url",      # Django Model — returns DB-backed URL
+    "reverse",               # Django/Flask URL reverse — returns internal URL
+    "url_for",               # Flask — returns internal URL
 })
 
 
