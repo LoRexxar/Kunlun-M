@@ -34,10 +34,28 @@ class CVI_1009(SingleRuleMixin):
         Graph-based: check if assert() arg is a safe expression (instanceof, comparison).
         assert($a instanceof B) → False (type check)
         assert($a == $b) → False (comparison)
+
+        Also checks array_map/call_user_func first arg (callback): if the
+        callback is a known safe function in builtin_knowledge (e.g.
+        htmlspecialchars, intval, strip_tags), the call sanitizes data.
         """
         if sink_args:
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
+                # For array_map / call_user_func: arg0 is the callback.
+                # If it's a builtin_knowledge safe function, the call sanitizes data.
+                sn = str(regex_string).lower() if regex_string else ''
+                if 'array_map' in sn or 'call_user_func' in sn or 'call_user_func_array' in sn:
+                    cb_name = arg0.get('name', '')
+                    cb_callee = arg0.get('return_callee', '')
+                    try:
+                        from core.core_engine.php.builtin_knowledge import KNOWLEDGE
+                        for candidate in (cb_name, cb_callee):
+                            entry = KNOWLEDGE.get(candidate)
+                            if entry and entry.get('safe'):
+                                return False
+                    except Exception:
+                        pass
                 # operator arg → check callee/op name
                 if arg0.get('label') == 'operator':
                     arg_name = arg0.get('name', '').lower()
@@ -58,6 +76,19 @@ class CVI_1009(SingleRuleMixin):
         # Regex fallback
         if regex_string:
             stripped = regex_string.lstrip().lstrip('\\')
+            # array_map with safe callback: array_map(htmlspecialchars..., ...)
+            # or array_map(hsc..., ...) — callback sanitizes data
+            if 'array_map' in stripped:
+                try:
+                    from core.core_engine.php.builtin_knowledge import KNOWLEDGE
+                    m = re.search(r'array_map\s*\(\s*(\w+)', stripped)
+                    if m:
+                        cb = m.group(1)
+                        entry = KNOWLEDGE.get(cb)
+                        if entry and entry.get('safe'):
+                            return False
+                except Exception:
+                    pass
             if stripped.startswith('assert'):
                 if 'instanceof' in stripped or 'null' in stripped.lower():
                     return False

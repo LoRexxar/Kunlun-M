@@ -3545,11 +3545,19 @@ class GraphAnalyzer:
         # Check alias on function node via use edge — if alias builder
         # already resolved the callee (e.g. func_ptr → system), use it
         # directly instead of tracing DFG through member edges.
+        # BUT: when a function node has multiple alias edges with *different*
+        # resolved_name values (ambiguous — e.g. ``get`` aliased to both
+        # ``requests.get`` and ``form.get``), skip alias resolution and fall
+        # through to AST callee chain analysis, which is more precise.
         for e in self.graph.es.select(_source=op_vid, label="use"):
+            alias_names: set[str] = set()
             for ae in self.graph.es.select(_source=e.target, label="alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
                 if resolved_name and " " not in resolved_name:
-                    return resolved_name
+                    alias_names.add(resolved_name)
+            if len(alias_names) == 1:
+                return alias_names.pop()
+            # 0 or >1 aliases: fall through to AST analysis
         # Prefer the last identifier callee (actual method name in chains)
         for idx in range(len(callee_names) - 1, -1, -1):
             name, tvid = callee_names[idx]
