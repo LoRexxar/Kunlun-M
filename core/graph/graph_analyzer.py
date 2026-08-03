@@ -1753,6 +1753,19 @@ class GraphAnalyzer:
                         # on known functions like os.path.join.
                         _op_name = _vattr(uv, "name", "")
                         _known = self._is_known_callee(callee) or self._is_known_callee(_op_name)
+                        # If callee came from an ambiguous alias (multiple
+                        # different resolved_names), don't trust it as known
+                        # — the real callee might be different.
+                        if _known and callee:
+                            for ue in self.graph.es.select(_source=up_vid, label="use"):
+                                _an = set()
+                                for ae in self.graph.es.select(_source=ue.target, label="alias"):
+                                    rn = _vattr(ae, "resolved_name", "")
+                                    if rn and " " not in rn:
+                                        _an.add(rn)
+                                if len(_an) > 1:
+                                    _known = False
+                                    break
                         if not _known:
                             if inconclusive_fallback is None:
                                 inconclusive_fallback = AnalysisResult(
