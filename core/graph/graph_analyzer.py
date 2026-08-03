@@ -174,6 +174,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "get_translation", "get_success_url", "get_absolute_url", "get_redirect_url",
     # Ofbiz framework: config/property readers that return server-side values
     "expandString", "getProperty", "getPropertyValue",
+    # Spring AOP: method signature is compile-time constant
+    "getSignature", "getStaticPart",
     # Framework-specific sanitizer aliases
     "hsc",  # DokuWiki htmlspecialchars alias
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress

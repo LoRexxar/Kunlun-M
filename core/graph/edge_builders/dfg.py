@@ -67,6 +67,8 @@ _DFG_SAFE_CALLEES: frozenset[str] = frozenset({
     "get_absolute_url",      # Django Model — returns DB-backed URL
     "reverse",               # Django/Flask URL reverse — returns internal URL
     "url_for",               # Flask — returns internal URL
+    "getSignature",          # Spring AOP — compile-time method signature
+    "getStaticPart",         # Spring AOP — compile-time join point
 })
 
 
