@@ -1110,6 +1110,7 @@ class GraphAnalyzer:
         # the parameter appear "defined" even though it's still a function
         # boundary entry.
         param_fallback: AnalysisResult | None = None
+        inconclusive_fallback: AnalysisResult | None = None
 
         while queue:
             cur_vid, depth, path = queue.popleft()
@@ -1710,7 +1711,13 @@ class GraphAnalyzer:
                     # BUT: if use-edge found a placeholder node (no taint annotation),
                     # still try find_function_def to locate the real definition.
                     if callee and callee not in self._call_stack and (func_vid is None or not func_taint):
-                        func_vids = self.find_function_def(callee, from_vid=up_vid)
+                        # Prefer the use-edge-resolved func_vid when available —
+                        # it's the precise target of this call.  Only fall back
+                        # to short-name search when no use-edge target exists.
+                        if func_vid is not None:
+                            func_vids = [func_vid]
+                        else:
+                            func_vids = self.find_function_def(callee, from_vid=up_vid)
                         if func_vids:
                             self._call_stack.append(callee)
                             try:
@@ -1729,6 +1736,27 @@ class GraphAnalyzer:
                                             dep_vid, context_vid, max_depth - depth)
                                         if dep_res.is_controllable:
                                             return self._cached(cache_key, dep_res)
+
+                    # Rule 4e: unknown function call — the callee is not in
+                    # builtin_knowledge and analyze_function_return was
+                    # inconclusive.  Don't continue BFS through this call
+                    # operator's DFG upstream (function arguments are NOT
+                    # automatically the return value's data-flow source).
+                    # This prevents false positives where an unknown lookup
+                    # function (e.g. getItem(userKey)) causes the key's taint
+                    # to propagate to the return value.
+                    if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                        _known = self._is_known_callee(callee)
+                        if not _known:
+                            if inconclusive_fallback is None:
+                                inconclusive_fallback = AnalysisResult(
+                                    code=3,
+                                    reason=f"unknown function '{callee}' — return inconclusive",
+                                    chain=[{"step": "unknown_func", "vid": up_vid,
+                                            "name": callee, "code": 3}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue  # skip DFG upstream of this call node
 
                 # Rule 6: branch constraint — identifier inside a branch
                 # whose condition constrains this variable to a safe value.
@@ -1919,6 +1947,8 @@ class GraphAnalyzer:
                                 expr_lineno=r.expr_lineno))
 
         # Exhausted
+        if inconclusive_fallback is not None:
+            return self._cached(cache_key, inconclusive_fallback)
         if param_fallback is not None:
             return self._cached(cache_key, param_fallback)
         return self._cached(cache_key, AnalysisResult(
@@ -2608,6 +2638,35 @@ class GraphAnalyzer:
                 entry = bk.get(tail)
                 if entry and entry.get("safe"):
                     return True
+        return False
+
+    def _is_known_callee(self, name: str) -> bool:
+        """Check whether *name* has any entry in builtin_knowledge.
+
+        Unlike _is_repair_function (which only returns True for safe=True),
+        this returns True for passthrough entries as well — meaning the
+        analyzer has explicit knowledge of how this function handles taint.
+        """
+        if not name:
+            return False
+        clean = name.lstrip("\\")
+        if "\\" in clean:
+            clean = clean.rsplit("\\", 1)[-1]
+        dot = clean.rfind(".")
+        tail = clean[dot + 1:] if dot >= 0 else clean
+        bk = self._builtin_knowledge_cache
+        if bk is None:
+            try:
+                mod_path = f"core.core_engine.{self.language}.builtin_knowledge"
+                import importlib
+                mod = importlib.import_module(mod_path)
+                bk = getattr(mod, 'KNOWLEDGE', {})
+            except (ImportError, AttributeError):
+                bk = {}
+            self._builtin_knowledge_cache = bk
+        if bk:
+            if clean in bk or tail in bk:
+                return True
         return False
 
     def _is_sink_function(self, name: str) -> bool:
