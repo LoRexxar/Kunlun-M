@@ -1151,12 +1151,44 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # 对每个作用域中同名 identifier，建立使用→最近LHS 的 same 链
         for scope_key, name_groups in scope_vars.items():
             scope_vid, scope_label = scope_key
-            # Skip file-level scope: same-name identifiers at file level
-            # may belong to different functions/classes. Connecting them
-            # causes cross-method taint pollution (e.g. all 'prefix' params
+            # Skip file-level scope ONLY for identifiers inside functions.
+            # Global-scope code (not inside any function) should still get
+            # same-name links — e.g. PHP global code:
+            #   $id = $_GET['id'];
+            #   mysql_query("..." . $id);
+            # We filter to keep only identifiers NOT inside any function,
+            # to avoid cross-method taint pollution (all 'prefix' params
             # in a 1200-line file getting linked).
             if scope_label == NodeLabel.FILE.value:
-                continue
+                assert self.graph is not None
+                global_vids = []
+                for vid in sum(name_groups.values(), []):
+                    # Check if this identifier is inside a function by
+                    # walking up the own-edge chain.
+                    in_func = False
+                    current = vid
+                    for _ in range(10):  # max depth
+                        parents = self._edges_to(current, "own")
+                        if not parents:
+                            break
+                        for p in parents:
+                            if self._vlabel[p] == NodeLabel.FUNCTION.value:
+                                in_func = True
+                                break
+                        if in_func:
+                            break
+                        current = parents[0]
+                    if not in_func:
+                        global_vids.append(vid)
+                # Rebuild name_groups with only global identifiers
+                new_groups: dict[str, list[int]] = defaultdict(list)
+                for vid in global_vids:
+                    vn = self._vname[vid]
+                    if vn:
+                        new_groups[vn].append(vid)
+                name_groups = new_groups
+                if not name_groups:
+                    continue
             for name, vids in name_groups.items():
                 if len(vids) < 2:
                     continue
