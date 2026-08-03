@@ -1058,6 +1058,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         for test_path in ['/test/', '/tests/', '/unitTests/']:
                             if test_path in vuln_file_norm:
                                 continue
+                        # test 文件名: test_*.py, *_test.py, tests.py, *Test.java, *Tests.java, *.spec.js, *.test.js
+                        vuln_fname = os.path.basename(vuln_file_norm).lower()
+                        if (vuln_fname.startswith('test_') or
+                            vuln_fname.startswith('test.') or
+                            vuln_fname.endswith('_test.py') or
+                            vuln_fname.endswith('_test.go') or
+                            vuln_fname == 'tests.py' or
+                            vuln_fname == 'tests.go' or
+                            vuln_fname.endswith('test.java') or
+                            vuln_fname.endswith('tests.java') or
+                            vuln_fname.endswith('.spec.js') or
+                            vuln_fname.endswith('.spec.ts') or
+                            vuln_fname.endswith('.test.js') or
+                            vuln_fname.endswith('.test.ts')):
+                            continue
 
                     # 构建污点传播链
                     chain = []
