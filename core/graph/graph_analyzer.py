@@ -1111,6 +1111,7 @@ class GraphAnalyzer:
         # boundary entry.
         param_fallback: AnalysisResult | None = None
         inconclusive_fallback: AnalysisResult | None = None
+        crossed_function_boundary: bool = False
 
         while queue:
             cur_vid, depth, path = queue.popleft()
@@ -1158,6 +1159,7 @@ class GraphAnalyzer:
 
                 # Rule 0: function parameter (entry point)
                 if ulabel == "parameter":
+                    crossed_function_boundary = True
                     # Python/Ruby: 'self' / 'this' parameter is the class
                     # instance, not user input. Skip it to avoid false
                     # positives where BFS traces self.attribute → self →
@@ -1745,8 +1747,12 @@ class GraphAnalyzer:
                     # This prevents false positives where an unknown lookup
                     # function (e.g. getItem(userKey)) causes the key's taint
                     # to propagate to the return value.
-                    if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
-                        _known = self._is_known_callee(callee)
+                    if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES and crossed_function_boundary:
+                        # Check both callee short name and qualified op_name
+                        # against builtin_knowledge to avoid false positives
+                        # on known functions like os.path.join.
+                        _op_name = _vattr(uv, "name", "")
+                        _known = self._is_known_callee(callee) or self._is_known_callee(_op_name)
                         if not _known:
                             if inconclusive_fallback is None:
                                 inconclusive_fallback = AnalysisResult(
