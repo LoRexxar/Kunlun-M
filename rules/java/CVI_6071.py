@@ -89,6 +89,17 @@ class CVI_6071(SingleRuleMixin):
                 # whose resolved_value was traced through DFG.
                 if arg0.get('label') == 'const':
                     return False
+            # Check main_input (source line) for non-MyBatis apply patterns.
+            # BiFunction.apply() / Function.apply() / custom class apply()
+            # are not SQL injection points.
+            code = str(regex_string).strip() if regex_string else ''
+            sn_lower = code.lower()
+            if 'apply' in sn_lower:
+                if re.search(r'function\s*<.*>.*\.apply\s*\(|BiFunction.*\.apply\s*\(', code):
+                    return False
+                # redaction.apply / configDotXml.apply etc — custom class apply
+                if re.search(r'\b(redaction|config|callback|handler|processor|consumer|provider|supplier|factory)\b.*\.apply\s*\(', code, re.I):
+                    return False
             return None
 
         if not isinstance(regex_string, str):
