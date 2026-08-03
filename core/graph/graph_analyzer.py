@@ -657,7 +657,11 @@ class GraphAnalyzer:
                 lhs_vname = _vattr(lhs_v, "name", "")
                 if not isinstance(lhs_vname, str):
                     continue
-                if lhs_label == "property" or lhs_label == "identifier":
+                if lhs_label == "property":
+                    # JS DOM property assignment (e.g. el.innerHTML = expr)
+                    # Only property LHS qualifies — plain identifier LHS
+                    # (e.g. Python `redirect = get_redirect(...)`) must NOT
+                    # match, even if the variable name equals a sink name.
                     if lhs_vname in name_set:
                         lhs_name = lhs_vname
                         lhs_identifier_vid = lhs_vid
