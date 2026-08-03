@@ -59,6 +59,9 @@ _DFG_SAFE_CALLEES: frozenset[str] = frozenset({
     "canonicalize",          # Path canonicalization — prevents traversal
     "normalize",             # Path normalization
     "sanitize",              # Generic sanitize functions
+    "createTempFile",        # Java Files.createTempFile — returns random path
+    "mkstemp",               # Python os.mkstemp — returns random path
+    "mkdtemp",               # Python os.mkdtemp — returns random path
 })
 
 
