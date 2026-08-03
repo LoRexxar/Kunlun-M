@@ -519,10 +519,10 @@ class GraphAnalyzer:
             if op_name and op_name != normalized_callee:
                 _candidates.append(op_name.replace("::", "."))
             _candidates.append(normalized_callee)
-            _has_qualifier = any("." in c or "::" in c for c in _candidates)
 
-            if _is_bare_call or _has_qualifier:
-                # Path A: direct match (global calls + qualified names)
+            if _is_bare_call:
+                # Global function / constructor: callee_name IS the fullname.
+                # Direct match any candidate (short or qualified).
                 for _cand in _candidates:
                     if _cand in normalized_set:
                         matched_name = _cand
@@ -533,6 +533,23 @@ class GraphAnalyzer:
                         matched_name = _cand
                         callee_name = _cand
                         _is_qualified_match = "." in _cand or "::" in _cand
+                        break
+            else:
+                # method_call / static_call: only match QUALIFIED candidates.
+                # Bare short names (e.g. "apply") must go through Path B
+                # (use-edge fullname) to resolve the receiver type.
+                for _cand in _candidates:
+                    if "." not in _cand and "::" not in _cand:
+                        continue
+                    if _cand in normalized_set:
+                        matched_name = _cand
+                        callee_name = _cand
+                        _is_qualified_match = True
+                        break
+                    if _cand.lower() in normalized_lower:
+                        matched_name = _cand
+                        callee_name = _cand
+                        _is_qualified_match = True
                         break
 
             if not matched_name:
