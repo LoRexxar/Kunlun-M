@@ -54,7 +54,19 @@ class CVI_6015(SingleRuleMixin):
                 if header_val:
                     header_name = header_val.strip('"').strip("'")
                     if header_name.lower() != 'location':
-                        return False
+                            return False
+            # ModelAndView: only a redirect if view name starts with "redirect:"
+            if 'modelandview' in sn_lower:
+                if len(sink_args) >= 1:
+                    arg0 = sink_args[0]
+                    rv = arg0.get('resolved_value', '')
+                    if rv:
+                        if 'redirect:' not in rv:
+                            return False
+                    elif arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                        name = arg0.get('name', '')
+                        if 'redirect:' not in str(name):
+                            return False
             return None
 
         # Regex fallback (source-line based)
