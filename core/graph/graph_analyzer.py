@@ -31,8 +31,9 @@ _SUPERGLOBALS: frozenset[str] = frozenset({
     # PHP superglobals ($_SESSION excluded — server-side session data, not direct user input)
     # ($argc/$argv excluded — CLI-only sources, not web-controllable)
     # ($_SERVER removed — mixed controllability, handled per-key by _SERVER_UNCONTROLLED_KEYS)
+    # ($_ENV excluded — OS-level environment variables, not HTTP-client controllable)
     "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES",
-    "$_ENV", "$_HTTP_RAW_POST_DATA",
+    "$_HTTP_RAW_POST_DATA",
     # Python web framework sources (object names)
     "request.GET", "request.POST", "request.REQUEST", "request.COOKIES",
     "request.FILES", "request.data", "request.body", "request.query_params",

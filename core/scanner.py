@@ -1132,6 +1132,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # vendor 目录
                         if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
                             continue
+                        # Framework cache directories (generated/compiled code)
+                        for cache_path in ['/Runtime/Temp/', '/Runtime/Cache/',
+                                           '/storage/framework/views/',
+                                           '/storage/framework/cache/',
+                                           '/storage/logs/']:
+                            if cache_path in vuln_file_norm:
+                                continue
                         # .mvn/wrapper (Maven wrapper, third-party code)
                         if '.mvn' in vuln_file_norm:
                             continue

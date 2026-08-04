@@ -40,9 +40,11 @@ EXTRA_SINKS = [
     ("->havingRaw(", [1004]),
     ("->orderByRaw(", [1004]),
     ("->groupByRaw(", [1004]),
-    # View / Response — XSS sinks
+    # View — XSS sink (template rendering with user data)
     ("view(", [1000]),
-    ("Response::json(", [1000]),
+    # NOTE: Response::json() removed — JSON responses set
+    # Content-Type: application/json, which browsers do not parse as
+    # HTML, so reflected XSS is not possible through JSON output.
     # Redirect — Open Redirect
     ("redirect(", [1009]),
     # Storage — File operation

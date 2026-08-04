@@ -1375,6 +1375,24 @@ class Normalizer:
                                                   id_type=IdentifierType.VARIABLE, file_path=file_path)
                 return None
 
+            # -- FirstClassCallable (PHP 8.1+ `func(...)` syntax) -------------------
+            # array_map(hsc(...), $d) → the callable's inner expression name
+            # is in the `name` attribute (e.g. 'hsc'). We emit it as a
+            # FunctionCall operator so taint analysis can see the function
+            # name and determine safety via builtin_knowledge.
+            if node_type_name == "FirstClassCallable":
+                inner_name = getattr(ast_node, "name", None)
+                if inner_name is not None:
+                    # Synthesize a FunctionCall so _walk_call emits it as
+                    # a proper operator node with callee + arg structure.
+                    import phply.phpast as _phpast
+                    if isinstance(inner_name, str):
+                        fc = _phpast.FunctionCall(inner_name, [])
+                        return self._walk_node(fc, add_node, add_edge, ctx_stack, file_path, depth)
+                    # If name is itself an AST node (MethodCall etc.), walk it.
+                    return self._walk_node(inner_name, add_node, add_edge, ctx_stack, file_path, depth)
+                return None
+
             # Delegate to the main walk for all other node types
             return self._walk_node_base(ast_node, add_node, add_edge, ctx_stack, file_path, depth)
         finally:
