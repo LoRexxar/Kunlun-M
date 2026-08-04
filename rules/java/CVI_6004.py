@@ -51,13 +51,31 @@ class CVI_6004(SingleRuleMixin):
         ]
 
     def main(self, regex_string, sink_args=None):
-        """Graph-based: const path arg is hardcoded (safe)."""
+        """Graph-based: const path arg is hardcoded (safe).
+
+        For multi-arg sinks like Files.write(path, content), only the
+        path argument (arg0) is relevant to path traversal. If arg0 is
+        const/hardcoded, the call is safe even if content is tainted.
+        """
         if sink_args:
+            sn = str(regex_string) if regex_string else ''
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
                 if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
                     return False
                 if arg0.get('resolved_value', ''):
+                    return False
+            # For Files.write(path, content): when arg0 is a method call
+            # that produces a temp file (createTempFile, newFile), the
+            # path is system-generated and not user-controlled. Only
+            # content (arg1) can be user-controlled, which is not path
+            # traversal.
+            _SAFE_PATH_CALLEES = ('createTempFile', 'createTempDirectory', 'createFile')
+            if len(sink_args) >= 2:
+                arg0 = sink_args[0]
+                arg0_name = arg0.get('name', '')
+                arg0_callee = arg0.get('return_callee', '')
+                if any(sc in arg0_name or sc in arg0_callee for sc in _SAFE_PATH_CALLEES):
                     return False
             return None
 
