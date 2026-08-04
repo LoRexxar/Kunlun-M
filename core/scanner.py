@@ -626,6 +626,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         "redirect": 0,
                         "HttpResponseRedirect": 0,
                         "RedirectResponse": 0,
+                        # Java Files.write(path, content): only arg0 (path)
+                        # is relevant to Path Traversal. Content (arg1) is
+                        # user data but does not control WHERE it's written.
+                        "files.write": 0,
+                        # Java Files.copy(source, target): target is arg1.
+                        # Source is a file path (read) not write destination.
+                        "files.copy": 1,
+                        # Java Files.move(source, target): target is arg1.
+                        "files.move": 1,
                     }
                     path_only_idx = -1
                     for _fn, _idx in _PATH_SINK_INDEX.items():
