@@ -183,6 +183,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         return False
     logger.info('[PUSH] {rc} Rules'.format(rc=len(rules)))
 
+    # 预加载框架 tamper EXTRA_SINKS 并注入为虚拟规则
+    # （从 oldscan 移植，适配 graph scan 的 rules dict 格式）
+    if language and target_directory:
+        try:
+            from rules.tamper._loader import detect_frameworks, merge_framework_config, load_base_config
+            from utils.api import VirtualRule
+            import types as _types
+            _languages_for_tamper = language if isinstance(language, list) else [language]
+            for _lang in _languages_for_tamper:
+                _lang_lower = _lang.lower() if isinstance(_lang, str) else str(_lang).lower()
+                _detected = detect_frameworks(_lang_lower, target_directory)
+                if _detected:
+                    _repair_tmp, _controlled_tmp = load_base_config(_lang_lower)
+                    for _fw_mod in _detected:
+                        _extra = merge_framework_config(_repair_tmp, _controlled_tmp, _fw_mod)
+                        if _extra:
+                            for _pattern, _svids in _extra.items():
+                                for _svid in _svids:
+                                    _vw_name = "VW_{}_{}".format(_svid, len(rules))
+                                    _vw_class = type(_vw_name, (VirtualRule,), {
+                                        '__init__': lambda self, _p=_pattern, _s=_svid, _l=_lang_lower: VirtualRule.__init__(self, _p, _s, _l)
+                                    })
+                                    _vw_module = _types.ModuleType(_vw_name)
+                                    setattr(_vw_module, _vw_name, _vw_class)
+                                    rules[_vw_name] = _vw_module
+                                    logger.info('[CVI-{cvi}] [VIRTUAL] EXTRA_SINK: {p} (framework: {fw})'.format(
+                                        cvi=_svid, p=_pattern, fw=getattr(_fw_mod, 'FRAMEWORK_NAME', '?')))
+        except Exception as e:
+            logger.warning('[SCAN] tamper extra_sinks loading failed: {e}'.format(e=e))
+
     # 按语言分组规则
     languages = language if isinstance(language, list) else [language]
     lang_rules = {}
