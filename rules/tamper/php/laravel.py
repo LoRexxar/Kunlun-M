@@ -26,13 +26,26 @@ FILTER_FUNCTIONS = {
 }
 
 EXTRA_SINKS = [
+    # DB facade — raw SQL methods
     ("DB::raw", [1004]),
     ("DB::select", [1004]),
     ("DB::statement", [1004]),
     ("DB::unprepared", [1004]),
-    ("redirect(", [1009]),
+    ("DB::insert", [1004]),
+    ("DB::update", [1004]),
+    ("DB::delete", [1004]),
+    # Query Builder / Eloquent — raw SQL injection vectors
+    ("->selectRaw(", [1004]),
+    ("->whereRaw(", [1004]),
+    ("->havingRaw(", [1004]),
+    ("->orderByRaw(", [1004]),
+    ("->groupByRaw(", [1004]),
+    # View / Response — XSS sinks
     ("view(", [1000]),
     ("Response::json(", [1000]),
+    # Redirect — Open Redirect
+    ("redirect(", [1009]),
+    # Storage — File operation
     ("Storage::download(", [1002]),
     ("Storage::get(", [1002]),
 ]

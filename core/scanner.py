@@ -185,6 +185,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
     # 预加载框架 tamper EXTRA_SINKS 并注入为虚拟规则
     # （从 oldscan 移植，适配 graph scan 的 rules dict 格式）
+    _framework_method_sinks: set[str] = set()  # short method names for find_sinks Path C
     if language and target_directory:
         try:
             from rules.tamper._loader import detect_frameworks, merge_framework_config, load_base_config
@@ -210,6 +211,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     rules[_vw_name] = _vw_module
                                     logger.info('[CVI-{cvi}] [VIRTUAL] EXTRA_SINK: {p} (framework: {fw})'.format(
                                         cvi=_svid, p=_pattern, fw=getattr(_fw_mod, 'FRAMEWORK_NAME', '?')))
+                                # Collect method-call short names (->method) for
+                                # framework-agnostic short-name matching (Path C).
+                                if '->' in _pattern:
+                                    import re as _re
+                                    _m = _re.search(r'->(\w+)', _pattern)
+                                    if _m:
+                                        _framework_method_sinks.add(_m.group(1).lower())
         except Exception as e:
             logger.warning('[SCAN] tamper extra_sinks loading failed: {e}'.format(e=e))
 
@@ -584,7 +592,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
 
         for lang, lang_rule_list in lang_rules.items():
-            analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang))
+            analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang),
+                                     framework_method_sinks=_framework_method_sinks)
 
             # 收集该语言所有规则的 sink 函数名
             all_sink_names = []

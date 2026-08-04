@@ -362,13 +362,20 @@ class GraphAnalyzer:
     """
 
     def __init__(self, graph: ig.Graph, language: str = "php",
-                 source_registry=None) -> None:
+                 source_registry=None, framework_method_sinks: set[str] | None = None) -> None:
         self.graph = graph
         self.language = language
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._builtin_knowledge_cache: dict | None = None
         self._call_stack: list[str] = []
         self._source_registry = source_registry
+        # Framework method sinks: short method names from tamper EXTRA_SINKS
+        # that are safe to match without qualified-name resolution because they
+        # come from framework tamper configuration (e.g. Laravel DB::raw →
+        # method 'raw' on Eloquent Builder, WordPress $wpdb->query → 'query').
+        # These are receiver-type-agnostic: any ->raw() / ->query() call is a
+        # potential sink regardless of the object's resolved type.
+        self._framework_method_sinks: set[str] = framework_method_sinks or set()
 
         # --- 预构建 O(1) 索引 ---
         # 边索引: label → {src_vid: [tgt_vid, ...]}
@@ -576,6 +583,17 @@ class GraphAnalyzer:
                         callee_name = tgt_fullname
                         _is_qualified_match = True
                         break
+
+            # Path C: framework method sink — short name whitelist.
+            # Framework tamper EXTRA_SINKS define method-call sinks like
+            # ->query(), ->raw(), ->render() that are receiver-type-agnostic.
+            # These cannot be resolved via use-edge (no user-defined function
+            # node), so they need an explicit short-name match path.
+            if not matched_name and self._framework_method_sinks:
+                _short_lower = normalized_callee.lower()
+                if _short_lower in self._framework_method_sinks:
+                    matched_name = normalized_callee
+                    _is_qualified_match = False
 
             if not matched_name:
                 continue
