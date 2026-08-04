@@ -743,6 +743,43 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         chain=[{"step": "safe", "vid": op_vid,
                                                 "name": _cast_name, "code": 2}],
                                         path=[op_vid]), None
+                                # If this method_call's function def is an
+                                # empty shell (unresolved external/framework
+                                # method), don't recurse into sub-args — the
+                                # return value doesn't inherit arg taint.
+                                # This mirrors Rule 4d-2 in parameters_back.
+                                # Check ALL use-edge targets: only block if
+                                # NONE of them has params or returns (i.e.
+                                # all are empty placeholders).
+                                _all_use_targets_empty = True
+                                for _ue in graph.es.select(_source=op_vid, label="use"):
+                                    _fv = graph.vs[_ue.target]
+                                    if _vattr(_fv, "label") != "function":
+                                        continue
+                                    _fv_taint = _vattr(_fv, "taint_type", "")
+                                    if _fv_taint:
+                                        _all_use_targets_empty = False
+                                        break
+                                    _fv_params = sum(1 for _pe in graph.es.select(_source=_ue.target, label="own")
+                                                     if _vattr(graph.vs[_pe.target], "label") == "parameter")
+                                    _fv_returns = sum(1 for _pe in graph.es.select(_source=_ue.target, label="own")
+                                                      if _vattr(graph.vs[_pe.target], "label") == "return")
+                                    if _fv_params > 0 or _fv_returns > 0:
+                                        _all_use_targets_empty = False
+                                        break
+                                if _all_use_targets_empty:
+                                    # Verify there was at least one function use-edge
+                                    _has_func_use = any(
+                                        _vattr(graph.vs[_ue.target], "label") == "function"
+                                        for _ue in graph.es.select(_source=op_vid, label="use")
+                                    )
+                                    if _has_func_use:
+                                        from core.graph.graph_analyzer import AnalysisResult as _AR
+                                        return _AR(
+                                            code=3, reason=f"unresolved method '{_callee or ''}' in deep_trace",
+                                            chain=[{"step": "unresolved_method", "vid": op_vid,
+                                                    "name": _callee or "", "code": 3}],
+                                            path=[op_vid]), None
                                 sub_arg_vids = [
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")

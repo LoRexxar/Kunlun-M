@@ -1757,6 +1757,32 @@ class GraphAnalyzer:
                                             dep_vid, context_vid, max_depth - depth)
                                         if dep_res.is_controllable:
                                             return self._cached(cache_key, dep_res)
+                            # Rule 4d-2: if analyze_function_return returned
+                            # inconclusive because the function def is an
+                            # empty shell (no return nodes, no params), this
+                            # is an unresolved external/framework method call.
+                            # Its return value should NOT inherit taint from
+                            # its call arguments — doing so causes false
+                            # positives where e.g. $entity = $repo->find($id)
+                            # inherits taint from $id (which traces back to
+                            # $request) even though find() queries the
+                            # database and returns a fresh object.
+                            if (ret.code == 3 and func_vid is not None
+                                    and not ret.reason.startswith("No return")):
+                                pass  # has return nodes but inconclusive — allow fallthrough
+                            elif ret.code == 3 and func_vid is not None:
+                                # Empty shell: no return, no params, no taint
+                                # annotation. Stop taint propagation through
+                                # this call's DFG upstream.
+                                if inconclusive_fallback is None:
+                                    inconclusive_fallback = AnalysisResult(
+                                        code=3,
+                                        reason=f"unresolved method '{callee}' — return inconclusive",
+                                        chain=[{"step": "unresolved_method", "vid": up_vid,
+                                                "name": callee, "code": 3}],
+                                        path=new_path,
+                                        expr_lineno=_vattr(uv, "lineno", 0))
+                                continue  # skip DFG upstream of this call node
 
                     # Rule 4e: unknown function call — the callee is not in
                     # builtin_knowledge and analyze_function_return was
