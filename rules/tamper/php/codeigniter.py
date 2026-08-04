@@ -20,7 +20,10 @@ FILTER_FUNCTIONS = {
 EXTRA_SINKS = [
     ("$this->db->query(", [1004]),
     ("->query(", [1004]),
+    # View / Response — XSS
     ("view(", [1000]),
+    ("->render(", [1000]),
+    # Redirect
     ("redirect(", [1009]),
 ]
 

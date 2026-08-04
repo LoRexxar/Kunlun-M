@@ -19,11 +19,17 @@ FILTER_FUNCTIONS = {
 EXTRA_SINKS = [
     ("Db::query(", [1004]),
     ("Db::execute(", [1004]),
-    ("->fetch(", [1000]),
-    ("->display(", [1000]),
-    ("redirect(", [1009]),
     ("Db::name(", [1004]),
     ("Cache::", [1004]),
+    # Query Builder — raw SQL injection vectors
+    ("->query(", [1004]),
+    ("->execute(", [1004]),
+    ("->fetchSql(", [1004]),
+    # Template engine — XSS
+    ("->fetch(", [1000]),
+    ("->display(", [1000]),
+    # Redirect
+    ("redirect(", [1009]),
 ]
 
 CONTROLLED_SOURCES = [
