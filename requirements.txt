@@ -6,7 +6,7 @@ django>=4.2,<6
 Werkzeug>=3.0.6
 
 # Parser / analysis stack
-lphply>=2.1.0
+lphply>=2.2.0
 lesprima>=2.0.0
 pyjsparser>=2.7.1
 jsbeautifier>=1.15.1
