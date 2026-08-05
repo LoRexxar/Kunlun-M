@@ -1112,6 +1112,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             idx = int(sink_lineno) - 1
                             if 0 <= idx < len(source_lines):
                                 main_input = source_lines[idx].strip()
+                                # Extend main_input for multi-line calls: if the line
+                                # has unbalanced brackets, read subsequent lines until
+                                # brackets close, so rule.main() sees full context
+                                # (e.g. unserialize($data, ['allowed_classes' => ...]))
+                                _depth = main_input.count('(') - main_input.count(')')
+                                _bracket_depth = main_input.count('[') - main_input.count(']')
+                                _total_depth = _depth + _bracket_depth
+                                _ext_idx = idx + 1
+                                while _total_depth > 0 and _ext_idx < len(source_lines) and _ext_idx - idx < 10:
+                                    _next_line = source_lines[_ext_idx].strip()
+                                    main_input += ' ' + _next_line
+                                    _total_depth += _next_line.count('(') - _next_line.count(')')
+                                    _total_depth += _next_line.count('[') - _next_line.count(']')
+                                    _ext_idx += 1
                             elif sink_lineno == 0 and sink_name:
                                 # lineno=0 (e.g. class_name identifier): fallback
                                 # to scanning the file for a line containing sink_name
