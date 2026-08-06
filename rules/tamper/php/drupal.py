@@ -35,5 +35,5 @@ EXTRA_SINKS = [
     ('->delete(', [1004]),
     ('file_save_data(', [1002]),
     ('\\Drupal::httpClient(', [1005]),
-    ('->redirect(', [1009]),
+    ('->redirect(', [1013]),
 ]
