@@ -31,8 +31,24 @@ class CVI_1000(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        regex string input
-        :regex_string: regex match string
-        :return:
+        Graph-based: filter out print_r($var, true) which returns a string
+        instead of outputting to the browser. When the second argument is
+        boolean true, print_r is a string function, not an XSS output sink.
         """
-        pass
+        if sink_args and len(sink_args) >= 2:
+            # Check if this is a print_r call with second arg = true
+            arg1 = sink_args[1]
+            val = arg1.get('resolved_value', '') or ''
+            if not val:
+                val = arg1.get('name', '')
+            if val and val.strip().lower() in ('true', '1', 'true'):
+                return False
+
+        # Also check source code line for print_r(..., true) pattern
+        if regex_string and 'print_r' in regex_string.lower():
+            import re
+            # Match print_r(..., true) where second arg is literal true
+            if re.search(r'print_r\s*\([^)]*,\s*true\s*\)', regex_string, re.IGNORECASE):
+                return False
+
+        return None
