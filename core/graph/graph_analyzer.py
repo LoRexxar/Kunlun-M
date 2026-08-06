@@ -3289,6 +3289,42 @@ class GraphAnalyzer:
                         if _vattr(ae, "role") == "arg":
                             if self._subtree_contains_name(ae.target, var_name):
                                 return True
+
+        # 4. Fallback: check standalone validation calls (not in branches)
+        #    at the same file/scope before the source detection point.
+        #    This catches patterns like:
+        #      check_input_parameter('dl', $_GET, false, '/^[a-f0-9]{32}$/');
+        #      if (!empty($_GET['dl']) && ...) { echo file_get_contents(...); }
+        _guard_vid = vid
+        if func_vid is not None:
+            _guard_vid = func_vid
+        _gv_file = _vattr(self.graph.vs[_guard_vid], "file_path", "") or _vattr(self.graph.vs[_guard_vid], "path", "")
+        _gv_lineno = _vattr(self.graph.vs[_guard_vid], "lineno", 0)
+        if _gv_file:
+            for ov in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                ov_type = _vattr(self.graph.vs[ov], "type", "")
+                ov_name = _vattr(self.graph.vs[ov], "name", "")
+                ov_file = _vattr(self.graph.vs[ov], "file_path", "") or _vattr(self.graph.vs[ov], "path", "")
+                ov_lineno = _vattr(self.graph.vs[ov], "lineno", 0)
+                if (ov_type in _CALL_TYPES
+                        and ov_name in _TYPE_VALIDATION_FUNCS
+                        and ov_file == _gv_file
+                        and ov_lineno < _gv_lineno):
+                    if ov_name == "check_input_parameter":
+                        _ai = 0
+                        for ae in self.graph.es.select(_source=ov, label="ast"):
+                            if _vattr(ae, "role") == "arg":
+                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "")
+                                if _ai == 0 and _arg_val:
+                                    _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
+                                    if str(_arg_val).strip("'\"") == _vn:
+                                        return True
+                                _ai += 1
+                    else:
+                        for ae in self.graph.es.select(_source=ov, label="ast"):
+                            if _vattr(ae, "role") == "arg":
+                                if self._subtree_contains_name(ae.target, var_name):
+                                    return True
         return False
 
     def check_branch_constraint(self, branch_vid: int, var_name: str) -> bool:
