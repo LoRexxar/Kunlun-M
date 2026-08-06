@@ -1463,7 +1463,26 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
                 ):
+                    # When tracing into a call's arguments, respect builtin_knowledge
+                    # passthrough: only trace args that are in the passthrough list.
+                    # This prevents false taint from non-data args (e.g. apply_filters
+                    # hook name in arg0 when only arg1 flows to return).
+                    _bk_passthrough = None
+                    if utype == "call":
+                        _callee = self._resolve_callee_name(up_vid)
+                        if _callee:
+                            _bk = self._load_builtin_knowledge(self.language)
+                            if _bk and _callee in _bk:
+                                _entry = _bk[_callee]
+                                if isinstance(_entry, dict) and not _entry.get("safe"):
+                                    _bk_passthrough = set(_entry.get("passthrough", []))
                     for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                        # Skip args not in passthrough when builtin_knowledge constrains flow
+                        if _bk_passthrough is not None:
+                            _role = _vattr(ae, "role", "")
+                            _arg_idx = _vattr(ae, "arg_index", None)
+                            if _role == "arg" and _arg_idx is not None and _arg_idx not in _bk_passthrough:
+                                continue
                         child_vid = ae.target
                         cv = self.graph.vs[child_vid]
                         child_name = _vattr(cv, "name", "")
