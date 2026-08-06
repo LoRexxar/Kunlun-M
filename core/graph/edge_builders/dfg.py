@@ -1419,9 +1419,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             cat = "defined" if has_dfg_in else "undefined"
 
-            # C/C++: 函数内变量的 defined 降级为 local（不作为跨文件链接源）
-            # 但函数内的 undefined 保留（可能是引用全局变量）
-            if language in ("c", "cpp"):
+            # C/C++/PHP: 函数内变量不参与跨文件链接。
+            # - defined: 函数局部变量（$query inside a function）不应流向其他文件。
+            #   PHP include 语义中，被包含文件的函数作用域是封闭的，
+            #   同名局部变量不应与包含方的全局变量建立 DFG 边。
+            # - undefined: 函数内未定义变量保留（可能是引用全局/超全局变量）。
+            if language in ("c", "cpp", "php"):
                 in_function = False
                 for eid in self.graph.incident(v.index, mode="in"):
                     e = self.graph.es[eid]
