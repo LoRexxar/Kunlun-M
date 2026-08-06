@@ -203,6 +203,17 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "get_transient":         {"passthrough": [], "safe": True},
         "get_site_transient":    {"passthrough": [], "safe": True},
         "wp_cache_get":          {"passthrough": [], "safe": True},
+        # WordPress hook functions: apply_filters($tag, $value, ...) returns
+        # the filtered $value (arg1). The hook name (arg0) controls which
+        # filter callbacks run, but does NOT appear in the return value.
+        # Only arg1 flows to return. Without this, taint from a user-controlled
+        # hook name (e.g. "async_upload_{$type}") would falsely propagate to
+        # the return value and onwards to echo/print sinks.
+        "apply_filters":         {"passthrough": [1], "safe": False},
+        "apply_filters_ref_array": {"passthrough": [1], "safe": False},
+        # do_action() returns null — no data flow from args to return.
+        "do_action":             {"passthrough": [], "safe": True},
+        "do_action_ref_array":   {"passthrough": [], "safe": True},
 
         # ===== CodeIgniter =====
         "xss_clean":            {"passthrough": [0], "safe": True},
