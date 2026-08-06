@@ -3213,6 +3213,35 @@ class GraphAnalyzer:
                 if bv_file == v_file and bv_lineno <= v_lineno:
                     branch_vids.append(bv)
             if not branch_vids:
+                # Also check for standalone validation calls (not in branches)
+                # at file scope, before the source detection point.
+                v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
+                v_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
+                for ov in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                    ov_type = _vattr(self.graph.vs[ov], "type", "")
+                    ov_name = _vattr(self.graph.vs[ov], "name", "")
+                    ov_file = _vattr(self.graph.vs[ov], "file_path", "") or _vattr(self.graph.vs[ov], "path", "")
+                    ov_lineno = _vattr(self.graph.vs[ov], "lineno", 0)
+                    if (ov_type in _CALL_TYPES
+                            and ov_name in _TYPE_VALIDATION_FUNCS
+                            and ov_file == v_file
+                            and ov_lineno < v_lineno):
+                        # Found a standalone validation call before source.
+                        if ov_name == "check_input_parameter":
+                            _ai = 0
+                            for ae in self.graph.es.select(_source=ov, label="ast"):
+                                if _vattr(ae, "role") == "arg":
+                                    _arg_val = _vattr(self.graph.vs[ae.target], "value", "")
+                                    if _ai == 0 and _arg_val:
+                                        _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
+                                        if str(_arg_val).strip("'\"") == _vn:
+                                            return True
+                                    _ai += 1
+                        else:
+                            for ae in self.graph.es.select(_source=ov, label="ast"):
+                                if _vattr(ae, "role") == "arg":
+                                    if self._subtree_contains_name(ae.target, var_name):
+                                        return True
                 return False
         else:            # 2. Collect all branch nodes owned by this function.
             for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
