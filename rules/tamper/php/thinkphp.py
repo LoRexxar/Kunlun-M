@@ -29,7 +29,7 @@ EXTRA_SINKS = [
     ("->fetch(", [1000]),
     ("->display(", [1000]),
     # Redirect
-    ("redirect(", [1009]),
+    ("redirect(", [1013]),
 ]
 
 CONTROLLED_SOURCES = [
