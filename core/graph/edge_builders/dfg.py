@@ -958,6 +958,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             caller_vid = v.index
 
+            # Skip functions already handled by builtin_knowledge.
+            # When a function has a passthrough/param_flow entry, its
+            # arg→return data flow is precisely controlled by step 5
+            # (_analyze_builtin_and_summary). Tracing the function body's
+            # return statements here would re-introduce taint paths that
+            # builtin_knowledge was designed to suppress (e.g. apply_filters
+            # where arg0 flows into return via internal variable usage).
+            callee_name = self._get_callee_name(caller_vid)
+            if callee_name:
+                bk = self._load_builtin_knowledge(self._language)
+                if bk and callee_name in bk:
+                    continue
+
             # 通过 use 边找到函数节点，并解析到真正的定义
             func_vid = self._get_cg_target(caller_vid)
             if func_vid is None:
