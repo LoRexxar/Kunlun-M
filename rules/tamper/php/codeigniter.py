@@ -24,7 +24,7 @@ EXTRA_SINKS = [
     ("view(", [1000]),
     ("->render(", [1000]),
     # Redirect
-    ("redirect(", [1009]),
+    ("redirect(", [1013]),
 ]
 
 CONTROLLED_SOURCES = [
