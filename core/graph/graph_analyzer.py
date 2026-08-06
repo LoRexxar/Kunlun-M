@@ -282,6 +282,7 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "ctype_lower", "ctype_upper", "ctype_graph", "ctype_print",
     "ctype_punct", "ctype_space", "ctype_cntrl",
     "preg_match",  # PHP regex validation (whitelist/guard pattern)
+    "check_input_parameter",  # PHP custom parameter validation (Piwigo, etc.)
     # Python
     "isinstance", "issubclass", "hasattr", "callable",
     "isdigit", "isalpha", "isalnum", "isdecimal", "isnumeric",
