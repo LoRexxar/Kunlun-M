@@ -970,7 +970,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 但 template 对象来自 new Template(userInput, ...).
                             # 对 callable_only sink（call_user_func），不追踪 receiver——
                             # 数据参数即使通过 receiver 链路可控也不构成 RCE。
-                            if callable_only:
+                            # 如果 arg 已被 _deep_trace_args 确认为 safe（如 apply_filters
+                            # 的 passthrough 过滤），不要回退到 receiver 追溯——
+                            # 那会绕过 builtin_knowledge 的 passthrough 约束。
+                            if callable_only or any_arg_repaired:
                                 continue
                             # Path-only sinks (file_put_contents): skip receiver
                             # tracing. The path arg was already checked and found
