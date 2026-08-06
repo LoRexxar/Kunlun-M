@@ -751,6 +751,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # Check ALL use-edge targets: only block if
                                 # NONE of them has params or returns (i.e.
                                 # all are empty placeholders).
+
+                                # builtin_knowledge passthrough filter:
+                                # If the callee has a passthrough entry, only
+                                # trace sub-args whose arg_index is in the list.
+                                # This prevents false taint from non-data args
+                                # (e.g. apply_filters hook name in arg0).
+                                _bk_passthrough_idxs = None
+                                if _callee:
+                                    try:
+                                        _bk = analyzer._load_builtin_knowledge(analyzer.language)
+                                        if _bk and _callee in _bk:
+                                            _bk_entry = _bk[_callee]
+                                            if isinstance(_bk_entry, dict) and not _bk_entry.get("safe"):
+                                                _bk_passthrough_idxs = set(_bk_entry.get("passthrough", []))
+                                    except Exception:
+                                        pass
+
                                 _all_use_targets_empty = True
                                 for _ue in graph.es.select(_source=op_vid, label="use"):
                                     _fv = graph.vs[_ue.target]
@@ -783,6 +800,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 sub_arg_vids = [
                                     e.target for e in graph.es.select(_source=op_vid, label="ast")
                                     if _vattr(e, "role") in ("arg", "left", "right")
+                                    and (_bk_passthrough_idxs is None
+                                         or _vattr(e, "role") != "arg"
+                                         or _vattr(e, "arg_index", None) is None
+                                         or _vattr(e, "arg_index", None) in _bk_passthrough_idxs)
                                 ]
                                 if not sub_arg_vids:
                                     # No AST children — try DFG sources as fallback.
