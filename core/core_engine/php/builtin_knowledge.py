@@ -214,6 +214,15 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # do_action() returns null — no data flow from args to return.
         "do_action":             {"passthrough": [], "safe": True},
         "do_action_ref_array":   {"passthrough": [], "safe": True},
+        # WordPress DB insert/update functions return integer IDs or false,
+        # NOT derived from the input data. Without this, the default arg→return
+        # rule falsely taints the return value with user-controlled array values.
+        "wp_insert_attachment":  {"passthrough": [], "safe": True},
+        "wp_insert_post":        {"passthrough": [], "safe": True},
+        "wp_update_post":        {"passthrough": [], "safe": True},
+        "wp_insert_user":        {"passthrough": [], "safe": True},
+        "wp_insert_term":        {"passthrough": [], "safe": True},
+        "wp_insert_link":        {"passthrough": [], "safe": True},
 
         # ===== CodeIgniter =====
         "xss_clean":            {"passthrough": [0], "safe": True},
