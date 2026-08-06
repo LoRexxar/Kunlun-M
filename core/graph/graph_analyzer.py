@@ -1474,6 +1474,17 @@ class GraphAnalyzer:
                             if self._is_superglobal_member_blocked(child_vid):
                                 pass
                             else:
+                                # Guard check for direct superglobal subscript source
+                                if self.language in ("python", "php"):
+                                    _gname = child_name.rsplit(".", 1)[-1] if "." in child_name else child_name
+                                    if self._has_function_level_guard(child_vid, _gname):
+                                        return self._cached(cache_key, AnalysisResult(
+                                            code=-1,
+                                            reason=f"source '{child_name}' guarded by function-level validation",
+                                            chain=[{"step": "source_guard", "vid": child_vid,
+                                                    "name": child_name, "code": -1}],
+                                            path=new_path + [child_vid],
+                                            expr_lineno=_vattr(cv, "lineno", 0)))
                                 return self._cached(cache_key, AnalysisResult(
                                     code=1,
                                     reason=f"superglobal '{child_name}' via subscript",
@@ -1488,6 +1499,20 @@ class GraphAnalyzer:
                                 if self._is_superglobal_member_blocked(child_vid):
                                     pass
                                 else:
+                                    # Guard check: verify this superglobal member
+                                    # isn't validated by a function-level preg_match
+                                    # or type validation before reporting it as source.
+                                    if self.language in ("python", "php"):
+                                        # Extract member key from chain_name (e.g. "page" from "$_GET.page")
+                                        _gname = chain_name.rsplit(".", 1)[-1] if "." in chain_name else chain_name
+                                        if self._has_function_level_guard(child_vid, _gname):
+                                            return self._cached(cache_key, AnalysisResult(
+                                                code=-1,
+                                                reason=f"source '{chain_name}' guarded by function-level validation",
+                                                chain=[{"step": "source_guard", "vid": child_vid,
+                                                        "name": chain_name, "code": -1}],
+                                                path=new_path + [child_vid],
+                                                expr_lineno=_vattr(cv, "lineno", 0)))
                                     return self._cached(cache_key, AnalysisResult(
                                         code=1,
                                         reason=f"superglobal '{chain_name}' via subscript member chain",
