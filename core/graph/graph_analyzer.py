@@ -3241,6 +3241,20 @@ class GraphAnalyzer:
                 sv_name = _vattr(self.graph.vs[sv], "name", "")
                 if (sv_type in _CALL_TYPES
                         and sv_name in _TYPE_VALIDATION_FUNCS):
+                    # Special case: check_input_parameter takes the key name
+                    # as a string literal (arg0), not as a variable.
+                    # Match var_name against the string value.
+                    if sv_name == "check_input_parameter":
+                        _ai = 0
+                        for ae in self.graph.es.select(_source=sv, label="ast"):
+                            if _vattr(ae, "role") == "arg":
+                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "")
+                                if _ai == 0 and _arg_val:
+                                    _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
+                                    if str(_arg_val).strip("'\"") == _vn:
+                                        return True
+                                _ai += 1
+                        continue
                     # Check if any arg references var_name
                     for ae in self.graph.es.select(_source=sv, label="ast"):
                         if _vattr(ae, "role") == "arg":
