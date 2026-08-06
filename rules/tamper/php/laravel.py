@@ -22,7 +22,7 @@ FILTER_FUNCTIONS = {
     # URL encoding
     'urlencode': {'safe_for': [1005, 1006]},
     # signed redirect is safe
-    'redirect()->signedRoute': {'safe_for': [1009]},
+    'redirect()->signedRoute': {'safe_for': [1013]},
 }
 
 EXTRA_SINKS = [
@@ -46,7 +46,7 @@ EXTRA_SINKS = [
     # Content-Type: application/json, which browsers do not parse as
     # HTML, so reflected XSS is not possible through JSON output.
     # Redirect — Open Redirect
-    ("redirect(", [1009]),
+    ("redirect(", [1013]),
     # Storage — File operation
     ("Storage::download(", [1002]),
     ("Storage::get(", [1002]),
