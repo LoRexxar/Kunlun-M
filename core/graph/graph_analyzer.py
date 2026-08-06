@@ -952,6 +952,27 @@ class GraphAnalyzer:
         # Specific keys are detected via the member-chain walk below, where
         # _SERVER_UNCONTROLLED_KEYS filters out server-config fields.
         if sname != "$_SERVER" and self._is_source_variable(sname):
+            # Source-level guard check: before reporting a superglobal as
+            # the taint source, verify it isn't guarded by a function-level
+            # preg_match or type validation. This catches patterns like:
+            #   if (preg_match('/^[a-z_]*$/', $_GET['page'])) {
+            #       $x = load($_GET['page']);
+            #   }
+            #   echo $x;  ← $x derives from $_GET['page'], which is guarded
+            # The guard fires even though $x itself is not in any branch.
+            if self.language in ("python", "php"):
+                # Extract the member key for superglobals (e.g. 'page' from $_GET['page'])
+                _guard_name = sname
+                _member_key = _vattr(sv, "member_key", "") or _vattr(sv, "name2", "")
+                if _member_key:
+                    _guard_name = _member_key
+                if self._has_function_level_guard(start_vid, _guard_name):
+                    return self._cached(cache_key, AnalysisResult(
+                        code=-1,
+                        reason=f"source '{sname}' guarded by function-level validation",
+                        chain=[{"step": "source_guard", "vid": start_vid,
+                                "name": sname, "code": -1}],
+                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             return self._cached(cache_key, AnalysisResult(
                 code=1, reason=f"'{sname}' is a superglobal",
                 chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
