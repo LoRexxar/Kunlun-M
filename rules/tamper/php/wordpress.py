@@ -47,7 +47,7 @@ EXTRA_SINKS = [
     ('$wpdb->prepare', []),
     ('wp_remote_get(', [1005]),
     ('wp_remote_post(', [1005]),
-    ('wp_redirect(', [1009]),
+    ('wp_redirect(', [1013]),
     ('include(', [1003]),
     ('require(', [1003]),
     ('$wpdb->insert(', [1004]),
