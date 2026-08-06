@@ -28,5 +28,5 @@ EXTRA_SINKS = [
     ("$response->write(", [1000]),
     ("$app->render(", [1000]),
     ("$view->render(", [1000]),
-    ("$response->withRedirect(", [1009]),
+    ("$response->withRedirect(", [1013]),
 ]
