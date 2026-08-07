@@ -129,12 +129,12 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "getHeaderNames":       {"passthrough": [], "safe": False},
         "getCookies":           {"passthrough": [0], "safe": False},
         "getQueryString":       {"passthrough": [0], "safe": False},
-        "getRequestURI":        {"passthrough": [0], "safe": True},  # Server-side, not user input
+        "getRequestURI":        {"passthrough": [0], "safe": False},  # URI contains user input
         "getContextPath":       {"passthrough": [0], "safe": True},  # Server-side config
-        "getPathInfo":          {"passthrough": [0], "safe": True},  # Server-side config
+        "getPathInfo":          {"passthrough": [0], "safe": False},  # PATH_INFO IS user input
         "getInputStream":       {"passthrough": [0], "safe": False},
         "getReader":            {"passthrough": [0], "safe": False},
-        "getAttribute":         {"passthrough": [0], "safe": True},  # Server-side attribute
+        "getAttribute":         {"passthrough": [0], "safe": False},  # CAN be user-influenced via forward
         "getSession":           {"passthrough": [0], "safe": True},  # Server-side session
         "getServletContext":    {"passthrough": [0], "safe": True},  # Server-side context
 
@@ -333,9 +333,11 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "HttpClientBuilder.create":       {"passthrough": [], "safe": True},
 
         # ===== Framework config readers (return server-side values) =====
-        "expandString":                   {"passthrough": [], "safe": True},  # Ofbiz FlexibleStringExpander
-        "getProperty":                    {"passthrough": [], "safe": True},  # Properties.getProperty
-        "getPropertyValue":               {"passthrough": [], "safe": True},  # Ofbiz EntityUtilProperties
+        # NOTE: expandString, getProperty, getPropertyValue were previously
+        # marked safe=True. Removed because:
+        # - expandString: Ofbiz FlexibleStringExpander can expand ${} from user-influenced sources
+        # - getProperty: too generic, can read user-controlled properties
+        # - getPropertyValue: Ofbiz EntityUtilProperties can read from DB
         "getInitParameter":               {"passthrough": [], "safe": True},  # ServletConfig
         "getServletContextName":          {"passthrough": [], "safe": True},  # ServletContext
         "getRealPath":                    {"passthrough": [], "safe": True},  # ServletContext.getRealPath
