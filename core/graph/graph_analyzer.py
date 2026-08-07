@@ -1498,6 +1498,13 @@ class GraphAnalyzer:
                                 if self.language in ("python", "php"):
                                     _gname = child_name.rsplit(".", 1)[-1] if "." in child_name else child_name
                                     _gname = _gname.strip("'\"")
+                                    # For bare superglobals (e.g. "$_GET"), try to
+                                    # extract the subscript key from member children
+                                    # so the guard matches by key name (e.g. "dl").
+                                    if _gname.startswith("$"):
+                                        _member_key = self._extract_member_key(child_vid)
+                                        if _member_key:
+                                            _gname = _member_key
                                     if self._has_function_level_guard(child_vid, _gname):
                                         return self._cached(cache_key, AnalysisResult(
                                             code=-1,
@@ -2688,6 +2695,18 @@ class GraphAnalyzer:
 
     def _is_server_only_uncontrolled_members(self, server_vid: int) -> bool:
         return self._is_superglobal_only_non_source_members(server_vid)
+
+    def _extract_member_key(self, vid: int) -> str:
+        """Extract the first subscript key from a superglobal variable.
+
+        For ``$_GET['dl']`` — given the ``$_GET`` vid — returns ``"dl"``.
+        Returns ``""`` if no member child is found.
+        """
+        for e in self.graph.es.select(_source=vid, label=EdgeLabel.MEMBER.value):
+            _mn = _vattr(self.graph.vs[e.target], "name", "")
+            if _mn:
+                return _mn.strip("'\"")
+        return ""
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
