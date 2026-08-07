@@ -85,7 +85,7 @@ _JS_SOURCE_ROOTS: frozenset[str] = frozenset({
 })
 
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
-    # PHP
+    # PHP — well-known sanitizer/encoding functions
     "htmlspecialchars", "htmlentities", "strip_tags", "urlencode",
     "rawurlencode", "addslashes", "intval", "floatval",
     "escapeshellarg", "escapeshellcmd",
@@ -96,7 +96,6 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
-    "glob",  # glob() returns filesystem entries — not user-controlled
     # Python
     "shlex.quote", "shlex.quote_plus",
     "html.escape", "html.unescape",
@@ -108,8 +107,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "pickle.dumps", "pickle.loads",
     "reverse",  # Django URL reverse — returns fixed internal path
     "url_for",  # Flask URL builder — returns fixed internal path
-    "path",     # Django/Flask path() — fixed URL pattern
-    "save",     # Django/Flask form.save()/model.save() — returns DB-persisted object, not raw user input
+    # NOTE: "path" and "save" removed — too generic, caused TP suppression
     # Java
     "StringEscapeUtils.escapeSql",
     "org.apache.commons.lang3.StringEscapeUtils.escapeSql",
@@ -132,26 +130,14 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "NamedParameterJdbcTemplate.queryForList",
     "NamedParameterJdbcTemplate.update",
     "SqlParameterSource.addValue",
-    # Framework internal resource locators (not user input, resolve internal protocols)
-    "FlexibleLocation.resolveLocation",
-    "resolveLocation",
-    "getLocation",
-    "getURL",
-    # Path normalization / upload validation (OFBiz)
+    # NOTE: OFBiz delegator/query functions removed — they can return
+    # user-influenced data. resolveLocation/getURL/getLocation removed
+    # for the same reason.
+    # OFBiz path normalization
     "FileUtil.createFileWithNormalizedPath",
     "createFileWithNormalizedPath",
     "SecuredUpload.isValidFile",
     "isValidFile",
-    # ORM / database query results — data from DB tables is not direct
-    # user input. Taint chain terminates at DB queries; query results
-    # come from stored data, not from the HTTP request.
-    "queryOne",
-    "queryList",
-    "queryFirst",
-    "delegator.findOne",
-    "delegator.findByAnd",
-    "delegator.findAll",
-    "delegator.makeValue",
     # Go
     "html.EscapeString", "url.QueryEscape",
     "shellescape.Quote",
@@ -171,8 +157,6 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "truncate", "excerpt", "word_wrap", "simple_format",
     # Django open-redirect guard
     "url_has_allowed_host_and_scheme", "is_safe_url",
-    # Django/Wagtail model methods that return DB-backed objects/URLs
-    "get_translation",
     # NOTE: expandString, getProperty, getPropertyValue, getSignature,
     # getStaticPart, get_success_url, get_absolute_url, get_redirect_url
     # are now in builtin_knowledge (safe=True) and resolved automatically
