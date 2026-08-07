@@ -50,10 +50,31 @@ class CVI_6069(SingleRuleMixin):
 
         ]
 
-    def main(self, regex_string, sink_args=None):
+    def main(self, regex_string, sink_args=None, context=None, **kwargs):
         """
         Graph-based: const filename/path is hardcoded (safe).
+        context: broader source window (±15 lines) for sanitizer detection.
         """
+        # Build combined text for regex checks
+        check_text = ''
+        if isinstance(regex_string, str):
+            check_text = regex_string
+        if context and isinstance(context, str):
+            check_text = check_text + ' ' + context
+
+        # Check for sanitizers first (applies to both graph and regex modes)
+        if check_text:
+            safe_patterns = [
+                r"normalize\(\)", r"getCanonicalPath",
+                r"whitelist", r"ALLOWED_EXTENSIONS", r"allowedExtensions",
+                r"isValidExtension", r"checkFileType", r"MimeTypeUtils",
+            ]
+            for safe_pat in safe_patterns:
+                if re.search(safe_pat, check_text, re.I):
+                    return False
+            if re.search(r"(verify|sanitize|clean|filter|validate)\w*(File|FileName|Filename|Name)", check_text, re.I):
+                return False
+
         if sink_args:
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
@@ -64,20 +85,11 @@ class CVI_6069(SingleRuleMixin):
             return None
 
         # Regex fallback
-        if not isinstance(regex_string, str):
-            regex_string = str(regex_string)
-        safe_patterns = [
-            r"normalize\(\)", r"getCanonicalPath",
-            r"whitelist", r"ALLOWED_EXTENSIONS", r"allowedExtensions",
-        ]
-        for safe_pat in safe_patterns:
-            if re.search(safe_pat, regex_string):
-                return False
         upload_patterns = [
             r"\.write\s*\(", r"\.getSubmittedFileName\s*\(",
             r"\.transferTo\s*\(", r"\.getOriginalFilename\s*\(",
         ]
         for pat in upload_patterns:
-            if re.search(pat, regex_string):
+            if re.search(pat, regex_string if isinstance(regex_string, str) else str(regex_string)):
                 return True
         return None

@@ -20,8 +20,30 @@ class CVI_6011(SingleRuleMixin):
         self.unmatch = [r"isValidExtension", r"checkFileType", r"MimeTypeUtils"]
         self.vul_function = ["MultipartFile.transferTo", "MultipartFile.getOriginalFilename", "MultipartFile.write"]
 
-    def main(self, regex_string, sink_args=None):
-        """Graph-based: const filename is hardcoded (safe)."""
+    def main(self, regex_string, sink_args=None, context=None, **kwargs):
+        """Graph-based: const filename is hardcoded (safe).
+        context: broader source window (±15 lines) for sanitizer detection.
+        """
+        # Build a combined text for regex checks
+        check_text = ''
+        if isinstance(regex_string, str):
+            check_text = regex_string
+        if context and isinstance(context, str):
+            check_text = check_text + ' ' + context
+
+        # Check for sanitizers first (applies to both graph and regex modes)
+        if check_text and re.search(
+            r"ALLOWED_EXTENSIONS|allowedExtensions|isValidExtension"
+            r"|checkFileType|ImageIO\.read|MimeTypeUtils",
+            check_text, re.I
+        ):
+            return False
+        if check_text and re.search(
+            r"(verify|sanitize|clean|filter|validate)\w*(File|FileName|Filename|Name)",
+            check_text, re.I
+        ):
+            return False
+
         if sink_args:
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
@@ -31,10 +53,5 @@ class CVI_6011(SingleRuleMixin):
                     return False
             return None
 
-        # Regex fallback
-        if not isinstance(regex_string, str):
-            regex_string = str(regex_string)
-        if re.search(r"ALLOWED_EXTENSIONS|allowedExtensions|isValidExtension|checkFileType|ImageIO\.read|MimeTypeUtils", regex_string, re.I):
-            return False
         return None
 

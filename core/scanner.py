@@ -1150,6 +1150,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     _total_depth += _next_line.count('(') - _next_line.count(')')
                                     _total_depth += _next_line.count('[') - _next_line.count(']')
                                     _ext_idx += 1
+
+                                # Build a broader context window (±15 lines or until
+                                # enclosing method boundary) so rule.main() can check
+                                # for sanitizers in the surrounding scope.
+                                _ctx_start = max(0, idx - 15)
+                                _ctx_end = min(len(source_lines), idx + 16)
+                                main_context = ''.join(source_lines[_ctx_start:_ctx_end])
                             elif sink_lineno == 0 and sink_name:
                                 # lineno=0 (e.g. class_name identifier): fallback
                                 # to scanning the file for a line containing sink_name
@@ -1186,7 +1193,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # main(self, regex_string, sink_args=None)
                                 # sink_args is a list of {name, type, label, vid, resolved_value}
                                 # dicts from graph arg nodes, or empty list.
-                                main_result = candidate_rule.main(main_input, sink_args)
+                                # context is passed as keyword arg for rules
+                                # that want broader source context.
+                                try:
+                                    _ctx = main_context
+                                except NameError:
+                                    _ctx = None
+                                try:
+                                    main_result = candidate_rule.main(main_input, sink_args, context=_ctx)
+                                except TypeError:
+                                    main_result = candidate_rule.main(main_input, sink_args)
                                 if main_result is False:
                                     logger.debug('[CVI-{cvi}] [GRAPH] main() returned False, skip rule for sink {sink}'.format(
                                         cvi=candidate_rule.svid, sink=sink_name))
