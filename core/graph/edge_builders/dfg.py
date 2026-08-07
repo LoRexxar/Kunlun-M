@@ -675,22 +675,24 @@ class DataFlowBuilder(BaseEdgeBuilder):
             ):
                 self._add_dfg_edge(rhs_vid, lhs_vid, DfgType.FORWARD_SLICE.value)
 
-            # TernaryOp (branch type): 两个分支的值分别 dfg 到 LHS
+            # TernaryOp (branch type): iftrue/iffalse values flow to LHS.
+            # The condition must NOT flow — it controls which branch is taken,
+            # but its value does not become the result.
             if rhs_label == NodeLabel.BRANCH.value:
                 rhs_type = self._vtype[rhs_vid].lower()
                 if rhs_type == "ternary":
-                    # iftrue 和 iffalse 分支的值节点 dfg 到 LHS
-                    for child_vid in self._edges_from(rhs_vid, EdgeLabel.AST.value):
-                        child_label = self._vlabel[child_vid]
-                        # iftrue/iffalse 的值节点（identifier/const/operator）
-                        if child_label in (
-                            NodeLabel.IDENTIFIER.value,
-                            NodeLabel.CONST.value,
-                            NodeLabel.OPERATOR.value,
-                        ):
-                            self._add_dfg_edge(
-                                child_vid, lhs_vid, DfgType.FORWARD_SLICE.value
-                            )
+                    # Only iftrue/iffalse children (skip condition) dfg to LHS
+                    for branch_role in ("iftrue", "iffalse"):
+                        for child_vid in self._ast_role_from.get((rhs_vid, branch_role), []):
+                            child_label = self._vlabel[child_vid]
+                            if child_label in (
+                                NodeLabel.IDENTIFIER.value,
+                                NodeLabel.CONST.value,
+                                NodeLabel.OPERATOR.value,
+                            ):
+                                self._add_dfg_edge(
+                                    child_vid, lhs_vid, DfgType.FORWARD_SLICE.value
+                                )
 
     # -- 分析步骤 2：参数传递 -------------------------------------------------
 
