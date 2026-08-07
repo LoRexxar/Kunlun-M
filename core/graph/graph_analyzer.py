@@ -3355,7 +3355,10 @@ class GraphAnalyzer:
         if func_vid is not None:
             _guard_vid = func_vid
         _gv_file = _vattr(self.graph.vs[_guard_vid], "file_path", "") or _vattr(self.graph.vs[_guard_vid], "path", "")
-        _gv_lineno = _vattr(self.graph.vs[_guard_vid], "lineno", 0)
+        # Use the ORIGINAL vid's lineno (not func_vid's) as the threshold,
+        # because the guard must appear BEFORE the source detection point,
+        # not before the function definition.
+        _gv_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
         # If file_path is empty (e.g. for property/member nodes), try
         # to inherit it from the member-chain parent or AST owner.
         if not _gv_file:
