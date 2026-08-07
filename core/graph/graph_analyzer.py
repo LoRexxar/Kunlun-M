@@ -3356,6 +3356,22 @@ class GraphAnalyzer:
             _guard_vid = func_vid
         _gv_file = _vattr(self.graph.vs[_guard_vid], "file_path", "") or _vattr(self.graph.vs[_guard_vid], "path", "")
         _gv_lineno = _vattr(self.graph.vs[_guard_vid], "lineno", 0)
+        # If file_path is empty (e.g. for property/member nodes), try
+        # to inherit it from the member-chain parent or AST owner.
+        if not _gv_file:
+            for me in self.graph.es.select(_target=_guard_vid, label=EdgeLabel.MEMBER.value):
+                _pf = _vattr(self.graph.vs[me.source], "file_path", "") or _vattr(self.graph.vs[me.source], "path", "")
+                if _pf:
+                    _gv_file = _pf
+                    if not _gv_lineno:
+                        _gv_lineno = _vattr(self.graph.vs[me.source], "lineno", 0)
+                    break
+        if not _gv_file:
+            for oe in self.graph.es.select(_target=_guard_vid, label=EdgeLabel.OWN.value):
+                _pf = _vattr(self.graph.vs[oe.source], "file_path", "") or _vattr(self.graph.vs[oe.source], "path", "")
+                if _pf:
+                    _gv_file = _pf
+                    break
         if _gv_file:
             for ov in self._nlbl.get(NodeLabel.OPERATOR.value, []):
                 ov_type = _vattr(self.graph.vs[ov], "type", "")
