@@ -2790,16 +2790,7 @@ class GraphAnalyzer:
             return True
         # Also check builtin_knowledge for this language — any function
         # marked safe=True is a repair/sanitizer function.
-        bk = self._builtin_knowledge_cache
-        if bk is None:
-            try:
-                mod_path = f"core.core_engine.{self.language}.builtin_knowledge"
-                import importlib
-                mod = importlib.import_module(mod_path)
-                bk = getattr(mod, 'KNOWLEDGE', {})
-            except (ImportError, AttributeError):
-                bk = {}
-            self._builtin_knowledge_cache = bk
+        bk = self._load_builtin_knowledge()
         if bk:
             entry = bk.get(clean)
             if entry and entry.get("safe"):
@@ -2809,6 +2800,26 @@ class GraphAnalyzer:
                 if entry and entry.get("safe"):
                     return True
         return False
+
+    def _load_builtin_knowledge(self, language: str = None) -> dict:
+        """Load builtin_knowledge for the given language (or self.language).
+
+        Exposed as a public-ish method so scanner.py can query the same
+        knowledge base used by _is_repair_function.
+        """
+        lang = language or self.language
+        if lang == self.language and self._builtin_knowledge_cache is not None:
+            return self._builtin_knowledge_cache
+        try:
+            mod_path = f"core.core_engine.{lang}.builtin_knowledge"
+            import importlib
+            mod = importlib.import_module(mod_path)
+            bk = getattr(mod, 'KNOWLEDGE', {})
+        except (ImportError, AttributeError):
+            bk = {}
+        if lang == self.language:
+            self._builtin_knowledge_cache = bk
+        return bk
 
     def _is_known_callee(self, name: str) -> bool:
         """Check whether *name* has any entry in builtin_knowledge.
@@ -2824,16 +2835,7 @@ class GraphAnalyzer:
             clean = clean.rsplit("\\", 1)[-1]
         dot = clean.rfind(".")
         tail = clean[dot + 1:] if dot >= 0 else clean
-        bk = self._builtin_knowledge_cache
-        if bk is None:
-            try:
-                mod_path = f"core.core_engine.{self.language}.builtin_knowledge"
-                import importlib
-                mod = importlib.import_module(mod_path)
-                bk = getattr(mod, 'KNOWLEDGE', {})
-            except (ImportError, AttributeError):
-                bk = {}
-            self._builtin_knowledge_cache = bk
+        bk = self._load_builtin_knowledge()
         if bk:
             if clean in bk or tail in bk:
                 return True
