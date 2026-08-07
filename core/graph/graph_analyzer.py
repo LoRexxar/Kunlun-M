@@ -3287,7 +3287,7 @@ class GraphAnalyzer:
                             _ai = 0
                             for ae in self.graph.es.select(_source=ov, label="ast"):
                                 if _vattr(ae, "role") == "arg":
-                                    _arg_val = _vattr(self.graph.vs[ae.target], "value", "")
+                                    _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                                     if _ai == 0 and _arg_val:
                                         _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
                                         if str(_arg_val).strip("'\"") == _vn:
@@ -3333,7 +3333,7 @@ class GraphAnalyzer:
                         _ai = 0
                         for ae in self.graph.es.select(_source=sv, label="ast"):
                             if _vattr(ae, "role") == "arg":
-                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "")
+                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                                 if _ai == 0 and _arg_val:
                                     _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
                                     if str(_arg_val).strip("'\"") == _vn:
@@ -3386,7 +3386,7 @@ class GraphAnalyzer:
                         _ai = 0
                         for ae in self.graph.es.select(_source=ov, label="ast"):
                             if _vattr(ae, "role") == "arg":
-                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "")
+                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                                 if _ai == 0 and _arg_val:
                                     _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
                                     if str(_arg_val).strip("'\"") == _vn:
