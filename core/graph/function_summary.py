@@ -303,12 +303,11 @@ def _aggregate_flows(flows: list[dict]) -> tuple[str, set[int]]:
     if has_source:
         return "source", all_dep_params
     if all_dep_params:
-        # Mixed safe + param: function has sanitization logic.
-        # The param return is typically a conditional fallback
-        # (e.g. if(is_array) return $text). Prefer "safe" so the
-        # sanitizer in the primary return path is respected.
-        if has_safe:
-            return "safe", set()
+        # Mixed safe + param: function has a conditional sanitization path
+        # AND a raw parameter passthrough path. Be conservative: mark as
+        # "passthrough" so the taint analysis can still trace the parameter.
+        # Previously this returned "safe", which suppressed TPs when a
+        # function conditionally sanitized but also returned raw input.
         return "passthrough", all_dep_params
     if flows and all_safe_or_literal:
         return "safe", all_dep_params
