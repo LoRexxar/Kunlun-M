@@ -1497,6 +1497,7 @@ class GraphAnalyzer:
                                 # Guard check for direct superglobal subscript source
                                 if self.language in ("python", "php"):
                                     _gname = child_name.rsplit(".", 1)[-1] if "." in child_name else child_name
+                                    _gname = _gname.strip("'\"")
                                     if self._has_function_level_guard(child_vid, _gname):
                                         return self._cached(cache_key, AnalysisResult(
                                             code=-1,
@@ -1525,6 +1526,7 @@ class GraphAnalyzer:
                                     if self.language in ("python", "php"):
                                         # Extract member key from chain_name (e.g. "page" from "$_GET.page")
                                         _gname = chain_name.rsplit(".", 1)[-1] if "." in chain_name else chain_name
+                                        _gname = _gname.strip("'\"")
                                         if self._has_function_level_guard(child_vid, _gname):
                                             return self._cached(cache_key, AnalysisResult(
                                                 code=-1,
