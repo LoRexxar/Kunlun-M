@@ -1409,12 +1409,34 @@ class GraphAnalyzer:
                                     break
                             else:
                                 # No branch constraint blocked this source
+                                # Function-level guard check (preg_match, etc.)
+                                if self.language in ("python", "php") and uname.startswith("$"):
+                                    _gname = self._extract_member_key(up_vid) or uname
+                                    _gname = _gname.strip("'\"")
+                                    if self._has_function_level_guard(up_vid, _gname):
+                                        return self._cached(cache_key, AnalysisResult(
+                                            code=-1,
+                                            reason=f"source '{uname}' guarded by function-level validation",
+                                            chain=[{"step": "source_guard", "vid": up_vid,
+                                                    "name": uname, "code": -1}],
+                                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                                 logger.debug("source found '%s' vid=%d", uname, up_vid)
                                 return self._cached(cache_key, AnalysisResult(
                                     code=1, reason=f"superglobal '{uname}'",
                                     chain=[{"step": "dfg", "vid": up_vid, "name": uname, "code": 1}],
                                     path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                         else:
+                            # Function-level guard check (preg_match, etc.)
+                            if self.language in ("python", "php") and uname.startswith("$"):
+                                _gname = self._extract_member_key(up_vid) or uname
+                                _gname = _gname.strip("'\"")
+                                if self._has_function_level_guard(up_vid, _gname):
+                                    return self._cached(cache_key, AnalysisResult(
+                                        code=-1,
+                                        reason=f"source '{uname}' guarded by function-level validation",
+                                        chain=[{"step": "source_guard", "vid": up_vid,
+                                                "name": uname, "code": -1}],
+                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                             logger.debug("source found '%s' vid=%d", uname, up_vid)
                             return self._cached(cache_key, AnalysisResult(
                                 code=1, reason=f"superglobal '{uname}'",
