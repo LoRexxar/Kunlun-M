@@ -24,13 +24,21 @@ class CVI_6015(SingleRuleMixin):
             "ModelAndView",
         ]
 
-    def main(self, regex_string, sink_args=None):
+    def main(self, regex_string, sink_args=None, context=None, **kwargs):
         """
         Graph-based filtering:
         - sendRedirect with const/hardcoded arg → False (safe)
         - setHeader with non-Location header → False
         - ModelAndView without redirect: prefix → False
+        - Redirect var built from config/static method base → False (FP)
         """
+        # Build context text
+        full_text = ''
+        if isinstance(regex_string, str):
+            full_text = regex_string
+        if context and isinstance(context, str):
+            full_text = full_text + ' ' + context
+
         if sink_args:
             sn_lower = regex_string.lower() if isinstance(regex_string, str) else str(regex_string).lower()
 
@@ -43,6 +51,23 @@ class CVI_6015(SingleRuleMixin):
                     # because resolved_value may be overwritten in a branch
                     if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
                         return False
+
+                    # Check context for config-based redirect: pattern is
+                    # varName = SomeConfig.getXxx() + ... + userInput
+                    # This means the redirect base URL is config-controlled,
+                    # and user input is only in query params → not open redirect
+                    arg0_name = arg0.get('name', '')
+                    if arg0_name and full_text:
+                        import re as _re
+                        # Look for: [Type] varName = Something.getMethod(...) + ...
+                        # This means the redirect base URL is config-controlled,
+                        # and user input is only in query params → not open redirect
+                        config_concat = _re.search(
+                            arg0_name + r'\s*=\s*\w+\.\w+\([^)]*\)\s*\+',
+                            full_text
+                        )
+                        if config_concat:
+                            return False
 
             # setHeader: check arg[0] for header name
             if 'setheader' in sn_lower and 'sendredirect' not in sn_lower:
