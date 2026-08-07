@@ -985,10 +985,23 @@ class GraphAnalyzer:
             if stype in ("field", "property"):
                 full_text = _vattr(sv, "full_text", "")
                 if full_text and full_text != sname and self._is_source_variable(full_text):
-                    return self._cached(cache_key, AnalysisResult(
-                        code=1, reason=f"'{full_text}' is a superglobal (via member '{sname}')",
-                        chain=[{"step": "source", "vid": start_vid, "name": full_text, "code": 1}],
-                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+                    if self._is_superglobal_member_blocked(start_vid):
+                        pass
+                    else:
+                        # Guard check for property full_text superglobal source
+                        if self.language in ("python", "php"):
+                            _gname = sname.strip("'\"")
+                            if self._has_function_level_guard(start_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"source '{full_text}' guarded by function-level validation",
+                                    chain=[{"step": "source_guard", "vid": start_vid,
+                                            "name": full_text, "code": -1}],
+                                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1, reason=f"'{full_text}' is a superglobal (via member '{sname}')",
+                            chain=[{"step": "source", "vid": start_vid, "name": full_text, "code": 1}],
+                            path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         if _vattr(sv, "label") == NodeLabel.CONST.value:
             # Ruby string interpolation: a const string with DFG edges from
