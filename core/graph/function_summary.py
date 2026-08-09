@@ -94,8 +94,8 @@ def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
     from core.graph.node_edge_schema import NodeLabel
     from utils.igraph_compat import _vattr
 
-    # 允许展开 own 子节点的节点类型（branch/control 结构）
-    _OWN_EXPAND_LABELS = {NodeLabel.BRANCH.value, "control"}
+    # 允许展开 own 子节点的节点类型（branch/control/函数体）
+    _OWN_EXPAND_LABELS = {NodeLabel.BRANCH.value, "control", NodeLabel.FUNCTION.value}
 
     queue = deque([start_vid])
     result.add(start_vid)
@@ -116,6 +116,35 @@ def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
                     queue.append(tgt_vid)
                     if return_vids is not None and _vattr(graph.vs[tgt_vid], "label", "") == NodeLabel.RETURN.value:
                         return_vids.append(tgt_vid)
+
+
+def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
+    """Propagate func_summary_type from definition nodes to same-name
+    reference nodes created by the normalizer when building 'use' edges."""
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    func_by_name: dict[str, list[tuple[int, str]]] = {}
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            continue
+        fname = _vattr(v, "name", "")
+        if fname:
+            fst = _vattr(v, "func_summary_type", "")
+            func_by_name.setdefault(fname, []).append((v.index, fst))
+
+    for fname, entries in func_by_name.items():
+        best = ""
+        for _, fst in entries:
+            if fst in ("safe", "source", "source:user"):
+                best = fst
+                break
+            if fst == "passthrough" and not best:
+                best = fst
+        if best:
+            for vid, fst in entries:
+                if fst != best:
+                    graph.vs[vid]["func_summary_type"] = best
 
 
 def build_function_summaries(
@@ -231,37 +260,18 @@ def build_function_summaries(
         if new_this_round == 0:
             break  # 无进展，停止迭代
 
+        # Propagate summaries to same-name reference nodes after each round.
+        # This ensures that when function A (round 1) calls function B (round 2)
+        # via a reference node, the reference already has B's summary.
+        _propagate_same_name_summaries(graph)
+
     # 将剩余未处理的标记为 processed（避免后续重复计算）
     for vid in func_data:
         if vid not in processed:
             processed.add(vid)
 
-    # Propagate func_summary_type to same-name function nodes that were not
-    # directly processed (e.g. forward-declared reference nodes created by the
-    # normalizer when building 'use' edges). Without this, BFS finds the
-    # reference node via 'use' edge but its func_summary_type is empty.
-    func_by_name: dict[str, list[tuple[int, str]]] = {}
-    for v in graph.vs:
-        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
-            continue
-        fname = _vattr(v, "name", "")
-        if fname:
-            fst = _vattr(v, "func_summary_type", "")
-            func_by_name.setdefault(fname, []).append((v.index, fst))
-
-    for fname, entries in func_by_name.items():
-        # Find the best summary among all same-name functions
-        best = ""
-        for _, fst in entries:
-            if fst in ("safe", "source", "source:user"):
-                best = fst
-                break
-            if fst == "passthrough" and not best:
-                best = fst
-        if best:
-            for vid, fst in entries:
-                if not fst or fst != best:
-                    graph.vs[vid]["func_summary_type"] = best
+    # Final propagation to same-name reference nodes
+    _propagate_same_name_summaries(graph)
 
     logger.debug(
         "build_function_summaries: processed %d/%d functions, stats=%s",
@@ -360,7 +370,7 @@ def _trace_return_value(
 
     Returns dict: {origin, origin_type, dep_params, has_unresolved_call}
     """
-    from core.graph.node_edge_schema import NodeLabel
+    from core.graph.node_edge_schema import NodeLabel, AstRole
     from utils.igraph_compat import _vattr
 
     if start_vid in visited or depth > _MAX_TRACE_DEPTH:
@@ -463,6 +473,13 @@ def _trace_return_value(
             # 3f. 目标函数无摘要（unknown）→ fallback 追踪 ast 实参
             #     如果实参中包含 source parameter 的引用，call 返回值也继承该 origin。
             #     这是保守估计：对于无摘要的外部/框架函数，假设返回值包含实参的污点。
+            #
+            # BUT: if the call target is a user-defined function whose summary
+            # hasn't been computed yet (e.g. Format::htmlchars called by
+            # Format::input before htmlchars's summary is ready), mark as
+            # unresolved so build_function_summaries defers this function to
+            # a later iteration round.
+            has_use_target = bool(eidx["out"].get("use", {}).get(start_vid, []))
             if result and result.get("has_unresolved_call"):
                 for arg_vid, role, arg_idx in eidx["ast_ch"].get(start_vid, []):
                     if not role.startswith("arg"):
@@ -472,7 +489,7 @@ def _trace_return_value(
                     if arg_sub and arg_sub.get("origin_type") in ("source", "param"):
                         return {"origin": vname, "origin_type": arg_sub["origin_type"],
                                 "dep_params": arg_sub.get("dep_params", []),
-                                "has_unresolved_call": arg_sub.get("has_unresolved_call", False)}
+                                "has_unresolved_call": has_use_target}
                     # 如果实参中有 source 但 return type 是 unknown，优先报告 unknown
                     if arg_sub and arg_sub.get("origin_type") == "unknown":
                         # 继续检查其他实参
@@ -528,6 +545,21 @@ def _trace_return_value(
             # 所有分支都 unknown
             return {"origin": vname, "origin_type": "unknown", "dep_params": [],
                     "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
+
+    # ── 3.6. Return statement → trace AST[value] child ──
+    #    return Format::htmlchars($var)
+    #    → return node has AST child role=value → htmlchars call operator
+    #    → trace into it to determine if it's safe/passthrough/source
+    if vlabel == NodeLabel.RETURN.value:
+        value_children = [
+            (tgt, role, idx)
+            for tgt, role, idx in eidx["ast_ch"].get(start_vid, [])
+            if role == AstRole.VALUE.value
+        ]
+        if value_children:
+            sub = _trace_return_value(graph, value_children[0][0], own_vids, param_idx, visited, eidx, depth + 1)
+            if sub and sub.get("origin_type") != "unknown":
+                return sub
 
     # ── 4. 通用 DFG 反向追踪 ──
     all_dep_params: list[int] = []
