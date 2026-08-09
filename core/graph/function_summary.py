@@ -236,6 +236,33 @@ def build_function_summaries(
         if vid not in processed:
             processed.add(vid)
 
+    # Propagate func_summary_type to same-name function nodes that were not
+    # directly processed (e.g. forward-declared reference nodes created by the
+    # normalizer when building 'use' edges). Without this, BFS finds the
+    # reference node via 'use' edge but its func_summary_type is empty.
+    func_by_name: dict[str, list[tuple[int, str]]] = {}
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            continue
+        fname = _vattr(v, "name", "")
+        if fname:
+            fst = _vattr(v, "func_summary_type", "")
+            func_by_name.setdefault(fname, []).append((v.index, fst))
+
+    for fname, entries in func_by_name.items():
+        # Find the best summary among all same-name functions
+        best = ""
+        for _, fst in entries:
+            if fst in ("safe", "source", "source:user"):
+                best = fst
+                break
+            if fst == "passthrough" and not best:
+                best = fst
+        if best:
+            for vid, fst in entries:
+                if not fst or fst != best:
+                    graph.vs[vid]["func_summary_type"] = best
+
     logger.debug(
         "build_function_summaries: processed %d/%d functions, stats=%s",
         len(processed), len(func_data), stats,

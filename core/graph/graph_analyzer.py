@@ -1648,6 +1648,19 @@ class GraphAnalyzer:
                                 chain=[{"step": "dfg", "vid": up_vid,
                                         "name": _vattr(tgt, "name", ""), "code": 2}],
                                 path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Check all same-name function nodes for safe summary.
+                        # PHP normalizer sometimes creates duplicate function
+                        # nodes (definition vs reference). If ANY same-name
+                        # node has summary=safe, treat as safe.
+                        tgt_name = _vattr(tgt, "name", "")
+                        if tgt_name and tgt_summary != "safe" and tgt_taint != "safe":
+                            for sv in self.graph.vs.select(name=tgt_name, label=NodeLabel.FUNCTION.value):
+                                if _vattr(sv, "func_summary_type", "") == "safe" or _vattr(sv, "taint_type", "") == "safe":
+                                    return self._cached(cache_key, AnalysisResult(
+                                        code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
+                                        chain=[{"step": "dfg", "vid": up_vid,
+                                                "name": tgt_name, "code": 2}],
+                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                         break  # only check first function target
 
                     is_sg, sg_name = self._is_superglobal_method_call(up_vid)
