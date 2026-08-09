@@ -775,6 +775,33 @@ def _trace_passthrough_call(
                 return sub
             if sub["origin_type"] == "safe":
                 return sub
+            # str_replace / str_ireplace with literal search/replace args
+            # acts as a sanitizer on the subject (e.g. adminer's h() =
+            # str_replace(array('&','<','"',"'"), array('&amp;',...), $s)).
+            # When ALL non-passthrough args are constants, the function
+            # performs a fixed mapping → safe, not passthrough.
+            if sub["origin_type"] == "param":
+                callee = _vattr(graph.vs[call_vid], "callee", "") or ""
+                if callee in ("str_replace", "str_ireplace"):
+                    non_pt_args_all_const = True
+                    for tgt2, role2, arg_idx2 in eidx["ast_ch"].get(call_vid, []):
+                        if role2 != "arg":
+                            continue
+                        aidx2 = int(arg_idx2) if arg_idx2 else 0
+                        if aidx2 in pt_indices:
+                            continue
+                        lbl2 = _vattr(graph.vs[tgt2], "label", "")
+                        # array() literal is an operator with callee="array"
+                        if lbl2 == NodeLabel.OPERATOR.value:
+                            callee2 = _vattr(graph.vs[tgt2], "callee", "")
+                            if callee2 == "array":
+                                continue
+                        if lbl2 != NodeLabel.CONST.value:
+                            non_pt_args_all_const = False
+                            break
+                    if non_pt_args_all_const:
+                        vname = _vattr(graph.vs[call_vid], "name", "")
+                        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             all_dep_params.extend(sub.get("dep_params", []))
             if sub.get("has_unresolved_call"):
                 any_unresolved = True
