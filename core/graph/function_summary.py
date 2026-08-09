@@ -199,10 +199,11 @@ def build_function_summaries(
 
             # 如果有未解析的 call（目标函数尚未有摘要），且不是最后一轮，延迟处理
             has_unresolved = any(
-                f.get("origin_type") == "unknown" and f.get("has_unresolved_call")
+                f.get("has_unresolved_call")
+                and f.get("origin_type") in ("unknown", "param")
                 for f in return_flows
             )
-            if has_unresolved and summary_type == "unknown" and iteration < _MAX_ITERATIONS - 1:
+            if has_unresolved and summary_type in ("unknown", "passthrough") and iteration < _MAX_ITERATIONS - 1:
                 continue
 
             # ── 写入摘要属性 ──
@@ -508,16 +509,29 @@ def _trace_return_value(
     any_unresolved = False
     dfg_has_safe_source = False  # DFG 链中是否存在 safe/literal 源
 
-    for src_vid in eidx["in"].get("dfg", {}).get(start_vid, []):
-        # 4a. 检查 DFG 源节点自身是否是 source/safe（如 $_COOKIE、$_GET 等
-        #     不在函数 own 子树内的全局变量，由 enrich_taint 标注）
+    # Collect DFG sources, prioritizing safe/source over param.
+    # When a binary_op has both h($x) (safe) and $x (param) as DFG sources,
+    # safe should take precedence — the parameter is only reachable through
+    # the safe function call, not directly.
+    dfg_src_list = list(eidx["in"].get("dfg", {}).get(start_vid, []))
+
+    # Two-pass: first check for immediate safe/source taint on DFG sources
+    for src_vid in dfg_src_list:
         src_taint = _vattr(graph.vs[src_vid], "taint_type", "")
         if src_taint == "source":
             return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
         if src_taint == "safe":
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        # For call operators, check use→function for func_summary_type
+        src_label = _vattr(graph.vs[src_vid], "label", "")
+        src_type = _vattr(graph.vs[src_vid], "type", "")
+        if src_label == NodeLabel.OPERATOR.value and src_type in _CALL_TYPES:
+            result = _trace_call_to_function(graph, src_vid, own_vids, param_idx, visited, eidx, depth)
+            if result and result.get("origin_type") in ("safe", "source"):
+                return result
 
-        # 4b. 约束在函数 own 子树内，递归追踪
+    # Second pass: trace into own-vid sources
+    for src_vid in dfg_src_list:
         if src_vid not in own_vids:
             continue
         sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, eidx, depth + 1)
