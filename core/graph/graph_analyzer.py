@@ -2817,10 +2817,18 @@ class GraphAnalyzer:
                 # might be the source (e.g., chain="process.env.INPUT",
                 # parent="process.env" is in source_registry)
                 if self._is_source_variable(parent_name):
+                    # Subscript key check (same as below)
+                    if self._is_subscript_key_of_non_superglobal(parent_vid):
+                        break
                     return parent_name
                 break  # no further useful chain to build
             chain = f"{parent_name}.{chain}"
             if self._is_source_variable(chain):
+                # Check if the matched superglobal is a subscript key of a
+                # non-superglobal (e.g., $export_formats[$_GET['format']]).
+                # If so, it selects a predefined value — not a data source.
+                if self._is_subscript_key_of_non_superglobal(parent_vid):
+                    continue
                 return chain
             cur_vid = parent_vid
 
