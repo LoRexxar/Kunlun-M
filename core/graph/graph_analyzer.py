@@ -1403,6 +1403,11 @@ class GraphAnalyzer:
                     if uname == "$_FILES":
                         logger.debug("$_FILES blocked: bare form not a scalar source, vid=%d", up_vid)
                         continue
+                    # Superglobal used as array-offset subscript key of a
+                    # non-superglobal (e.g., $export_formats[$_GET['format']]).
+                    # It selects a predefined value, not a direct data source.
+                    if self._is_subscript_key_of_non_superglobal(up_vid):
+                        continue
                     # Branch constraint check on the source variable itself.
                     # Even though the sink arg may have a different name, the
                     # source variable (e.g. $_GET['page']) might be directly
@@ -2010,6 +2015,9 @@ class GraphAnalyzer:
                             # $_SERVER/$_FILES have mixed controllability — check member chain
                             if self._is_superglobal_member_blocked(cur_member):
                                 break
+                            # Subscript key of non-superglobal (e.g., $arr[$_GET['x']])
+                            if self._is_subscript_key_of_non_superglobal(obj_vid):
+                                break
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"superglobal '{obj_name}' via member access",
@@ -2536,6 +2544,8 @@ class GraphAnalyzer:
                         if self._is_source_variable(obj_name):
                             # $_SERVER has mixed controllability — check member chain
                             if self._is_superglobal_member_blocked(up_vid):
+                                pass
+                            elif self._is_subscript_key_of_non_superglobal(obj_vid):
                                 pass
                             else:
                                 return AnalysisResult(
