@@ -347,9 +347,21 @@ def _process_method_declaration(method_node, source_members, annotated_params):
             if hasattr(param, 'type') and param.type:
                 param_type = param.type.name if hasattr(param.type, 'name') else str(param.type)
 
-            # HttpServletRequest / InputStream / Principal 类型
+            # HttpServletRequest / InputStream / Principal types
+            # Only match Servlet/API request types, not user classes named "*Request*".
             # (MultipartFile excluded: carries uploaded file metadata, not direct user string source)
-            if any(t in param_type for t in ('Request', 'InputStream', 'Principal')):
+            _HTTP_REQUEST_TYPES = {
+                'HttpServletRequest', 'ServletRequest',
+                'HttpServletRequestWrapper', 'ServletRequestWrapper',
+                'MultipartHttpServletRequest',
+                'InputStream', 'ServletInputStream',
+                'Principal', 'java.security.Principal',
+            }
+            # Check exact type name (strip generics and package prefix)
+            bare_type = param_type.split('<')[0].strip()
+            if '.' in bare_type:
+                bare_type = bare_type.rsplit('.', 1)[-1]
+            if bare_type in _HTTP_REQUEST_TYPES:
                 annotated_params.add(param.name)
                 continue
 
@@ -374,7 +386,14 @@ def _process_method_declaration(method_node, source_members, annotated_params):
             ptype = ""
             if hasattr(param, 'type') and param.type:
                 ptype = param.type.name if hasattr(param.type, 'name') else str(param.type)
-            if 'Request' in ptype:
+            # Only match actual Servlet API request types, not user classes
+            # named "*Request*" (e.g., jmeter's curl Request).
+            bare_ptype = ptype.split('<')[0].strip()
+            if '.' in bare_ptype:
+                bare_ptype = bare_ptype.rsplit('.', 1)[-1]
+            if bare_ptype in ('HttpServletRequest', 'ServletRequest',
+                              'HttpServletRequestWrapper', 'ServletRequestWrapper',
+                              'MultipartHttpServletRequest'):
                 request_var_names.add(param.name)
 
     for stmt in method_node.body:
