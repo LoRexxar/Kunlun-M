@@ -1105,6 +1105,16 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if method_short in _MUTATOR_NAMES:
                 continue
 
+            # Skip getter methods (getXxx, isXxx, hasXxx) — these return
+            # a property value (String, int, etc.), NOT the receiver object.
+            # Creating a call→receiver back-edge for getters causes the
+            # getter's return value to pollute the receiver, linking
+            # unrelated data flows across method boundaries.
+            if (method_short.startswith("get")
+                    or method_short.startswith("is")
+                    or method_short.startswith("has")):
+                continue
+
             # 创建 call → receiver 的 DFG 回传边
             self._add_dfg_edge(vid, receiver_vid, DfgType.FORWARD_SLICE.value)
 
