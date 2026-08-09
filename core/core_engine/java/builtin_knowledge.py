@@ -129,7 +129,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "getHeaderNames":       {"passthrough": [], "safe": False},
         "getCookies":           {"passthrough": [0], "safe": False},
         "getQueryString":       {"passthrough": [0], "safe": False},
-        "getRequestURI":        {"passthrough": [0], "safe": False},  # URI contains user input
+        "getRequestURI":        {"passthrough": [], "safe": True},  # URI path is server-routed, not a redirect/SSRF payload
         "getContextPath":       {"passthrough": [0], "safe": True},  # Server-side config
         "getPathInfo":          {"passthrough": [0], "safe": False},  # PATH_INFO IS user input
         "getInputStream":       {"passthrough": [0], "safe": False},
@@ -206,7 +206,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "HttpServletRequest.getParameterMap":  {"passthrough": [0], "safe": False},
         "HttpServletRequest.getHeader":        {"passthrough": [0], "safe": False},
         "HttpServletRequest.getQueryString":   {"passthrough": [0], "safe": False},
-        "HttpServletRequest.getRequestURI":    {"passthrough": [0], "safe": False},
+        "HttpServletRequest.getRequestURI":    {"passthrough": [], "safe": True},
         "HttpServletRequest.getInputStream":   {"passthrough": [0], "safe": False},
         "HttpServletRequest.getReader":        {"passthrough": [0], "safe": False},
         "HttpServletResponse.getWriter":       {"passthrough": [], "safe": False},
