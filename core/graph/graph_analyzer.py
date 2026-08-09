@@ -1016,6 +1016,7 @@ class GraphAnalyzer:
                             "name": sname, "code": -1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
+            chain_names_start: list[str] = [sname]
             for _ in range(10):
                 member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
                 if not member_edges:
@@ -1025,11 +1026,14 @@ class GraphAnalyzer:
                 obj_name = _vattr(obj_v, "name", "")
                 obj_label = _vattr(obj_v, "label", "")
                 obj_type = _vattr(obj_v, "type", "")
+                if obj_name and obj_name != chain_names_start[-1]:
+                    chain_names_start.append(obj_name)
                 if self._is_source_variable(obj_name):
                     # $_SERVER has mixed controllability — skip server-config keys
                     # $_FILES has mixed controllability — skip non-source sub-keys
-                    if (obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS) \
-                            or (obj_name == "$_FILES" and sname in _FILES_NON_SOURCE_MEMBERS):
+                    # Check ALL names in the member chain (not just start node).
+                    if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_start)) \
+                            or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_start)):
                         pass
                     else:
                         return self._cached(cache_key, AnalysisResult(
@@ -1106,6 +1110,7 @@ class GraphAnalyzer:
                             "name": sname, "code": -1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
+            chain_names_pre: list[str] = [sname]
             for _ in range(10):
                 member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
                 if not member_edges:
@@ -1115,11 +1120,16 @@ class GraphAnalyzer:
                 obj_name = _vattr(obj_v, "name", "")
                 obj_label = _vattr(obj_v, "label", "")
                 obj_type = _vattr(obj_v, "type", "")
+                if obj_name and obj_name != chain_names_pre[-1]:
+                    chain_names_pre.append(obj_name)
                 if self._is_source_variable(obj_name):
                     # $_SERVER has mixed controllability — skip server-config keys
                     # $_FILES has mixed controllability — skip non-source sub-keys
-                    if (obj_name == "$_SERVER" and sname in _SERVER_UNCONTROLLED_KEYS) \
-                            or (obj_name == "$_FILES" and sname in _FILES_NON_SOURCE_MEMBERS):
+                    # Check ALL names in the member chain (not just start node),
+                    # so that $_FILES['x']['tmp_name'][$n] is correctly rejected:
+                    # 'tmp_name' is a non-source member even though $n is not.
+                    if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_pre)) \
+                            or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_pre)):
                         pass
                     else:
                         return self._cached(cache_key, AnalysisResult(
