@@ -2078,8 +2078,16 @@ class GraphAnalyzer:
                     # in different functions are unrelated.
                     cand_func = self._get_enclosing_func_vid(cand)
                     start_func = self._get_enclosing_func_vid(start_vid)
-                    if cand_func is not None and start_func is not None and cand_func != start_func:
-                        continue
+                    if cand_func is not None and start_func is not None:
+                        if cand_func != start_func:
+                            continue
+                    elif cand_func is None or start_func is None:
+                        # If enclosing function cannot be determined for one
+                        # of the nodes, fall back to line-distance heuristic:
+                        # def-chain candidates more than 200 lines apart are
+                        # almost certainly in different methods.
+                        if abs(cand_lineno - start_lineno) > 200:
+                            continue
                     # SSA kill check: if a same-name variable is re-defined
                     # between the candidate and the sink, the candidate's
                     # data flow is broken (killed by the re-definition).
