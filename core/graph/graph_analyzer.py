@@ -2649,8 +2649,13 @@ class GraphAnalyzer:
                             if self._source_registry.is_source_member(sfx):
                                 # Java: suffix match alone is too broad (e.g.
                                 # tree.getParameter matches getParameter).
-                                # Require prefix to be a known request type.
-                                if self.language == 'java' and i == len(parts) - 1:
+                                # Require prefix (root object) to be a known
+                                # request type. Apply to ALL suffix positions,
+                                # not just the last segment — otherwise
+                                # nameToken.getInputStream.getSourceName
+                                # matches getInputStream at position i=1
+                                # without checking that nameToken is a request.
+                                if self.language == 'java':
                                     prefix = parts[0]
                                     if prefix not in _JAVA_REQUEST_PREFIXES:
                                         continue
