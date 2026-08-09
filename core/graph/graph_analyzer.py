@@ -1035,6 +1035,12 @@ class GraphAnalyzer:
                     if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_start)) \
                             or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_start)):
                         pass
+                    elif self._is_subscript_key_of_non_superglobal(obj_vid):
+                        # Superglobal (e.g., $_GET['format']) appears as an
+                        # array_offset subscript of a non-superglobal variable
+                        # (e.g., $export_formats[$_GET['format']]). It selects
+                        # a predefined value, so it is NOT a direct data source.
+                        pass
                     else:
                         return self._cached(cache_key, AnalysisResult(
                             code=1,
@@ -1130,6 +1136,8 @@ class GraphAnalyzer:
                     # 'tmp_name' is a non-source member even though $n is not.
                     if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_pre)) \
                             or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_pre)):
+                        pass
+                    elif self._is_subscript_key_of_non_superglobal(obj_vid):
                         pass
                     else:
                         return self._cached(cache_key, AnalysisResult(
@@ -2663,6 +2671,35 @@ class GraphAnalyzer:
                         break
             except Exception:
                 pass
+        return False
+
+    def _is_subscript_key_of_non_superglobal(self, vid: int) -> bool:
+        """Check if a superglobal node (e.g., $_GET['format']) is used as an
+        array-offset subscript of a non-superglobal variable.
+
+        When ``$export_formats[$_GET['format']]['extension']`` is modeled in
+        the graph, the member chain is:
+
+            $export_formats --member(array_offset)--> $_GET[format]
+                                              --member(array_offset)--> extension
+
+        The superglobal ``$_GET[format]`` appears as a *child* (via array_offset
+        member edge) of ``$export_formats`` — meaning it is a subscript key
+        selector, not a direct data source. The returned value comes from the
+        predefined ``$export_formats`` array, not from user input.
+
+        Returns True if this node has an incoming member edge with
+        ``access_type == 'array_offset'`` from a non-superglobal parent.
+        """
+        if not self.graph:
+            return False
+        for e in self.graph.es.select(_target=vid, label="member"):
+            at = e["access_type"] if "access_type" in e.attribute_names() else ""
+            if at != "array_offset":
+                continue
+            parent_name = _vattr(self.graph.vs[e.source], "name", "")
+            if parent_name and not self._is_source_variable(parent_name):
+                return True
         return False
 
     def _is_superglobal_member_blocked(self, vid: int) -> bool:
