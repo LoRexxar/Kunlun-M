@@ -1602,8 +1602,14 @@ class GraphAnalyzer:
                         if child_label == NodeLabel.IDENTIFIER.value and child_type in ("field", "property"):
                             chain_name = self._is_source_via_member_chain(child_vid, child_name)
                             if chain_name:
-                                # Respect taint_type=safe from enrich_taint
+                                # Respect taint_type=safe from enrich_taint.
+                                # Check both the child (property) and the
+                                # superglobal parent it chains to — enrich_taint
+                                # marks the $_GET node as safe, not the property.
                                 if _vattr(cv, "taint_type", "") == "safe":
+                                    continue
+                                _sg_parent_taint = self._get_member_chain_parent_taint(child_vid)
+                                if _sg_parent_taint == "safe":
                                     continue
                                 if self._is_superglobal_member_blocked(child_vid):
                                     pass
@@ -2855,6 +2861,30 @@ class GraphAnalyzer:
             _mn = _vattr(self.graph.vs[e.target], "name", "")
             if _mn:
                 return _mn.strip("'\"")
+        return ""
+
+    def _get_member_chain_parent_taint(self, vid: int) -> str:
+        """Walk the incoming member chain from *vid* and return the
+        ``taint_type`` of the first ancestor that has one.
+
+        enrich_taint marks the superglobal node (e.g. ``$_GET``) as
+        ``safe`` when it is reassigned by a sanitizer, but the property
+        child (e.g. ``'package'``) is left untouched.  Callers that detect
+        a source *via* a member chain should use this helper to honour the
+        parent's ``taint_type`` annotation.
+        """
+        if self.graph is None:
+            return ""
+        cur_vid = vid
+        for _ in range(10):
+            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            if not member_in:
+                break
+            parent_vid = member_in[0].source
+            tt = _vattr(self.graph.vs[parent_vid], "taint_type", "")
+            if tt:
+                return tt
+            cur_vid = parent_vid
         return ""
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
