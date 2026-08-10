@@ -1502,8 +1502,12 @@ class GraphAnalyzer:
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
                         if self._is_source_variable(full_text):
-                            # $_SERVER/$_FILES have mixed controllability — check member chain
-                            if self._is_superglobal_member_blocked(up_vid):
+                            # Respect taint_type=safe from enrich_taint
+                            if _vattr(uv, "taint_type", "") == "safe":
+                                pass
+                            elif self._get_member_chain_parent_taint(up_vid) == "safe":
+                                pass
+                            elif self._is_superglobal_member_blocked(up_vid):
                                 pass
                             else:
                                 logger.debug("source found via full_text '%s' vid=%d", full_text, up_vid)
@@ -1515,8 +1519,14 @@ class GraphAnalyzer:
                     # Reconstruct member chain (a.b.c → check "a.b.c", "a.b", "a")
                     chain_name = self._is_source_via_member_chain(up_vid, uname)
                     if chain_name:
+                        # Respect taint_type=safe from enrich_taint.
+                        # Check both this node and its superglobal parent.
+                        if _vattr(uv, "taint_type", "") == "safe":
+                            pass
+                        elif self._get_member_chain_parent_taint(up_vid) == "safe":
+                            pass
                         # $_SERVER/$_FILES have mixed controllability — check member chain
-                        if self._is_superglobal_member_blocked(up_vid):
+                        elif self._is_superglobal_member_blocked(up_vid):
                             pass
                         else:
                             logger.debug("source found via member chain '%s' vid=%d", chain_name, up_vid)
