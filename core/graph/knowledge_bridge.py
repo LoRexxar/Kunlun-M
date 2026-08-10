@@ -119,8 +119,10 @@ def enrich_taint(
     source_var_count = _enrich_source_variables(graph)
     count += source_var_count
 
-    # 3b. 记录 superglobal 下标赋值（$_GET['x'] = f(...)），供 analyzer 判断
-    #     后续读取是否已被覆盖（sanitizer reassignment FP fix）。
+    # 3b. Mark superglobal use-site nodes as taint_type=safe when they were
+    #     reassigned by a safe function (e.g. $_GET['x'] = strtr(...)).
+    #     This directly annotates the graph so the analyzer doesn't need to
+    #     re-derive overwritten status at each source check site.
     _record_sanitized_superglobal_members(graph)
 
     # 4. 注解标注（Java @RequestParam/@PathVariable 等标记参数为 source）
@@ -514,21 +516,23 @@ def _find_enclosing_function(graph: ig.Graph, vid: int) -> int | None:
 
 
 def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
-    """Detect ``$_GET['key'] = expr`` assignments and record them on the graph.
+    """Detect ``$_GET['key'] = expr`` assignments and mark use-site nodes safe.
 
-    When a superglobal subscript is reassigned inside a function, subsequent
-    reads of the same subscript in that function reflect the assigned value
-    (often a sanitized one), not the original user input. The analyzer uses
-    this record to suppress false positives where ``enrich_taint`` has already
-    marked every ``$_GET`` node as ``taint_type=source``.
+    When a superglobal subscript is reassigned with a sanitized value inside a
+    function, subsequent reads of the same subscript in that function reflect
+    the sanitized value, not the original user input.  Instead of recording the
+    assignment for the analyzer to re-check at every source site (the old
+    approach), this function **directly rewrites** ``taint_type`` from
+    ``source`` to ``safe`` on the relevant superglobal and member nodes that
+    appear *after* the assignment in the same file + function scope.
 
-    Stores ``graph["sanitized_superglobal_members"]`` as a list of dicts:
-        {file_path, lineno, superglobal, member_key, func_vid}
+    The analyzer then simply checks ``taint_type == "safe"`` before treating a
+    superglobal node as a source — no overwritten bookkeeping required.
     """
     from core.graph.node_edge_schema import NodeLabel, EdgeLabel, OperatorType
 
-    records: list[dict] = []
     assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
+    marked = 0
 
     for v in graph.vs:
         if _vattr(v, "label", "") != NodeLabel.OPERATOR.value:
@@ -567,12 +571,12 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
             continue
 
         # --- RHS safe-callee check (recursive) ---
-        # Only record assignments where the RHS contains a safe/sanitizer
+        # Only mark use sites if the RHS contains a safe/sanitizer
         # function call somewhere in its AST subtree. This catches both
         # direct sanitizers (e.g. $_GET['x'] = strtr(...)) and nested
         # sanitizers (e.g. $_GET['x'] = preg_replace(..., strtr(...))).
         # If the RHS contains NO safe callee at all, the reassignment
-        # does NOT neutralize the taint and should remain a source.
+        # does NOT neutralize the taint and the nodes stay source.
         rhs_vid: int | None = None
         for e in graph.es.select(_source=assign_vid, label=EdgeLabel.AST.value):
             if _vattr(e, "role", "") == "rhs":
@@ -614,25 +618,67 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
             return False
 
         if not _rhs_has_safe_callee(rhs_vid):
-            continue  # No safe callee in RHS — don't record
+            continue  # No safe callee in RHS — leave nodes as source
 
         file_path = _vattr(graph.vs[assign_vid], "file_path", "")
         lineno = _vattr(graph.vs[assign_vid], "lineno", 0) or 0
         func_vid = _find_enclosing_function(graph, assign_vid)
 
-        records.append({
-            "file_path": file_path,
-            "lineno": lineno,
-            "superglobal": superglobal_name,
-            "member_key": member_key,
-            "func_vid": func_vid,
-        })
+        # --- Mark downstream superglobal + member nodes as safe ---
+        # Find all superglobal nodes of the same name in the SAME FILE and
+        # SAME FUNCTION with lineno GREATER than the assignment lineno, and
+        # set their taint_type from "source" to "safe".
+        for cand in graph.vs:
+            if _vattr(cand, "name", "") != superglobal_name:
+                continue
+            if _vattr(cand, "label", "") != NodeLabel.IDENTIFIER.value:
+                continue
+            if _vattr(cand, "file_path", "") != file_path:
+                continue
+            cand_lineno = _vattr(cand, "lineno", 0) or 0
+            if cand_lineno <= lineno:
+                continue
+            # Same function scope (if determinable on both sides)
+            cand_func = _find_enclosing_function(graph, cand.index)
+            if func_vid is not None and cand_func is not None and cand_func != func_vid:
+                continue
+            if _vattr(cand, "taint_type", "") == "source":
+                graph.vs[cand.index]["taint_type"] = "safe"
+                marked += 1
 
-    if records:
-        graph["sanitized_superglobal_members"] = records
+        # Also mark corresponding member/property nodes (e.g. 'package') that
+        # have a member edge FROM one of these sanitized superglobal nodes and
+        # appear after the assignment line.
+        for cand in graph.vs:
+            if _vattr(cand, "label", "") != NodeLabel.IDENTIFIER.value:
+                continue
+            if _vattr(cand, "name", "").strip("'\"") != member_key.strip("'\""):
+                continue
+            if _vattr(cand, "file_path", "") != file_path:
+                continue
+            cand_lineno = _vattr(cand, "lineno", 0) or 0
+            if cand_lineno <= lineno:
+                continue
+            # Must have a member edge from a node named superglobal_name
+            has_sg_parent = False
+            for me in graph.es.select(_target=cand.index, label="member"):
+                if _vattr(graph.vs[me.source], "name", "") == superglobal_name:
+                    has_sg_parent = True
+                    break
+            if not has_sg_parent:
+                continue
+            # Same function scope (if determinable on both sides)
+            cand_func = _find_enclosing_function(graph, cand.index)
+            if func_vid is not None and cand_func is not None and cand_func != func_vid:
+                continue
+            if _vattr(cand, "taint_type", "") == "source":
+                graph.vs[cand.index]["taint_type"] = "safe"
+                marked += 1
+
+    if marked:
         logger.debug(
-            "_record_sanitized_superglobal_members: recorded %d superglobal subscript assignments",
-            len(records),
+            "_record_sanitized_superglobal_members: marked %d nodes taint_type=safe",
+            marked,
         )
 
 
