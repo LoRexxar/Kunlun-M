@@ -119,6 +119,10 @@ def enrich_taint(
     source_var_count = _enrich_source_variables(graph)
     count += source_var_count
 
+    # 3b. 记录 superglobal 下标赋值（$_GET['x'] = f(...)），供 analyzer 判断
+    #     后续读取是否已被覆盖（sanitizer reassignment FP fix）。
+    _record_sanitized_superglobal_members(graph)
+
     # 4. 注解标注（Java @RequestParam/@PathVariable 等标记参数为 source）
     annotated_param_count = _enrich_annotated_params(graph)
     count += annotated_param_count
@@ -463,6 +467,123 @@ def _enrich_source_variables(graph: ig.Graph) -> int:
             graph.vs[v.index]["taint_type"] = "source"
             count += 1
     return count
+
+
+# PHP superglobals that can be subscript-assigned (e.g. $_GET['x'] = ...).
+# $_SERVER is excluded: its keys are server-config values and reassigning
+# one doesn't neutralize user-controlled HTTP_* fields in the same array.
+_SUPERGLOBAL_SUBSCRIPT_PARENTS: frozenset[str] = frozenset({
+    "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES",
+})
+
+
+def _find_enclosing_function(graph: ig.Graph, vid: int) -> int | None:
+    """Walk ``own`` edges upward from *vid* to find an ancestor function node.
+
+    Falls back to ``ast`` edges if no ``own`` parent exists (identifiers inside
+    operator subtrees are often linked via ``ast`` rather than ``own``).
+    Returns the function vertex id, or ``None`` if not found within 15 hops.
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    visited: set[int] = set()
+    current = vid
+    for _ in range(15):
+        if current is None or current in visited:
+            break
+        visited.add(current)
+        # Prefer 'own' edge, then 'ast' edge
+        parent_vid: int | None = None
+        for e in graph.es.select(_target=current, label="own"):
+            parent_vid = e.source
+            break
+        if parent_vid is None:
+            for e in graph.es.select(_target=current, label="ast"):
+                # Skip condition/callee edges — they don't represent enclosure
+                role = _vattr(e, "role", "")
+                if role in ("condition", "callee"):
+                    continue
+                parent_vid = e.source
+                break
+        if parent_vid is None:
+            break
+        if _vattr(graph.vs[parent_vid], "label", "") == NodeLabel.FUNCTION.value:
+            return parent_vid
+        current = parent_vid
+    return None
+
+
+def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
+    """Detect ``$_GET['key'] = expr`` assignments and record them on the graph.
+
+    When a superglobal subscript is reassigned inside a function, subsequent
+    reads of the same subscript in that function reflect the assigned value
+    (often a sanitized one), not the original user input. The analyzer uses
+    this record to suppress false positives where ``enrich_taint`` has already
+    marked every ``$_GET`` node as ``taint_type=source``.
+
+    Stores ``graph["sanitized_superglobal_members"]`` as a list of dicts:
+        {file_path, lineno, superglobal, member_key, func_vid}
+    """
+    from core.graph.node_edge_schema import NodeLabel, EdgeLabel, OperatorType
+
+    records: list[dict] = []
+    assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
+
+    for v in graph.vs:
+        if _vattr(v, "label", "") != NodeLabel.OPERATOR.value:
+            continue
+        if _vattr(v, "type", "") not in assign_types:
+            continue
+
+        assign_vid = v.index
+
+        # Find LHS child via ast[role=lhs]
+        lhs_vid: int | None = None
+        for e in graph.es.select(_source=assign_vid, label=EdgeLabel.AST.value):
+            if _vattr(e, "role", "") == "lhs":
+                lhs_vid = e.target
+                break
+        if lhs_vid is None:
+            continue
+
+        # LHS must be a property/identifier (subscript member)
+        lhs_label = _vattr(graph.vs[lhs_vid], "label", "")
+        if lhs_label != NodeLabel.IDENTIFIER.value:
+            continue
+
+        # Check if LHS has a MEMBER edge from a superglobal parent
+        superglobal_name = ""
+        for me in graph.es.select(_target=lhs_vid, label="member"):
+            parent_name = _vattr(graph.vs[me.source], "name", "")
+            if parent_name in _SUPERGLOBAL_SUBSCRIPT_PARENTS:
+                superglobal_name = parent_name
+                break
+        if not superglobal_name:
+            continue
+
+        member_key = _vattr(graph.vs[lhs_vid], "name", "")
+        if not member_key:
+            continue
+
+        file_path = _vattr(graph.vs[assign_vid], "file_path", "")
+        lineno = _vattr(graph.vs[assign_vid], "lineno", 0) or 0
+        func_vid = _find_enclosing_function(graph, assign_vid)
+
+        records.append({
+            "file_path": file_path,
+            "lineno": lineno,
+            "superglobal": superglobal_name,
+            "member_key": member_key,
+            "func_vid": func_vid,
+        })
+
+    if records:
+        graph["sanitized_superglobal_members"] = records
+        logger.debug(
+            "_record_sanitized_superglobal_members: recorded %d superglobal subscript assignments",
+            len(records),
+        )
 
 
 def _enrich_annotated_params(graph: ig.Graph) -> int:

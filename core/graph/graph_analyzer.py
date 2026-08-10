@@ -393,6 +393,21 @@ class GraphAnalyzer:
 
         self._mark_branch_safe_dfg()
 
+        # --- superglobal subscript reassignment index ---
+        # Built from graph["sanitized_superglobal_members"] (set by
+        # knowledge_bridge._record_sanitized_superglobal_members).
+        # Keyed by (file_path, superglobal, member_key) → list of (lineno, func_vid).
+        # Used by parameters_back() to suppress FPs where a superglobal member
+        # (e.g. $_GET['package']) was reassigned with a sanitized value before use.
+        self._sanitized_superglobals: dict[tuple[str, str, str], list[tuple[int, int | None]]] = {}
+        _sg_attr = "sanitized_superglobal_members"
+        if _sg_attr in graph.attributes():
+            for rec in graph[_sg_attr] or []:
+                key = (rec.get("file_path", ""), rec.get("superglobal", ""), rec.get("member_key", ""))
+                self._sanitized_superglobals.setdefault(key, []).append(
+                    (rec.get("lineno", 0), rec.get("func_vid"))
+                )
+
     # --- Sink discovery ---------------------------------------------------
 
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
@@ -958,6 +973,18 @@ class GraphAnalyzer:
                         chain=[{"step": "source_guard", "vid": start_vid,
                                 "name": sname, "code": -1}],
                         path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Check if this superglobal member was overwritten by a prior
+            # assignment (e.g. $_GET['x'] = sanitize($_GET['x']))
+            _overwritten, _ow_lineno = self._is_superglobal_member_overwritten(
+                start_vid, sname
+            )
+            if _overwritten:
+                return self._cached(cache_key, AnalysisResult(
+                    code=-1,
+                    reason=f"superglobal '{sname}' overwritten by assignment at line {_ow_lineno}",
+                    chain=[{"step": "superglobal_overwritten", "vid": start_vid,
+                            "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             return self._cached(cache_key, AnalysisResult(
                 code=1, reason=f"'{sname}' is a superglobal",
                 chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
@@ -1037,11 +1064,25 @@ class GraphAnalyzer:
                         pass
                     elif self._is_subscript_key_of_non_superglobal(obj_vid):
                         # Superglobal (e.g., $_GET['format']) appears as an
-                        # array_offset subscript of a non-superglobal variable
+                        # array-offset subscript of a non-superglobal variable
                         # (e.g., $export_formats[$_GET['format']]). It selects
                         # a predefined value, so it is NOT a direct data source.
                         pass
                     else:
+                        # Check if this superglobal member was overwritten by
+                        # a prior assignment (e.g. $_GET['x'] = sanitize(...))
+                        _overwritten, _ow_lineno = self._is_superglobal_member_overwritten(
+                            obj_vid, obj_name, chain_names_start[0] if chain_names_start else ""
+                        )
+                        if _overwritten:
+                            return self._cached(cache_key, AnalysisResult(
+                                code=-1,
+                                reason=f"superglobal member '{obj_name}[{chain_names_start[0] if chain_names_start else ''}]' "
+                                       f"overwritten by assignment at line {_ow_lineno}",
+                                chain=[{"step": "superglobal_overwritten", "vid": obj_vid,
+                                        "name": obj_name, "code": -1}],
+                                path=[start_vid, obj_vid],
+                                expr_lineno=_vattr(obj_v, "lineno", 0)))
                         return self._cached(cache_key, AnalysisResult(
                             code=1,
                             reason=f"superglobal '{obj_name}' via member access",
@@ -1440,6 +1481,15 @@ class GraphAnalyzer:
                                             chain=[{"step": "source_guard", "vid": up_vid,
                                                     "name": uname, "code": -1}],
                                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                                # Check if this superglobal member was overwritten
+                                _ow, _ow_ln = self._is_superglobal_member_overwritten(up_vid, uname)
+                                if _ow:
+                                    return self._cached(cache_key, AnalysisResult(
+                                        code=-1,
+                                        reason=f"superglobal '{uname}' overwritten by assignment at line {_ow_ln}",
+                                        chain=[{"step": "superglobal_overwritten", "vid": up_vid,
+                                                "name": uname, "code": -1}],
+                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                                 logger.debug("source found '%s' vid=%d", uname, up_vid)
                                 return self._cached(cache_key, AnalysisResult(
                                     code=1, reason=f"superglobal '{uname}'",
@@ -1457,6 +1507,15 @@ class GraphAnalyzer:
                                         chain=[{"step": "source_guard", "vid": up_vid,
                                                 "name": uname, "code": -1}],
                                         path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                            # Check if this superglobal member was overwritten
+                            _ow, _ow_ln = self._is_superglobal_member_overwritten(up_vid, uname)
+                            if _ow:
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"superglobal '{uname}' overwritten by assignment at line {_ow_ln}",
+                                    chain=[{"step": "superglobal_overwritten", "vid": up_vid,
+                                            "name": uname, "code": -1}],
+                                    path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                             logger.debug("source found '%s' vid=%d", uname, up_vid)
                             return self._cached(cache_key, AnalysisResult(
                                 code=1, reason=f"superglobal '{uname}'",
@@ -2809,6 +2868,104 @@ class GraphAnalyzer:
             if _mn:
                 return _mn.strip("'\"")
         return ""
+
+    def _is_superglobal_member_overwritten(self, source_vid: int,
+                                            superglobal_name: str,
+                                            member_key: str = "") -> tuple[bool, int]:
+        """Check if a superglobal subscript was overwritten by an assignment.
+
+        When code does::
+
+            $_GET['package'] = sanitize($_GET['package']);
+            ... use $_GET['package'] ...
+
+        ``enrich_taint`` marks all ``$_GET`` nodes as ``taint_type=source``,
+        so the analyzer would report a false positive at the use site. This
+        method checks ``self._sanitized_superglobals`` (built from
+        ``graph["sanitized_superglobal_members"]``) to see if a prior
+        assignment to the same superglobal+member_key exists in the same
+        file and enclosing function, with a smaller line number.
+
+        Args:
+            source_vid: The vertex id of the ``$_GET`` (or other superglobal)
+                node being evaluated as a source.
+            superglobal_name: The superglobal name, e.g. ``"$_GET"``.
+            member_key: The subscript key (e.g. ``"package"``). If empty,
+                will be extracted from the node's member children.
+
+        Returns:
+            ``(True, assign_lineno)`` if an overwriting assignment was found
+            before this use site; ``(False, 0)`` otherwise.
+        """
+        if not self._sanitized_superglobals:
+            return False, 0
+        if not superglobal_name:
+            return False, 0
+        # Extract member_key from the source node if not provided
+        if not member_key:
+            member_key = self._extract_member_key(source_vid)
+        if not member_key:
+            return False, 0
+        member_key = member_key.strip("'\"")
+
+        # File path and lineno of the current use site
+        use_file = _vattr(self.graph.vs[source_vid], "file_path", "")
+        use_lineno = _vattr(self.graph.vs[source_vid], "lineno", 0) or 0
+
+        # Find enclosing function of the current use site
+        use_func_vid = self._find_enclosing_function_for_vid(source_vid)
+
+        key = (use_file, superglobal_name, member_key)
+        candidates = self._sanitized_superglobals.get(key)
+        if not candidates:
+            return False, 0
+
+        for assign_lineno, assign_func_vid in candidates:
+            if assign_lineno and use_lineno and assign_lineno < use_lineno:
+                # Assignment is before the use — check same function scope.
+                # If func_vid is None on either side, treat as matching (conservative).
+                if assign_func_vid is None or use_func_vid is None:
+                    return True, assign_lineno
+                if assign_func_vid == use_func_vid:
+                    return True, assign_lineno
+        return False, 0
+
+    def _find_enclosing_function_for_vid(self, vid: int) -> int | None:
+        """Walk ``own``/``ast`` edges upward from *vid* to find a function node.
+
+        This mirrors the logic in ``knowledge_bridge._find_enclosing_function``
+        but uses the analyzer's pre-built edge indices where possible.
+        """
+        cur = vid
+        visited: set[int] = set()
+        for _ in range(15):
+            if cur is None or cur in visited:
+                break
+            visited.add(cur)
+            # Prefer 'own' edge parent
+            parent_vid: int | None = None
+            own_list = self._etgt.get("own", {}).get(cur)
+            if own_list:
+                parent_vid = own_list[0]
+            if parent_vid is None:
+                # Fallback: ast edge (skip condition/callee)
+                ast_list = self._etgt.get("ast", {}).get(cur, [])
+                for pv in ast_list:
+                    # We need to check the edge role — use graph.es for this
+                    for e in self.graph.es.select(_target=cur, label="ast"):
+                        role = _vattr(e, "role", "")
+                        if role in ("condition", "callee"):
+                            continue
+                        parent_vid = e.source
+                        break
+                    if parent_vid is not None:
+                        break
+            if parent_vid is None:
+                break
+            if _vattr(self.graph.vs[parent_vid], "label", "") == NodeLabel.FUNCTION.value:
+                return parent_vid
+            cur = parent_vid
+        return None
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
