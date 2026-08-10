@@ -1181,6 +1181,20 @@ class GraphAnalyzer:
                     elif self._is_subscript_key_of_non_superglobal(obj_vid):
                         pass
                     else:
+                        # Check if this superglobal member was overwritten by
+                        # a prior assignment (e.g. $_GET['x'] = sanitize(...))
+                        _overwritten, _ow_lineno = self._is_superglobal_member_overwritten(
+                            obj_vid, obj_name, chain_names_pre[0] if chain_names_pre else ""
+                        )
+                        if _overwritten:
+                            return self._cached(cache_key, AnalysisResult(
+                                code=-1,
+                                reason=f"superglobal member '{obj_name}[{chain_names_pre[0] if chain_names_pre else ''}]' "
+                                       f"overwritten by assignment at line {_ow_lineno}",
+                                chain=[{"step": "superglobal_overwritten", "vid": obj_vid,
+                                        "name": obj_name, "code": -1}],
+                                path=[start_vid, obj_vid],
+                                expr_lineno=_vattr(obj_v, "lineno", 0)))
                         return self._cached(cache_key, AnalysisResult(
                             code=1,
                             reason=f"superglobal '{obj_name}' via member access",
@@ -2090,6 +2104,21 @@ class GraphAnalyzer:
                             # Subscript key of non-superglobal (e.g., $arr[$_GET['x']])
                             if self._is_subscript_key_of_non_superglobal(obj_vid):
                                 break
+                            # Check if this superglobal member was overwritten by
+                            # a prior assignment (e.g. $_GET['x'] = sanitize(...))
+                            _member_key = _vattr(uv, "name", "")
+                            _overwritten, _ow_lineno = self._is_superglobal_member_overwritten(
+                                obj_vid, obj_name, _member_key
+                            )
+                            if _overwritten:
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"superglobal member '{obj_name}[{_member_key}]' "
+                                           f"overwritten by assignment at line {_ow_lineno}",
+                                    chain=[{"step": "superglobal_overwritten", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=new_path + [obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"superglobal '{obj_name}' via member access",
@@ -2628,6 +2657,19 @@ class GraphAnalyzer:
                             elif self._is_subscript_key_of_non_superglobal(obj_vid):
                                 pass
                             else:
+                                # Check if this superglobal member was overwritten
+                                _overwritten, _ow_lineno = self._is_superglobal_member_overwritten(
+                                    obj_vid, obj_name, uname
+                                )
+                                if _overwritten:
+                                    return AnalysisResult(
+                                        code=-1,
+                                        reason=f"superglobal member '{obj_name}[{uname}]' "
+                                               f"overwritten by assignment at line {_ow_lineno}",
+                                        chain=[{"step": "superglobal_overwritten", "vid": obj_vid,
+                                                "name": obj_name, "code": -1}],
+                                        path=[start_vid, up_vid, obj_vid],
+                                        expr_lineno=_vattr(self.graph.vs[obj_vid], "lineno", 0))
                                 return AnalysisResult(
                                     code=1,
                                     reason=f"superglobal '{obj_name}' via member access",

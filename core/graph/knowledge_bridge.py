@@ -566,12 +566,13 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
         if not member_key:
             continue
 
-        # --- RHS safe-callee check ---
-        # Only record assignments where the RHS is a safe/sanitizer function
-        # call (e.g. strtr, htmlspecialchars). If RHS is a non-safe function
-        # (e.g. preg_replace with passthrough) or a raw expression, the
-        # reassignment does NOT neutralize the taint and the superglobal
-        # member should remain a source.
+        # --- RHS safe-callee check (recursive) ---
+        # Only record assignments where the RHS contains a safe/sanitizer
+        # function call somewhere in its AST subtree. This catches both
+        # direct sanitizers (e.g. $_GET['x'] = strtr(...)) and nested
+        # sanitizers (e.g. $_GET['x'] = preg_replace(..., strtr(...))).
+        # If the RHS contains NO safe callee at all, the reassignment
+        # does NOT neutralize the taint and should remain a source.
         rhs_vid: int | None = None
         for e in graph.es.select(_source=assign_vid, label=EdgeLabel.AST.value):
             if _vattr(e, "role", "") == "rhs":
@@ -580,38 +581,40 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
         if rhs_vid is None:
             continue  # no RHS — skip
 
-        rhs_label = _vattr(graph.vs[rhs_vid], "label", "")
-        rhs_type = _vattr(graph.vs[rhs_vid], "type", "")
-        if rhs_label != NodeLabel.OPERATOR.value or rhs_type not in (
-            "call", "static_call", "method_call",
-        ):
-            continue  # RHS is not a function call — skip
+        # Recursively scan RHS AST subtree for safe callees
+        def _rhs_has_safe_callee(vid: int, depth: int = 0,
+                                  visited: set | None = None) -> bool:
+            if visited is None:
+                visited = set()
+            if vid in visited or depth > 12:
+                return False
+            visited.add(vid)
+            node = graph.vs[vid]
+            callee = _vattr(node, "callee", "") or _vattr(node, "name", "")
+            if callee:
+                # Check builtin_knowledge safe=True
+                try:
+                    from core.core_engine.php.builtin_knowledge import KNOWLEDGE as _PHP_BK
+                    entry = _PHP_BK.get(callee)
+                    if isinstance(entry, dict) and entry.get("safe"):
+                        return True
+                except Exception:
+                    pass
+                # Check taint_type=safe from enrich_taint
+                for ue in graph.es.select(_source=vid, label="use"):
+                    fv = graph.vs[ue.target]
+                    if _vattr(fv, "label", "") == NodeLabel.FUNCTION.value:
+                        if _vattr(fv, "taint_type", "") == "safe":
+                            return True
+                        break
+            # Recurse into AST children
+            for e in graph.es.select(_source=vid, label=EdgeLabel.AST.value):
+                if _rhs_has_safe_callee(e.target, depth + 1, visited):
+                    return True
+            return False
 
-        # Check if RHS callee is safe
-        rhs_callee = _vattr(graph.vs[rhs_vid], "callee", "") or _vattr(graph.vs[rhs_vid], "name", "")
-        if not rhs_callee:
-            continue
-
-        _is_safe = False
-        # Check builtin_knowledge safe=True
-        try:
-            from core.core_engine.php.builtin_knowledge import KNOWLEDGE as _PHP_BK
-            if rhs_callee in _PHP_BK:
-                _entry = _PHP_BK[rhs_callee]
-                if isinstance(_entry, dict) and _entry.get("safe"):
-                    _is_safe = True
-        except Exception:
-            pass
-        # Check taint_type annotation from enrich_taint
-        if not _is_safe:
-            for ue in graph.es.select(_source=rhs_vid, label="use"):
-                _fv = graph.vs[ue.target]
-                if _vattr(_fv, "label", "") == NodeLabel.FUNCTION.value:
-                    if _vattr(_fv, "taint_type", "") == "safe":
-                        _is_safe = True
-                    break
-        if not _is_safe:
-            continue  # RHS callee is not safe — don't record
+        if not _rhs_has_safe_callee(rhs_vid):
+            continue  # No safe callee in RHS — don't record
 
         file_path = _vattr(graph.vs[assign_vid], "file_path", "")
         lineno = _vattr(graph.vs[assign_vid], "lineno", 0) or 0
