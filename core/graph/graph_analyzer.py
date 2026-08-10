@@ -1566,6 +1566,9 @@ class GraphAnalyzer:
                         child_label = _vattr(cv, "label", "")
                         # Direct name check
                         if self._is_source_variable(child_name):
+                            # Respect taint_type=safe from enrich_taint
+                            if _vattr(cv, "taint_type", "") == "safe":
+                                continue
                             if self._is_superglobal_member_blocked(child_vid):
                                 pass
                             else:
@@ -1599,6 +1602,9 @@ class GraphAnalyzer:
                         if child_label == NodeLabel.IDENTIFIER.value and child_type in ("field", "property"):
                             chain_name = self._is_source_via_member_chain(child_vid, child_name)
                             if chain_name:
+                                # Respect taint_type=safe from enrich_taint
+                                if _vattr(cv, "taint_type", "") == "safe":
+                                    continue
                                 if self._is_superglobal_member_blocked(child_vid):
                                     pass
                                 else:
