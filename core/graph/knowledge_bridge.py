@@ -570,6 +570,14 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
         if not member_key:
             continue
 
+        # Skip variable-key assignments (e.g. $_POST[$key] = normalize(...)).
+        # These don't sanitize a SPECIFIC member, and marking them would
+        # incorrectly suppress all downstream superglobal uses.
+        # Literal string keys contain quotes; variable keys start with $.
+        stripped_key = member_key.strip("'\"")
+        if stripped_key.startswith("$"):
+            continue
+
         # --- RHS safe-callee check (recursive) ---
         # Only mark use sites if the RHS contains a safe/sanitizer
         # function call somewhere in its AST subtree. This catches both
