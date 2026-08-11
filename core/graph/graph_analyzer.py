@@ -1598,6 +1598,11 @@ class GraphAnalyzer:
                         child_name = _vattr(cv, "name", "")
                         child_type = _vattr(cv, "type", "")
                         child_label = _vattr(cv, "label", "")
+                        # Skip safe function call children — their arguments
+                        # are sanitized, so $_GET inside them is not a source.
+                        if child_label == NodeLabel.OPERATOR.value and child_type in ("call", "method_call", "static_call"):
+                            if self._is_safe_function_call(child_vid):
+                                continue
                         # Direct name check
                         if self._is_source_variable(child_name):
                             # Respect taint_type=safe from enrich_taint
@@ -2896,6 +2901,37 @@ class GraphAnalyzer:
             if _mn:
                 return _mn.strip("'\"")
         return ""
+
+    def _is_safe_function_call(self, call_vid: int) -> bool:
+        """Check if the call at *call_vid* targets a function whose return
+        value is safe (sanitized).
+
+        Checks three sources in order:
+        1. builtin_knowledge (safe=True)
+        2. taint_type='safe' on the call node (set by enrich_taint)
+        3. func_summary_type='safe' on the function node (set by
+           build_function_summaries) via use edge
+        """
+        # 1. builtin_knowledge
+        _callee = self._resolve_callee_name(call_vid)
+        if _callee:
+            _bk = self._load_builtin_knowledge(self.language)
+            if _bk and _callee in _bk:
+                _entry = _bk[_callee]
+                if isinstance(_entry, dict) and _entry.get("safe"):
+                    return True
+        # 2. taint_type on call node
+        cv = self.graph.vs[call_vid]
+        if _vattr(cv, "taint_type", "") == "safe":
+            return True
+        # 3. func_summary_type via use edge
+        for ue in self.graph.es.select(_source=call_vid, label="use"):
+            fvid = ue.target
+            if fvid < self.graph.vcount():
+                fv = self.graph.vs[fvid]
+                if _vattr(fv, "func_summary_type", "") == "safe":
+                    return True
+        return False
 
     def _get_member_chain_parent_taint(self, vid: int) -> str:
         """Walk the incoming member chain from *vid* and return the
