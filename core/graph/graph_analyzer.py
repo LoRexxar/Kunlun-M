@@ -2994,11 +2994,40 @@ class GraphAnalyzer:
                     b_file = _vattr(bv, "file_path", "") or _vattr(bv, "path", "")
                     if b_file and s_file and b_file != s_file:
                         continue
-                    # If end_lineno is unknown (0), use a generous window:
-                    # any sink within 50 lines after the branch is considered
-                    # potentially inside the dead body.
+                    # Compute b_end from actual body children when end_lineno
+                    # is unknown.  We use role="body" AST edges (added by the
+                    # PHP normalizer) to find the maximum lineno among the
+                    # branch's body statements.  This gives the precise end of
+                    # the dead-code block instead of a generous +50 window that
+                    # would swallow live code after the block.
                     if b_end <= 0:
-                        b_end = b_lineno + 50
+                        bvid = bv.index
+                        # Recursively walk all descendant nodes of this branch
+                        # to find the maximum lineno in the body subtree.
+                        # PHP normalizer connects body statements via 'own'
+                        # edges (not 'ast'/'body'), so we follow both.
+                        body_linenos = []
+                        _visited = {bvid}
+                        _queue = [bvid]
+                        while _queue:
+                            _cur = _queue.pop(0)
+                            for _ae in self.graph.es.select(_source=_cur):
+                                _el = _vattr(_ae, "label", "")
+                                if _el not in ("ast", "own"):
+                                    continue
+                                _tgt = _ae.target
+                                if _tgt in _visited:
+                                    continue
+                                _visited.add(_tgt)
+                                _child_ln = int(
+                                    _vattr(self.graph.vs[_tgt], "lineno", 0) or 0)
+                                if _child_ln > 0:
+                                    body_linenos.append(_child_ln)
+                                _queue.append(_tgt)
+                        if body_linenos:
+                            b_end = max(body_linenos)
+                        else:
+                            b_end = b_lineno + 3
                     if b_lineno > 0 and b_lineno <= s_lineno <= b_end:
                         return True
         except Exception:

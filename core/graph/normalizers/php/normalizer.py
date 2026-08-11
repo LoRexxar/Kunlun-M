@@ -1292,7 +1292,22 @@ class Normalizer:
                     if arr_pos is not None:
                         add_edge({"label": EdgeLabel.MEMBER.value, "source": arr_pos, "target": member_pos,
                                    "attrs": {"access_type": MemberAccessType.ARRAY_OFFSET.value}})
-                    return member_pos
+
+                    # Decide what to return as the expression's value.
+                    # For superglobals like $_GET['x'], $_POST['y'] we keep the
+                    # old behaviour (return member_pos = the key node) because
+                    # each key access must be tracked independently — sanitising
+                    # $_GET['a'] must NOT mark $_GET['b'] as safe.
+                    # For regular arrays like $catOpts[$_GET['x']] we return
+                    # arr_pos (the array container) because the *value* comes
+                    # from the array, not from the index expression.  This
+                    # prevents taint on the key from leaking to the value.
+                    _arr_name = self._expr_text(arr) if arr else ""
+                    _SUPERGLOBALS = {"$_GET", "$_POST", "$_REQUEST", "$_COOKIE",
+                                     "$_FILES", "$_SERVER", "$_ENV", "$_SESSION"}
+                    if _arr_name.strip() in _SUPERGLOBALS:
+                        return member_pos          # keep per-key tracking
+                    return arr_pos if arr_pos is not None else member_pos
 
             # -- StaticProperty → member edge -------------------------------------
             if node_type_name == "StaticProperty":
