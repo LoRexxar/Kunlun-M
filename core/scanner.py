@@ -782,6 +782,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         chain=[{"step": "safe", "vid": op_vid,
                                                 "name": _callee or '', "code": 2}],
                                         path=[op_vid]), None
+                                # Check func_summary_type via _is_safe_function_call.
+                                # Catches user-defined safe functions (e.g. adminer's
+                                # myescape, checkbox, html_select) that are marked safe
+                                # by build_function_summaries but not by enrich_taint.
+                                if analyzer._is_safe_function_call(op_vid):
+                                    from core.graph.graph_analyzer import AnalysisResult as _AR
+                                    return _AR(
+                                        code=2, reason=f"nested safe-fn '{_callee or ''}'",
+                                        chain=[{"step": "safe_fn", "vid": op_vid,
+                                                "name": _callee or '', "code": 2}],
+                                        path=[op_vid]), None
                                 # Fix 14: PHP type cast sanitization.
                                 # (int), (float), (bool), (array) casts destroy string
                                 # content, making XSS/SQLi/injection impossible.
