@@ -1017,6 +1017,15 @@ class GraphAnalyzer:
         # Check member access on start node: $_GET['cmd'] / $obj->prop
         # Supports nested chains: $_FILES['uploaded']['tmp_name']
         if _vattr(sv, "type") in ("field", "property"):
+            # If this property is nested inside a safe function call's
+            # AST subtree (e.g. echo checkbox(..., $_COOKIE["x"], ...)),
+            # it is sanitized — skip the member-chain source check.
+            if self._is_inside_safe_call_ast(start_vid):
+                return self._cached(cache_key, AnalysisResult(
+                    code=-1, reason="member access inside safe function call",
+                    chain=[{"step": "safe_call_member", "vid": start_vid,
+                            "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             # Quick reject: if this member key itself is a known non-source key
             # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
             # The parent variable may trace back to the superglobal via DFG, but
@@ -2917,11 +2926,30 @@ class GraphAnalyzer:
                 return _mn.strip("'\"")
         return ""
 
+    def _is_inside_safe_call_ast(self, vid: int) -> bool:
+        """Check if *vid* is nested inside a safe function call's AST subtree.
+
+        Walks up the AST parent chain from *vid*. If any ancestor is a call
+        operator whose callee is a known safe function, returns True.
+        """
+        cur = vid
+        for _ in range(15):  # max AST depth
+            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            if not parents:
+                break
+            for p_vid in parents:
+                pv = self.graph.vs[p_vid]
+                plabel = _vattr(pv, "label", "")
+                ptype = _vattr(pv, "type", "")
+                if plabel == NodeLabel.OPERATOR.value and ptype in ("call", "method_call", "static_call"):
+                    if self._is_safe_function_call(p_vid):
+                        return True
+            cur = parents[0]
+        return False
+
     def _is_safe_function_call(self, call_vid: int) -> bool:
         """Check if the call at *call_vid* targets a function whose return
-        value is safe (sanitized).
-
-        Checks three sources in order:
+        value is safe (sanitized).        Checks three sources in order:
         1. builtin_knowledge (safe=True)
         2. taint_type='safe' on the call node (set by enrich_taint)
         3. func_summary_type='safe' on the function node (set by
