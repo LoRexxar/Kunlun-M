@@ -1552,14 +1552,14 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.CONST.value:
                     continue
 
-                # Rule 2b: binary_op / subscript / call (e.g., sys.argv[0],
-                # arr[key], obj.method()) — check ast children for source
+                # Rule 2b: binary_op / subscript / call / statement (e.g., sys.argv[0],
+                # arr[key], obj.method(), echo expr) — check ast children for source
                 # variable (the object being indexed/called).  DFG only flows
                 # from the operator to its result; the indexed/called object is
                 # connected via ast edges, not dfg.
-                if ulabel == NodeLabel.OPERATOR.value and utype in (
+                if (ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
-                ):
+                )) or (ulabel == NodeLabel.STATEMENT.value):
                     # When tracing into a call's arguments, respect builtin_knowledge
                     # passthrough: only trace args that are in the passthrough list.
                     # This prevents false taint from non-data args (e.g. apply_filters
