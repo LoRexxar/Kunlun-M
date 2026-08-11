@@ -620,9 +620,19 @@ class Normalizer:
             if body:
                 if isinstance(body, list):
                     for idx, child in enumerate(body):
-                        self._walk_node(child, add_node, add_edge, ctx_stack, file_path, idx)
+                        child_pos = self._walk_node(child, add_node, add_edge, ctx_stack, file_path, idx)
+                        if child_pos is not None:
+                            add_edge({
+                                "label": EdgeLabel.AST.value, "source": pos, "target": child_pos,
+                                "attrs": {"role": "body"},
+                            })
                 else:
-                    self._walk_node(body, add_node, add_edge, ctx_stack, file_path, 0)
+                    child_pos = self._walk_node(body, add_node, add_edge, ctx_stack, file_path, 0)
+                    if child_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": child_pos,
+                            "attrs": {"role": "body"},
+                        })
 
         # If node: also walk elseif and else
         if node_type_name == "If":

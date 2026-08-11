@@ -584,6 +584,10 @@ class GraphAnalyzer:
             if not matched_name:
                 continue
 
+            # Skip sinks inside dead-code branches (e.g. if (false) { ... })
+            if self._is_in_dead_code(v.index):
+                continue
+
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
                 e.target for e in self.graph.es.select(_source=v.index, label="ast")
@@ -2945,6 +2949,61 @@ class GraphAnalyzer:
                     if self._is_safe_function_call(p_vid):
                         return True
             cur = parents[0]
+        return False
+
+    def _is_in_dead_code(self, vid: int) -> bool:
+        """Check if *vid* is inside a dead-code branch (e.g. ``if (false)``).
+
+        Tries two methods:
+        1. Walk up the AST parent chain to find a BRANCH with falsy condition.
+        2. If no AST chain (orphan node), use lineno proximity: if a BRANCH
+           with condition 'false' exists within 5 lines before this node,
+           and this node's lineno is within the branch's body range.
+        """
+        _FALSY = {"false", "0", "null", "nil", "none", "''", '""'}
+
+        # Method 1: AST parent chain
+        cur = vid
+        for _ in range(20):
+            parents = [(e.source, _vattr(e, "role", "")) for e in self.graph.es.select(_target=cur, label="ast")]
+            if not parents:
+                break
+            for p_vid, edge_role in parents:
+                pv = self.graph.vs[p_vid]
+                if _vattr(pv, "label", "") == NodeLabel.BRANCH.value:
+                    cond = _vattr(pv, "condition", "").strip().lower()
+                    if cond in _FALSY:
+                        if edge_role in ("body", "condition", ""):
+                            return True
+            cur = parents[0][0]
+
+        # Method 2: lineno proximity for orphan nodes
+        try:
+            sv = self.graph.vs[vid]
+            s_lineno = int(_vattr(sv, "lineno", 0) or 0)
+            s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+            if s_lineno > 0:
+                for bv in self.graph.vs:
+                    if _vattr(bv, "label", "") != NodeLabel.BRANCH.value:
+                        continue
+                    cond = _vattr(bv, "condition", "").strip().lower()
+                    if cond not in _FALSY:
+                        continue
+                    b_lineno = int(_vattr(bv, "lineno", 0) or 0)
+                    b_end = int(_vattr(bv, "end_lineno", 0) or 0)
+                    b_file = _vattr(bv, "file_path", "") or _vattr(bv, "path", "")
+                    if b_file and s_file and b_file != s_file:
+                        continue
+                    # If end_lineno is unknown (0), use a generous window:
+                    # any sink within 50 lines after the branch is considered
+                    # potentially inside the dead body.
+                    if b_end <= 0:
+                        b_end = b_lineno + 50
+                    if b_lineno > 0 and b_lineno <= s_lineno <= b_end:
+                        return True
+        except Exception:
+            pass
+
         return False
 
     def _is_safe_function_call(self, call_vid: int) -> bool:
