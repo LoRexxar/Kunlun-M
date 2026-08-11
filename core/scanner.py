@@ -512,11 +512,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             except Exception as e:
                 logger.warning('[SCAN] [GRAPH] Function summary building failed: %s', e)
 
-            # ── 清理 safe 函数的 DFG passthrough 边 ──
+            # ── 清理 safe 函数的 DFG passthrough 边 + same 边 ──
             # build_function_summaries 标注了 func_summary_type='safe' 的函数节点。
-            # DFG builder 的 step 5 在构建时还不知道哪些函数是 safe，
-            # 可能已为这些函数创建了 arg→return 的 passthrough 边。
-            # 这里删除这些边，使 BFS 不会通过 safe 函数传播 taint。
+            # DFG builder 的 step 4 可能为 safe function 参数中的 identifier 创建了
+            # same 边（连接到外部同名 source 变量），以及 step 5 可能创建了
+            # arg→return 的 passthrough 边。两者都删除。
             try:
                 from utils.igraph_compat import _vattr
                 from core.graph.node_edge_schema import NodeLabel
@@ -530,12 +530,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 if safe_func_vids:
                     # Find call nodes that use these functions
                     # use edge direction: source=call_vid, target=func_vid
+                    safe_call_vids = set()
                     for e in graph.es.select(label="use"):
                         if e.target in safe_func_vids:
                             call_vid = e.source
-                            # Delete DFG edges from call args to call_vid
+                            safe_call_vids.add(call_vid)
+                            # Delete DFG edges from call args to call_vid (passthrough)
                             for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
                                 edges_to_delete.append(dfg_e.index)
+                    
+                    # Also delete same-edges from external variables to
+                    # identifiers nested inside safe call arguments.
+                    # Collect all AST descendants of safe call nodes.
+                    safe_call_descendants = set()
+                    for call_vid in safe_call_vids:
+                        # BFS through AST children
+                        queue = [call_vid]
+                        while queue:
+                            cv = queue.pop(0)
+                            for ae in graph.es.select(_source=cv, label="ast"):
+                                if ae.target not in safe_call_descendants:
+                                    safe_call_descendants.add(ae.target)
+                                    queue.append(ae.target)
+                    
+                    # Delete DFG edges targeting these descendants
+                    # (these are the same-edges that link them to external sources)
+                    for desc_vid in safe_call_descendants:
+                        if _vattr(graph.vs[desc_vid], "label", "") == NodeLabel.IDENTIFIER.value:
+                            for dfg_e in graph.es.select(_target=desc_vid, label="dfg"):
+                                edges_to_delete.append(dfg_e.index)
+                    
                     if edges_to_delete:
                         graph.delete_edges(edges_to_delete)
                         logger.info('[SCAN] [GRAPH] Removed %d DFG edges from safe function calls', len(edges_to_delete))

@@ -1206,6 +1206,17 @@ class GraphAnalyzer:
                                     "name": _rhs_callee, "code": 2}],
                             path=path + [_rhs],
                             expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
+                    # Also check if RHS is a safe function call (sanitizer).
+                    # When DFG cleanup has removed the safe function's
+                    # arg→return edge, the LHS identifier has no DFG sources,
+                    # and we can detect the sanitizer here.
+                    if self._is_safe_function_call(_rhs):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=-1, reason=f"assign RHS safe function '{_rhs_callee or _rhs}'",
+                            chain=[{"step": "safe_rhs", "vid": _rhs,
+                                    "name": _rhs_callee or "", "code": -1}],
+                            path=path + [_rhs],
+                            expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
             for up_vid in self._get_dfg_sources(cur_vid):
                 if up_vid in visited:
                     continue
