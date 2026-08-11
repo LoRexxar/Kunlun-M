@@ -967,10 +967,14 @@ class GraphAnalyzer:
                     chain=[{"step": "sanitized_source", "vid": start_vid,
                             "name": sname, "code": -1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
-            return self._cached(cache_key, AnalysisResult(
-                code=1, reason=f"'{sname}' is a superglobal",
-                chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
-                path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # BRANCH nodes (if/ternary/while/etc.) have their condition text
+            # as 'name'. Don't treat the condition text as a source variable —
+            # the condition controls execution, its value doesn't flow to sink.
+            if _vattr(sv, "label", "") != NodeLabel.BRANCH.value:
+                return self._cached(cache_key, AnalysisResult(
+                    code=1, reason=f"'{sname}' is a superglobal",
+                    chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Quick check: field/property full_text (e.g., "process.argv" for node named "argv")
         if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
