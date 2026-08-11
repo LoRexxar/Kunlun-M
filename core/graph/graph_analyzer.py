@@ -1554,15 +1554,39 @@ class GraphAnalyzer:
                     # This prevents false taint from non-data args (e.g. apply_filters
                     # hook name in arg0 when only arg1 flows to return).
                     _bk_passthrough = None
+                    _is_safe_call = False
                     if utype == "call":
                         _callee = self._resolve_callee_name(up_vid)
                         if _callee:
                             _bk = self._load_builtin_knowledge(self.language)
                             if _bk and _callee in _bk:
                                 _entry = _bk[_callee]
-                                if isinstance(_entry, dict) and not _entry.get("safe"):
-                                    _bk_passthrough = set(_entry.get("passthrough", []))
+                                if isinstance(_entry, dict):
+                                    if _entry.get("safe"):
+                                        _is_safe_call = True
+                                    elif not _entry.get("safe"):
+                                        _bk_passthrough = set(_entry.get("passthrough", []))
+                        # Also check function summary (user-defined functions
+                        # whose return value was determined safe by
+                        # build_function_summaries, e.g. checkbox→h→htmlspecialchars)
+                        if not _is_safe_call:
+                            _up_taint = _vattr(uv, "taint_type", "")
+                            if _up_taint == "safe":
+                                _is_safe_call = True
+                            else:
+                                # Check func_summary_type via use edge
+                                for _ue in self.graph.es.select(_source=up_vid, label="use"):
+                                    _fvid = _ue.target
+                                    if _fvid < self.graph.vcount():
+                                        _fv = self.graph.vs[_fvid]
+                                        if _vattr(_fv, "func_summary_type", "") == "safe":
+                                            _is_safe_call = True
+                                            break
                     for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                        # If this call's callee is a known safe function (sanitizer),
+                        # skip all AST children — the return value is not tainted.
+                        if _is_safe_call:
+                            break
                         # Skip args not in passthrough when builtin_knowledge constrains flow
                         if _bk_passthrough is not None:
                             _role = _vattr(ae, "role", "")

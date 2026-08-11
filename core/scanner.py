@@ -511,6 +511,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     )
             except Exception as e:
                 logger.warning('[SCAN] [GRAPH] Function summary building failed: %s', e)
+
+            # ── 清理 safe 函数的 DFG passthrough 边 ──
+            # build_function_summaries 标注了 func_summary_type='safe' 的函数节点。
+            # DFG builder 的 step 5 在构建时还不知道哪些函数是 safe，
+            # 可能已为这些函数创建了 arg→return 的 passthrough 边。
+            # 这里删除这些边，使 BFS 不会通过 safe 函数传播 taint。
+            try:
+                from utils.igraph_compat import _vattr
+                from core.graph.node_edge_schema import NodeLabel
+                edges_to_delete = []
+                # Build a set of safe function vids
+                safe_func_vids = set()
+                for v in graph.vs:
+                    if (_vattr(v, "label", "") == NodeLabel.FUNCTION.value
+                            and _vattr(v, "func_summary_type", "") == "safe"):
+                        safe_func_vids.add(v.index)
+                if safe_func_vids:
+                    # Find call nodes that use these functions
+                    # use edge direction: source=call_vid, target=func_vid
+                    for e in graph.es.select(label="use"):
+                        if e.target in safe_func_vids:
+                            call_vid = e.source
+                            # Delete DFG edges from call args to call_vid
+                            for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
+                                edges_to_delete.append(dfg_e.index)
+                    if edges_to_delete:
+                        graph.delete_edges(edges_to_delete)
+                        logger.info('[SCAN] [GRAPH] Removed %d DFG edges from safe function calls', len(edges_to_delete))
+            except Exception as e:
+                logger.warning('[SCAN] [GRAPH] Safe function DFG cleanup failed: %s', e)
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 

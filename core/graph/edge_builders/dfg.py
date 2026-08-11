@@ -2225,11 +2225,41 @@ class DataFlowBuilder(BaseEdgeBuilder):
     ) -> None:
         """根据函数摘要的 return_flow.dep_params 创建 dfg 边。
 
+        先检查 graph vertex 属性（由 build_function_summaries 写入），
+        再 fallback 到 summary_generator。
+
         Args:
             vid: 调用 operator 顶点索引。
             callee_name: 被调函数名。
             arg_children: {arg_index: arg_vid} 参数映射。
         """
+        from utils.igraph_compat import _vattr
+
+        # ── 优先使用 graph vertex 属性 ──
+        # build_function_summaries 写入 func_summary_type 和
+        # func_summary_pt (passthrough params list)。如果 summary_type=safe，
+        # 不创建任何 DFG 边（返回值不依赖参数）。
+        _use_edge = self.graph.es.select(_target=vid, label="use")
+        for e in _use_edge:
+            func_vid = e.source
+            if func_vid < self.graph.vcount():
+                fv = self.graph.vs[func_vid]
+                if _vattr(fv, "label", "") == "function":
+                    fst = _vattr(fv, "func_summary_type", "")
+                    if fst == "safe":
+                        return  # safe → no DFG edge
+                    if fst == "passthrough":
+                        pt_list = _vattr(fv, "func_summary_pt", [])
+                        if isinstance(pt_list, list):
+                            for param_idx in pt_list:
+                                arg_vid = arg_children.get(param_idx)
+                                if arg_vid is not None:
+                                    self._add_dfg_edge(
+                                        arg_vid, vid, DfgType.FORWARD_SLICE.value
+                                    )
+                        return  # handled via graph attribute
+
+        # ── Fallback: summary_generator (legacy) ──
         try:
             from core.core_engine.php.summary_generator import lookup_summary
         except ImportError:
