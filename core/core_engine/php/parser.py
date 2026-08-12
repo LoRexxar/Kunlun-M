@@ -647,6 +647,16 @@ def _judge_from_summary_php(summary, call_node):
                 logger.debug("[AST][PHP] Summary: {} wraps repair function {}, sanitized".format(
                     summary.name, origin))
                 return (2, call_node, 0)
+            # Recursively check if the called function's summary also wraps a repair.
+            # Handles multi-level wrappers: Format::input → Format::htmlchars → htmlspecialchars
+            from core.core_engine.php.summary_generator import lookup_summary as _lookup
+            nested_summary = _lookup(origin)
+            if nested_summary and nested_summary.return_flow:
+                for nested_rf in nested_summary.return_flow:
+                    if nested_rf.origin_type == "call" and is_repair(nested_rf.origin):
+                        logger.debug("[AST][PHP] Summary: {} → {} → repair {}, sanitized".format(
+                            summary.name, origin, nested_rf.origin))
+                        return (2, call_node, 0)
             co, _ = is_controllable(origin)
             if co == 1:
                 return (1, origin, 0)
