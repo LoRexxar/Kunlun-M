@@ -13,8 +13,8 @@ class CVI_7006(SingleRuleMixin):
         self.description = "使用了可能存在模板注入风险的渲染函数"
         self.level = 8
         self.match_mode = "function-param-regex"
-        self.match = r"render_template_string|Template\(|jinja2\.Environment|TemplateResponse|render_to_response|mark_safe|Markup\(|mako\.template\.Template|tornado\.template\.Template"
-        self.vul_function = ["render_template_string", "Template", "Environment", "TemplateResponse", "render_to_response", "mark_safe", "Markup"]
+        self.match = r"render_template_string|jinja2\.Template\(|Environment\(|mako\.template\.Template|tornado\.template\.Template|TemplateResponse|render_to_response|mark_safe|Markup\("
+        self.vul_function = ["render_template_string", "Environment", "TemplateResponse", "render_to_response", "mark_safe", "Markup"]
 
     def main(self, regex_string, sink_args=None):
         """

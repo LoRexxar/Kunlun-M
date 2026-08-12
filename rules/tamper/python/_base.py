@@ -63,6 +63,10 @@ IS_REPAIR = {
     "jinja2.escape": [7006],
     # 类型转换（确保不会注入模板表达式）
     "str": [7006],
+    # string.Template.substitute only does $variable replacement,
+    # NOT Python expression evaluation. Safe for SSTI/expr injection.
+    "substitute": [7006, 7014],
+    "safe_substitute": [7006, 7014],
 
     # ---- XXE 防御 (7011) ----
     # 安全 XML 解析库
