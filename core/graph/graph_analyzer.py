@@ -1057,10 +1057,15 @@ class GraphAnalyzer:
                 if self._is_source_variable(obj_name):
                     # $_SERVER has mixed controllability — skip server-config keys
                     # $_FILES has mixed controllability — skip non-source sub-keys
-                    # Check ALL names in the member chain (not just start node).
-                    if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_start)) \
-                            or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_start)):
-                        pass
+                    # Use the generalized _is_superglobal_member_blocked which
+                    # properly walks the member chain and checks all keys.
+                    if self._is_superglobal_member_blocked(start_vid):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=-1,
+                            reason=f"superglobal member blocked (non-source key)",
+                            chain=[{"step": "non_source_member", "vid": start_vid,
+                                    "name": sname, "code": -1}],
+                            path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
                     elif self._is_subscript_key_of_non_superglobal(obj_vid):
                         # Superglobal (e.g., $_GET['format']) appears as an
                         # array-offset subscript of a non-superglobal variable

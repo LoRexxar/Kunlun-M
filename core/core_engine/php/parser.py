@@ -498,6 +498,14 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
         array_name = get_node_name(expr.node)
 
         if array_name in controlled_params:
+            # $_FILES special case: 'tmp_name' and 'error' are server-generated,
+            # not user-controlled. Only 'name', 'type', 'size' are attacker-controlled.
+            if array_name in ('$_FILES', '$HTTP_POST_FILES'):
+                dim_key = get_node_name(expr.expr)
+                dim_key_str = str(dim_key).strip("'\"") if dim_key else ''
+                if dim_key_str in ('tmp_name', 'error'):
+                    logger.debug('[AST] $_FILES dim {} is server-generated, not controllable'.format(dim_key_str))
+                    return -1, php.Variable(array_name)
             logger.debug('[AST] is_controllable --> {expr}'.format(expr=array_name))
             if flag:
                 return 1, array_name
