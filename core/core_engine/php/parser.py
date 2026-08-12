@@ -632,6 +632,13 @@ def _judge_from_summary_php(summary, call_node):
 
         elif rf.origin_type == "call":
             origin = rf.origin
+            # Check if the return wraps a known repair/sanitizer function
+            # (e.g., html_output returns htmlentities($str)). If so, the
+            # return value is sanitized → code 2.
+            if is_repair(origin):
+                logger.debug("[AST][PHP] Summary: {} wraps repair function {}, sanitized".format(
+                    summary.name, origin))
+                return (2, call_node, 0)
             co, _ = is_controllable(origin)
             if co == 1:
                 return (1, origin, 0)
@@ -681,6 +688,20 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
     scan_function_stack.append(function_name)
 
     try:
+        # ---- array_map 特殊处理：callback 为已知安全函数时返回值安全 ----
+        if function_name == 'array_map':
+            actual_params = param.params if hasattr(param, 'params') else []
+            if actual_params:
+                callback_arg = actual_params[0]
+                callback_expr = callback_arg.node if hasattr(callback_arg, 'node') else callback_arg
+                callback_name = get_node_name(callback_expr) if hasattr(callback_expr, '__class__') else str(callback_expr)
+                # callback_name may include quotes from string literal, strip them
+                if callback_name:
+                    callback_name = callback_name.strip("'\"")
+                if callback_name and is_repair(callback_name):
+                    logger.debug("[AST][PHP] array_map callback {} is repair function, return safe".format(callback_name))
+                    return -1, param, 0
+
         # ---- 查内置知识库 ----
         knowledge = _trace_cache.lookup_builtin(function_name)
         if knowledge:
