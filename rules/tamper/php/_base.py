@@ -90,6 +90,21 @@ IS_REPAIR = {
 
     # ---- 变量覆盖防御 (1014) ----
     # 主要靠代码规范，没有运行时修复函数
+
+    # ---- Laravel response methods ----
+    # response()->json() JSON-encodes data, escaping HTML → safe for XSS
+    "json": [1000],
+    # Laravel ORM: return DB records, not user input → safe for XSS
+    "find": [1000],
+    "findMany": [1000],
+    "findOrFail": [1000],
+    "first": [1000],
+    "firstOrFail": [1000],
+    "get": [1000],
+    "all": [1000],
+    "pluck": [1000],
+    "where": [1000],
+    "whereKey": [1000],
 }
 
 IS_CONTROLLED = [

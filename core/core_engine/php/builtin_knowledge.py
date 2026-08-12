@@ -160,6 +160,9 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "url":                  {"passthrough": [0], "safe": False},
         "action":               {"passthrough": [], "safe": True},
         "response":             {"passthrough": [0], "safe": False},
+        # response()->json() — JSON encodes the data, which escapes HTML.
+        # Safe for XSS (CVI-1000).
+        "json":                 {"passthrough": [], "safe": True},
         "old":                  {"passthrough": [0], "safe": False},
         "session":              {"passthrough": [0], "safe": False},
         "cookie":               {"passthrough": [0], "safe": False},
@@ -167,6 +170,18 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "env":                  {"passthrough": [0], "safe": False},
         "app":                  {"passthrough": [0], "safe": False},
         "request":              {"passthrough": [0], "safe": False},
+        # Laravel ORM methods: return DB records, not user input directly.
+        # The argument is used as a WHERE clause, not returned.
+        "find":                 {"passthrough": [], "safe": True},
+        "findMany":             {"passthrough": [], "safe": True},
+        "findOrFail":           {"passthrough": [], "safe": True},
+        "first":                {"passthrough": [], "safe": True},
+        "firstOrFail":          {"passthrough": [], "safe": True},
+        "get":                  {"passthrough": [], "safe": True},
+        "all":                  {"passthrough": [], "safe": True},
+        "pluck":                {"passthrough": [], "safe": True},
+        "where":                {"passthrough": [0], "safe": True},
+        "whereKey":             {"passthrough": [], "safe": True},
         "Illuminate\\Support\\Str::limit":     {"passthrough": [0], "safe": False},
         "Illuminate\\Support\\Str::words":     {"passthrough": [0], "safe": False},
         "Illuminate\\Support\\Str::slug":      {"passthrough": [0], "safe": False},
