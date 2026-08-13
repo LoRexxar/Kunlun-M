@@ -270,7 +270,10 @@ class Pretreatment:
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
                         continue  # 解析成功，跳过 repair 逻辑
 
-                    except SyntaxError as e:
+                    except (SyntaxError, AssertionError) as e:
+                        if isinstance(e, AssertionError):
+                            logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                            continue
                         if self.is_unprecom:
                             logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
                             continue
@@ -291,14 +294,12 @@ class Pretreatment:
                         all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
                         logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                    except AssertionError:
+                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                        continue
                     except Exception:
                         logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
                         continue
-
-                    except AssertionError as e:
-                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
-                        continue
-
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
                         continue
