@@ -387,6 +387,18 @@ class GraphAnalyzer:
         # _nfile 索引延迟构建：只在 _find_identifier_by_name 首次调用时构建
         self._nfile: dict[tuple[str, str, str], list[int]] | None = None
 
+        # 文件级索引：(label, file) → [(lineno, vid), ...] sorted by lineno
+        # 用于 _has_function_level_guard 等函数的快速局部查找
+        self._nfile_lineno: dict[tuple[str, str], list[tuple[int, int]]] = {}
+        for v in graph.vs:
+            vl = _vattr(v, 'label', '') or ''
+            vf = _vattr(v, 'file_path', '') or _vattr(v, 'path', '')
+            vln = int(_vattr(v, 'lineno', 0) or 0)
+            if vl and vf:
+                self._nfile_lineno.setdefault((vl, vf), []).append((vln, v.index))
+        for key in self._nfile_lineno:
+            self._nfile_lineno[key].sort()
+
         # branch_safe DFG 边集合：(source_vid, target_vid)}
         # 替代 edge attribute 查询，O(1) lookup
         self._branch_safe_set: set[tuple[int, int]] = set()
@@ -2956,17 +2968,69 @@ class GraphAnalyzer:
             cur = parents[0]
         return False
 
+    _DEAD_CODE_FALSY = frozenset({"false", "0", "null", "nil", "none", "''", '""'})
+
+    def _build_dead_code_index(self):
+        """Pre-compute falsy BRANCH nodes grouped by file for O(1) lookup.
+
+        Returns a dict: file_path -> list of (b_lineno, b_end) tuples.
+        Called once and cached in ``self._dead_code_index``.
+        """
+        if hasattr(self, '_dead_code_index'):
+            return self._dead_code_index
+
+        index = {}  # file -> [(b_lineno, b_end), ...]
+        for bv in self.graph.vs:
+            if _vattr(bv, "label", "") != NodeLabel.BRANCH.value:
+                continue
+            cond = _vattr(bv, "condition", "").strip().lower()
+            if cond not in self._DEAD_CODE_FALSY:
+                continue
+            b_lineno = int(_vattr(bv, "lineno", 0) or 0)
+            if b_lineno <= 0:
+                continue
+            b_end = int(_vattr(bv, "end_lineno", 0) or 0)
+            b_file = _vattr(bv, "file_path", "") or _vattr(bv, "path", "")
+
+            # Compute b_end from body children if unknown
+            if b_end <= 0:
+                bvid = bv.index
+                body_linenos = []
+                _visited = {bvid}
+                _queue = [bvid]
+                while _queue:
+                    _cur = _queue.pop(0)
+                    for _ae in self.graph.es.select(_source=_cur):
+                        _el = _vattr(_ae, "label", "")
+                        if _el not in ("ast", "own"):
+                            continue
+                        _tgt = _ae.target
+                        if _tgt in _visited:
+                            continue
+                        _visited.add(_tgt)
+                        _child_ln = int(
+                            _vattr(self.graph.vs[_tgt], "lineno", 0) or 0)
+                        if _child_ln > 0:
+                            body_linenos.append(_child_ln)
+                        _queue.append(_tgt)
+                if body_linenos:
+                    b_end = max(body_linenos)
+                else:
+                    b_end = b_lineno + 3
+
+            index.setdefault(b_file, []).append((b_lineno, b_end))
+
+        self._dead_code_index = index
+        return index
+
     def _is_in_dead_code(self, vid: int) -> bool:
         """Check if *vid* is inside a dead-code branch (e.g. ``if (false)``).
 
         Tries two methods:
         1. Walk up the AST parent chain to find a BRANCH with falsy condition.
-        2. If no AST chain (orphan node), use lineno proximity: if a BRANCH
-           with condition 'false' exists within 5 lines before this node,
-           and this node's lineno is within the branch's body range.
+        2. If no AST chain (orphan node), use the pre-computed dead-code index
+           to check lineno overlap with falsy branches in the same file.
         """
-        _FALSY = {"false", "0", "null", "nil", "none", "''", '""'}
-
         # Method 1: AST parent chain
         cur = vid
         for _ in range(20):
@@ -2977,63 +3041,20 @@ class GraphAnalyzer:
                 pv = self.graph.vs[p_vid]
                 if _vattr(pv, "label", "") == NodeLabel.BRANCH.value:
                     cond = _vattr(pv, "condition", "").strip().lower()
-                    if cond in _FALSY:
+                    if cond in self._DEAD_CODE_FALSY:
                         if edge_role in ("body", "condition", ""):
                             return True
             cur = parents[0][0]
 
-        # Method 2: lineno proximity for orphan nodes
+        # Method 2: use pre-computed index (O(branches_in_same_file) per call)
         try:
             sv = self.graph.vs[vid]
             s_lineno = int(_vattr(sv, "lineno", 0) or 0)
             s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
             if s_lineno > 0:
-                for bv in self.graph.vs:
-                    if _vattr(bv, "label", "") != NodeLabel.BRANCH.value:
-                        continue
-                    cond = _vattr(bv, "condition", "").strip().lower()
-                    if cond not in _FALSY:
-                        continue
-                    b_lineno = int(_vattr(bv, "lineno", 0) or 0)
-                    b_end = int(_vattr(bv, "end_lineno", 0) or 0)
-                    b_file = _vattr(bv, "file_path", "") or _vattr(bv, "path", "")
-                    if b_file and s_file and b_file != s_file:
-                        continue
-                    # Compute b_end from actual body children when end_lineno
-                    # is unknown.  We use role="body" AST edges (added by the
-                    # PHP normalizer) to find the maximum lineno among the
-                    # branch's body statements.  This gives the precise end of
-                    # the dead-code block instead of a generous +50 window that
-                    # would swallow live code after the block.
-                    if b_end <= 0:
-                        bvid = bv.index
-                        # Recursively walk all descendant nodes of this branch
-                        # to find the maximum lineno in the body subtree.
-                        # PHP normalizer connects body statements via 'own'
-                        # edges (not 'ast'/'body'), so we follow both.
-                        body_linenos = []
-                        _visited = {bvid}
-                        _queue = [bvid]
-                        while _queue:
-                            _cur = _queue.pop(0)
-                            for _ae in self.graph.es.select(_source=_cur):
-                                _el = _vattr(_ae, "label", "")
-                                if _el not in ("ast", "own"):
-                                    continue
-                                _tgt = _ae.target
-                                if _tgt in _visited:
-                                    continue
-                                _visited.add(_tgt)
-                                _child_ln = int(
-                                    _vattr(self.graph.vs[_tgt], "lineno", 0) or 0)
-                                if _child_ln > 0:
-                                    body_linenos.append(_child_ln)
-                                _queue.append(_tgt)
-                        if body_linenos:
-                            b_end = max(body_linenos)
-                        else:
-                            b_end = b_lineno + 3
-                    if b_lineno > 0 and b_lineno <= s_lineno <= b_end:
+                index = self._build_dead_code_index()
+                for b_lineno, b_end in index.get(s_file, ()):
+                    if b_lineno <= s_lineno <= b_end:
                         return True
         except Exception:
             pass
@@ -3591,6 +3612,41 @@ class GraphAnalyzer:
                 return True
         return False
 
+    def _check_validation_call_matches(self, call_vid: int, call_name: str, var_name: str) -> bool:
+        """Check if a validation call references *var_name*."""
+        if call_name == "check_input_parameter":
+            _ai = 0
+            for ae in self.graph.es.select(_source=call_vid, label="ast"):
+                if _vattr(ae, "role") == "arg":
+                    _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
+                    if _ai == 0 and _arg_val:
+                        _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
+                        if str(_arg_val).strip("'\"") == _vn:
+                            return True
+                    _ai += 1
+        else:
+            for ae in self.graph.es.select(_source=call_vid, label="ast"):
+                if _vattr(ae, "role") == "arg":
+                    if self._subtree_contains_name(ae.target, var_name):
+                        return True
+        return False
+
+    def _check_file_scope_validation(self, v_file: str, v_lineno: int, var_name: str) -> bool:
+        """Check standalone validation calls in the same file before v_lineno."""
+        if not v_file:
+            return False
+        import bisect
+        op_list = self._nfile_lineno.get((NodeLabel.OPERATOR.value, v_file), [])
+        idx = bisect.bisect_left(op_list, (v_lineno, 0))
+        for _, ov in op_list[:idx]:
+            ov_type = _vattr(self.graph.vs[ov], "type", "")
+            ov_name = _vattr(self.graph.vs[ov], "name", "")
+            if ov_type not in _CALL_TYPES or ov_name not in _TYPE_VALIDATION_FUNCS:
+                continue
+            if self._check_validation_call_matches(ov, ov_name, var_name):
+                return True
+        return False
+
     def _has_function_level_guard(self, vid: int, var_name: str) -> bool:
         """Check if *any* branch in the same function contains a guard
         function call (from ``_TYPE_VALIDATION_FUNCS``) that references
@@ -3605,67 +3661,47 @@ class GraphAnalyzer:
 
         The guard at the if-condition sanitises ``url`` even though the
         sink is not inside the guard's branch.
+
+        Uses ``self._nfile_lineno`` for O(nodes_in_same_file) lookup instead
+        of iterating the full node list.
         """
-        # 1. Find the enclosing function.
+        import bisect
+
+        v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
+        v_lineno = int(_vattr(self.graph.vs[vid], "lineno", 0) or 0)
+
+        # 1. Find the enclosing function using file-indexed lookup.
         func_vid = None
-        for fv in self._nlbl.get(NodeLabel.FUNCTION.value, []):
-            # Check if vid is within this function's file+line range
-            fv_lineno = _vattr(self.graph.vs[fv], "lineno", 0)
-            fv_file = _vattr(self.graph.vs[fv], "file_path", "") or _vattr(self.graph.vs[fv], "path", "")
-            v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
-            v_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
-            if fv_file == v_file and fv_lineno <= v_lineno:
-                if func_vid is None or fv_lineno > _vattr(self.graph.vs[func_vid], "lineno", 0):
+        if v_file:
+            func_list = self._nfile_lineno.get((NodeLabel.FUNCTION.value, v_file), [])
+            # All funcs in this file with lineno <= v_lineno; pick the closest
+            # Use bisect to find the insertion point for v_lineno
+            # func_list is sorted by (lineno, vid)
+            idx = bisect.bisect_right(func_list, (v_lineno, float('inf')))
+            for i in range(idx - 1, -1, -1):
+                fv_lineno, fv = func_list[i]
+                if fv_lineno <= v_lineno:
                     func_vid = fv
+                    break  # closest (highest lineno ≤ v_lineno)
         branch_vids: list[int] = []
         if func_vid is None:
             # No enclosing function — for global-scope code, still check
             # branches in the same file with lineno <= vid's lineno.
-            v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
-            v_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
-            for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
-                bv_file = _vattr(self.graph.vs[bv], "file_path", "") or _vattr(self.graph.vs[bv], "path", "")
-                bv_lineno = _vattr(self.graph.vs[bv], "lineno", 0)
-                if bv_file == v_file and bv_lineno <= v_lineno:
-                    branch_vids.append(bv)
+            if v_file:
+                branch_list = self._nfile_lineno.get((NodeLabel.BRANCH.value, v_file), [])
+                idx = bisect.bisect_right(branch_list, (v_lineno, float('inf')))
+                branch_vids = [bv for _, bv in branch_list[:idx]]
             if not branch_vids:
                 # Also check for standalone validation calls (not in branches)
                 # at file scope, before the source detection point.
-                v_file = _vattr(self.graph.vs[vid], "file_path", "") or _vattr(self.graph.vs[vid], "path", "")
-                v_lineno = _vattr(self.graph.vs[vid], "lineno", 0)
-                for ov in self._nlbl.get(NodeLabel.OPERATOR.value, []):
-                    ov_type = _vattr(self.graph.vs[ov], "type", "")
-                    ov_name = _vattr(self.graph.vs[ov], "name", "")
-                    ov_file = _vattr(self.graph.vs[ov], "file_path", "") or _vattr(self.graph.vs[ov], "path", "")
-                    ov_lineno = _vattr(self.graph.vs[ov], "lineno", 0)
-                    if (ov_type in _CALL_TYPES
-                            and ov_name in _TYPE_VALIDATION_FUNCS
-                            and ov_file == v_file
-                            and ov_lineno < v_lineno):
-                        # Found a standalone validation call before source.
-                        if ov_name == "check_input_parameter":
-                            _ai = 0
-                            for ae in self.graph.es.select(_source=ov, label="ast"):
-                                if _vattr(ae, "role") == "arg":
-                                    _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
-                                    if _ai == 0 and _arg_val:
-                                        _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
-                                        if str(_arg_val).strip("'\"") == _vn:
-                                            return True
-                                    _ai += 1
-                        else:
-                            for ae in self.graph.es.select(_source=ov, label="ast"):
-                                if _vattr(ae, "role") == "arg":
-                                    if self._subtree_contains_name(ae.target, var_name):
-                                        return True
-                return False
-        else:            # 2. Collect all branch nodes owned by this function.
-            for bv in self._nlbl.get(NodeLabel.BRANCH.value, []):
-                bv_file = _vattr(self.graph.vs[bv], "file_path", "") or _vattr(self.graph.vs[bv], "path", "")
-                bv_lineno = _vattr(self.graph.vs[bv], "lineno", 0)
-                fv_lineno = _vattr(self.graph.vs[func_vid], "lineno", 0)
-                if bv_file == _vattr(self.graph.vs[func_vid], "file_path", "") and bv_lineno >= fv_lineno:
-                    branch_vids.append(bv)
+                return self._check_file_scope_validation(v_file, v_lineno, var_name)
+        else:
+            # 2. Collect all branch nodes in the same file after func's lineno.
+            fv_lineno = int(_vattr(self.graph.vs[func_vid], "lineno", 0) or 0)
+            if v_file:
+                branch_list = self._nfile_lineno.get((NodeLabel.BRANCH.value, v_file), [])
+                idx_start = bisect.bisect_left(branch_list, (fv_lineno, 0))
+                branch_vids = [bv for _, bv in branch_list[idx_start:]]
 
         # 3. For each branch, check if its condition contains a guard call
         #    whose arguments reference var_name.
@@ -3736,30 +3772,17 @@ class GraphAnalyzer:
                     _gv_file = _pf
                     break
         if _gv_file:
-            for ov in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+            import bisect as _bisect2
+            op_list = self._nfile_lineno.get((NodeLabel.OPERATOR.value, _gv_file), [])
+            _gv_ln_int = int(_gv_lineno or 0)
+            idx = _bisect2.bisect_left(op_list, (_gv_ln_int, 0))
+            for _, ov in op_list[:idx]:
                 ov_type = _vattr(self.graph.vs[ov], "type", "")
                 ov_name = _vattr(self.graph.vs[ov], "name", "")
-                ov_file = _vattr(self.graph.vs[ov], "file_path", "") or _vattr(self.graph.vs[ov], "path", "")
-                ov_lineno = _vattr(self.graph.vs[ov], "lineno", 0)
-                if (ov_type in _CALL_TYPES
-                        and ov_name in _TYPE_VALIDATION_FUNCS
-                        and ov_file == _gv_file
-                        and ov_lineno < _gv_lineno):
-                    if ov_name == "check_input_parameter":
-                        _ai = 0
-                        for ae in self.graph.es.select(_source=ov, label="ast"):
-                            if _vattr(ae, "role") == "arg":
-                                _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
-                                if _ai == 0 and _arg_val:
-                                    _vn = var_name.rsplit(".", 1)[-1] if "." in var_name else var_name
-                                    if str(_arg_val).strip("'\"") == _vn:
-                                        return True
-                                _ai += 1
-                    else:
-                        for ae in self.graph.es.select(_source=ov, label="ast"):
-                            if _vattr(ae, "role") == "arg":
-                                if self._subtree_contains_name(ae.target, var_name):
-                                    return True
+                if ov_type not in _CALL_TYPES or ov_name not in _TYPE_VALIDATION_FUNCS:
+                    continue
+                if self._check_validation_call_matches(ov, ov_name, var_name):
+                    return True
         return False
 
     def check_branch_constraint(self, branch_vid: int, var_name: str) -> bool:
