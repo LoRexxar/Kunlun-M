@@ -115,7 +115,9 @@ _FRAMEWORK_CONFIGS = {
             'request.get_data',
             'request.query_string',
             'request.remote_addr',
-            'request.url',
+            # request.url removed: redirect(request.url) is the standard Flask
+            # PRG (Post-Redirect-Get) self-redirect pattern, never an open
+            # redirect. Query params are already covered by request.args.
             'request.referrer',
             # session removed: server-side data, not user input
             # Flask config
