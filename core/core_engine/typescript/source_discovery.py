@@ -53,22 +53,26 @@ class SourceRegistry:
         """检查表达式字符串是否匹配已知 source 成员。
 
         精确匹配: ``req.query`` ∈ source_members → True
-        前缀匹配: ``req.query.id`` 以 ``req.query.`` 开头 → True  (一层属性)
-        但 ``req.query.foo.bar`` (两层) 不匹配 — 防止方法调用链被误判为 source。
-
-        特殊约束 (JS/TS): ``window.location.replace`` 不应匹配 SR entry
-        ``window.location`` — ``replace`` 是方法名，不是 source 属性。
+        前缀匹配 (一层): ``window.location.href`` 以 ``window.location.`` 开头,
+        且 ``href`` 是 ``location`` 对象的已知 source 属性 → True。
+        但 ``window.location.replace`` → False，因为 ``replace`` 不是已知
+        source 属性。二层以上 → False。
         """
         if expr_str in self.source_members:
             return True
         for sm in self.source_members:
             if expr_str.startswith(sm + '.'):
-                # Only allow one additional property level beyond the SR entry.
-                # e.g. req.query.id matches req.query (1 extra segment), but
-                # req.query.id.name (2 extra segments) does not.
                 remainder = expr_str[len(sm) + 1:]
                 if '.' not in remainder:
-                    return True
+                    # One extra property level — only allow if the
+                    # remainder is a known source property (i.e., some SR
+                    # entry ends with ".<remainder>").
+                    for sm2 in self.source_members:
+                        if sm2.endswith('.' + remainder):
+                            return True
+                    for sm2 in self.source_members:
+                        if sm2 == remainder or sm2.endswith(sm.split('.')[-1] + '.' + remainder):
+                            return True
                 continue
             if expr_str.startswith(sm + '['):
                 return True
