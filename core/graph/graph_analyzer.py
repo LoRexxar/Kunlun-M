@@ -107,6 +107,10 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "reverse",  # Django URL reverse — returns fixed internal path
     "url_for",  # Flask URL builder — returns fixed internal path
     # NOTE: "path" and "save" removed — too generic, caused TP suppression
+    # Java — canonical path normalization (path traversal guard)
+    # Also used in branch conditions: if (!x.getCanonicalPath().equals(...))
+    "getCanonicalPath",
+    "java.io.File.getCanonicalPath",
     # Java
     "StringEscapeUtils.escapeSql",
     "org.apache.commons.lang3.StringEscapeUtils.escapeSql",
@@ -275,6 +279,8 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     # Django open-redirect / URL validation guards
     "url_has_allowed_host_and_scheme", "is_safe_url",
     "validate_unicode_slug", "iri_to_uri",
+    # Java — canonical path validation (path traversal guard)
+    "getCanonicalPath",
 })
 
 # Java/Kotlin parameter annotations that indicate the parameter is
@@ -2802,7 +2808,16 @@ class GraphAnalyzer:
         if self._source_registry is not None:
             try:
                 if self._source_registry.is_source_member(name):
-                    return True
+                    # Java: bare method names like "getParameter" / "getCookies"
+                    # are in source_members for suffix fallback, but exact
+                    # match on bare names bypasses the _JAVA_REQUEST_PREFIXES
+                    # prefix gate (Direction 1).  Require the name to contain
+                    # at least one "." (qualified name) for direct match, or
+                    # fall through to Direction 1/2 which enforce the prefix.
+                    if self.language == 'java' and '.' not in name:
+                        pass  # fall through to Direction 1/2 with prefix gate
+                    else:
+                        return True
                 # Prefix-stripping fallback: Rust normalizer may strip "std::"
                 # producing "env::var" while SR has "std::env::var".
                 # Also: Java normalizer strips class prefix producing "getParameter"
@@ -2839,6 +2854,16 @@ class GraphAnalyzer:
                             if sr_set:
                                 for sr_entry in sr_set:
                                     if sr_entry.endswith(sep + name) or sr_entry == name:
+                                        # Java: bare names matched via Direction 2
+                                        # also need prefix guard to prevent
+                                        # context.getParameter() matching
+                                        # request.getParameter.
+                                        if self.language == 'java' and '.' not in name:
+                                            # For bare names, require that
+                                            # the original caller prefix
+                                            # (parts[0]) is a known request.
+                                            if parts[0] not in _JAVA_REQUEST_PREFIXES:
+                                                continue
                                         return True
                         except (AttributeError, TypeError):
                             pass
