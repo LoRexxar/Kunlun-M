@@ -42,4 +42,23 @@ class CVI_3004_graph():
         self.vul_function = ["document.location.replace", "window.location.replace"]
 
     def main(self, regex_string, sink_args=None):
-        pass
+        """
+        二次筛选：排除硬编码字符串参数（非用户可控的重定向目标）
+        """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        if not isinstance(regex_string, str):
+            return None
+        # 排除纯字符串字面量参数
+        import re
+        if re.match(r'^["\'][^"\']*["\']$', regex_string.strip()):
+            return False
+        return None
