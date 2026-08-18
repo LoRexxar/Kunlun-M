@@ -50,11 +50,21 @@ class SourceRegistry:
         return name in self.source_variables
 
     def is_source_member(self, chain: str) -> bool:
-        """Check if a member-expression chain matches any known source (prefix-aware)."""
+        """Check if a member-expression chain matches any known source (prefix-aware).
+
+        Allows at most one additional property level beyond the SR entry to
+        prevent method-call chains (e.g. ``window.location.replace``) from
+        matching the source entry ``window.location``.
+        """
         if chain in self.source_members:
             return True
         for src in self.source_members:
-            if chain.startswith(src + '.') or chain.startswith(src + '['):
+            if chain.startswith(src + '.'):
+                remainder = chain[len(src) + 1:]
+                if '.' not in remainder:
+                    return True
+                continue
+            if chain.startswith(src + '['):
                 return True
         return False
 

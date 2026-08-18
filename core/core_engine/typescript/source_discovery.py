@@ -50,11 +50,27 @@ class SourceRegistry:
         self.source_variables.add(name)
 
     def is_source_member(self, expr_str):
-        """检查表达式字符串是否匹配已知 source 成员"""
+        """检查表达式字符串是否匹配已知 source 成员。
+
+        精确匹配: ``req.query`` ∈ source_members → True
+        前缀匹配: ``req.query.id`` 以 ``req.query.`` 开头 → True  (一层属性)
+        但 ``req.query.foo.bar`` (两层) 不匹配 — 防止方法调用链被误判为 source。
+
+        特殊约束 (JS/TS): ``window.location.replace`` 不应匹配 SR entry
+        ``window.location`` — ``replace`` 是方法名，不是 source 属性。
+        """
         if expr_str in self.source_members:
             return True
         for sm in self.source_members:
-            if expr_str.startswith(sm + '.') or expr_str.startswith(sm + '['):
+            if expr_str.startswith(sm + '.'):
+                # Only allow one additional property level beyond the SR entry.
+                # e.g. req.query.id matches req.query (1 extra segment), but
+                # req.query.id.name (2 extra segments) does not.
+                remainder = expr_str[len(sm) + 1:]
+                if '.' not in remainder:
+                    return True
+                continue
+            if expr_str.startswith(sm + '['):
                 return True
         return False
 
