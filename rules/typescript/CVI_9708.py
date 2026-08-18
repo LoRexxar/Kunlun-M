@@ -32,7 +32,7 @@ class CVI_9708(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"(?:serialize\.)?unserialize\s*\(|JSON\.parse\s*\("
 
-        self.vul_function = ["unserialize", "parse"]
+        self.vul_function = ["unserialize", "JSON.parse"]
 
     def main(self, regex_string, sink_args=None):
         """
