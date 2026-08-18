@@ -75,14 +75,13 @@ _FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
     "type",
 })
 
-# JS/TS source roots (location.hash, document.cookie, process.env, window.name)
-_JS_SOURCE_ROOTS: frozenset[str] = frozenset({
-    "location", "document", "window",
-    # "process" removed: only process.env is a source (registered in
-    # SourceRegistry), not process.execPath/process.cwd/etc.
-    # _is_source_via_member_chain rebuilds "process.env" from the
-    # member edge and matches SourceRegistry.
-})
+# JS/TS source roots — kept EMPTY intentionally.
+# Bare identifiers like "location", "document", "window" are NOT valid
+# taint sources.  They cause FP when user code uses them as variable/param
+# names.  All legitimate JS/TS sources (location.hash, document.cookie,
+# window.name, process.env, etc.) are registered in SourceRegistry and
+# matched via the dotted-path check below.
+_JS_SOURCE_ROOTS: frozenset[str] = frozenset()
 
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # PHP — well-known sanitizer/encoding functions
@@ -2791,7 +2790,9 @@ class GraphAnalyzer:
             if name in _SUPERGLOBALS:
                 return True
             # Don't short-circuit — SourceRegistry may recognize it (e.g., params.key)
-        # JS/TS source roots (location.hash, document.cookie, process.env, window.name)
+        # JS/TS: bare "location"/"document"/"window" are NOT sources (FP guard).
+        # All legitimate JS/TS sources are registered in SourceRegistry (e.g.
+        # location.hash, document.cookie, window.name, process.env).
         if self.language in ("javascript", "typescript"):
             if name in _JS_SOURCE_ROOTS:
                 return True
