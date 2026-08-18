@@ -1350,7 +1350,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         cvi=matched_rule.svid, sink=sink_name))
 
                 except Exception as e:
-                    logger.debug('[SCAN] [GRAPH] Sink analysis error: %s', e)
+                    logger.debug('[SCAN] [GRAPH] Sink analysis error: %s\n%s', e, traceback.format_exc())
                     continue
 
             # Release analyzer indexes (~148MB) before next language iteration

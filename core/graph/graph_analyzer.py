@@ -1598,7 +1598,7 @@ class GraphAnalyzer:
                 # connected via ast edges, not dfg.
                 if (ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
-                )) or (ulabel == NodeLabel.STATEMENT.value):
+                )):
                     # When tracing into a call's arguments, respect builtin_knowledge
                     # passthrough: only trace args that are in the passthrough list.
                     # This prevents false taint from non-data args (e.g. apply_filters
