@@ -165,13 +165,17 @@ def main(argv):
         Running(str(s.id)).status({'status': 'running', 'report': ''})
 
         try:
+            # CI must scan all languages in target, not just the primary one.
+            # When --language is not specified, use 'all' to detect and scan
+            # every language found (expected.json contains multi-lang vulns).
+            scan_lang = args.language if args.language else 'all'
             core_cli.start(
                 target,
                 'json',
                 '',
                 args.special_rules,
                 str(s.id),
-                args.language,
+                scan_lang,
                 args.tamper_name,
                 args.black_path,
                 bool(args.include_unconfirm),
