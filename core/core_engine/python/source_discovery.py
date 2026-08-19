@@ -82,6 +82,7 @@ class SourceRegistry:
 
 _BUILTIN_SOURCE_MEMBERS = {
     # HTTP 请求对象（通用，不依赖框架检测）
+    # Flask-style
     'request.args',
     'request.form',
     'request.data',
@@ -91,6 +92,24 @@ _BUILTIN_SOURCE_MEMBERS = {
     'request.values',
     'request.get_json',
     'request.get_data',
+    'request.headers',
+    'request.query_string',
+    # Django-style
+    'request.GET',
+    'request.POST',
+    'request.FILES',
+    'request.COOKIES',
+    'request.META',
+    'request.body',
+    'request.get_full_path',
+    'request.get_host',
+    'request.build_absolute_uri',
+    # FastAPI-style
+    'request.query_params',
+    # Generic HTTP methods
+    'input',
+    'sys.argv',
+    'os.environ',
 }
 
 # ---------------------------------------------------------------------------
