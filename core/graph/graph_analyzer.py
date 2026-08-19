@@ -903,11 +903,21 @@ class GraphAnalyzer:
         # where show() is a user-defined sanitizer (marked safe by function_summary).
         if (_vattr(sv, "label") == NodeLabel.OPERATOR.value and
                 _vattr(sv, "type", "") in _CALL_TYPES):
+            start_lang = _vattr(sv, "language", "")
             for ue in self.graph.es.select(_source=start_vid, label="use"):
                 tgt = self.graph.vs[ue.target]
                 if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                     continue
+                tgt_lang = _vattr(tgt, "language", "")
+                if tgt_lang and tgt_lang != self.language:
+                    continue
+                if not tgt_lang and start_lang and start_lang != self.language:
+                    continue
                 tgt_taint = _vattr(tgt, "taint_type", "")
+                if not tgt_lang:
+                    tgt_file = _vattr(tgt, "file_path", "") or _vattr(tgt, "path", "")
+                    if not tgt_file:
+                        continue
                 tgt_summary = _vattr(tgt, "func_summary_type", "")
                 if tgt_taint == "safe" or tgt_summary == "safe":
                     return self._cached(cache_key, AnalysisResult(
@@ -1770,10 +1780,26 @@ class GraphAnalyzer:
                     # This catches user-defined sanitizer functions (e.g.,
                     # stripinput() that wraps htmlspecialchars) that were
                     # marked safe by build_function_summaries.
+                    call_lang = _vattr(self.graph.vs[up_vid], "language", "")
                     for ue in self.graph.es.select(_source=up_vid, label="use"):
                         tgt = self.graph.vs[ue.target]
                         if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                             continue
+                        # In multi-language graphs, skip functions from
+                        # other languages to prevent cross-language taint
+                        # pollution (e.g. JS app.get safe blocking Python get).
+                        tgt_lang = _vattr(tgt, "language", "")
+                        if tgt_lang and tgt_lang != self.language:
+                            continue
+                        if not tgt_lang and call_lang and call_lang != self.language:
+                            continue
+                        # Skip functions with no file_path in multi-lang graphs;
+                        # they are often cross-language ghost nodes (e.g. JS app.get
+                        # linked to Python request.GET.get via name matching).
+                        if not tgt_lang:
+                            tgt_file = _vattr(tgt, "file_path", "") or _vattr(tgt, "path", "")
+                            if not tgt_file:
+                                continue
                         tgt_taint = _vattr(tgt, "taint_type", "")
                         tgt_summary = _vattr(tgt, "func_summary_type", "")
                         if tgt_taint == "safe" or tgt_summary == "safe":
@@ -1789,6 +1815,9 @@ class GraphAnalyzer:
                         tgt_name = _vattr(tgt, "name", "")
                         if tgt_name and tgt_summary != "safe" and tgt_taint != "safe":
                             for sv in self.graph.vs.select(name=tgt_name, label=NodeLabel.FUNCTION.value):
+                                sv_lang = _vattr(sv, "language", "")
+                                if sv_lang and sv_lang != self.language:
+                                    continue
                                 if _vattr(sv, "func_summary_type", "") == "safe" or _vattr(sv, "taint_type", "") == "safe":
                                     return self._cached(cache_key, AnalysisResult(
                                         code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
@@ -4261,11 +4290,23 @@ class GraphAnalyzer:
                     if idx > 0:
                         qualifier_name = callee_names[idx - 1][0]
                         return qualifier_name + "." + name
+                    # Fallback: check member edges for object qualification
+                    for me in self.graph.es.select(_target=tvid, label="member"):
+                        obj = self.graph.vs[me.source]
+                        obj_name = _vattr(obj, "name", "")
+                        if obj_name:
+                            return obj_name + "." + name
                     return name
                 resolved = self._resolve_variable_callee(tvid, name)
                 if resolved:
                     return resolved
                 return name
+                # Check member edges for qualified name (e.g. os.system)
+                for me in self.graph.es.select(_target=tvid, label="member"):
+                    obj = self.graph.vs[me.source]
+                    obj_name = _vattr(obj, "name", "")
+                    if obj_name:
+                        return obj_name + "." + name
         # No identifier callee found — return the last callee name overall
         if callee_names:
             return callee_names[-1][0]

@@ -72,6 +72,14 @@ def enrich_taint(
         if not (is_function_def or is_call_node):
             continue
 
+        # Skip nodes belonging to other languages.
+        # In multi-language graphs, each enrich_taint(language=X) call
+        # must only annotate nodes for that language to prevent cross-language
+        # taint pollution (e.g. PHP TraceCache marking Python's "get" as safe).
+        node_lang = _vattr(v, "language", "")
+        if node_lang and node_lang != language:
+            continue
+
         func_vid = v.index
         func_name = _vattr(v, "name", "")
         fullname = _vattr(v, "fullname", "")
