@@ -301,6 +301,21 @@ def main(argv):
                 exit_code = 1
                 reason = 'expected_vulns_missing'
 
+            # Check forbidden: expected-to-be-absent vulns that MUST NOT appear
+            forbidden_list = expected_data.get('forbidden', [])
+            forbidden_violations = []
+            for fb in forbidden_list:
+                fb_file = os.path.basename(fb.get('file', '')).split(':')[0]
+                fb_cvi = str(fb.get('cvi_id', ''))
+                if (fb_file, fb_cvi) in actual_set:
+                    forbidden_violations.append(fb)
+            if forbidden_violations:
+                if exit_code == 0:
+                    exit_code = 1
+                    reason = 'forbidden_vuln_detected'
+                else:
+                    reason = reason + '+forbidden_vuln_detected'
+
             report = {
                 'meta': {
                     'target': target,
@@ -321,10 +336,12 @@ def main(argv):
                     'expected_count': len(expected_list),
                     'missing_count': len(missing),
                     'unexpected_count': len(unexpected),
+                    'forbidden_count': len(forbidden_violations),
                 },
                 'expected': expected_list,
                 'missing': missing,
                 'unexpected': unexpected,
+                'forbidden': forbidden_violations,
                 'vulnerabilities': vul_list,
                 'exit': {
                     'code': exit_code,
@@ -393,6 +410,13 @@ def main(argv):
                         u.get('severity', '?'),
                     ))
         else:
+            if forbidden_violations:
+                print('[CI] FORBIDDEN: 以下漏洞不应被检出 (sanitizer 误杀 or FP):')
+                for fb in forbidden_violations:
+                    print('  - {} (CVI-{}) reason={}'.format(
+                        fb.get('file', '?'), fb.get('cvi_id', '?'),
+                        fb.get('reason', 'N/A'),
+                    ))
             print('[CI] 阈值模式：共检出 {} 个漏洞，最高严重级别: {}'.format(len(vul_list), max_sev))
 
         return exit_code

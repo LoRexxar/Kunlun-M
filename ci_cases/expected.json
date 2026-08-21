@@ -24,6 +24,31 @@
       "file": "xss.js",
       "cvi_id": "3002",
       "severity": "high"
+    },
+    {
+      "file": "cross_lang_pollution.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "Must detect even when cross_lang_pollution.js defines app.get"
+    },
+    {
+      "file": "sanitizer_escape.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "shlex.quote result is not assigned back to cmd"
+    },
+    {
+      "file": "chain_trace.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "Source passes through run_command() to sink"
+    }
+  ],
+  "forbidden": [
+    {
+      "file": "sanitizer_noescape.php",
+      "cvi_id": "3002",
+      "reason": "htmlspecialchars is a proper sanitizer for XSS via echo"
     }
   ]
 }
