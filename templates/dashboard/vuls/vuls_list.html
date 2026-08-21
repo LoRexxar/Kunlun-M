@@ -35,6 +35,131 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* 展开区 - 传播链代码面板 */
+.km-vul-chain-panel {
+    display: flex;
+    border: 1px solid #e0e0e0;
+    border-top: 2px solid #3b82f6;
+    min-height: 120px;
+    background: #fff;
+    border-radius: 0 0 6px 6px;
+}
+.km-vul-chain-sidebar {
+    width: 300px;
+    min-width: 300px;
+    border-right: 1px solid #e8e8e8;
+    padding: 12px 0;
+    overflow-y: auto;
+    max-height: 500px;
+}
+.km-vul-chain-sidebar-row {
+    padding: 8px 16px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    font-size: 13px;
+}
+.km-vul-chain-sidebar-row:hover {
+    background: #f8fafc;
+}
+.km-vul-chain-sidebar-row.active {
+    background: #f0f7ff;
+    border-left-color: #3b82f6;
+}
+.km-vul-chain-sidebar-row .role-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 6px;
+    text-transform: uppercase;
+}
+.role-sink { background: #fef3c7; color: #92400e; }
+.role-source { background: #fee2e2; color: #991b1b; }
+.role-propagation { background: #e0e7ff; color: #3730a3; }
+.km-vul-chain-sidebar-row .node-name {
+    color: #1e293b;
+    font-weight: 500;
+}
+.km-vul-chain-sidebar-row .node-loc {
+    color: #94a3b8;
+    font-size: 11px;
+    margin-top: 2px;
+}
+.km-vul-chain-code {
+    flex: 1;
+    padding: 0;
+    overflow: auto;
+    max-height: 500px;
+}
+.km-vul-chain-code pre {
+    margin: 0;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    font-family: 'Fira Code', Consolas, 'Courier New', monospace;
+    background: #fafafa;
+    color: #1e293b;
+    white-space: pre;
+}
+.km-vul-chain-code .highlight-line {
+    background: #fef3c7;
+    display: block;
+    margin: 0 -16px;
+    padding: 0 16px;
+}
+.km-vul-chain-code .line-num {
+    color: #94a3b8;
+    display: inline-block;
+    width: 40px;
+    text-align: right;
+    margin-right: 16px;
+    user-select: none;
+}
+.km-vul-chain-code .code-header {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #64748b;
+    border-bottom: 1px solid #f1f5f9;
+    background: #f8fafc;
+}
+.km-vul-chain-meta {
+    width: 220px;
+    min-width: 220px;
+    border-right: 1px solid #e8e8e8;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #475569;
+}
+.km-vul-chain-meta .meta-row {
+    padding: 4px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+.km-vul-chain-meta .meta-label {
+    color: #94a3b8;
+    display: inline-block;
+    width: 48px;
+}
+.km-vul-chain-meta code {
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    word-break: break-all;
+}
+
+/* 侧边栏连接线 */
+.km-chain-connector {
+    width: 300px;
+    padding: 0 16px 0 21px;
+    height: 12px;
+}
+.km-chain-connector-line {
+    width: 1px;
+    height: 100%;
+    background: #cbd5e1;
+}
 </style>
 <div class="card">
 <div class="card-header">
@@ -45,7 +170,6 @@
   </div>
 </div>
 <div class="card-body">
-  <!-- 筛选条 -->
   <form method="get" id="filterForm" style="margin-bottom:12px;">
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <select name="lang" class="form-select form-select-sm" style="width:auto;">
@@ -143,18 +267,18 @@
             </div>
           </td>
         </tr>
-        <!-- 展开行: 传播链详情 -->
         <tr class="km-vul-detail-row" style="display:none;">
           <td colspan="10" style="padding:0!important;border:none!important;">
-            <div class="km-vul-detail" data-vul-id="{{ r.id }}" style="display:flex; border:1px solid #e0e0e0; border-top:2px solid #3b82f6; min-height:100px; background:#fff; border-radius:0 0 6px 6px;">
-              <div style="width:240px;min-width:240px;border-right:1px solid #e8e8e8;padding:12px 16px;font-size:13px;">
-                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">CVI</span><span>{{ r.cvi_id }}</span></div>
-                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">文件</span><span style="word-break:break-all;">{{ r.vulfile_path }}</span></div>
-                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">来源</span><code style="background:#e8e8e8;padding:2px 6px;border-radius:3px;font-size:12px;word-break:break-all;">{{ r.source_code|escape }}</code></div>
-                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">项目</span><span>{{ r.project_name }}</span></div>
-                <div style="padding:4px 0;"><span style="color:#6a737d;display:inline-block;width:50px;">类型</span><span>{{ r.result_type }}</span></div>
+            <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}">
+              <div class="km-vul-chain-meta">
+                <div class="meta-row"><span class="meta-label">CVI</span><span>{{ r.cvi_id }}</span></div>
+                <div class="meta-row"><span class="meta-label">文件</span><span style="word-break:break-all;">{{ r.vulfile_path }}</span></div>
+                <div class="meta-row"><span class="meta-label">来源</span><code>{{ r.source_code|escape }}</code></div>
+                <div class="meta-row"><span class="meta-label">项目</span><span>{{ r.project_name }}</span></div>
+                <div class="meta-row"><span class="meta-label">分析</span><span>{{ r.result_type }}</span></div>
               </div>
-              <div style="flex:1;padding:12px 16px;overflow:auto;" id="vulChain_{{ r.id }}"></div>
+              <div class="km-vul-chain-sidebar" id="chainSidebar_{{ r.id }}"></div>
+              <div class="km-vul-chain-code" id="chainCode_{{ r.id }}"></div>
             </div>
           </td>
         </tr>
@@ -173,7 +297,6 @@
         {% elif p <= 3 or p >= max_page|add:'-2' or p|add:'-1' == page or p|add:'1' == page %}
           <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">{{ p }}</a></li>
         {% elif p|add:'-1' == page or p|add:'1' == page %}
-          {# skip #}
         {% else %}
           {% if forloop.counter == 1 or p == max_page or forloop.counter == page_range|length %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
         {% endif %}
@@ -189,6 +312,7 @@
 {% endblock %}
 
 {% block script %}
+<script src="{% static 'js/prism.js' %}?v=39"></script>
 <script>
 var chainDataMap = {};
 {% for r in results %}
@@ -198,19 +322,23 @@ var chainDataMap = {};
 {% endfor %}
 
 var activeVulRow = null;
+
 function toggleVulDetail(row) {
   var detailRow = row.nextElementSibling;
   if (!detailRow || !detailRow.classList.contains('km-vul-detail-row')) return;
   if (activeVulRow && activeVulRow !== row) {
     var prev = activeVulRow.nextElementSibling;
-    if (prev && prev.classList.contains('km-vul-detail-row')) { prev.style.display = 'none'; activeVulRow.classList.remove('km-vul-row-active'); }
+    if (prev && prev.classList.contains('km-vul-detail-row')) {
+      prev.style.display = 'none';
+      activeVulRow.classList.remove('km-vul-row-active');
+    }
   }
   if (detailRow.style.display === 'none') {
     detailRow.style.display = 'table-row';
     row.classList.add('km-vul-row-active');
     activeVulRow = row;
     var vulId = row.getAttribute('data-vul-id');
-    renderChainInline(vulId);
+    renderChainPanel(vulId);
   } else {
     detailRow.style.display = 'none';
     row.classList.remove('km-vul-row-active');
@@ -218,38 +346,124 @@ function toggleVulDetail(row) {
   }
 }
 
-function renderChainInline(vulId) {
-  var $area = $('#vulChain_' + vulId);
-  if (!$area.length) return;
+function getChainRole(idx, total) {
+  if (idx === total - 1) return 'source';
+  if (idx === 0) return 'sink';
+  return 'propagation';
+}
+
+function getRoleLabel(role) {
+  if (role === 'source') return 'SOURCE';
+  if (role === 'sink') return 'SINK';
+  return '传播';
+}
+
+function getRoleClass(role) {
+  if (role === 'source') return 'role-source';
+  if (role === 'sink') return 'role-sink';
+  return 'role-propagation';
+}
+
+function inferLang(path) {
+  if (!path) return 'plaintext';
+  var ext = path.split('.').pop().toLowerCase();
+  var map = {py:'python',php:'php',java:'java',js:'javascript',ts:'typescript',go:'go',c:'c',cpp:'cpp',h:'c',hpp:'cpp',rs:'rust',rb:'ruby'};
+  return map[ext] || 'plaintext';
+}
+
+function renderChainPanel(vulId) {
   var nodes = chainDataMap[vulId];
-  if (!nodes || nodes.length === 0) {
-    $area.html('<div style="color:#999;font-size:13px;">暂无传播链数据</div>');
+  if (!nodes || nodes.length === 0) return;
+  var total = nodes.length;
+
+  // Build sidebar
+  var sidebar = document.getElementById('chainSidebar_' + vulId);
+  var html = '';
+  for (var i = 0; i < total; i++) {
+    var n = nodes[i];
+    var role = getChainRole(i, total);
+    var fname = (n.path || '').split('/').pop();
+    var name = n.content || n.type;
+    html += '<div class="km-vul-chain-sidebar-row' + (i === total - 1 ? ' active' : '') + '" data-idx="' + i + '" onclick="selectChainNode(' + vulId + ',' + i + ')">';
+    html += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
+    html += '<span class="node-name">' + escapeHtml(name) + '</span>';
+    html += '<div class="node-loc">' + escapeHtml(n.type);
+    if (fname && n.lineno) html += ' · ' + escapeHtml(fname) + ':' + n.lineno;
+    html += '</div></div>';
+    if (i < total - 1) {
+      html += '<div class="km-chain-connector"><div class="km-chain-connector-line"></div></div>';
+    }
+  }
+  sidebar.innerHTML = html;
+
+  // Select last node (source) by default
+  selectChainNode(vulId, total - 1);
+}
+
+function selectChainNode(vulId, idx) {
+  var nodes = chainDataMap[vulId];
+  if (!nodes || !nodes[idx]) return;
+  var n = nodes[idx];
+  var role = getChainRole(idx, nodes.length);
+
+  // Update sidebar active
+  var sidebar = document.getElementById('chainSidebar_' + vulId);
+  sidebar.querySelectorAll('.km-vul-chain-sidebar-row').forEach(function(el) { el.classList.remove('active'); });
+  var activeRow = sidebar.querySelector('[data-idx="' + idx + '"]');
+  if (activeRow) activeRow.classList.add('active');
+
+  // Render code area
+  var codeArea = document.getElementById('chainCode_' + vulId);
+  if (!codeArea) return;
+
+  var targetLineno = n.lineno || 0;
+  var headerHtml = '<div class="code-header">';
+  headerHtml += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
+  headerHtml += '<strong>' + escapeHtml(n.type) + '</strong> — ' + escapeHtml(n.content || '');
+  if (n.path) headerHtml += ' <span style="margin-left:12px;color:#94a3b8;">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
+  if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span style="margin-left:8px;color:#94a3b8;">vid=' + n.vid + '</span>';
+  headerHtml += '</div>';
+
+  // Parse source_code into lines: " 165: ...\n 166: ...\n"
+  var sourceLines = n.source_code || '';
+  var codeLines = [];
+  var lineNums = [];
+  if (sourceLines) {
+    var rawLines = sourceLines.split('\n');
+    for (var i = 0; i < rawLines.length; i++) {
+      var m = rawLines[i].match(/^(\s*)(\d+):\s?(.*)/);
+      if (m) {
+        lineNums.push(parseInt(m[2]));
+        codeLines.push(m[3]);
+      }
+    }
+  }
+
+  if (codeLines.length === 0) {
+    codeArea.innerHTML = headerHtml + '<pre>' + escapeHtml(n.content || '(无代码上下文)') + '</pre>';
     return;
   }
-  var typeIcons = {'source':'fa-circle-dot','sink':'fa-bullseye','NewScan':'fa-magnifying-glass'};
-  var typeColors = {'source':'#e74c3c','sink':'#e67e22','NewScan':'#3498db'};
-  var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">传播链</div>';
-  html += '<div style="display:flex;flex-direction:column;gap:0;">';
-  for (var i = 0; i < nodes.length; i++) {
-    var n = nodes[i];
-    var icon = typeIcons[n.type] || 'fa-circle';
-    var color = typeColors[n.type] || '#6b7280';
-    html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;">';
-    html += '  <div style="width:24px;text-align:center;padding-top:2px;"><i class="fa ' + icon + '" style="color:' + color + ';font-size:11px;"></i></div>';
-    html += '  <div style="flex:1;min-width:0;">';
-    html += '    <div style="font-weight:600;font-size:12px;color:' + color + ';">' + escapeHtml(n.type) + '</div>';
-    html += '    <div style="font-size:12px;color:#333;word-break:break-all;">' + escapeHtml(n.content || '-') + '</div>';
-    if (n.path && n.lineno) {
-      html += '    <div style="font-size:11px;color:#9ca3af;">' + escapeHtml(n.path) + ':' + n.lineno + '</div>';
+
+  var fullText = codeLines.join('\n');
+  var lang = inferLang(n.path);
+  var highlighted = fullText;
+  try {
+    if (window.Prism && Prism.languages[lang]) {
+      highlighted = Prism.highlight(fullText, Prism.languages[lang], lang);
     }
-    html += '  </div>';
-    if (i < nodes.length - 1) {
-      html += '<div style="width:24px;display:flex;justify-content:center;"><div style="width:1px;height:16px;background:#d1d5db;"></div></div>';
-    }
-    html += '</div>';
+  } catch (e) {}
+  var hlLines = highlighted.split('\n');
+
+  var bodyHtml = '<pre>';
+  for (var j = 0; j < hlLines.length; j++) {
+    var isTarget = (lineNums[j] === targetLineno);
+    bodyHtml += (isTarget ? '<span class="highlight-line">' : '');
+    bodyHtml += '<span class="line-num">' + (lineNums[j] || '') + '</span>' + hlLines[j];
+    bodyHtml += '\n';
+    if (isTarget) bodyHtml += '</span>';
   }
-  html += '</div>';
-  $area.html(html);
+  bodyHtml += '</pre>';
+  codeArea.innerHTML = headerHtml + bodyHtml;
 }
 
 function escapeHtml(s) {

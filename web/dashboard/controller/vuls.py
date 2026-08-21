@@ -12,6 +12,21 @@ from web.index.models import get_and_check_scantask_project_id
 from Kunlun_M.const import VUL_LEVEL
 
 
+# 节点 label → 可读角色（链的首尾节点语义推断）
+_SOURCE_LABELS = frozenset({'source', 'Source', 'SOURCE', 'NewScan'})
+_SINK_LABELS = frozenset({'sink', 'Sink', 'SINK'})
+_CALLER_LABELS = frozenset({'Function', 'Call', 'Caller', 'Return', 'Identifier', 'Statement', 'Expression'})
+
+
+def _chain_role(idx, total, label):
+    """推断链节点的角色: source / sink / propagation"""
+    if idx == total - 1:
+        return 'source'
+    if idx == 0:
+        return 'sink'
+    return 'propagation'
+
+
 class VulListView(TemplateView):
     """全局漏洞列表 — 跨任务查看所有漏洞"""
     template_name = 'dashboard/vuls/vuls_list.html'
@@ -55,7 +70,7 @@ class VulListView(TemplateView):
                 | Q(cvi_id__icontains=search)
             )
 
-        # 等级筛选需要在 join Rules 后做
+        # 等级筛选
         level_rule_ids = []
         if level:
             for r in Rules.objects.all().only('svid', 'level'):
@@ -68,7 +83,7 @@ class VulListView(TemplateView):
 
         total = qs.count()
 
-        # 排序
+        # 分页
         page = int(params.get('p', 1))
         if page < 1:
             page = 1
@@ -84,15 +99,17 @@ class VulListView(TemplateView):
         for r in Rules.objects.filter(svid__in=cvi_set).only('svid', 'rule_name', 'level'):
             rules_map[r.svid] = r
 
-        # 批量获取传播链
+        # 批量获取传播链（含 source_code 和 vid）
         vul_ids = [r.id for r in rows]
         chain_map = {}
         for tc in TaintChain.objects.filter(vul_result__in=vul_ids).order_by('vul_result', 'chain_index', 'step_order'):
             chain_map.setdefault(tc.vul_result, []).append({
                 'type': tc.node_label,
                 'content': tc.node_name or '',
-                'path': (tc.file_path or '').split('/')[-1],
+                'path': tc.file_path or '',
                 'lineno': tc.lineno or 0,
+                'vid': tc.vid,
+                'source_code': tc.source_code or '',
             })
 
         # 批量获取项目名
@@ -116,14 +133,21 @@ class VulListView(TemplateView):
             rule_name = rule.rule_name if rule else r.cvi_id
 
             chains = chain_map.get(r.id, [])
-            # 构建链摘要: source → ... → sink
+            n = len(chains)
+
+            # 构建链摘要: [Sink] name → ... → [Source] name
             chain_summary = ''
             if chains:
                 parts = []
-                for c in chains[:6]:
+                for i, c in enumerate(chains[:8]):
+                    role = _chain_role(i, n, c['type'])
                     name = c['content'] or c['type']
-                    parts.append(name)
-                if len(chains) > 6:
+                    fname = (c['path'] or '').split('/')[-1]
+                    if fname:
+                        parts.append(f'{fname}:{c["lineno"]} {name}')
+                    else:
+                        parts.append(name)
+                if n > 8:
                     parts.append('...')
                 chain_summary = ' → '.join(parts)
 
