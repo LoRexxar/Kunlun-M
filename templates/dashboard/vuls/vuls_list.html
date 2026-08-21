@@ -6,6 +6,36 @@
 {% endblock %}
 
 {% block body %}
+<style>
+.vul-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 1100px;
+}
+.vul-table col.vc-id     { width: 50px; }
+.vul-table col.vc-cvi    { width: 65px; }
+.vul-table col.vc-lang   { width: 55px; }
+.vul-table col.vc-task   { width: 110px; }
+.vul-table col.vc-file   { width: 260px; }
+.vul-table col.vc-chain  { width: auto; }
+.vul-table col.vc-level  { width: 60px; }
+.vul-table col.vc-type   { width: 90px; }
+.vul-table col.vc-status { width: 55px; }
+.vul-table col.vc-ops    { width: 45px; }
+.vul-table td, .vul-table th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 8px 6px !important;
+    font-size: 13px;
+}
+.vul-table td.vc-chain-cell, .vul-table th.vc-chain-cell {
+    white-space: normal;
+    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+</style>
 <div class="card">
 <div class="card-header">
   <h3 class="card-title">漏洞列表 <span class="badge bg-yellow">{{ total }}</span></h3>
@@ -50,41 +80,53 @@
   </form>
 
   <div class="table-responsive">
-    <table class="table table-hover km-table km-table-wide" id="vulTable">
+    <table class="table table-hover vul-table" id="vulTable">
+      <colgroup>
+        <col class="vc-id">
+        <col class="vc-cvi">
+        <col class="vc-lang">
+        <col class="vc-task">
+        <col class="vc-file">
+        <col class="vc-chain">
+        <col class="vc-level">
+        <col class="vc-type">
+        <col class="vc-status">
+        <col class="vc-ops">
+      </colgroup>
       <thead>
         <tr>
-          <th class="km-col-id" style="width:50px;">ID</th>
-          <th style="width:70px;">CVI</th>
-          <th style="width:60px;">语言</th>
-          <th style="width:100px;">任务</th>
+          <th>ID</th>
+          <th>CVI</th>
+          <th>语言</th>
+          <th>任务</th>
           <th>文件</th>
-          <th>传播链</th>
-          <th style="width:70px;">等级</th>
-          <th style="width:80px;">类型</th>
-          <th style="width:70px;">确认</th>
-          <th style="width:50px;">操作</th>
+          <th class="vc-chain-cell">传播链</th>
+          <th>等级</th>
+          <th>类型</th>
+          <th>确认</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for r in results %}
-        <tr data-level="{{ r.level_lower }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
-          <td class="km-td-nowrap">{{ r.id }}</td>
-          <td class="km-td-nowrap">{{ r.cvi_id }}</td>
-          <td class="km-td-nowrap">{{ r.language }}</td>
-          <td class="km-td-nowrap" title="{{ r.task_name|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;font-size:12px;">{{ r.task_name|truncatechars:15 }}</a></td>
-          <td><div class="km-cell-config" title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></div></td>
-          <td style="font-size:12px;color:#555;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
-          <td class="km-td-nowrap">
-            {% if r.level_lower == 'critical' %}<span class="badge bg-danger" style="background:#a00!important;color:#fff!important;">严重</span>
+        <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
+          <td>{{ r.id }}</td>
+          <td>{{ r.cvi_id }}</td>
+          <td>{{ r.language }}</td>
+          <td title="{{ r.task_name|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.task_name|truncatechars:12 }}</a></td>
+          <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></td>
+          <td class="vc-chain-cell" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
+          <td>
+            {% if r.level_lower == 'critical' %}<span class="badge" style="background:#a00!important;color:#fff!important;">严重</span>
             {% elif r.level_lower == 'high' %}<span class="badge bg-danger">高危</span>
             {% elif r.level_lower == 'medium' %}<span class="badge bg-warning">中危</span>
             {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
             {% else %}<span class="badge bg-light text-dark border">{{ r.level }}</span>{% endif %}
           </td>
-          <td><span class="badge bg-light text-dark border" title="{{ r.result_type|escape }}">{{ r.rule_name }}</span></td>
-          <td class="km-td-nowrap">
-            {% if r.verification_status == 'tp' %}<span style="color:#16a34a;">TP</span>
-            {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;">FP</span>
+          <td title="{{ r.result_type|escape }}">{{ r.rule_name|truncatechars:8 }}</td>
+          <td>
+            {% if r.verification_status == 'tp' %}<span style="color:#16a34a;font-weight:600;">TP</span>
+            {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;font-weight:600;">FP</span>
             {% elif r.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
             {% else %}<span style="color:#6b7280;">-</span>{% endif %}
           </td>
@@ -103,7 +145,7 @@
         </tr>
         <!-- 展开行: 传播链详情 -->
         <tr class="km-vul-detail-row" style="display:none;">
-          <td colspan="9" style="padding:0!important;border:none!important;">
+          <td colspan="10" style="padding:0!important;border:none!important;">
             <div class="km-vul-detail" data-vul-id="{{ r.id }}" style="display:flex; border:1px solid #e0e0e0; border-top:2px solid #3b82f6; min-height:100px; background:#fff; border-radius:0 0 6px 6px;">
               <div style="width:240px;min-width:240px;border-right:1px solid #e8e8e8;padding:12px 16px;font-size:13px;">
                 <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">CVI</span><span>{{ r.cvi_id }}</span></div>
@@ -184,7 +226,6 @@ function renderChainInline(vulId) {
     $area.html('<div style="color:#999;font-size:13px;">暂无传播链数据</div>');
     return;
   }
-  // 简洁的垂直链表
   var typeIcons = {'source':'fa-circle-dot','sink':'fa-bullseye','NewScan':'fa-magnifying-glass'};
   var typeColors = {'source':'#e74c3c','sink':'#e67e22','NewScan':'#3498db'};
   var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">传播链</div>';
