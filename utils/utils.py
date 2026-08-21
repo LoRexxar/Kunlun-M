@@ -19,6 +19,7 @@ import string
 import sys
 import time
 import ast
+import json
 import zipfile
 
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
@@ -750,6 +751,12 @@ def del_sensitive_for_config(param_config):
         param_config_list = ast.literal_eval(param_config)
     except Exception:
         return param_config
+
+    if not isinstance(param_config_list, list):
+        try:
+            return json.dumps(param_config_list, ensure_ascii=False)
+        except Exception:
+            return param_config
 
     last_param = ""
 
