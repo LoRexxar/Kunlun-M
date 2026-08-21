@@ -26,6 +26,11 @@
       "severity": "high"
     },
     {
+      "file": "eval_inject.py",
+      "cvi_id": "7001",
+      "severity": "high"
+    },
+    {
       "file": "cross_lang_pollution.py",
       "cvi_id": "7000",
       "severity": "high",
@@ -35,7 +40,7 @@
       "file": "sanitizer_escape.py",
       "cvi_id": "7000",
       "severity": "high",
-      "reason": "shlex.quote result is not assigned back to cmd"
+      "reason": "shlex.quote called but result not assigned back to cmd"
     },
     {
       "file": "chain_trace.py",
@@ -48,7 +53,17 @@
     {
       "file": "sanitizer_noescape.php",
       "cvi_id": "3002",
-      "reason": "htmlspecialchars is a proper sanitizer for XSS via echo"
+      "reason": "htmlspecialchars properly sanitizes XSS before echo"
+    },
+    {
+      "file": "sanitizer_python.py",
+      "cvi_id": "7000",
+      "reason": "shlex.quote result IS assigned back to data — real sanitizer"
+    },
+    {
+      "file": "sanitizer_php.php",
+      "cvi_id": "9001",
+      "reason": "escapeshellarg properly sanitizes before system()"
     }
   ]
 }
