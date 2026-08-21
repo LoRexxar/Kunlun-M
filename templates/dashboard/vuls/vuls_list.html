@@ -39,126 +39,143 @@
 /* 展开区 - 传播链代码面板 */
 .km-vul-chain-panel {
     display: flex;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #d0d7de;
     border-top: 2px solid #3b82f6;
-    min-height: 120px;
     background: #fff;
-    border-radius: 0 0 6px 6px;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
 }
 .km-vul-chain-sidebar {
-    width: 300px;
-    min-width: 300px;
-    border-right: 1px solid #e8e8e8;
-    padding: 12px 0;
+    width: 280px;
+    min-width: 280px;
+    border-right: 1px solid #e5e9ed;
+    background: #f6f8fa;
     overflow-y: auto;
-    max-height: 500px;
 }
 .km-vul-chain-sidebar-row {
-    padding: 8px 16px;
+    padding: 10px 16px;
     cursor: pointer;
     border-left: 3px solid transparent;
     font-size: 13px;
+    border-bottom: 1px solid #eef0f3;
+    transition: background 0.1s;
 }
-.km-vul-chain-sidebar-row:hover {
-    background: #f8fafc;
-}
+.km-vul-chain-sidebar-row:last-child { border-bottom: none; }
+.km-vul-chain-sidebar-row:hover { background: #eef3ff; }
 .km-vul-chain-sidebar-row.active {
-    background: #f0f7ff;
+    background: #fff;
     border-left-color: #3b82f6;
 }
 .km-vul-chain-sidebar-row .role-badge {
     display: inline-block;
     font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 3px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
     margin-right: 6px;
-    text-transform: uppercase;
+    letter-spacing: 0.3px;
 }
-.role-sink { background: #fef3c7; color: #92400e; }
-.role-source { background: #fee2e2; color: #991b1b; }
-.role-propagation { background: #e0e7ff; color: #3730a3; }
+.role-sink { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+.role-source { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.role-propagation { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
 .km-vul-chain-sidebar-row .node-name {
-    color: #1e293b;
-    font-weight: 500;
+    color: #1f2937;
+    font-weight: 600;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 .km-vul-chain-sidebar-row .node-loc {
-    color: #94a3b8;
+    color: #9ca3af;
     font-size: 11px;
-    margin-top: 2px;
+    margin-top: 3px;
 }
 .km-vul-chain-code {
     flex: 1;
-    padding: 0;
-    overflow: auto;
-    max-height: 500px;
-}
-.km-vul-chain-code pre {
-    margin: 0;
-    padding: 12px 16px;
-    font-size: 13px;
-    line-height: 1.6;
-    font-family: 'Fira Code', Consolas, 'Courier New', monospace;
-    background: #fafafa;
-    color: #1e293b;
-    white-space: pre;
-}
-.km-vul-chain-code .highlight-line {
-    background: #fef3c7;
-    display: block;
-    margin: 0 -16px;
-    padding: 0 16px;
-}
-.km-vul-chain-code .line-num {
-    color: #94a3b8;
-    display: inline-block;
-    width: 40px;
-    text-align: right;
-    margin-right: 16px;
-    user-select: none;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 .km-vul-chain-code .code-header {
-    padding: 8px 16px;
+    flex-shrink: 0;
+    padding: 8px 20px;
     font-size: 12px;
-    color: #64748b;
-    border-bottom: 1px solid #f1f5f9;
-    background: #f8fafc;
+    color: #6b7280;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.km-vul-chain-code .code-body {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+}
+.km-vul-chain-code .code-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    line-height: 1.7;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.km-vul-chain-code .code-table td {
+    padding: 0 12px;
+    vertical-align: top;
+    white-space: pre;
+}
+.km-vul-chain-code .code-table .td-line {
+    width: 50px;
+    min-width: 50px;
+    text-align: right;
+    color: #b0b8c4;
+    user-select: none;
+    padding-right: 16px;
+    border-right: 1px solid #eef0f3;
+    font-size: 12px;
+}
+.km-vul-chain-code .code-table tr.hl-line td {
+    background: #fffbe6;
+}
+.km-vul-chain-code .code-table tr.hl-line .td-line {
+    color: #d97706;
+    font-weight: 600;
+}
+.km-vul-chain-code .code-table tr:not(.hl-line):hover td {
+    background: #f8f9fb;
+}
+.km-vul-chain-code .code-table .td-code {
+    color: #1f2937;
 }
 .km-vul-chain-meta {
     width: 220px;
     min-width: 220px;
-    border-right: 1px solid #e8e8e8;
-    padding: 12px 16px;
+    border-right: 1px solid #e5e9ed;
+    padding: 16px;
     font-size: 13px;
     color: #475569;
+    background: #fff;
 }
 .km-vul-chain-meta .meta-row {
-    padding: 4px 0;
+    padding: 6px 0;
     border-bottom: 1px solid #f1f5f9;
 }
+.km-vul-chain-meta .meta-row:last-child { border-bottom: none; }
 .km-vul-chain-meta .meta-label {
-    color: #94a3b8;
+    color: #9ca3af;
     display: inline-block;
     width: 48px;
+    font-size: 12px;
 }
 .km-vul-chain-meta code {
-    background: #f1f5f9;
+    background: #f3f4f6;
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 12px;
     word-break: break-all;
+    color: #1f2937;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
-
-/* 侧边栏连接线 */
-.km-chain-connector {
-    width: 300px;
-    padding: 0 16px 0 21px;
-    height: 12px;
-}
-.km-chain-connector-line {
-    width: 1px;
-    height: 100%;
-    background: #cbd5e1;
+.km-vul-chain-meta .meta-value {
+    color: #374151;
 }
 </style>
 <div class="card">
@@ -271,11 +288,11 @@
           <td colspan="10" style="padding:0!important;border:none!important;">
             <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}">
               <div class="km-vul-chain-meta">
-                <div class="meta-row"><span class="meta-label">CVI</span><span>{{ r.cvi_id }}</span></div>
-                <div class="meta-row"><span class="meta-label">文件</span><span style="word-break:break-all;">{{ r.vulfile_path }}</span></div>
+                <div class="meta-row"><span class="meta-label">CVI</span><span class="meta-value">{{ r.cvi_id }}</span></div>
+                <div class="meta-row"><span class="meta-label">文件</span><span class="meta-value" style="word-break:break-all;">{{ r.vulfile_path }}</span></div>
                 <div class="meta-row"><span class="meta-label">来源</span><code>{{ r.source_code|escape }}</code></div>
-                <div class="meta-row"><span class="meta-label">项目</span><span>{{ r.project_name }}</span></div>
-                <div class="meta-row"><span class="meta-label">分析</span><span>{{ r.result_type }}</span></div>
+                <div class="meta-row"><span class="meta-label">项目</span><span class="meta-value">{{ r.project_name }}</span></div>
+                <div class="meta-row"><span class="meta-label">分析</span><span class="meta-value">{{ r.result_type }}</span></div>
               </div>
               <div class="km-vul-chain-sidebar" id="chainSidebar_{{ r.id }}"></div>
               <div class="km-vul-chain-code" id="chainCode_{{ r.id }}"></div>
@@ -312,7 +329,6 @@
 {% endblock %}
 
 {% block script %}
-<script src="{% static 'js/prism.js' %}?v=39"></script>
 <script>
 var chainDataMap = {};
 {% for r in results %}
@@ -364,12 +380,7 @@ function getRoleClass(role) {
   return 'role-propagation';
 }
 
-function inferLang(path) {
-  if (!path) return 'plaintext';
-  var ext = path.split('.').pop().toLowerCase();
-  var map = {py:'python',php:'php',java:'java',js:'javascript',ts:'typescript',go:'go',c:'c',cpp:'cpp',h:'c',hpp:'cpp',rs:'rust',rb:'ruby'};
-  return map[ext] || 'plaintext';
-}
+
 
 function renderChainPanel(vulId) {
   var nodes = chainDataMap[vulId];
@@ -390,9 +401,7 @@ function renderChainPanel(vulId) {
     html += '<div class="node-loc">' + escapeHtml(n.type);
     if (fname && n.lineno) html += ' · ' + escapeHtml(fname) + ':' + n.lineno;
     html += '</div></div>';
-    if (i < total - 1) {
-      html += '<div class="km-chain-connector"><div class="km-chain-connector-line"></div></div>';
-    }
+
   }
   sidebar.innerHTML = html;
 
@@ -406,25 +415,22 @@ function selectChainNode(vulId, idx) {
   var n = nodes[idx];
   var role = getChainRole(idx, nodes.length);
 
-  // Update sidebar active
   var sidebar = document.getElementById('chainSidebar_' + vulId);
   sidebar.querySelectorAll('.km-vul-chain-sidebar-row').forEach(function(el) { el.classList.remove('active'); });
   var activeRow = sidebar.querySelector('[data-idx="' + idx + '"]');
   if (activeRow) activeRow.classList.add('active');
 
-  // Render code area
   var codeArea = document.getElementById('chainCode_' + vulId);
   if (!codeArea) return;
-
   var targetLineno = n.lineno || 0;
+
   var headerHtml = '<div class="code-header">';
   headerHtml += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
-  headerHtml += '<strong>' + escapeHtml(n.type) + '</strong> — ' + escapeHtml(n.content || '');
-  if (n.path) headerHtml += ' <span style="margin-left:12px;color:#94a3b8;">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
-  if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span style="margin-left:8px;color:#94a3b8;">vid=' + n.vid + '</span>';
+  headerHtml += '<strong>' + escapeHtml(n.type) + '</strong> &mdash; ' + escapeHtml(n.content || '');
+  if (n.path) headerHtml += ' <span style="margin-left:12px;color:#9ca3af;">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
+  if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span style="margin-left:8px;color:#9ca3af;">vid=' + n.vid + '</span>';
   headerHtml += '</div>';
 
-  // Parse source_code into lines: " 165: ...\n 166: ...\n"
   var sourceLines = n.source_code || '';
   var codeLines = [];
   var lineNums = [];
@@ -440,29 +446,19 @@ function selectChainNode(vulId, idx) {
   }
 
   if (codeLines.length === 0) {
-    codeArea.innerHTML = headerHtml + '<pre>' + escapeHtml(n.content || '(无代码上下文)') + '</pre>';
+    codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
     return;
   }
 
-  var fullText = codeLines.join('\n');
-  var lang = inferLang(n.path);
-  var highlighted = fullText;
-  try {
-    if (window.Prism && Prism.languages[lang]) {
-      highlighted = Prism.highlight(fullText, Prism.languages[lang], lang);
-    }
-  } catch (e) {}
-  var hlLines = highlighted.split('\n');
-
-  var bodyHtml = '<pre>';
-  for (var j = 0; j < hlLines.length; j++) {
+  var bodyHtml = '<div class="code-body"><table class="code-table">';
+  for (var j = 0; j < codeLines.length; j++) {
     var isTarget = (lineNums[j] === targetLineno);
-    bodyHtml += (isTarget ? '<span class="highlight-line">' : '');
-    bodyHtml += '<span class="line-num">' + (lineNums[j] || '') + '</span>' + hlLines[j];
-    bodyHtml += '\n';
-    if (isTarget) bodyHtml += '</span>';
+    bodyHtml += '<tr' + (isTarget ? ' class="hl-line"' : '') + '>';
+    bodyHtml += '<td class="td-line">' + (lineNums[j] || '') + '</td>';
+    bodyHtml += '<td class="td-code">' + escapeHtml(codeLines[j]) + '</td>';
+    bodyHtml += '</tr>';
   }
-  bodyHtml += '</pre>';
+  bodyHtml += '</table></div>';
   codeArea.innerHTML = headerHtml + bodyHtml;
 }
 
