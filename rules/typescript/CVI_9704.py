@@ -36,6 +36,7 @@ class CVI_9704(SingleRuleMixin):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的SSRF调用，
         排除硬编码URL参数（如 fetch('https://api.example.com/health')）。
+        排除非SSRF的 get 调用（如 Map.get、Set.get 等数据结构方法）。
         """
         if sink_args:
             # Graph path: const arg is hardcoded → safe
@@ -45,17 +46,14 @@ class CVI_9704(SingleRuleMixin):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
-            return None
+            # For graph path with non-const args, fall through to regex check
 
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 
-        # 提取函数调用参数部分
-        # fetch(...)
+        # Extract function call argument section
         fetch_match = re.search(r'(?<![.\w])fetch\s*\((.*)\)', regex_string, re.DOTALL)
-        # http.get(...) / http.request(...)
         http_match = re.search(r'(?:http|https)\.(?:get|request)\s*\((.*)\)', regex_string, re.DOTALL)
-        # axios.get(...) / axios.post(...) etc.
         axios_match = re.search(r'axios\.(?:get|post|put|delete|patch|request)\s*\((.*)\)', regex_string, re.DOTALL)
 
         args = None
@@ -67,26 +65,26 @@ class CVI_9704(SingleRuleMixin):
             args = axios_match.group(1).strip()
 
         if args is None:
-            return None
+            return False  # No SSRF pattern matched — not a real SSRF sink
 
-        # 如果参数为空，排除
+        # If args are empty, exclude
         if not args:
             return False
 
-        # 提取URL参数（第一个参数）
+        # Extract URL argument (first argument)
         arg_parts = self._split_args(args)
         if len(arg_parts) >= 1:
             url_arg = arg_parts[0].strip()
         else:
-            return None
+            return False
 
-        # 如果URL参数是纯硬编码字符串字面量（不含模板变量），排除
+        # If URL argument is pure hardcoded string literal (no template vars), exclude
         if re.match(r'^\"[^\"]*\"$', url_arg) or re.match(r"^'[^']*'$", url_arg):
             return False
         if re.match(r'^`[^`]*`$', url_arg):
             return False
 
-        # 确认包含危险的网络请求调用
+        # Confirm it contains a dangerous network request call
         dangerous_patterns = [
             r"(?:http|https)\.get\s*\(",
             r"(?:http|https)\.request\s*\(",
@@ -102,10 +100,10 @@ class CVI_9704(SingleRuleMixin):
             if re.search(pat, regex_string):
                 return True
 
-        return None
+        return False  # No dangerous SSRF pattern found — not a real SSRF
 
     def _split_args(self, args_str):
-        """简单按逗号分割参数，处理嵌套括号、字符串和模板字符串"""
+        """Simple comma-separated argument splitter, handles nested brackets, strings, and template strings"""
         args = []
         depth = 0
         in_single = False

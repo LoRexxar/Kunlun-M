@@ -40,6 +40,8 @@ class CVI_9706(SingleRuleMixin):
         Object.assign 不递归合并，风险较低但仍然标记。
         深度合并函数（merge/extend/defaultsDeep）递归合并，原型污染风险高。
         排除所有参数都是硬编码字面量的情况。
+        排除无法确认是 Object.assign/lodash/deepmerge 的裸 merge/assign 调用
+        （可能是 Array.prototype.merge 等，不是原型污染）。
         """
         if sink_args:
             # Graph path: const arg is hardcoded → safe
@@ -49,7 +51,7 @@ class CVI_9706(SingleRuleMixin):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
-            return None
+            # Fall through to regex check
 
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
@@ -62,15 +64,13 @@ class CVI_9706(SingleRuleMixin):
             regex_string, re.DOTALL
         )
         if not match:
-            return None
+            return False
 
         args = match.group(1).strip()
 
-        # 如果参数为空，排除
         if not args:
             return False
 
-        # 分割参数
         arg_parts = self._split_args(args)
 
         # 检查是否所有参数都是硬编码字面量
@@ -106,7 +106,7 @@ class CVI_9706(SingleRuleMixin):
             if re.search(pat, regex_string):
                 return True
 
-        return None
+        return False  # No dangerous prototype pollution pattern found
 
     def _split_args(self, args_str):
         """简单按逗号分割参数，处理嵌套括号、字符串和模板字符串"""

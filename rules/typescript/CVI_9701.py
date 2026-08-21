@@ -37,6 +37,8 @@ class CVI_9701(SingleRuleMixin):
         """
         二次筛选：检查匹配到的代码是否真正属于危险的XSS操作，
         排除硬编码字符串参数的情况。
+        对于 write/writeln 调用，必须确认是 document.write/writeln，
+        排除 res.write()、fs.write()、process.stdout.write() 等非 DOM 写入。
         """
         if sink_args:
             # Graph path: const arg is hardcoded → safe
@@ -46,7 +48,7 @@ class CVI_9701(SingleRuleMixin):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
-            return None
+            # Fall through to regex check for graph path
 
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
@@ -55,9 +57,7 @@ class CVI_9701(SingleRuleMixin):
         prop_match = re.search(r'\.(innerHTML|outerHTML)\s*=\s*(.*)', regex_string)
         if prop_match:
             rhs = prop_match.group(2).strip()
-            # 移除尾部分号
             rhs = rhs.rstrip(';').strip()
-            # 如果赋值右侧是纯硬编码字符串字面量，排除
             if re.match(r'^\"[^\"]*\"$', rhs) or re.match(r"^'[^']*'$", rhs) or re.match(r'^`[^`]*`$', rhs):
                 return False
             return True
@@ -68,7 +68,6 @@ class CVI_9701(SingleRuleMixin):
             args = write_match.group(1).strip()
             if not args:
                 return False
-            # 如果参数是纯硬编码字符串字面量，排除
             if re.match(r'^\"[^\"]*\"$', args) or re.match(r"^'[^']*'$", args) or re.match(r'^`[^`]*`$', args):
                 return False
             return True
@@ -80,14 +79,14 @@ class CVI_9701(SingleRuleMixin):
             if not args:
                 return False
             arg_parts = self._split_args(args)
-            # insertAdjacentHTML 的第二个参数是插入的 HTML 内容
             if len(arg_parts) >= 2:
                 html_arg = arg_parts[1].strip()
                 if re.match(r'^\"[^\"]*\"$', html_arg) or re.match(r"^'[^']*'$", html_arg) or re.match(r'^`[^`]*`$', html_arg):
                     return False
             return True
 
-        return None
+        # No XSS pattern matched (e.g. bare 'write' from res.write, fs.write)
+        return False
 
     def _split_args(self, args_str):
         """简单按逗号分割参数，处理嵌套括号、字符串和模板字符串"""
@@ -100,7 +99,6 @@ class CVI_9701(SingleRuleMixin):
         i = 0
         while i < len(args_str):
             ch = args_str[i]
-            # 处理模板字符串中的 ${} 表达式
             if in_template and ch == '$' and i + 1 < len(args_str) and args_str[i + 1] == '{':
                 depth += 1
                 current.append('${')
