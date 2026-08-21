@@ -69,7 +69,7 @@
         {% for r in results %}
         <tr data-level="{{ r.level_lower }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
           <td class="km-td-nowrap">{{ r.id }}</td>
-          <td class="km-td-nowrap"><a href="{% url 'dashboard:rules_detail' 0 %}" style="text-decoration:none;">{{ r.cvi_id }}</a></td>
+          <td class="km-td-nowrap">{{ r.cvi_id }}</td>
           <td class="km-td-nowrap">{{ r.language }}</td>
           <td class="km-td-nowrap" title="{{ r.task_name|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;font-size:12px;">{{ r.task_name|truncatechars:15 }}</a></td>
           <td><div class="km-cell-config" title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></div></td>
