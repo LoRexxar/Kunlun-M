@@ -146,13 +146,15 @@
     color: #1f2937;
 }
 .km-vul-chain-meta {
-    width: 220px;
-    min-width: 220px;
+    width: 200px;
+    min-width: 200px;
+    max-width: 200px;
     border-right: 1px solid #e5e9ed;
-    padding: 16px;
+    padding: 12px 14px;
     font-size: 13px;
     color: #475569;
     background: #fff;
+    overflow: hidden;
 }
 .km-vul-chain-meta .meta-row {
     padding: 6px 0;
@@ -160,22 +162,35 @@
 }
 .km-vul-chain-meta .meta-row:last-child { border-bottom: none; }
 .km-vul-chain-meta .meta-label {
+    display: block;
     color: #9ca3af;
-    display: inline-block;
-    width: 48px;
+    font-size: 11px;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.km-vul-chain-meta .meta-value {
+    display: block;
+    color: #374151;
+    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
     font-size: 12px;
 }
 .km-vul-chain-meta code {
+    display: block;
     background: #f3f4f6;
-    padding: 2px 6px;
+    padding: 4px 6px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 11px;
     word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: #1f2937;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-}
-.km-vul-chain-meta .meta-value {
-    color: #374151;
+    line-height: 1.5;
+    max-height: 60px;
 }
 </style>
 <div class="card">
@@ -289,10 +304,10 @@
             <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}">
               <div class="km-vul-chain-meta">
                 <div class="meta-row"><span class="meta-label">CVI</span><span class="meta-value">{{ r.cvi_id }}</span></div>
-                <div class="meta-row"><span class="meta-label">文件</span><span class="meta-value" style="word-break:break-all;">{{ r.vulfile_path }}</span></div>
-                <div class="meta-row"><span class="meta-label">来源</span><code>{{ r.source_code|escape }}</code></div>
+                <div class="meta-row"><span class="meta-label">文件路径</span><span class="meta-value" title="{{ r.vulfile_path|escape }}">{{ r.vulfile_path }}</span></div>
+                <div class="meta-row"><span class="meta-label">触发代码</span><code title="{{ r.source_code|escape }}">{{ r.source_code|escape }}</code></div>
                 <div class="meta-row"><span class="meta-label">项目</span><span class="meta-value">{{ r.project_name }}</span></div>
-                <div class="meta-row"><span class="meta-label">分析</span><span class="meta-value">{{ r.result_type }}</span></div>
+                <div class="meta-row"><span class="meta-label">分析</span><span class="meta-value" title="{{ r.result_type|escape }}">{{ r.result_type }}</span></div>
               </div>
               <div class="km-vul-chain-sidebar" id="chainSidebar_{{ r.id }}"></div>
               <div class="km-vul-chain-code" id="chainCode_{{ r.id }}"></div>
