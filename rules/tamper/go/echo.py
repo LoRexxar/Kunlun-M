@@ -35,13 +35,15 @@ CONTROLLED_SOURCES = [
 ]
 
 EXTRA_SINKS = [
-    ("c.HTML(", [8008]),
+    # XSS sinks: only methods that output text/html
+    ("c.HTML(", [8003, 8008]),
+    ("c.String(", [8003, 8008]),
+    # NOT XSS: structured responses
     ("c.File(", [8006]),
     ("c.Redirect(", [8013]),
-    ("c.JSON(", [8003, 8008]),
-    ("c.JSONPretty(", [8003, 8008]),
-    ("c.String(", [8003, 8008]),
-    ("c.XML(", [8003, 8008]),
+    ("c.JSON(", [8008]),
+    ("c.JSONPretty(", [8008]),
+    ("c.XML(", [8008]),
     ("c.Blob(", [8004, 8006]),
     ("c.Attachment(", [8004, 8006]),
     ("c.Stream(", [8004]),

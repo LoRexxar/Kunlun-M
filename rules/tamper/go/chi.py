@@ -37,8 +37,10 @@ EXTRA_SINKS = [
     ("http.Redirect(", [8013]),
     ("http.ServeFile(", [8004, 8006]),
     ("http.FileServer(", [8006]),
+    # XSS sinks: direct text/html output
     ("w.Write(", [8003, 8008]),
     ("fmt.Fprintf(w,", [8003, 8008]),
     ("template.Execute(", [8003, 8008]),
-    ("json.NewEncoder(w).Encode(", [8003, 8008]),
+    # NOT XSS: structured response
+    ("json.NewEncoder(w).Encode(", [8008]),
 ]

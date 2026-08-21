@@ -6,7 +6,7 @@
     :author:    KunLun-M
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
-    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
+    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved.
 """
 
 import re
@@ -15,15 +15,18 @@ from utils.api import *
 class CVI_8007(SingleRuleMixin):
     """
     Go 不安全反序列化规则
-    匹配 json.Unmarshal 到 interface{}、yaml.Unmarshal、xml.NewDecoder、
-    toml.Decode、gob.NewDecoder 等不安全的反序列化操作
+    Go 的 json/xml/yaml/toml.Unmarshal 到 struct 是类型安全的——
+    只填充结构体字段，不执行任意代码。
+    只有以下场景是真正危险的：
+    1. json.Unmarshal/data 到 interface{}（无类型约束，可嵌入任意数据）
+    2. gob.NewDecoder/Decode（gob 协议可触发方法调用）
     """
 
     def __init__(self):
         self.svid = 8007
         self.language = "go"
         self.vulnerability = "不安全反序列化"
-        self.description = "使用了可能不安全的反序列化操作（json.Unmarshal到interface{}、yaml.Unmarshal、xml.NewDecoder、toml.Decode、gob.NewDecoder等），如果反序列化的数据来自不可信来源，可能导致安全风险。建议将数据反序列化到明确的结构体类型，避免使用interface{}。"
+        self.description = "使用了可能不安全的反序列化操作（json.Unmarshal到interface{}、gob.NewDecoder等），如果反序列化的数据来自不可信来源，可能导致安全风险。建议将数据反序列化到明确的结构体类型，避免使用interface{}。"
         self.level = 6
 
         # 部分配置
@@ -40,8 +43,8 @@ class CVI_8007(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：检查反序列化目标是否为interface{}等不安全类型，
-        排除反序列化到明确结构体的安全写法。
+        二次筛选：只有反序列化到 interface{} 或使用 gob 协议时才是真正危险的。
+        json/xml/yaml/toml Unmarshal 到 struct 是类型安全的。
         """
         if sink_args:
             # Graph path: const arg is hardcoded → safe
@@ -51,45 +54,37 @@ class CVI_8007(SingleRuleMixin):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
-            return None
+            # Fall through to regex check
 
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 
-        # 检测 json.Unmarshal 到 interface{} 或 map[string]interface{}
+        # DANGEROUS: json.Unmarshal to interface{}
         if re.search(r'json\.Unmarshal\s*\([^)]*interface\s*\{\s*\}', regex_string):
             return True
 
+        # DANGEROUS: map[string]interface{} (untyped map)
         if re.search(r'map\[string\]interface\s*\{\s*\}', regex_string):
             return True
 
-        # 检测 json.NewDecoder 后接 .Decode() 到 interface{}
-        # 注意：json.NewDecoder().Decode() 到明确结构体是安全的（如 gin 的 binding）
-        # 只有到 interface{} 才危险，但这里我们无法从 regex_string 判断目标类型，
-        # 暂时不标记 json.NewDecoder，依赖后续 taint analysis 判断
-        # if re.search(r'json\.NewDecoder\s*\(', regex_string):
-        #     return True
-
-        # 检测 yaml.Unmarshal/xml.Unmarshal 到 interface{}
+        # DANGEROUS: yaml/xml Unmarshal to interface{}
         if re.search(r'(?:yaml|xml)\.Unmarshal\s*\([^)]*interface\s*\{\s*\}', regex_string):
             return True
 
-        # 检测 toml.Decode 到 interface{}
+        # DANGEROUS: toml.Decode to interface{}
         if re.search(r'toml\.Decode\s*\([^)]*interface\s*\{\s*\}', regex_string):
             return True
 
-        # 检测 gob.NewDecoder
-        if re.search(r'gob\.NewDecoder\s*\(', regex_string):
+        # DANGEROUS: gob uses its own wire protocol that can trigger method calls
+        if re.search(r'gob\.New(?:De|En)coder\s*\(', regex_string):
+            return True
+        if re.search(r'encoding/gob', regex_string):
             return True
 
-        # 只有 gob.NewDecoder 是不安全的（gob 使用 gob 协议，可触发任意方法调用）
-        if re.search(r'gob\.NewDecoder\s*\(', regex_string):
-            return True
-
-        # json/yaml/xml/toml Unmarshal 到 interface{} 的已在上面单独检测；
-        # Unmarshal 到明确 struct 是类型安全的，不再标记为漏洞。
-        # Decode 到类型化结构体是安全的（如 gin 的 jsonBinding.Bind）
+        # SAFE: json/xml/yaml/toml Unmarshal to struct (type-safe, no code exec)
+        # Decode to typed struct is safe (e.g. gin's jsonBinding.Bind)
         if re.search(r'\bDecode\s*\(', regex_string):
             return False
 
-        return None
+        # SAFE: Unmarshal/Decode without interface{} target
+        return False
