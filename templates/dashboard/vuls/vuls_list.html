@@ -1,0 +1,250 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block title %}漏洞列表{% endblock %}
+{% block body_header %}
+<h1>漏洞列表 <small>全部任务</small></h1>
+{% endblock %}
+
+{% block body %}
+<div class="card">
+<div class="card-header">
+  <h3 class="card-title">漏洞列表 <span class="badge bg-yellow">{{ total }}</span></h3>
+  <div class="card-tools d-flex ms-auto" style="gap:8px;">
+    <input type="text" id="searchBox" class="form-control form-control-sm" style="width:220px;" placeholder="搜索文件/代码/CVI..." value="{{ f_q }}">
+    <button type="button" class="btn btn-sm btn-primary" id="btnSearch"><i class="fa fa-search"></i></button>
+  </div>
+</div>
+<div class="card-body">
+  <!-- 筛选条 -->
+  <form method="get" id="filterForm" style="margin-bottom:12px;">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <select name="lang" class="form-select form-select-sm" style="width:auto;">
+        <option value="">所有语言</option>
+        {% for l in languages %}
+        <option value="{{ l }}" {% if l == f_lang %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+      <select name="cvi" class="form-select form-select-sm" style="width:auto;">
+        <option value="">所有 CVI</option>
+        {% for c in cvi_ids %}
+        <option value="{{ c }}" {% if c == f_cvi %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      <select name="level" class="form-select form-select-sm" style="width:auto;">
+        <option value="">所有等级</option>
+        <option value="critical" {% if f_level == 'critical' %}selected{% endif %}>严重</option>
+        <option value="high" {% if f_level == 'high' %}selected{% endif %}>高危</option>
+        <option value="medium" {% if f_level == 'medium' %}selected{% endif %}>中危</option>
+        <option value="low" {% if f_level == 'low' %}selected{% endif %}>低危</option>
+      </select>
+      <select name="confirm" class="form-select form-select-sm" style="width:auto;">
+        <option value="" {% if not f_confirm %}selected{% endif %}>所有状态</option>
+        <option value="tp" {% if f_confirm == 'tp' %}selected{% endif %}>已确认 TP</option>
+        <option value="fp" {% if f_confirm == 'fp' %}selected{% endif %}>已标记 FP</option>
+        <option value="unconfirmed" {% if f_confirm == 'unconfirmed' %}selected{% endif %}>未确认</option>
+      </select>
+      <input type="text" name="task_id" class="form-control form-control-sm" style="width:100px;" placeholder="任务ID" value="{{ f_task_id }}">
+      <button type="submit" class="btn btn-sm btn-primary">筛选</button>
+      <a href="?" class="btn btn-sm btn-default">重置</a>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-hover km-table km-table-wide" id="vulTable">
+      <thead>
+        <tr>
+          <th class="km-col-id" style="width:50px;">ID</th>
+          <th style="width:70px;">CVI</th>
+          <th style="width:60px;">语言</th>
+          <th style="width:100px;">任务</th>
+          <th>文件</th>
+          <th>传播链</th>
+          <th style="width:70px;">等级</th>
+          <th style="width:80px;">类型</th>
+          <th style="width:70px;">确认</th>
+          <th style="width:50px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr data-level="{{ r.level_lower }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
+          <td class="km-td-nowrap">{{ r.id }}</td>
+          <td class="km-td-nowrap"><a href="{% url 'dashboard:rules_detail' 0 %}" style="text-decoration:none;">{{ r.cvi_id }}</a></td>
+          <td class="km-td-nowrap">{{ r.language }}</td>
+          <td class="km-td-nowrap" title="{{ r.task_name|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;font-size:12px;">{{ r.task_name|truncatechars:15 }}</a></td>
+          <td><div class="km-cell-config" title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></div></td>
+          <td style="font-size:12px;color:#555;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
+          <td class="km-td-nowrap">
+            {% if r.level_lower == 'critical' %}<span class="badge bg-danger" style="background:#a00!important;color:#fff!important;">严重</span>
+            {% elif r.level_lower == 'high' %}<span class="badge bg-danger">高危</span>
+            {% elif r.level_lower == 'medium' %}<span class="badge bg-warning">中危</span>
+            {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
+            {% else %}<span class="badge bg-light text-dark border">{{ r.level }}</span>{% endif %}
+          </td>
+          <td><span class="badge bg-light text-dark border" title="{{ r.result_type|escape }}">{{ r.rule_name }}</span></td>
+          <td class="km-td-nowrap">
+            {% if r.verification_status == 'tp' %}<span style="color:#16a34a;">TP</span>
+            {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;">FP</span>
+            {% elif r.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
+            {% else %}<span style="color:#6b7280;">-</span>{% endif %}
+          </td>
+          <td>
+            <div class="dropdown">
+              <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation();" style="padding:2px 8px;">...</button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'dashboard:task_detail' r.scan_task_id %}">查看任务</a></li>
+                <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'tp')">标记 TP</a></li>
+                <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'fp')">标记 FP</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item text-danger" href="javascript:;" onclick="event.stopPropagation(); delVul({{ r.id }})">删除</a></li>
+              </ul>
+            </div>
+          </td>
+        </tr>
+        <!-- 展开行: 传播链详情 -->
+        <tr class="km-vul-detail-row" style="display:none;">
+          <td colspan="9" style="padding:0!important;border:none!important;">
+            <div class="km-vul-detail" data-vul-id="{{ r.id }}" style="display:flex; border:1px solid #e0e0e0; border-top:2px solid #3b82f6; min-height:100px; background:#fff; border-radius:0 0 6px 6px;">
+              <div style="width:240px;min-width:240px;border-right:1px solid #e8e8e8;padding:12px 16px;font-size:13px;">
+                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">CVI</span><span>{{ r.cvi_id }}</span></div>
+                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">文件</span><span style="word-break:break-all;">{{ r.vulfile_path }}</span></div>
+                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">来源</span><code style="background:#e8e8e8;padding:2px 6px;border-radius:3px;font-size:12px;word-break:break-all;">{{ r.source_code|escape }}</code></div>
+                <div style="padding:4px 0;border-bottom:1px solid #f0f0f0;"><span style="color:#6a737d;display:inline-block;width:50px;">项目</span><span>{{ r.project_name }}</span></div>
+                <div style="padding:4px 0;"><span style="color:#6a737d;display:inline-block;width:50px;">类型</span><span>{{ r.result_type }}</span></div>
+              </div>
+              <div style="flex:1;padding:12px 16px;overflow:auto;" id="vulChain_{{ r.id }}"></div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if max_page > 1 %}
+  <nav style="margin-top:16px;">
+    <ul class="pagination pagination-sm justify-content-center">
+      {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">&laquo;</a></li>{% endif %}
+      {% for p in page_range %}
+        {% if p == page %}
+          <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+        {% elif p <= 3 or p >= max_page|add:'-2' or p|add:'-1' == page or p|add:'1' == page %}
+          <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">{{ p }}</a></li>
+        {% elif p|add:'-1' == page or p|add:'1' == page %}
+          {# skip #}
+        {% else %}
+          {% if forloop.counter == 1 or p == max_page or forloop.counter == page_range|length %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+        {% endif %}
+      {% endfor %}
+      {% if page < max_page %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">&raquo;</a></li>{% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% csrf_token %}
+</div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+var chainDataMap = {};
+{% for r in results %}
+  {% if r.has_chain %}
+    chainDataMap["{{ r.id }}"] = {{ r.chain_nodes_json|safe }};
+  {% endif %}
+{% endfor %}
+
+var activeVulRow = null;
+function toggleVulDetail(row) {
+  var detailRow = row.nextElementSibling;
+  if (!detailRow || !detailRow.classList.contains('km-vul-detail-row')) return;
+  if (activeVulRow && activeVulRow !== row) {
+    var prev = activeVulRow.nextElementSibling;
+    if (prev && prev.classList.contains('km-vul-detail-row')) { prev.style.display = 'none'; activeVulRow.classList.remove('km-vul-row-active'); }
+  }
+  if (detailRow.style.display === 'none') {
+    detailRow.style.display = 'table-row';
+    row.classList.add('km-vul-row-active');
+    activeVulRow = row;
+    var vulId = row.getAttribute('data-vul-id');
+    renderChainInline(vulId);
+  } else {
+    detailRow.style.display = 'none';
+    row.classList.remove('km-vul-row-active');
+    activeVulRow = null;
+  }
+}
+
+function renderChainInline(vulId) {
+  var $area = $('#vulChain_' + vulId);
+  if (!$area.length) return;
+  var nodes = chainDataMap[vulId];
+  if (!nodes || nodes.length === 0) {
+    $area.html('<div style="color:#999;font-size:13px;">暂无传播链数据</div>');
+    return;
+  }
+  // 简洁的垂直链表
+  var typeIcons = {'source':'fa-circle-dot','sink':'fa-bullseye','NewScan':'fa-magnifying-glass'};
+  var typeColors = {'source':'#e74c3c','sink':'#e67e22','NewScan':'#3498db'};
+  var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">传播链</div>';
+  html += '<div style="display:flex;flex-direction:column;gap:0;">';
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    var icon = typeIcons[n.type] || 'fa-circle';
+    var color = typeColors[n.type] || '#6b7280';
+    html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;">';
+    html += '  <div style="width:24px;text-align:center;padding-top:2px;"><i class="fa ' + icon + '" style="color:' + color + ';font-size:11px;"></i></div>';
+    html += '  <div style="flex:1;min-width:0;">';
+    html += '    <div style="font-weight:600;font-size:12px;color:' + color + ';">' + escapeHtml(n.type) + '</div>';
+    html += '    <div style="font-size:12px;color:#333;word-break:break-all;">' + escapeHtml(n.content || '-') + '</div>';
+    if (n.path && n.lineno) {
+      html += '    <div style="font-size:11px;color:#9ca3af;">' + escapeHtml(n.path) + ':' + n.lineno + '</div>';
+    }
+    html += '  </div>';
+    if (i < nodes.length - 1) {
+      html += '<div style="width:24px;display:flex;justify-content:center;"><div style="width:1px;height:16px;background:#d1d5db;"></div></div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  $area.html(html);
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function verifyVul(vulid, action) {
+  $.post('/dashboard/vuls/' + vulid + '/verify',
+    {action: action, csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val() || $("meta[name='csrf-token']").attr('content')},
+    function(data) { if(data.code == 200) location.reload(); else alert(data.message); }
+  );
+}
+function delVul(vulid) {
+  $.get('/dashboard/vuls/' + vulid + '/del', function(data) { if(data.code == 200) location.reload(); else alert(data.message); });
+}
+
+$('#btnSearch').click(function() {
+  var q = $('#searchBox').val();
+  var url = '?q=' + encodeURIComponent(q);
+  var lang = $('select[name=lang]').val();
+  if (lang) url += '&lang=' + lang;
+  var cvi = $('select[name=cvi]').val();
+  if (cvi) url += '&cvi=' + cvi;
+  var level = $('select[name=level]').val();
+  if (level) url += '&level=' + level;
+  var confirm = $('select[name=confirm]').val();
+  if (confirm) url += '&confirm=' + confirm;
+  window.location.href = url;
+});
+$('#searchBox').keydown(function(e) { if (e.keyCode === 13) { e.preventDefault(); $('#btnSearch').click(); } });
+
+$(document).ready(function() {
+  $("#dashboard").removeClass("active menu-open");
+  $("#dashboard").find("ul li").removeClass("active");
+  $("#vuls").addClass("active");
+});
+</script>
+{% endblock %}

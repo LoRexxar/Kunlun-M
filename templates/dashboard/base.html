@@ -88,6 +88,12 @@
             </a>
             <ul class="treeview-menu nav nav-pills nav-vertical">
               <li class="nav-item" id="task_new"><a class="nav-link" href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
+          <li class="nav-item" id="vuls">
+            <a class="nav-link" href="{% url 'dashboard:vuls_list' %}">
+              <span class="nav-link-icon"><i class="ti ti-alert-triangle fa fa-bug"></i></span>
+              <span class="nav-link-title">漏洞列表</span>
+            </a>
+          </li>
               <li class="nav-item" id="task_list"><a class="nav-link" href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>任务列表</a></li>
             </ul>
           </li>
