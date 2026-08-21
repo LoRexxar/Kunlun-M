@@ -363,8 +363,8 @@ function toggleVulDetail(row) {
 }
 
 function getChainRole(idx, total) {
-  if (idx === total - 1) return 'source';
-  if (idx === 0) return 'sink';
+  if (idx === 0) return 'source';
+  if (idx === total - 1) return 'sink';
   return 'propagation';
 }
 
@@ -395,7 +395,7 @@ function renderChainPanel(vulId) {
     var role = getChainRole(i, total);
     var fname = (n.path || '').split('/').pop();
     var name = n.content || n.type;
-    html += '<div class="km-vul-chain-sidebar-row' + (i === total - 1 ? ' active' : '') + '" data-idx="' + i + '" onclick="selectChainNode(' + vulId + ',' + i + ')">';
+    html += '<div class="km-vul-chain-sidebar-row' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '" onclick="selectChainNode(' + vulId + ',' + i + ')">';
     html += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
     html += '<span class="node-name">' + escapeHtml(name) + '</span>';
     html += '<div class="node-loc">' + escapeHtml(n.type);
@@ -406,7 +406,7 @@ function renderChainPanel(vulId) {
   sidebar.innerHTML = html;
 
   // Select last node (source) by default
-  selectChainNode(vulId, total - 1);
+  selectChainNode(vulId, 0);
 }
 
 function selectChainNode(vulId, idx) {

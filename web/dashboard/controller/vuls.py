@@ -20,9 +20,9 @@ _CALLER_LABELS = frozenset({'Function', 'Call', 'Caller', 'Return', 'Identifier'
 
 def _chain_role(idx, total, label):
     """推断链节点的角色: source / sink / propagation"""
-    if idx == total - 1:
-        return 'source'
     if idx == 0:
+        return 'source'
+    if idx == total - 1:
         return 'sink'
     return 'propagation'
 
@@ -132,7 +132,7 @@ class VulListView(TemplateView):
             level_str = VUL_LEVEL[rule.level] if rule and rule.level < len(VUL_LEVEL) else ''
             rule_name = rule.rule_name if rule else r.cvi_id
 
-            chains = chain_map.get(r.id, [])
+            chains = list(reversed(chain_map.get(r.id, [])))
             n = len(chains)
 
             # 构建链摘要: [Sink] name → ... → [Source] name
