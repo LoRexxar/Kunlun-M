@@ -2,11 +2,11 @@
 
 """
     Go XXE规则
-    ~~~~
+    ~~~
     :author:    KunLun-M
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
-    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved
+    :copyright: Copyright (c) 2017 LoRexxar. All rights reserved.
 """
 
 import re
@@ -16,14 +16,16 @@ from utils.api import *
 class CVI_8010(SingleRuleMixin):
     """
     Go XXE规则
-    匹配 encoding/xml 的 Unmarshal / NewDecoder 等
+    Go 的 encoding/xml 标准库不支持外部实体解析（没有 DTD 处理），
+    因此 xml.Unmarshal / xml.NewDecoder 在 Go 中天然不受 XXE 影响。
+    此规则仅在检测到非标准 XML 解析库（如 libxml2 Go binding）时报告。
     """
 
     def __init__(self):
         self.svid = 8010
         self.language = "go"
         self.vulnerability = "XXE"
-        self.description = "使用了XML解析函数（xml.Unmarshal、xml.NewDecoder等）解析外部输入，可能导致XXE（XML外部实体注入）漏洞。建议设置 xml.Decoder 的 Strict 为 true，并禁用外部实体解析（通过自定义 Entity 字段或使用 io.LimitReader 限制输入大小）。"
+        self.description = "使用了可能存在XXE风险的XML解析函数。Go标准库encoding/xml不受XXE影响，但第三方XML库（如基于libxml2的binding）可能存在风险。"
         self.level = 7
 
         self.match_mode = "function-param-regex"
@@ -33,40 +35,32 @@ class CVI_8010(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：检查是否存在XML解析调用，且未设置安全选项（Strict、AutoClose等）。
-        如果有安全配置包裹则返回 False，否则返回 True。
+        Go encoding/xml is NOT vulnerable to XXE — the standard library
+        does not process external entities or DTDs. Only report if a
+        non-standard XML parser (e.g. libxml2 binding) is detected.
         """
-        if sink_args:
-            # Graph path: const arg is hardcoded → safe
-            if len(sink_args) >= 1:
-                arg0 = sink_args[0]
-                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                    return False
-                if arg0.get('resolved_value', ''):
-                    return False
-            return None
-
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 
-        # 检查是否有安全配置包裹
+        # Go's encoding/xml is safe from XXE by design.
+        # Only flag if using a non-standard XML library.
+        # Standard library patterns are safe:
         safe_patterns = [
-            r'\.Strict\s*=\s*true',
-            r'\.AutoClose\s*=',
-            r'\.Entity\s*=',
+            r'encoding/xml',
+            r'"xml"',
         ]
-        for pat in safe_patterns:
-            if re.search(pat, regex_string):
-                return False
+        is_stdlib = any(re.search(p, regex_string) for p in safe_patterns)
 
-        # 检查是否调用了危险的XML解析函数
-        dangerous_patterns = [
-            r'xml\.Unmarshal\s*\(',
-            r'xml\.NewDecoder\s*\(',
-            r'\.Token\s*\(',
+        # Non-standard XML parser (e.g. libxml2 Go bindings)
+        dangerous_libs = [
+            r'libxml2',
+            r'github\.com/lestrrat-go/libxml2',
+            r'github\.com/jbowtie/gokogiri',
         ]
-        for pat in dangerous_patterns:
-            if re.search(pat, regex_string):
-                return True
+        is_dangerous = any(re.search(p, regex_string) for p in dangerous_libs)
 
-        return None
+        if is_dangerous:
+            return True
+
+        # Standard library xml → safe from XXE
+        return False
