@@ -42,7 +42,16 @@ class CVI_7010(SingleRuleMixin):
             return None
 
         # 过滤 re.search — 正则搜索不是 LDAP
+        # 覆盖模块调用 (re.search) 和成员调用 (self.re.search, compiled.search)
         if re.search(r'\bre\.search\s*\(', regex_string):
             return False
+        # self.re.search(), pattern.search(), regex.search() — 正则方法调用
+        if re.search(r'\.re\.search\s*\(|\.search\s*\(.*\.(search|match|findall|finditer|sub|split|fullmatch)\s*\(', regex_string):
+            return False
+        # 更宽泛: 任何 .search( 调用中，如果搜索对象是正则相关变量名
+        if re.search(r'\b\w+\.search\s*\(', regex_string):
+            # 排除 ldap.search(...) (合法 LDAP sink)
+            if not re.search(r'\b(ldap|conn|connection|l)\.search\s*\(', regex_string):
+                return False
 
         return None

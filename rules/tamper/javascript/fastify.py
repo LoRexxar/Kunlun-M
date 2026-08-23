@@ -37,7 +37,12 @@ CONTROLLED_SOURCES = [
 EXTRA_SINKS = [
     ("reply.view(", [3005]),
     ("reply.redirect(", [3004]),
-    ("reply.send(", [3100, 3110]),
+    # NOTE: reply.send() is NOT a command injection sink (CVI-3100/3110).
+    # It sends an HTTP response body. The XSS risk (CVI-3110) does not
+    # apply to Node.js server-side reply.send — the response body is
+    # consumed by the HTTP client (browser), not executed as HTML by
+    # the server. If the client is a browser, Content-Type must be
+    # text/html for XSS; Fastify defaults to application/json.
     ("reply.file(", [3102, 3106]),
     ("reply.download(", [3102, 3106]),
 ]

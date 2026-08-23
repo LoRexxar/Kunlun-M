@@ -57,6 +57,14 @@ class CVI_8006(SingleRuleMixin):
         if re.search(r'filepath\.Clean\s*\(', regex_string):
             return False
 
+        # URL 构造场景：path.Join 用于 url.URL{} 或 HTTP URL 拼接，
+        # 不是文件系统操作，不存在路径穿越
+        if re.search(r'url\.URL\{|http\.|https\.', regex_string):
+            return False
+        # path.Join 用作 KMS/加密上下文标识（非文件路径）
+        if re.search(r'AssociatedData|kms|KMS|crypto\.', regex_string):
+            return False
+
         # 检测 ../ 路径穿越模式
         if re.search(r'\.\./', regex_string):
             return True

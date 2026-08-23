@@ -31,7 +31,7 @@ EXTRA_SINKS = [
     ("res.render(", [3005]),
     ("res.redirect(", [3004]),
     ("res.json(", [3100, 3110]),
-    ("res.send(", [3100, 3110]),
+    # NOTE: res.send() sends HTTP responses, NOT commands. Not CVI-3100.
     ("res.sendFile(", [3102, 3106]),
     ("@Redirect(", [3109]),
     ("TypeOrm", [3104]),
