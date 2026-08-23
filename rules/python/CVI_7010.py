@@ -16,13 +16,13 @@ class CVI_7010(SingleRuleMixin):
         self.match = r"ldap\.search\(|connection\.search\(|conn\.search\(|ldap\.search_s\(|ldap\.search_ext\(|l\.search\(|l\.search_s\(|l\.search_ext\("
         self.vul_function = ["search", "search_s", "search_ext"]
 
-    def main(self, regex_string, sink_args=None):
+    def main(self, regex_string, sink_args=None, context=None):
         """
         二次筛选：只保留 LDAP 搜索调用，过滤 re.search 等
 
         安全模式 (return False):
         - re.search(pattern, text)       正则搜索，非LDAP
-        - re.search_s / re.search_ext    正则模块无此方法（不会出现）
+        - self.re.search(...)            成员正则搜索，非LDAP
 
         危险模式 (return None):
         - conn.search(filter, ...)       LDAP 连接搜索
@@ -36,6 +36,16 @@ class CVI_7010(SingleRuleMixin):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
+            # Check context for regex-based .search() calls (not LDAP)
+            check_text = context or regex_string
+            if check_text and isinstance(check_text, str):
+                if re.search(r'\bre\.search\s*\(', check_text):
+                    return False
+                if re.search(r'\.re\.search\s*\(', check_text):
+                    return False
+                if re.search(r'\b\w+\.search\s*\(', check_text):
+                    if not re.search(r'\b(ldap|conn|connection|l)\.search\s*\(', check_text):
+                        return False
             return None
 
         if not regex_string:
