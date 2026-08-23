@@ -25,8 +25,10 @@ EXTRA_SINKS = [
     ("cursor().execute(", [7002]),
     ("render(", [7006]),
     ("render_to_string(", [7006]),
-    ("HttpResponseRedirect(", [7010]),
-    ("redirect(", [7010]),
+    # redirect/HttpResponseRedirect are HTTP redirects (CVI-7009),
+    # NOT LDAP injection (CVI-7010). Previously misclassified.
+    ("HttpResponseRedirect(", [7009]),
+    ("redirect(", [7009]),
     ("django.template.Template(", [7006]),
 ]
 

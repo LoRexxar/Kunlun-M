@@ -37,5 +37,6 @@ EXTRA_SINKS = [
     ("self.render(", [7006]),
     ("self.render_string(", [7006]),
     ("self.write(", [7008]),
-    ("self.redirect(", [7010]),
+    # self.redirect() is HTTP redirect (CVI-7009), NOT LDAP (7010).
+    ("self.redirect(", [7009]),
 ]

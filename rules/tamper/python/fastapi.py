@@ -33,8 +33,9 @@ CONTROLLED_SOURCES = [
 EXTRA_SINKS = [
     ("Jinja2Templates(", [7006]),
     ("TemplateResponse(", [7006]),
-    ("RedirectResponse(", [7010]),
-    ("responses.RedirectResponse(", [7010]),
+    # RedirectResponse is HTTP redirect (CVI-7009), NOT LDAP (7010).
+    ("RedirectResponse(", [7009]),
+    ("responses.RedirectResponse(", [7009]),
     ("FileResponse(", [7005, 7009]),
     ("StreamingResponse(", [7005]),
 ]
