@@ -1,0 +1,158 @@
+[
+ {
+  "name": "canal",
+  "repo": "alibaba/canal",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "checkstyle",
+  "repo": "checkstyle/checkstyle",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "cxf",
+  "repo": "apache/cxf",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "easyexcel",
+  "repo": "alibaba/easyexcel",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "fastjson",
+  "repo": "alibaba/fastjson",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "fastjson2",
+  "repo": "alibaba/fastjson2",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "forest",
+  "repo": "DTStack/forest",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "gson",
+  "repo": "google/gson",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "halo",
+  "repo": "halo-dev/halo",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "halo2",
+  "repo": "halo-dev/halo",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "iotdb",
+  "repo": "apache/iotdb",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "jetcache",
+  "repo": "alibaba/jetcache",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "jpress",
+  "repo": "JpressProjects/jpress",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "mall",
+  "repo": "macrozheng/mall",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "mockito",
+  "repo": "mockito/mockito",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "powerjob",
+  "repo": "PowerJob/PowerJob",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "redisson",
+  "repo": "redisson/redisson",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "rocketmq",
+  "repo": "apache/rocketmq",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "sca",
+  "repo": "alibaba/spring-cloud-alibaba",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "shardingsphere",
+  "repo": "apache/shardingsphere",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "skywalking",
+  "repo": "apache/skywalking",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "thingsboard",
+  "repo": "thingsboard/thingsboard",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "thrift",
+  "repo": "apache/thrift",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "ttl",
+  "repo": "alibaba/transmittable-thread-local",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "vhr",
+  "repo": "lenve/vhr",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "xboot",
+  "repo": "Exrick/xboot",
+  "lang": "java",
+  "old": 0
+ }
+]

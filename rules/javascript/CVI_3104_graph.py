@@ -42,4 +42,27 @@ class CVI_3104_graph():
         self.vul_function = ["query", "raw", "whereRaw", "literal", "sequelize.query", "knex.raw"]
 
     def main(self, regex_string, sink_args=None):
-        pass
+        """
+        过滤非 SQL query 的调用：
+        - chrome.tabs.query 是浏览器扩展 API
+        - document.querySelector / querySelectorAll 是 DOM API
+        - 其他非 SQL 的 query 方法
+        """
+        if not isinstance(regex_string, str):
+            regex_string = str(regex_string)
+
+        import re
+
+        # 浏览器扩展 API — 不是 SQL
+        if re.search(r'chrome\.\w+\.query', regex_string):
+            return False
+
+        # DOM querySelector / querySelectorAll — 不是 SQL
+        if re.search(r'querySelector(?:All)?\s*\(', regex_string):
+            return False
+
+        # mediaQueryList / matchMedia — CSS media query
+        if re.search(r'(?:matchMedia|mediaQuery)', regex_string):
+            return False
+
+        return None

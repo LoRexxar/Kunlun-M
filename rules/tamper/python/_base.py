@@ -120,10 +120,10 @@ IS_CONTROLLED = [
     # 标准输入
     "input()",
     "sys.argv",
-    # 环境变量
-    "os.environ",
-    "environ.get",
-    "environ",
+    # 环境变量 — 服务器环境变量，非用户直接可控，不作为 taint source
+    # "os.environ",
+    # "environ.get",
+    # "environ",
     # CGI
     "cgi.FieldStorage",
     "cgi.parse_qs",

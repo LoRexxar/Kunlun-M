@@ -1,0 +1,68 @@
+[
+ {
+  "name": "ikaros-dev-ikaros",
+  "repo": "ikaros-dev/ikaros",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "sc-gateway",
+  "repo": "spring-cloud/spring-cloud-gateway",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "sofa-boot",
+  "repo": "sofastack/sofa-boot",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "sofa-rpc",
+  "repo": "sofastack/sofa-rpc",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "spring-framework",
+  "repo": "spring-projects/spring-framework",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "spring-projects-spring-boot",
+  "repo": "spring-projects/spring-boot",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "spring-projects-spring-data-jpa-359fd1d",
+  "repo": "spring-projects/spring-data-jpa",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "spring-projects-spring-framework-9e8cea3",
+  "repo": "spring-projects/spring-framework",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "steve-community-steve",
+  "repo": "RWTH-i5-IDSG/steve",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "symphony-88250",
+  "repo": "88250/symphony",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "zookeeper",
+  "repo": "apache/zookeeper",
+  "lang": "java",
+  "old": 0
+ }
+]

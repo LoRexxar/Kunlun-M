@@ -1,0 +1,122 @@
+[
+ {
+  "name": "alibaba-nacos-3a9003b",
+  "repo": "alibaba/nacos",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "apache-skywalking-d28dfea",
+  "repo": "apache/skywalking",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "arouter",
+  "repo": "alibaba/arouter",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "asamk-signal-cli",
+  "repo": "AsamK/signal-cli",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "avro",
+  "repo": "apache/avro",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "commons-codec",
+  "repo": "apache/commons-codec",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "commons-collections",
+  "repo": "apache/commons-collections",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "commons-io",
+  "repo": "apache/commons-io",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "commons-lang",
+  "repo": "apache/commons-lang",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "elastic-elasticsearch-45f6a06",
+  "repo": "elastic/elasticsearch",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "google-error-prone-0e06cc2",
+  "repo": "google/error-prone",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "hibernate-orm",
+  "repo": "hibernate/hibernate-orm",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "ikaros-dev-ikaros",
+  "repo": "ikaros/dev",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "javahongxi-whatsmars",
+  "repo": "javahongxi/whatsmars",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "keycloak-keycloak-6c73e30",
+  "repo": "keycloak/keycloak",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "loiane-curso-java-basico",
+  "repo": "loiane/curso-java-basico",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "mall-swarm",
+  "repo": "macrozheng/mall-swarm",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "mockito-mockito-7834859",
+  "repo": "mockito/mockito",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "newbee-mall",
+  "repo": "newbee-ltd/newbee-mall",
+  "lang": "java",
+  "old": 0
+ },
+ {
+  "name": "nginx-webui",
+  "repo": "cym1102/nginxWebUI",
+  "lang": "java",
+  "old": 0
+ }
+]

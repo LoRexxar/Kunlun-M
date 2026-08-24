@@ -1,0 +1,21 @@
+[
+  {"name": "expressjs/express", "ref": "4.21.0", "lang": "javascript"},
+  {"name": "socketio/socket.io", "ref": "4.7.5", "lang": "javascript"},
+  {"name": "sequelize/sequelize", "ref": "v7.0.0-alpha.4", "lang": "javascript"},
+  {"name": "nestjs/nest", "ref": "v10.4.0", "lang": "typescript"},
+  {"name": "prisma/prisma", "ref": "5.20.0", "lang": "typescript"},
+  {"name": "typegoose/typegoose", "ref": "v12.0.0", "lang": "typescript"},
+  {"name": "gin-gonic/gin", "ref": "v1.10.0", "lang": "go"},
+  {"name": "golang/crypto", "ref": "v0.25.0", "lang": "go"},
+  {"name": "urfave/cli", "ref": "v2.27.2", "lang": "go"},
+  {"name": "tokio-rs/tokio", "ref": "tokio-1.39.0", "lang": "rust"},
+  {"name": "actix/actix-web", "ref": "v4.9.0", "lang": "rust"},
+  {"name": "Kotlin/kotlinx.coroutines", "ref": "1.8.1", "lang": "kotlin"},
+  {"name": "ktorio/ktor", "ref": "2.3.12", "lang": "kotlin"},
+  {"name": "sinatra/sinatra", "ref": "v4.0.0", "lang": "ruby"},
+  {"name": "jekyll/jekyll", "ref": "v4.4.0", "lang": "ruby"},
+  {"name": "OpenResty/lua-nginx-module", "ref": "v0.10.27", "lang": "lua"},
+  {"name": "jellyfin/jellyfin", "ref": "v10.9.6", "lang": "csharp"},
+  {"name": "pallets/flask", "ref": "3.0.3", "lang": "python"},
+  {"name": "pallets/click", "ref": "8.1.7", "lang": "python"}
+]

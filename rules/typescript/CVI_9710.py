@@ -32,17 +32,25 @@ class CVI_9710(SingleRuleMixin):
         "redirect", "res.redirect", "response.redirect", "ctx.redirect"
         ]
 
-    def main(self, regex_string, sink_args=None):
+    def main(self, regex_string, sink_args=None, context=None):
         """
-        二次筛选：排除所有参数都是硬编码字符串字面量的情况。
+        二次筛选：
+        - 硬编码字符串字面量 → safe
+        - 相对路径重定向（./ prefix, relativeRoot）→ safe
+        - redirect('/') — safe (same origin)
         """
         if sink_args:
-            # Graph path: const arg is hardcoded → safe
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
                 if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
                     return False
                 if arg0.get('resolved_value', ''):
+                    return False
+            # Check context for relative path patterns
+            if context:
+                _ctx = context.lower() if isinstance(context, str) else str(context).lower()
+                # relativeRoot, normalize(, ./ prefix → relative redirect
+                if 'relativeroot' in _ctx or 'relative' in _ctx:
                     return False
             return None
 
@@ -54,8 +62,15 @@ class CVI_9710(SingleRuleMixin):
         if not args:
             return False
 
-        # 如果参数是纯硬编码字符串字面量，排除
+        # Hardcoded string literal → safe
         if re.match(r'^["\'][^"\']*["\']$', args):
+            return False
+
+        # Relative path redirect → safe (can't redirect to external domain)
+        if re.search(r'\./|relativeRoot|relative_root|normalize\(', args):
+            return False
+        # redirect("/") — same origin
+        if re.match(r'^["\']\/["\']$', args):
             return False
 
         return True
