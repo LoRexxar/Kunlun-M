@@ -36,21 +36,38 @@ class CVI_9403(SingleRuleMixin):
 
     def main(self, regex_string, sink_args=None):
         """
-        二次筛选：检查匹配到的代码行是否真正属于危险的路径遍历调用，
-        排除硬编码路径参数（如 File.open("/etc/passwd", "r")）。
+        二次筛选：排除框架安全机制和硬编码路径。
+        Rails 框架内部用 File.read/open 进行 CSRF token、session、
+        flash、cache 等操作，路径由框架控制不是用户输入。
         """
         if sink_args:
-            # Graph path: const arg is hardcoded → safe
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
                 if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
+                # Framework-generated paths: variable names containing
+                # csrf/session/flash/cache/tmp/pid → server-controlled, not user input
+                arg_name = arg0.get('name', '').lower()
+                _fw_prefixes = ('csrf', 'session', 'flash', 'cache', 'tmp',
+                                'pid', 'secret_key', 'token_path', 'cookie')
+                if any(p in arg_name for p in _fw_prefixes):
+                    return False
             return None
 
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
+
+        # Framework security mechanism patterns in source context
+        _fw_context = [
+            r'csrf', r'session\s*[:.]', r'flash\s*[:.]', r'cache\s*[:.]',
+            r'secret_key_base', r'verify_csrf_token', r'form_authenticity_token',
+            r'cookie\s*[:.]', r'\btmp[\-/]',
+        ]
+        for pat in _fw_context:
+            if re.search(pat, regex_string, re.I):
+                return False
 
         # 提取函数调用参数部分
         match = re.search(r'(?:File|IO|Dir)\.(?:read|open|write|delete|glob)\s*\((.*)\)', regex_string, re.DOTALL)

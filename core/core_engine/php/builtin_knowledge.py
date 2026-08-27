@@ -307,21 +307,26 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "Yii\\web\\Response::redirect":            {"passthrough": [0], "safe": False},
 
         # ===== Guzzle =====
-        "GuzzleHttp\\Client::request":             {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::get":                 {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::post":                {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::put":                 {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::delete":              {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::patch":               {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::head":                {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::send":                {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::sendAsync":           {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::requestAsync":        {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Client::getConfig":           {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Psr7\\Request":               {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Psr7\\Response::getBody":     {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Psr7\\Response::getHeader":   {"passthrough": [0], "safe": False},
-        "GuzzleHttp\\Psr7\\Response::getHeaders":  {"passthrough": [0], "safe": False},
+        # HTTP client methods return Response objects whose body content comes
+        # from the remote server, NOT from the caller's input arguments.
+        # Marking them as passthrough causes FP chains like:
+        #   $url=$_GET['x'] → client->get($url) → response->getBody() → echo
+        # where the echo'd data is the remote server's response, not user input.
+        "GuzzleHttp\\Client::request":             {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::get":                 {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::post":                {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::put":                 {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::delete":              {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::patch":               {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::head":                {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::send":                {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::sendAsync":           {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::requestAsync":        {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Client::getConfig":           {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Psr7\\Request":               {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Psr7\\Response::getBody":     {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Psr7\\Response::getHeader":   {"passthrough": [], "safe": True},
+        "GuzzleHttp\\Psr7\\Response::getHeaders":  {"passthrough": [], "safe": True},
         "GuzzleHttp\\Utils::jsonDecode":           {"passthrough": [0], "safe": False},
         "GuzzleHttp\\Utils::jsonEncode":           {"passthrough": [0], "safe": False},
 

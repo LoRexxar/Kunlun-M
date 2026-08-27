@@ -22,6 +22,7 @@ class CVI_7009(SingleRuleMixin):
         redirect('/home') → False (const)
         redirect(url_for(...)) → False (operator with callee 'url_for')
         redirect(request.url) → False (PRG self-redirect)
+        redirect(form.instance) → False (Model.get_absolute_url() returns safe internal path)
         redirect(url) → None (variable)
         """
         if sink_args:
@@ -41,6 +42,12 @@ class CVI_7009(SingleRuleMixin):
                 # member/property: request.url / request.path / request.full_path → PRG self-redirect
                 if arg0.get('type') == 'property' and arg0.get('name', '').lower() in ('url', 'path', 'full_path'):
                     return False
+                # identifier → check if name suggests model instance
+                # (e.g. form.instance) which calls get_absolute_url() internally
+                if arg0.get('label') == 'identifier':
+                    arg_name = arg0.get('name', '').lower()
+                    if '.instance' in arg_name or '.obj' in arg_name:
+                        return False
             return None
 
         # Regex fallback
