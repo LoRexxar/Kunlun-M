@@ -9,7 +9,7 @@
     :author:    LoRexxar <LoRexxar@gmail.com>
     :homepage:  https://github.com/LoRexxar/Kunlun-M
     :license:   MIT, see LICENSE for more details.
-    :copyright: Copyright (c) 2017 Feei. All rights reserved
+    :copyright: Copyright (c) 2017 Feei. All rights reserved.
 """
 import os
 import logging
@@ -23,6 +23,25 @@ from Kunlun_M.settings import LOGS_PATH
 logger = logging.getLogger('KunlunLog')
 logger_console = logging.getLogger('KunlunConsoleLog')
 log_path = LOGS_PATH
+
+
+def _apply_log_level():
+    """Set logger level from KUNLUN_LOG_LEVEL env var.  Default: INFO.
+
+    graph_analyzer.py contains 100+ logger.debug() calls that fire on every
+    BFS hop.  On projects with ~1000 sinks this produces millions of debug
+    lines that saturate disk I/O and make scans 10-100x slower.
+    Set KUNLUN_LOG_LEVEL=DEBUG to re-enable for triage.
+    """
+    _env_level = os.environ.get('KUNLUN_LOG_LEVEL', '').upper()
+    if _env_level == 'DEBUG':
+        logger.setLevel(logging.DEBUG)
+    elif _env_level in ('WARNING', 'WARN'):
+        logger.setLevel(logging.WARNING)
+    elif _env_level == 'ERROR':
+        logger.setLevel(logging.ERROR)
+    else:
+        logger.setLevel(logging.INFO)
 
 
 def log(loglevel):
@@ -55,7 +74,7 @@ def log(loglevel):
     logger.addHandler(handler2)
     logger.addHandler(handler)
 
-    logger.setLevel(logging.DEBUG)
+    _apply_log_level()
 
 
 def log_add(loglevel, log_name):
@@ -77,7 +96,7 @@ def log_add(loglevel, log_name):
     handler2.setFormatter(formatter)
     logger.addHandler(handler2)
 
-    logger.setLevel(logging.DEBUG)
+    _apply_log_level()
 
 
 def log_console():
