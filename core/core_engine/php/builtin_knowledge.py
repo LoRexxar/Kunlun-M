@@ -241,6 +241,13 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # ===== CodeIgniter =====
         "xss_clean":            {"passthrough": [0], "safe": True},
         "html_escape":          {"passthrough": [0], "safe": True},
+        "ConvertToXmlAttribute": {"passthrough": [0], "safe": True},
+        "escapeHtml":            {"passthrough": [0], "safe": True},
+        "escapeHtmlAttr":        {"passthrough": [0], "safe": True},
+        "escapeJavaScript":      {"passthrough": [0], "safe": True},
+        "escapeCss":             {"passthrough": [0], "safe": True},
+        "e":                     {"passthrough": [0], "safe": True},  # Laravel helper
+        "clean_value":           {"passthrough": [0], "safe": True},
 
         # ===== Symfony =====
         "Symfony\\Component\\Form\\FormFactoryInterface::createForm":   {"passthrough": [0], "safe": False},
