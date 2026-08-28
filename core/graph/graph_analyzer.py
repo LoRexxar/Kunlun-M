@@ -2033,6 +2033,25 @@ class GraphAnalyzer:
                         else:
                             func_vids = self.find_function_def(callee, from_vid=up_vid)
                         if func_vids:
+                            # 引用参数（如 &$option）的值来自调用者，
+                            # analyze_function_return 会从 return 值追溯函数内部
+                            # 导致调用者变量通过引用参数的错误跨参数 taint 传播。
+                            _has_ref_param = any(
+                                _vattr(self.graph.vs[pv], "is_reference", "")
+                                for pv in self._esrc.get("own", {}).get(func_vids[0], [])
+                                if _vattr(self.graph.vs[pv], "label", "") == "parameter"
+                            )
+                            if _has_ref_param:
+                                # Treat like inconclusive: stop taint propagation
+                                if inconclusive_fallback is None:
+                                    inconclusive_fallback = AnalysisResult(
+                                        code=3,
+                                        reason=f"function '{callee}' has reference param — skip inline return trace",
+                                        chain=[{"step": "ref_param_skip", "vid": up_vid,
+                                                "name": callee, "code": 3}],
+                                        path=new_path,
+                                        expr_lineno=_vattr(uv, "lineno", 0))
+                                continue
                             self._call_stack.append(callee)
                             try:
                                 ret = self.analyze_function_return(up_vid, func_vids[0])

@@ -393,6 +393,11 @@ def _trace_return_value(
                 "dep_params": [],
                 "has_unresolved_call": False,
             }
+        # 引用参数（&$param）的值由调用者提供，不应作为 passthrough 依赖。
+        # 如果函数 return 仅依赖引用参数，调用者的变量已经通过 SAME DFG
+        # 连接到 sink，不需要绕经函数内部产生虚假跨参数 taint 传播。
+        if _vattr(v, "is_reference", ""):
+            return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": False}
         return {
             "origin": vname,
             "origin_type": "param",
@@ -653,6 +658,15 @@ def _trace_return_value(
             if assign_found and assign_found.get("dep_params"):
                 return assign_found
 
+    # Filter out reference parameters from dep_params
+    # (they are write-back semantics, not read-through)
+    ref_param_indices = set()
+    for pvid, pidx in param_idx.items():
+        if _vattr(graph.vs[pvid], "is_reference", ""):
+            ref_param_indices.add(pidx)
+    if ref_param_indices:
+        all_dep_params = [p for p in all_dep_params if p not in ref_param_indices]
+
     if all_dep_params:
         unique = list(dict.fromkeys(all_dep_params))
         return {
@@ -879,6 +893,14 @@ def _trace_passthrough_call(
             if sub.get("has_unresolved_call"):
                 any_unresolved = True
         arg_counter += 1
+
+    # Filter out reference parameters from dep_params
+    ref_param_indices = set()
+    for pvid, pidx in param_idx.items():
+        if _vattr(graph.vs[pvid], "is_reference", ""):
+            ref_param_indices.add(pidx)
+    if ref_param_indices:
+        all_dep_params = [p for p in all_dep_params if p not in ref_param_indices]
 
     vname = _vattr(graph.vs[call_vid], "name", "")
     unique = list(dict.fromkeys(all_dep_params))

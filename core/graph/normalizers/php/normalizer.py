@@ -377,16 +377,21 @@ class Normalizer:
         lineno = getattr(param_node, "lineno", 0)
         type_hint = getattr(param_node, "type", None) or ""
         default = getattr(param_node, "default", None)
+        is_ref = getattr(param_node, "is_ref", False)
+
+        attrs: dict[str, Any] = {
+            "type_hint": str(type_hint) if type_hint else "",
+            "default_value": repr(default)[:80] if default else "",
+        }
+        if is_ref:
+            attrs["is_reference"] = True
 
         pos = add_node({
             "label": NodeLabel.PARAMETER.value,
             "name": name,
             "lineno": lineno,
             "language": self.language,
-            "attrs": {
-                "type_hint": str(type_hint) if type_hint else "",
-                "default_value": repr(default)[:80] if default else "",
-            },
+            "attrs": attrs,
         })
         return pos
 
