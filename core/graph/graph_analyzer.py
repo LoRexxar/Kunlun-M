@@ -2283,12 +2283,18 @@ class GraphAnalyzer:
                             continue
                     elif cand_func is None or start_func is None:
                         # Cannot determine function scope for one or both
-                        # nodes (e.g. Go normalizer doesn't connect some
-                        # receiver identifiers to their enclosing function
-                        # via own/ast edges).  Def-chaining across functions
-                        # is the #1 source of FP in method-heavy languages.
-                        # Be conservative: skip the candidate.
-                        continue
+                        # nodes.  In Go, the normalizer doesn't connect
+                        # receiver identifiers in closures to their
+                        # enclosing function via own/ast edges — def-
+                        # chaining across functions is the #1 source of
+                        # FP, so skip conservatively.  In other languages
+                        # (PHP/JS/Java), fall back to line-distance heuristic
+                        # because variables in global scope or short scripts
+                        # may legitimately lack own/ast parents.
+                        if self.language == "go":
+                            continue
+                        if abs(cand_lineno - start_lineno) > 200:
+                            continue
                     # SSA kill check: if a same-name variable is re-defined
                     # between the candidate and the sink, the candidate's
                     # data flow is broken (killed by the re-definition).
