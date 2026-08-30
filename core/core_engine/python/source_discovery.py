@@ -106,10 +106,9 @@ _BUILTIN_SOURCE_MEMBERS = {
     'request.build_absolute_uri',
     # FastAPI-style
     'request.query_params',
-    # Generic HTTP methods
-    'input',
-    'sys.argv',
-    'os.environ',
+    # NOTE: 'input', 'sys.argv', 'os.environ' removed — CLI-only
+    # sources that cause FP in web scans. Environment variables are
+    # server-side config, not HTTP-client controllable.
 }
 
 # ---------------------------------------------------------------------------
