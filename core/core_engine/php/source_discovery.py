@@ -67,6 +67,10 @@ class SourceRegistry:
     # User-defined source producer functions: {func_name: SourceInfo}
     user_source_functions: Dict[str, SourceInfo] = field(default_factory=dict)
 
+    # Dotted member names recognized as sources by graph_analyzer.
+    # Populated from framework config (e.g. "request.input", "request.query").
+    source_members: Set[str] = field(default_factory=set)
+
     def is_source_variable(self, name: str) -> bool:
         """Check if a variable name is a known source (superglobal)."""
         return name in self.builtin_sources
@@ -105,6 +109,25 @@ class SourceRegistry:
         """Check if a function name is a framework global source function."""
         return func_name in self.framework_global_functions
 
+    def is_source_member(self, chain: str) -> bool:
+        """Check if a dotted name chain matches a known source member.
+
+        Matches both exact (e.g. "request.input") and suffix
+        (e.g. "request.input" matches when chain is a longer
+        dotted path ending with a registered member).
+        """
+        if chain in self.source_members:
+            return True
+        # Suffix match: chain="foo.request.input" should match
+        # source_member "request.input" when "foo" is a request object name.
+        for sm in self.source_members:
+            if chain.endswith('.' + sm):
+                # Check if the prefix is a known request object name
+                prefix = chain[:-(len(sm) + 1)]
+                if prefix in self.framework_request_objects:
+                    return True
+        return False
+
     def add_framework(self, framework: str):
         """Initialize framework-specific source patterns."""
         self.framework = framework
@@ -118,6 +141,15 @@ class SourceRegistry:
         # 全局注册会导致所有名为 get() 的方法被误标。保留在 request_methods 中
         # 供 is_framework_request_method() 上下文检查使用。
         self.request_methods = set(config['request_methods'])
+
+        # Register dotted member names for graph_analyzer's _is_source_variable
+        # and _is_source_via_member_chain.  e.g. "request.input", "$request.get".
+        for obj in self.framework_request_objects:
+            clean = obj.lstrip('$')
+            for method in self.request_methods:
+                self.source_members.add(f'{clean}.{method}')
+                if obj != clean:
+                    self.source_members.add(f'{obj}.{method}')
 
         for func in config.get('global_source_functions', set()):
             self.framework_global_functions[func] = SourceInfo(
