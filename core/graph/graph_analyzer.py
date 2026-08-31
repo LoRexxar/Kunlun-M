@@ -2019,6 +2019,30 @@ class GraphAnalyzer:
                                                     return self._cached(cache_key, dep_res)
                                 arg_counter += 1
 
+                    # 4d-pre: For method calls, check if the callee's member chain
+                    # root is a registered framework source (e.g. request.input,
+                    # $request.query).  If so, the return value is controllable —
+                    # no need to trace into the (unresolvable) framework method.
+                    if (utype in ("method_call", "static_call")
+                            and self._source_registry is not None):
+                        _callee_vid = None
+                        for _ae in self.graph.es.select(_source=up_vid, label="ast"):
+                            if _vattr(_ae, "role") == "callee":
+                                _callee_vid = _ae.target
+                                break
+                        if _callee_vid is not None:
+                            _src_chain = self._is_source_via_member_chain(
+                                _callee_vid, callee)
+                            if _src_chain:
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"framework source '{_src_chain}'",
+                                    chain=[{"step": "framework_source",
+                                            "vid": up_vid,
+                                            "name": _src_chain, "code": 1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0)))
+
                     # 4d: graph-based function trace (unknown or no taint attribute)
                     # Skip if use-edge already resolved the callee — re-searching by
                     # short name would match unrelated same-named methods across classes.
