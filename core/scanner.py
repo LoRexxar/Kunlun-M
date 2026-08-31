@@ -398,12 +398,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     fw = detect_framework(target_directory)
                     if fw:
                         _php_sr.add_framework(fw)
-                    # 适配接口：添加 is_source_member 方法
-                    _orig_isv = _php_sr.is_source_variable
-                    _php_sr.source_members = _php_sr.builtin_sources
-                    def _php_ism(expr):
-                        return _orig_isv(expr.split('.')[0].split('(')[0]) if expr else False
-                    _php_sr.is_source_member = _php_ism
+                    # is_source_member and source_members are already defined
+                    # on the SourceRegistry class (populated by add_framework).
+                    # No adapter needed — graph_analyzer calls them directly.
                     return _php_sr
                 # 其他语言：通过 discover_sources(project_dir, None) 获取框架 + builtin 种子 source
                 # 跳过无效的语言标识（如 'base' 等通用规则语言）
