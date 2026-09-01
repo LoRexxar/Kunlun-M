@@ -40,8 +40,10 @@ EXTRA_SINKS = [
     ("->havingRaw(", [1004]),
     ("->orderByRaw(", [1004]),
     ("->groupByRaw(", [1004]),
-    # View — XSS sink (template rendering with user data)
-    ("view(", [1000]),
+    # NOTE: view() removed as EXTRA_SINK — Blade {{ }} auto-escapes
+    # by default, so view('tpl', $data) is NOT a direct XSS sink.
+    # Raw output in templates ({!! !!} or <?php echo ?>) is detected
+    # via the echo/print sink when scanning .blade.php files directly.
     # NOTE: Response::json() removed — JSON responses set
     # Content-Type: application/json, which browsers do not parse as
     # HTML, so reflected XSS is not possible through JSON output.
