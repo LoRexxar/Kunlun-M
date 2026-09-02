@@ -573,6 +573,15 @@ class GraphAnalyzer:
                     if not tgt_fullname:
                         continue
                     norm_fn = tgt_fullname.replace("::", ".")
+                    # Fix 14: A bare fullname (no "." or "::") provides no
+                    # receiver-type resolution for method_call/static_call.
+                    # Without a qualifier, the match is indistinguishable from a
+                    # global function call — e.g. $db->exec() resolving to a
+                    # builtin stub named "exec" instead of the real method.
+                    # Skip to prevent PHP method calls on objects (PDO::exec,
+                    # Redis::exec, etc.) from matching bare "exec" sinks.
+                    if "." not in norm_fn and "::" not in norm_fn and not _is_bare_call:
+                        continue
                     if norm_fn == normalized_callee and not _is_bare_call:
                         # fullname same as short name, no additional info
                         continue
