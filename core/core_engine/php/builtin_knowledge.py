@@ -1887,6 +1887,21 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "stream_wrapper_register": {"passthrough": [], "safe": True},
     "stream_wrapper_restore": {"passthrough": [], "safe": True},
     "stream_wrapper_unregister": {"passthrough": [], "safe": True},
+    # ssh2 extension — connection/resource handles do not carry input taint.
+    # ssh2_connect returns an opaque session resource; without these entries
+    # taint from the host/port args (often $_POST) flowed into $session and
+    # then into ssh2_exec's connection arg, causing false RCE positives.
+    "ssh2_auth_password": {"passthrough": [], "safe": True},
+    "ssh2_auth_pubkey_file": {"passthrough": [], "safe": True},
+    "ssh2_connect": {"passthrough": [], "safe": True},
+    "ssh2_exec": {"passthrough": [1], "safe": False},
+    "ssh2_fetch_stream": {"passthrough": [], "safe": True},
+    "ssh2_fingerprint": {"passthrough": [], "safe": True},
+    "ssh2_methods_negotiated": {"passthrough": [], "safe": True},
+    "ssh2_scp_recv": {"passthrough": [], "safe": True},
+    "ssh2_scp_send": {"passthrough": [], "safe": True},
+    "ssh2_shell": {"passthrough": [1], "safe": False},
+    "ssh2_tunnel": {"passthrough": [], "safe": True},
     "strftime": {"passthrough": [], "safe": True},
     "stripcslashes": {"passthrough": [], "safe": True},
     "stristr": {"passthrough": [], "safe": True},
