@@ -1129,7 +1129,14 @@ class DataFlowBuilder(BaseEdgeBuilder):
         - 目的：让 echo($x) 中的 $x 能通过 same 边回溯到 $x = $source 的 RHS
         """
         # 先收集所有赋值 LHS identifier
+        # Fix 17a: record which assign operator each LHS belongs to, so the
+        # same-name link below can skip LHS nodes from the SAME assignment
+        # statement.  Without this, `$x = f($x)` makes the RHS $x link to
+        # its own statement's LHS (vid order < lineno order when the parser
+        # emits lineno=0), creating a self-referential DFG loop that traps
+        # backward traces before they reach the real previous definition.
         assign_lhs_vids: set[int] = set()
+        lhs_owner: dict[int, int] = {}  # lhs_vid -> assign operator vid
         assign_types = {OperatorType.ASSIGN.value, OperatorType.AUG_ASSIGN.value}
         for v in self.graph.vs:
             if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
@@ -1141,6 +1148,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 lhs_label = self._vlabel[lhv]
                 if lhs_label in (NodeLabel.IDENTIFIER.value, NodeLabel.CONST.value):
                     assign_lhs_vids.add(lhv)
+                    lhs_owner[lhv] = v.index
             # JS VariableDeclarator: rhs 子节点是 identifier，它有 value 子边
             # 此时 rhs identifier 就是声明变量的 LHS
             if not lhs_nodes:
@@ -1150,6 +1158,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         value_nodes = self._get_ast_children(rhv, role="value")
                         if value_nodes:
                             assign_lhs_vids.add(rhv)
+                            lhs_owner[rhv] = v.index
 
         # Parameter 节点是定义端点（类似 assign LHS）
         # 函数参数没有显式的赋值，但同名 identifier/parameter 使用应回溯到它
@@ -1240,8 +1249,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
             for name, vids in name_groups.items():
                 if len(vids) < 2:
                     continue
+                # Fix 17a: composite sort key.  phply emits lineno=0 for most
+                # nodes, so plain lineno sort degenerates to vid order, in
+                # which a statement's LHS precedes its own RHS args — the
+                # "closest previous LHS" search then links a use to the LHS
+                # of its OWN assignment.  Sorting by (lineno, vid) alone
+                # doesn't fix that (vid order IS the degenerate order), so
+                # we additionally skip same-statement LHS owners below.
                 vids_sorted = sorted(
-                    vids, key=lambda vid: self._vlineno[vid]
+                    vids, key=lambda vid: (self._vlineno[vid], vid)
                 )
                 # 从每个非 LHS 的 identifier，向前找最近的同名 LHS
                 for i, vid in enumerate(vids_sorted):
@@ -1255,15 +1271,44 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         and (self.graph.es[eid]["access_type"] or "") == "array_offset"
                     ):
                         continue
+                    # Fix 17a: the assignment statement this use belongs to
+                    # (walk UP the own-edge chain — the use may be nested
+                    # inside call args / binary ops of the RHS, e.g.
+                    # `$x = substr($x, 0, 9)` has the arg $x several levels
+                    # below the assign operator).  LHS nodes of the SAME
+                    # assign operator are excluded as candidates — a use
+                    # inside `$x = f($x)` must link to a PRIOR definition
+                    # of $x, never to the LHS written by this very statement.
+                    vid_assign_op = None
+                    current = vid
+                    for _ in range(8):
+                        # Identifier args hang off their expression via ast
+                        # edges (e.g. call --[ast/arg]--> identifier), NOT
+                        # own edges — so the climb must follow ast parents.
+                        ups = self._edges_to(current, "ast")
+                        if not ups:
+                            break
+                        current = ups[0]
+                        if self._vlabel[current] == NodeLabel.OPERATOR.value \
+                                and self._vtype[current] in assign_types:
+                            vid_assign_op = current
+                            break
+                        if self._vlabel[current] in (NodeLabel.FUNCTION.value,
+                                                     NodeLabel.FILE.value):
+                            break
                     # 找前方最近的 LHS
                     found = False
                     for j in range(i - 1, -1, -1):
-                        if vids_sorted[j] in assign_lhs_vids:
-                            self._add_dfg_edge(
-                                vids_sorted[j], vid, DfgType.SAME.value
-                            )
-                            found = True
-                            break
+                        cand = vids_sorted[j]
+                        if cand not in assign_lhs_vids:
+                            continue
+                        if vid_assign_op is not None and lhs_owner.get(cand) == vid_assign_op:
+                            continue  # same statement's LHS — skip
+                        self._add_dfg_edge(
+                            cand, vid, DfgType.SAME.value
+                        )
+                        found = True
+                        break
                     if found:
                         continue
                     # 回退：如果没有同名 LHS，找前方最近的有 DFG 入边的

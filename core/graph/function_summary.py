@@ -374,7 +374,14 @@ def _trace_return_value(
     from utils.igraph_compat import _vattr
 
     if start_vid in visited or depth > _MAX_TRACE_DEPTH:
-        return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
+        # Fix 17b: a visited-set hit is a CYCLE (we are already tracing this
+        # node higher in the stack), and a depth overflow is a trace bound —
+        # neither is a call to an unknown function, so neither may set
+        # has_unresolved_call.  That flag drives the defer logic in
+        # build_function_summaries; a cyclic flow with has_unresolved=True
+        # deferred its function every iteration (the cycle can never
+        # resolve), starving the function of a summary entirely.
+        return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": False}
     visited = visited | {start_vid}
 
     v = graph.vs[start_vid]
@@ -772,6 +779,49 @@ def _trace_assign_fallback(
     return None  # 未找到同名赋值
 
 
+# ---------------------------------------------------------------------------
+# Internal: short-name index (Fix 16 perf)
+# ---------------------------------------------------------------------------
+
+_short_name_index_cache: dict[int, tuple[int, dict]] = {}  # id(graph) -> (vcount, index)
+
+
+def _get_short_name_index(graph: "ig.Graph") -> dict[str, list[int]]:
+    """Build (once per graph) a short-name → [function vids] index.
+
+    Keyed on the last segment of the function name, so a bare-name stub
+    node ("keep_in_string") can find qualified definition nodes
+    ("pts_strings.keep_in_string" / "pts_strings::keep_in_string").
+    igraph Graph is unhashable, so we key on id(graph) and invalidate
+    when the vertex count changes.
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    key = id(graph)
+    entry = _short_name_index_cache.get(key)
+    if entry is not None and entry[0] == graph.vcount():
+        return entry[1]
+
+    idx: dict[str, list[int]] = {}
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            continue
+        n = _vattr(v, "name", "")
+        if not n:
+            continue
+        short = n
+        for sep in ("::", "."):
+            if sep in short:
+                short = short.rsplit(sep, 1)[-1]
+        short = short.lstrip("\\")
+        if short:
+            idx.setdefault(short, []).append(v.index)
+
+    _short_name_index_cache[key] = (graph.vcount(), idx)
+    return idx
+
+
 def _trace_call_to_function(
     graph: ig.Graph,
     call_vid: int,
@@ -781,48 +831,132 @@ def _trace_call_to_function(
     eidx: dict,
     depth: int,
 ) -> dict | None:
-    """追踪 call → use → function，读取目标函数的摘要。"""
+    """追踪 call → use → function，读取目标函数的摘要。
+
+    Fix 16: use-edge targets may include bare-name stub nodes (created by
+    the normalizer for cross-file static calls like
+    pts_strings::keep_in_string()) that never receive a summary, while the
+    real definition node (fullname pts_strings.keep_in_string) holds one.
+    Therefore:
+      1. Iterate ALL use targets; prefer one that carries a summary/taint.
+      2. If none has one, do a same-short-name lookup across the graph
+         (mirrors graph_analyzer Rule 3a2's same-name safe lookup).
+      3. If still nothing, consult builtin_knowledge — builtin functions
+         (strtolower, substr, ...) never get function-def summaries, so
+         deferring on them loops _MAX_ITERATIONS times and leaves the
+         CALLER function unannotated entirely (silent FP factory).
+    """
     from core.graph.node_edge_schema import NodeLabel
     from utils.igraph_compat import _vattr
 
-    for target_vid in eidx["out"].get("use", {}).get(call_vid, []):
-        target = graph.vs[target_vid]
-        if _vattr(target, "label") != NodeLabel.FUNCTION.value:
-            continue
+    call_vname = _vattr(graph.vs[call_vid], "name", "")
 
+    targets = [t for t in eidx["out"].get("use", {}).get(call_vid, [])
+               if _vattr(graph.vs[t], "label") == NodeLabel.FUNCTION.value]
+
+    # ── Pass 1: a use target that already has a summary / taint ──
+    for target_vid in targets:
+        target = graph.vs[target_vid]
         target_summary = _vattr(target, "func_summary_type", "")
         target_pt = _vattr(target, "func_summary_pt", [])
 
         if target_summary == "passthrough" and target_pt:
             return _trace_passthrough_call(graph, call_vid, target_pt, own_vids, param_idx, visited, eidx, depth)
         if target_summary == "source":
-            vname = _vattr(graph.vs[call_vid], "name", "")
-            return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+            return {"origin": call_vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
         if target_summary == "safe":
-            vname = _vattr(graph.vs[call_vid], "name", "")
-            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
         if target_summary in ("literal",):
-            vname = _vattr(graph.vs[call_vid], "name", "")
-            return {"origin": vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
+            return {"origin": call_vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
 
         # 目标无 func_summary_type → fallback 检查 enrich_taint 标注的 taint_type
         # （内置 source/safe 函数由 source_registry 通过 enrich_taint 标注）
         target_taint = _vattr(target, "taint_type", "")
         if target_taint in ("source", "safe"):
-            vname = _vattr(graph.vs[call_vid], "name", "")
-            return {"origin": vname, "origin_type": target_taint, "dep_params": [], "has_unresolved_call": False}
+            return {"origin": call_vname, "origin_type": target_taint, "dep_params": [], "has_unresolved_call": False}
+        if target_taint == "passthrough" and _vattr(target, "taint_passthrough", []):
+            return _trace_passthrough_call(
+                graph, call_vid, list(_vattr(target, "taint_passthrough", [])),
+                own_vids, param_idx, visited, eidx, depth)
 
-        # fallback: 检查 GraphAnalyzer._REPAIR_FUNCTIONS 白名单
-        # 内置修复函数（如 html.escape, shlex.quote 等）未被 enrich_taint 标注，
-        # 但在 _REPAIR_FUNCTIONS 中。匹配短名（去除模块前缀）。
-        target_name = _vattr(target, "name", "")
-        if target_name:
+    # ── Pass 2: short-name graph lookup ──
+    # A stub use target has a bare name; the definition node's name is
+    # qualified (Class.method / Class::method).  Match on the last segment.
+    # Uses a module-level cached short-name → vids index (built once per
+    # graph via a WeakKeyDictionary) instead of a full graph scan per call.
+    def _short(n: str) -> str:
+        if not n:
+            return ""
+        for sep in ("::", "."):
+            if sep in n:
+                n = n.rsplit(sep, 1)[-1]
+        return n.lstrip("\\")
+
+    short_index = _get_short_name_index(graph)
+
+    if targets:
+        stub_names = {_short(_vattr(graph.vs[t], "name", "")) for t in targets}
+        stub_names.discard("")
+        if stub_names:
+            best = ("", [])
+            for sname in stub_names:
+                for fvid in short_index.get(sname, ()):
+                    if fvid in targets:
+                        continue
+                    fst = _vattr(graph.vs[fvid], "func_summary_type", "")
+                    if not fst:
+                        continue
+                    if fst in ("safe", "source") and best[0] != "safe":
+                        best = (fst, [])
+                        break
+                    if fst == "passthrough" and best[0] != "passthrough":
+                        best = (fst, list(_vattr(graph.vs[fvid], "func_summary_pt", []) or []))
+                if best[0] in ("safe", "source"):
+                    break
+            if best[0] == "safe":
+                return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            if best[0] == "source":
+                return {"origin": call_vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+            if best[0] == "passthrough" and best[1]:
+                return _trace_passthrough_call(graph, call_vid, best[1], own_vids, param_idx, visited, eidx, depth)
+
+            # fallback: GraphAnalyzer._REPAIR_FUNCTIONS whitelist (pre-existing
+            # behaviour — repair functions not in builtin_knowledge still count
+            # as safe origins, not unresolved).
             from core.graph.graph_analyzer import _REPAIR_FUNCTIONS
-            short_name = target_name.rsplit(".", 1)[-1] if "." in target_name else target_name
-            if short_name in _REPAIR_FUNCTIONS or target_name in _REPAIR_FUNCTIONS:
-                vname = _vattr(graph.vs[call_vid], "name", "")
-                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            if stub_names & _REPAIR_FUNCTIONS:
+                return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
+    # ── Pass 3: builtin_knowledge fallback ──
+    # Builtin functions have no function-def node with a summary and never
+    # will.  Without this, a call like strtolower($input) is reported as
+    # has_unresolved_call=True forever, deferring the caller's summary
+    # until _MAX_ITERATIONS runs out — the caller stays unannotated and
+    # every sanitized return through it becomes a false positive.
+    if targets:
+        lang = _vattr(graph.vs[targets[0]], "language", "") or "php"
+        try:
+            import importlib
+            mod = importlib.import_module(f"core.core_engine.{lang}.builtin_knowledge")
+            knowledge_get = getattr(mod, "lookup", None)
+        except (ImportError, AttributeError):
+            knowledge_get = None
+        if knowledge_get is not None:
+            for t in targets:
+                tname = _vattr(graph.vs[t], "name", "")
+                entry = knowledge_get(tname) or knowledge_get(_short(tname))
+                if not entry:
+                    continue
+                if entry.get("safe"):
+                    return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+                pt = [i for i in entry.get("passthrough", []) if isinstance(i, int)]
+                if pt:
+                    return _trace_passthrough_call(graph, call_vid, pt, own_vids, param_idx, visited, eidx, depth)
+                # Known but no passthrough and not safe → return value does
+                # not depend on any argument in a tracked way.
+                return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    if targets:
         # 目标完全未知 → 返回 None，让调用方继续 DFG 追踪
         return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
 
