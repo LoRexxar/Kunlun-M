@@ -270,6 +270,12 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "ctype_punct", "ctype_space", "ctype_cntrl",
     "preg_match",  # PHP regex validation (whitelist/guard pattern)
     "check_input_parameter",  # PHP custom parameter validation (Piwigo, etc.)
+    # Project-level whitelist validators (common helper names).  These take
+    # the value and return true only for a restricted charset, so a value
+    # that passes them cannot carry injection payloads:
+    #   is_version        — numeric + decimal (pts_strings, Phoronix)
+    #   is_alnum/is_alpha — alphanumeric / alphabetic wrappers
+    "is_version", "is_alnum", "is_alpha", "is_alphanumeric",
     # Python
     "isinstance", "issubclass", "hasattr", "callable",
     "isdigit", "isalpha", "isalnum", "isdecimal", "isnumeric",
@@ -989,6 +995,10 @@ class GraphAnalyzer:
                 # Extract the member key for superglobals (e.g. 'page' from $_GET['page'])
                 _guard_name = sname
                 _member_key = _vattr(sv, "member_key", "") or _vattr(sv, "name2", "")
+                if not _member_key:
+                    # PHP subscripts are member edges ($_POST --member--> key
+                    # property node), not node attributes.
+                    _member_key = self._extract_member_key(sv)
                 if _member_key:
                     _guard_name = _member_key
                 if self._has_function_level_guard(start_vid, _guard_name):
@@ -1114,6 +1124,29 @@ class GraphAnalyzer:
                         # 'source' to 'safe' by enrich_taint.
                         if _vattr(obj_v, "taint_type", "") == "safe":
                             pass
+                        # Function-level guard: the superglobal member may be
+                        # validated by a whitelist guard (is_version,
+                        # preg_match, ...) in an enclosing branch.  Without
+                        # this check the member-access path bypassed the
+                        # source-level guard entirely.
+                        elif self.language in ("python", "php"):
+                            _gname = (self._extract_member_key(obj_vid)
+                                      or obj_name).strip("'\"")
+                            if self._has_function_level_guard(start_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"source '{obj_name}[{_gname}]' guarded by function-level validation",
+                                    chain=[{"step": "source_guard", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=[start_vid, obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{obj_name}' via member access",
+                                chain=[{"step": "member_source", "vid": obj_vid,
+                                        "name": obj_name, "code": 1}],
+                                path=[start_vid, obj_vid],
+                                expr_lineno=_vattr(obj_v, "lineno", 0)))
                         else:
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -1218,6 +1251,29 @@ class GraphAnalyzer:
                         # 'source' to 'safe' by enrich_taint.
                         if _vattr(obj_v, "taint_type", "") == "safe":
                             pass
+                        # Function-level guard: the superglobal member may be
+                        # validated by a whitelist guard (is_version,
+                        # preg_match, ...) in an enclosing branch.  Without
+                        # this check the member-access path bypassed the
+                        # source-level guard entirely.
+                        elif self.language in ("python", "php"):
+                            _gname = (self._extract_member_key(obj_vid)
+                                      or obj_name).strip("'\"")
+                            if self._has_function_level_guard(start_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"source '{obj_name}[{_gname}]' guarded by function-level validation",
+                                    chain=[{"step": "source_guard", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=[start_vid, obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{obj_name}' via member access",
+                                chain=[{"step": "member_source", "vid": obj_vid,
+                                        "name": obj_name, "code": 1}],
+                                path=[start_vid, obj_vid],
+                                expr_lineno=_vattr(obj_v, "lineno", 0)))
                         else:
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -2251,6 +2307,20 @@ class GraphAnalyzer:
                             # 'source' to 'safe' by enrich_taint.
                             if _vattr(obj_v, "taint_type", "") == "safe":
                                 break
+                            # Function-level guard: superglobal member may be
+                            # validated by a whitelist guard in an enclosing
+                            # branch — check before reporting member source.
+                            _gname = (self._extract_member_key(obj_vid)
+                                      or obj_name).strip("'\"")
+                            if self.language in ("python", "php") and _gname and \
+                                    self._has_function_level_guard(start_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=f"source '{obj_name}[{_gname}]' guarded by function-level validation",
+                                    chain=[{"step": "source_guard", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=new_path + [obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"superglobal '{obj_name}' via member access",
@@ -2798,6 +2868,22 @@ class GraphAnalyzer:
                             elif _vattr(self.graph.vs[obj_vid], "taint_type", "") == "safe":
                                 # Sanitized by safe-function reassignment
                                 pass
+                            # Function-level guard: superglobal member may be
+                            # validated by a whitelist guard in an enclosing
+                            # branch — check before reporting member source.
+                            elif self.language in ("python", "php") and (
+                                    self._extract_member_key(obj_vid) or obj_name).strip("'\"") and \
+                                    self._has_function_level_guard(
+                                        start_vid,
+                                        (self._extract_member_key(obj_vid) or obj_name).strip("'\"")):
+                                _gname = (self._extract_member_key(obj_vid) or obj_name).strip("'\"")
+                                return AnalysisResult(
+                                    code=-1,
+                                    reason=f"source '{obj_name}[{_gname}]' guarded by function-level validation",
+                                    chain=[{"step": "source_guard", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=[start_vid, up_vid, obj_vid],
+                                    expr_lineno=_vattr(self.graph.vs[obj_vid], "lineno", 0))
                             else:
                                 return AnalysisResult(
                                     code=1,
@@ -3695,7 +3781,18 @@ class GraphAnalyzer:
         for e in self.graph.es.select(_source=branch_vid, label="ast"):
             if _vattr(e, "role", "") == "condition":
                 return e.target
-        return None
+        # PHP normalizer emits the if-condition as a plain ast child
+        # (usually the binary_op / unary_op expression) without a
+        # "condition" role. Fall back to the first ast child that is an
+        # operator/expression node rather than a statement.
+        _fallback = None
+        for e in self.graph.es.select(_source=branch_vid, label="ast"):
+            t_type = _vattr(self.graph.vs[e.target], "type", "")
+            if t_type in ("binary_op", "unary_op", "expression", "boolean_op"):
+                return e.target
+            if _fallback is None:
+                _fallback = e.target
+        return _fallback
 
     def _subtree_contains_name(self, root_vid: int, var_name: str,
                                depth: int = 0, visited: set | None = None) -> bool:
@@ -3823,13 +3920,19 @@ class GraphAnalyzer:
             cond_vid = self._get_condition_root(bvid)
             if cond_vid is None:
                 continue
-            cond_type = _vattr(self.graph.vs[cond_vid], "type", "")
-            cond_label = _vattr(self.graph.vs[cond_vid], "label", "")
-            # Could be a unary_op (not ...) wrapping the actual call
-            search_vids = [cond_vid]
-            if cond_label == NodeLabel.OPERATOR.value and cond_type == "unary_op":
-                for ce in self.graph.es.select(_source=cond_vid, label="ast"):
-                    search_vids.append(ce.target)
+            # Walk the ENTIRE condition subtree.  Guards frequently sit
+            # deep inside compound boolean conditions, e.g.
+            #   if (!isset($_POST['v']) || empty($_POST['v'])
+            #       || !pts_strings::is_version($_POST['v'])) { $proceed = false; }
+            # The previous shallow search (condition root + one unary_op
+            # level) missed such guards and reported the sink as a FP.
+            search_vids: list[int] = []
+            stack = [cond_vid]
+            while stack:
+                sv = stack.pop()
+                search_vids.append(sv)
+                for ce in self.graph.es.select(_source=sv, label="ast"):
+                    stack.append(ce.target)
 
             for sv in search_vids:
                 sv_type = _vattr(self.graph.vs[sv], "type", "")
@@ -3850,11 +3953,15 @@ class GraphAnalyzer:
                                         return True
                                 _ai += 1
                         continue
-                    # Check if any arg references var_name
-                    for ae in self.graph.es.select(_source=sv, label="ast"):
-                        if _vattr(ae, "role") == "arg":
-                            if self._subtree_contains_name(ae.target, var_name):
-                                return True
+                    # Check if the call references var_name.  Do NOT require
+                    # role=="arg" edges: the PHP normalizer emits call
+                    # arguments (and static method-name nodes) as plain ast
+                    # children with empty roles, which made every guard-arg
+                    # match silently fail for PHP.  Walking the whole call
+                    # subtree is equivalent for validation calls because
+                    # their callee names never equal a data variable name.
+                    if self._subtree_contains_name(sv, var_name):
+                        return True
 
         # 4. Fallback: check standalone validation calls (not in branches)
         #    at the same file/scope before the source detection point.
