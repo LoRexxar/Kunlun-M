@@ -1140,6 +1140,18 @@ class GraphAnalyzer:
                                             "name": obj_name, "code": -1}],
                                     path=[start_vid, obj_vid],
                                     expr_lineno=_vattr(obj_v, "lineno", 0)))
+                            # Interprocedural path-traversal jail (Fix 19b):
+                            # caller file probed this member with strpos('../')
+                            # + die. Values flowing on cannot traverse out.
+                            if self._has_path_jail_guard(obj_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=(f"source '{obj_name}[{_gname}]' jailed by "
+                                            f"path-traversal blacklist guard (strpos+die)"),
+                                    chain=[{"step": "path_jail", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=[start_vid, obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"superglobal '{obj_name}' via member access",
@@ -1264,6 +1276,18 @@ class GraphAnalyzer:
                                     code=-1,
                                     reason=f"source '{obj_name}[{_gname}]' guarded by function-level validation",
                                     chain=[{"step": "source_guard", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=[start_vid, obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
+                            # Interprocedural path-traversal jail (Fix 19b):
+                            # caller file probed this member with strpos('../')
+                            # + die. Values flowing on cannot traverse out.
+                            if self._has_path_jail_guard(obj_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=(f"source '{obj_name}[{_gname}]' jailed by "
+                                            f"path-traversal blacklist guard (strpos+die)"),
+                                    chain=[{"step": "path_jail", "vid": obj_vid,
                                             "name": obj_name, "code": -1}],
                                     path=[start_vid, obj_vid],
                                     expr_lineno=_vattr(obj_v, "lineno", 0)))
@@ -2321,6 +2345,15 @@ class GraphAnalyzer:
                                             "name": obj_name, "code": -1}],
                                     path=new_path + [obj_vid],
                                     expr_lineno=_vattr(obj_v, "lineno", 0)))
+                            if self._has_path_jail_guard(obj_vid, _gname):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=-1,
+                                    reason=(f"source '{obj_name}[{_gname}]' jailed by "
+                                            f"path-traversal blacklist guard (strpos+die)"),
+                                    chain=[{"step": "path_jail", "vid": obj_vid,
+                                            "name": obj_name, "code": -1}],
+                                    path=new_path + [obj_vid],
+                                    expr_lineno=_vattr(obj_v, "lineno", 0)))
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"superglobal '{obj_name}' via member access",
@@ -3146,6 +3179,154 @@ class GraphAnalyzer:
             if _mn:
                 return _mn.strip("'\"")
         return ""
+
+    # --- Path-traversal jail guard (strpos blacklist + die/exit) ----------
+
+    _PATH_JAIL_PROBE_FUNCS = frozenset({
+        "strpos", "str_contains", "substr_count", "stripos", "strripos",
+        "strncmp", "substr", "mb_strpos", "mb_substr_count",
+    })
+    _PATH_JAIL_CONSTS = ("../", "..\\", "./", ".\\", "/", "\\")
+
+    def _branch_is_path_jail(self, branch_vid: int, member_key: str) -> bool:
+        """Check if a branch condition is a path-traversal blacklist jail for
+        ``<superglobal>[member_key]`` and the branch body terminates execution
+        (die/exit).
+
+        Recognized pattern (Responsive FileManager execute.php and many
+        PHP file managers)::
+
+            if (strpos($_POST['path'], '../') !== FALSE
+                || strpos($_POST['path'], '/') === 0
+                || ...) {
+                die('wrong path');
+            }
+
+        A value that reaches code after this block cannot contain ``../`` —
+        downstream file operations on it are jailed to the base directory.
+
+        Args:
+            branch_vid: branch node vid (type ``if``).
+            member_key: subscript key of the superglobal in the taint chain
+                        (e.g. ``"path"``, ``"path_thumb"``).
+
+        Returns True if the condition probes the same superglobal member with
+        a blacklist const AND the body contains die/exit.
+        """
+        if not member_key:
+            return False
+
+        cond_vid = self._get_condition_root(branch_vid)
+        if cond_vid is None:
+            return False
+
+        # 1. Condition must contain a jail probe call on the same member key.
+        probe_found = False
+        stack = [cond_vid]
+        visited = set()
+        while stack:
+            sv = stack.pop()
+            if sv in visited:
+                continue
+            visited.add(sv)
+            v = self.graph.vs[sv]
+            if (_vattr(v, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(v, "type", "") in _CALL_TYPES
+                    and _vattr(v, "name", "") in self._PATH_JAIL_PROBE_FUNCS):
+                # Look for a property child whose member-source is a superglobal
+                # with the matching key, plus a blacklist const arg.
+                has_member = False
+                has_blacklist_const = False
+                for ae in self.graph.es.select(_source=sv, label="ast"):
+                    child = self.graph.vs[ae.target]
+                    child_label = _vattr(child, "label", "")
+                    if child_label == NodeLabel.IDENTIFIER.value:
+                        cname = _vattr(child, "name", "")
+                        ctype = _vattr(child, "type", "")
+                        if ctype in ("property", "field", "const_fetch") or \
+                                (cname and not cname.startswith("$")):
+                            # property node: member edge FROM superglobal INTO
+                            # this property node ($_POST --member--> 'path')
+                            for me in self.graph.es.select(
+                                    _target=ae.target,
+                                    label=EdgeLabel.MEMBER.value):
+                                msrc = self.graph.vs[me.source]
+                                mname = str(_vattr(msrc, "name", ""))
+                                if mname.startswith("$"):
+                                    if _vattr(child, "name", "").strip("'\"") == member_key:
+                                        has_member = True
+                                        break
+                        # direct superglobal (e.g. strpos($_GET, ...))
+                        if cname in ("$_GET", "$_POST", "$_REQUEST", "$_COOKIE",
+                                     "$_SERVER", "$_FILES", "$_SESSION"):
+                            has_member = True
+                    elif child_label == NodeLabel.CONST.value:
+                        cval = str(_vattr(child, "value", "") or _vattr(child, "name", ""))
+                        cval = cval.strip("'\"")
+                        if cval in self._PATH_JAIL_CONSTS:
+                            has_blacklist_const = True
+                if has_member and has_blacklist_const:
+                    probe_found = True
+                    break
+            for e in self.graph.es.select(_source=sv, label="ast"):
+                stack.append(e.target)
+
+        if not probe_found:
+            return False
+
+        # 2. Branch body must contain die/exit (terminate on blacklisted path).
+        for oe in self.graph.es.select(_source=branch_vid, label=EdgeLabel.OWN.value):
+            body_vid = oe.target
+            body_stack = [body_vid]
+            body_visited = set()
+            while body_stack:
+                bv = body_stack.pop()
+                if bv in body_visited:
+                    continue
+                body_visited.add(bv)
+                bv_node = self.graph.vs[bv]
+                if (_vattr(bv_node, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(bv_node, "type", "") in _CALL_TYPES
+                        and _vattr(bv_node, "name", "") in ("die", "exit")):
+                    return True
+                for e in self.graph.es.select(_source=bv, label="ast"):
+                    body_stack.append(e.target)
+                # own edges cover nested blocks
+                for e in self.graph.es.select(_source=bv, label=EdgeLabel.OWN.value):
+                    body_stack.append(e.target)
+                # don't descend into nested branches' conditions — handled by
+                # their own branch nodes (stop at first level of die search)
+        return False
+
+    def _has_path_jail_guard(self, source_vid: int, member_key: str) -> bool:
+        """Check if the taint source ``<superglobal>[member_key]`` is jailed by
+        a path-traversal blacklist guard in the same file before the source's
+        lineno (file-scope code) or in the same function before it.
+
+        This is the interprocedural counterpart of ``check_branch_constraint``:
+        the guard runs in the caller (e.g. execute.php top-level code), while
+        the sink is deep in a callee (e.g. utils.php deleteDir).  parameters_back
+        crosses the call edge and reaches the superglobal; the guard on the
+        superglobal member must be checked at the point where the taint
+        originates.
+        """
+        sv = self.graph.vs[source_vid]
+        src_file = (_vattr(sv, "file_path", "")
+                    or _vattr(sv, "path", ""))
+        if not src_file or not member_key:
+            return False
+        src_lineno = int(_vattr(sv, "lineno", 0) or 0)
+
+        branch_list = self._nfile_lineno.get((NodeLabel.BRANCH.value, src_file), [])
+        for b_lineno, bvid in branch_list:
+            if b_lineno >= src_lineno:
+                break  # guards must run BEFORE the tainted assignment
+            btype = _vattr(self.graph.vs[bvid], "type", "")
+            if btype != "if":
+                continue
+            if self._branch_is_path_jail(bvid, member_key):
+                return True
+        return False
 
     def _is_inside_safe_call_ast(self, vid: int) -> bool:
         """Check if *vid* is nested inside a safe function call's AST subtree.

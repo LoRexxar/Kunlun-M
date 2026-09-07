@@ -973,7 +973,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 found_controllable = True
                                 result = r
                                 break
-                            elif not r.is_uncontrollable and not found_unconfirmed:
+                            elif r.is_inconclusive and not found_unconfirmed:
+                                # Only INCONCLUSIVE results (code 3) count as
+                                # "unconfirmed" suspects. Repaired/safe results
+                                # (code 2) are definitively sanitized — collecting
+                                # them here caused false positives in unconfirm
+                                # mode: e.g. unlink($path) where $path comes
+                                # from trim() was reported as "suspected" even
+                                # though trim proves the arg safe.
                                 found_unconfirmed = True
                                 unconfirmed_result = r
                             # Repair/safe result from parameters_back — set flag
