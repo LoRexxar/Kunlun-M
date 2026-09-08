@@ -289,6 +289,20 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     "getCanonicalPath",
 })
 
+# Fix 20b regression guard: existence/emptiness checks.  Their
+# builtin_knowledge entries carry safe=True (the *return value* is safe),
+# but they prove nothing about the *argument's* content, so they must never
+# satisfy the Fix 20a safe-predicate branch guard.
+_EXISTENCE_CHECK_FUNCS: frozenset[str] = frozenset({
+    # PHP
+    "isset", "empty", "is_null", "array_key_exists", "property_exists",
+    "in_array",  # membership only — content unchanged
+    # Python
+    "hasattr",
+    # Java
+    "containsKey", "containsValue", "contains",
+})
+
 # Java/Kotlin parameter annotations that indicate the parameter is
 # framework-injected and NOT user-controlled input.
 _SAFE_PARAM_ANNOTATIONS: frozenset[str] = frozenset({
@@ -895,7 +909,50 @@ class GraphAnalyzer:
     # --- Controllability backtracking (core) ------------------------------
 
     def parameters_back(self, start_vid: int, context_vid: int | None = None,
-                       max_depth: int = 50) -> AnalysisResult:
+                        max_depth: int = 50) -> AnalysisResult:
+        """Public entry — runs the BFS impl, then applies Fix 20b two-pass
+        redirect resolution.
+
+        Why here: the BFS impl returns early the moment ANY controllable
+        source is found (FIFO order decides which caller's path wins).
+        For redirect sinks with a pinned concat ('./user.php?id=' . $_GET),
+        a code=1 may have travelled THROUGH the pinned node.  Re-run with
+        pinned nodes blocked: a surviving code=1 proves an independent
+        fully-controlled path (true TP); no survivor means the only taint
+        route was pinned → -1.  Order-independent, path-sensitive.
+        """
+        self._redirect_pin_ctx = bool(self._start_is_redirect_sink(start_vid))
+        self._redirect_pin_vids = set()
+        self._redirect_pin_blocked = set()
+
+        r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
+                                        max_depth=max_depth)
+        pinned_seen = getattr(self, "_redirect_pin_vids", set())
+        if not (self._redirect_pin_ctx and r1.code == 1 and pinned_seen):
+            return r1
+        # Pass 2: block pinned concats, see if a fully-controlled path survives
+        self._redirect_pin_blocked = set(pinned_seen)
+        try:
+            # Invalidate pass-1 cache entries so pass 2 re-traverses
+            for k in [k for k, v in self._decision_cache.items()
+                      if getattr(v, "_redirect_pinned_seen", False)]:
+                self._decision_cache.pop(k, None)
+            self._decision_cache.pop((start_vid, context_vid), None)
+            r2 = self._parameters_back_impl(
+                start_vid, context_vid=context_vid, max_depth=max_depth)
+        finally:
+            self._redirect_pin_blocked = set()
+        if r2 is not None and r2.code == 1:
+            return r2
+        return AnalysisResult(
+            code=-1,
+            reason="redirect target pinned to site-internal path by constant prefix",
+            chain=[{"step": "redirect_pinned",
+                    "vids": sorted(pinned_seen), "code": -1}],
+            path=list(r1.path), expr_lineno=r1.expr_lineno)
+
+    def _parameters_back_impl(self, start_vid: int, context_vid: int | None = None,
+                              max_depth: int = 50) -> AnalysisResult:
         """BFS backward along dfg edges to determine controllability.
 
         Classification per upstream node:
@@ -1327,6 +1384,14 @@ class GraphAnalyzer:
         param_fallback: AnalysisResult | None = None
         inconclusive_fallback: AnalysisResult | None = None
         crossed_function_boundary: bool = False
+        # Fix 20b: pin-collection state is owned by the public driver
+        # (parameters_back); recursive/impl invocations reuse whatever the
+        # driver set.  Only collect pinned concats when the driver armed
+        # the redirect context (avoids duplicate _start_is_redirect_sink
+        # walks on every recursive call).
+        _redirect_ctx = getattr(self, "_redirect_pin_ctx", False)
+        if getattr(self, "_redirect_pin_vids", None) is None:
+            self._redirect_pin_vids = set()
 
         while queue:
             cur_vid, depth, path = queue.popleft()
@@ -1698,6 +1763,23 @@ class GraphAnalyzer:
                 if (ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
                 )):
+                    # Fix 20b: redirect target pinned by constant prefix.
+                    # './user.php?id=' . $_GET['id'] → only the query string
+                    # is attacker-controlled; the Location base is a site-
+                    # internal relative path.  Record the pinned node instead
+                    # of returning immediately: suppression happens in the
+                    # instance-level _cached gate, which path-checks every
+                    # code=1 result — sinks with a fully-controlled sibling
+                    # caller stay code=1 (path-sensitive).
+                    if (_redirect_ctx and utype == "binary_op"
+                            and self._redirect_base_pinned_by_const(up_vid)):
+                        if up_vid in self._redirect_pin_blocked:
+                            # Pass 2: this concat is pinned — taint must NOT
+                            # travel through it.  Skip this upstream entirely
+                            # so only independent fully-controlled paths can
+                            # produce a code=1 on the re-run.
+                            continue
+                        self._redirect_pin_vids.add(up_vid)
                     # When tracing into a call's arguments, respect builtin_knowledge
                     # passthrough: only trace args that are in the passthrough list.
                     # This prevents false taint from non-data args (e.g. apply_filters
@@ -2260,8 +2342,15 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.IDENTIFIER.value and uname:
                     cur_branch_chain = self.get_branch_chain(up_vid)
                     if cur_branch_chain:
-                        # Scope gate: skip if no shared branch with start
-                        if not (set(cur_branch_chain) & sink_branch_set):
+                        # Scope gate: skip if no shared branch with start,
+                        # EXCEPT when the BFS already crossed a function
+                        # boundary (Fix 20a): the caller-side guard branch
+                        # wraps the *argument* node feeding the callee —
+                        # e.g. if(path_is_safe($target)) { delete_folder(
+                        # $target); } — and the sink lives in a different
+                        # file, so branch chains can never intersect there.
+                        if not (set(cur_branch_chain) & sink_branch_set) \
+                                and not crossed_function_boundary:
                             pass  # different code block, no constraint
                         else:
                             # Same branch scope — check constraints
@@ -2493,7 +2582,6 @@ class GraphAnalyzer:
             path=[start_vid] + list(visited), expr_lineno=_vattr(sv, "lineno", 0)))
 
     # --- Receiver passthrough tracing ------------------------------------
-
     def _trace_call_receiver(self, call_vid: int, callee_name: str,
                               context_vid: int | None, max_depth: int,
                               path: list[int]) -> AnalysisResult | None:
@@ -2816,6 +2904,14 @@ class GraphAnalyzer:
     # --- Internal helpers -------------------------------------------------
 
     def _cached(self, key, result: AnalysisResult) -> AnalysisResult:
+        # Fix 20b: when a pinned concat was traversed on the way to a CTRL
+        # decision, remember it.  The verdict itself is resolved by the
+        # two-pass logic at the Exhausted block of _parameters_back_impl
+        # (path-sensitive: a surviving fully-controlled path stays code=1).
+        pin_vids = getattr(self, "_redirect_pin_vids", None)
+        if (getattr(self, "_redirect_pin_ctx", False) and result is not None
+                and result.code == 1 and pin_vids):
+            result._redirect_pinned_seen = bool(pin_vids)
         self._decision_cache[key] = result
         return result
 
@@ -3469,6 +3565,145 @@ class GraphAnalyzer:
                 fv = self.graph.vs[fvid]
                 if _vattr(fv, "func_summary_type", "") == "safe":
                     return True
+        return False
+
+    def _condition_call_is_negated(self, call_vid: int, max_up: int = 3) -> bool:
+        """Check if *call_vid* sits directly under a unary '!' / 'not' node.
+
+        Used by the Fix 20a safe-predicate guard: entering the branch taken
+        when ``!pred($x)`` means the predicate returned FALSE, so the call
+        must NOT count as a satisfied guard.
+        """
+        cur = call_vid
+        for _ in range(max_up):
+            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            if not parents:
+                return False
+            for p_vid in parents:
+                pv = self.graph.vs[p_vid]
+                if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(pv, "type", "") == "unary_op"
+                        and _vattr(pv, "name", "") in ("!", "not", "neg")):
+                    return True
+            # stop at binary ops — above that, negation context is gone
+            pv0 = self.graph.vs[parents[0]]
+            if _vattr(pv0, "label", "") == NodeLabel.OPERATOR.value and \
+                    _vattr(pv0, "type", "") == "binary_op":
+                return False
+            cur = parents[0]
+        return False
+
+    def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
+        """Fix 20b: is this binary_op's Location/redirect base pinned to an
+        internal path by a constant left-most operand?
+
+        Redirect chains like zblog's ``Redirect('./user.php?id=' . $_GET['id'])``
+        → Redirect302 → header only let the attacker control the query
+        string — the Location base is a relative site-internal path, so this
+        is not an open redirect.  A constant operand pins the base when it
+        starts with './', '../', or a single '/' (root-relative, not '//'
+        protocol-relative), or looks like an absolute URL whose host part is
+        already fixed (contains '://' — host present before any tainted
+        part).  Pure concatenations of tainted parts without such a prefix
+        are NOT pinned.
+        """
+        op = self.graph.vs[op_vid]
+        if _vattr(op, "type", "") != "binary_op":
+            return False
+        # left-most operand: walk left children of nested binary_ops
+        cur = op_vid
+        for _ in range(20):
+            left_vid = None
+            for e in self.graph.es.select(_source=cur, label="ast"):
+                if _vattr(e, "role", "") == "left":
+                    left_vid = e.target
+                    break
+            if left_vid is None:
+                return False
+            lv = self.graph.vs[left_vid]
+            ltype = _vattr(lv, "type", "")
+            if ltype == "binary_op":
+                cur = left_vid
+                continue
+            if _vattr(lv, "label", "") == NodeLabel.CONST.value:
+                raw = str(_vattr(lv, "name", "") or "").strip("'\"")
+                if raw.startswith("./") or raw.startswith("../"):
+                    return True
+                # root-relative path: '/admin/x' pins the base.  A bare '/'
+                # does NOT — '/' . $x with x='/evil.com' yields '//evil.com',
+                # a protocol-relative open redirect.
+                if len(raw) > 1 and raw.startswith("/") and not raw.startswith("//"):
+                    return True
+                # absolute URL: only pinned when the host is COMPLETE inside
+                # the constant ('http://x.com/p...'); a bare scheme prefix
+                # ('http://' . $host) leaves the host attacker-controlled.
+                if "://" in raw:
+                    rest = raw.split("://", 1)[1]
+                    if "/" in rest and rest.split("/", 1)[0]:
+                        return True
+            return False
+        return False
+
+    _REDIRECT_SINK_CALLEES = {
+        "redirect", "redirect302", "wp_redirect", "wp_safe_redirect",
+        "redirectto", "redirect_to", "location",
+    }
+
+    def _start_is_redirect_sink(self, vid: int, max_up: int = 5) -> bool:
+        """Fix 20b: is *vid* an argument of a redirect-type sink call?
+
+        True for header('Location: ...'), Redirect302($url), Redirect($x),
+        wp_redirect($x), ...  Used to scope the constant-prefix redirect
+        analysis so non-redirect sinks (rmdir, system, ...) are untouched.
+        """
+        cur = vid
+        for _ in range(max_up):
+            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            found_call = None
+            for p_vid in parents:
+                pv = self.graph.vs[p_vid]
+                if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(pv, "type", "") in _CALL_TYPES):
+                    found_call = p_vid
+                    break
+            if found_call is None:
+                if not parents:
+                    return False
+                # climb through cast/paren wrappers
+                p0 = parents[0]
+                if _vattr(self.graph.vs[p0], "label", "") == NodeLabel.OPERATOR.value:
+                    cur = p0
+                    continue
+                return False
+            callee = (self._resolve_callee_name(found_call) or "").strip("\\")
+            low = callee.lower()
+            if low in self._REDIRECT_SINK_CALLEES:
+                return True
+            if low == "header":
+                # header() is a redirect sink only for Location targets:
+                # first arg must reference a 'Location:'-style const.
+                for ae in self.graph.es.select(_source=found_call, label="ast"):
+                    if _vattr(ae, "role", "") != "arg":
+                        continue
+                    return self._const_in_subtree_starts_with(
+                        ae.target, ("location", "content-location", "uri", "refresh"))
+            return False
+        return False
+
+    def _const_in_subtree_starts_with(self, root_vid: int,
+                                      prefixes: tuple[str, ...],
+                                      depth: int = 0) -> bool:
+        """True if any CONST in the AST subtree starts with one of *prefixes*
+        (case-insensitive)."""
+        if depth > 6:
+            return False
+        v = self.graph.vs[root_vid]
+        if _vattr(v, "label", "") == NodeLabel.CONST.value:
+            nm = str(_vattr(v, "name", "") or "").strip("'\"").lower()
+            return any(nm.startswith(p) for p in prefixes)
+        for e in self.graph.es.select(_source=root_vid, label="ast"):
+            if self._const_in_subtree_starts_with(e.target, prefixes, depth + 1):
+                return True
         return False
 
     def _get_member_chain_parent_taint(self, vid: int) -> str:
@@ -4484,6 +4719,29 @@ class GraphAnalyzer:
                             # ^ 和 $ 锚定 → 严格匹配整个字符串 → 安全
                             if pattern.startswith("^") and pattern.endswith("$"):
                                 return True
+
+            # Fix 20a: user-defined bool predicate functions with a 'safe'
+            # function summary (all returns are comparisons / safe builtin
+            # wraps, none returns a raw parameter — see _aggregate_flows).
+            # e.g. getsimple path_is_safe():
+            #   if (path_is_safe($target, GSUPLOADPATH)) { delete_folder($target); }
+            # Entering the guarded branch proves the callee's internal
+            # checks (realpath prefix compare etc.) passed for var_name.
+            # Skipped when the call is negated (!pred($x)) — inside that
+            # branch the predicate evaluated FALSE.
+            # Existence/emptiness checks (isset/empty/...) must NOT count:
+            # their builtin_knowledge entries carry safe=True (return value
+            # is safe) but they prove nothing about the *argument's* content
+            # — tpure regression: `isset($zbp->Config(...)->PostLOGO)` around
+            # a stored-XSS echo wrongly became a "branch constraint".
+            _pred_callee = self._resolve_callee_name(cond_vid)
+            if (_pred_callee not in _EXISTENCE_CHECK_FUNCS
+                    and self._is_safe_function_call(cond_vid)
+                    and not self._condition_call_is_negated(cond_vid)):
+                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(e, "role", "") == "arg":
+                        if self._subtree_contains_name(e.target, var_name, depth=0):
+                            return True
 
             # re.match / re.fullmatch: anchored regex → safe
             if name in ("match", "fullmatch", "search"):
