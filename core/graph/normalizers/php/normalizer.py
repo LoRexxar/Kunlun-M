@@ -1147,11 +1147,27 @@ class Normalizer:
             add_edge({"label": EdgeLabel.OWN.value, "source": ctx[0], "target": pos,
                        "attrs": {"index": depth}})
 
-        children = getattr(node, "children", [])
+        # phply's ``Array`` node carries its elements in ``.nodes`` (a list of
+        # ArrayElement), not ``.children``.  Reading the wrong attribute meant
+        # every array literal collapsed to a bare ``array`` call node with no
+        # element children — Fix 21-1 (whitelist membership guards like
+        # in_array($x, array('File','Image')) lost the whitelist entirely).
+        children = getattr(node, "nodes", None)
+        if children is None:
+            children = getattr(node, "children", [])
         if not isinstance(children, list):
             children = list(children) if children else []
 
         for idx, child in enumerate(children):
+            # phply wraps each literal element in ArrayElement(key, value,
+            # is_ref); unwrap so the inner value (e.g. 'File') becomes the
+            # ast/arg child of the array node.  ArrayElement itself has no
+            # walker — without this the whitelist elements vanish again.
+            if type(child).__name__ == "ArrayElement":
+                val = getattr(child, "value", None)
+                if val is None:
+                    continue
+                child = val
             child_pos = self._walk_node(child, add_node, add_edge, ctx_stack, file_path, 0)
             if child_pos is not None:
                 add_edge({"label": EdgeLabel.AST.value, "source": pos, "target": child_pos,

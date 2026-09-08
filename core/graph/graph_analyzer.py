@@ -925,9 +925,41 @@ class GraphAnalyzer:
         self._redirect_pin_vids = set()
         self._redirect_pin_blocked = set()
 
+        # Fix 21a: negated safe-predicate predecessor guard (CouchCMS
+        # whitelist form). Checked once up-front at the sink: an if-branch
+        # BEFORE the sink in the same function whose negated predicate
+        # (!in_array($v, <const whitelist>) or !safe_pred($v)) terminates
+        # means reaching the sink proves the predicate TRUE — the argument
+        # variable is whitelist-constrained, not attacker-controlled.
+        # Probed against the path-variables of the sink expression itself;
+        # BFS path-variable names are discovered per-node below via the
+        # cheap identifier probe instead (avoids name mismatch param vs
+        # caller var).
+        _sv = self.graph.vs[start_vid]
+        if (int(_vattr(_sv, "lineno", 0) or 0) > 0
+                and not getattr(self, "_f21a_guard_cache", None)):
+            self._f21a_guard_cache = {}
+        _f21a_guard_cache = getattr(self, "_f21a_guard_cache", None)
+
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
                                         max_depth=max_depth)
         pinned_seen = getattr(self, "_redirect_pin_vids", set())
+        # Fix 21a: negated safe-predicate predecessor guard (CouchCMS
+        # whitelist form).  The superglobal member feeding this path is
+        # guarded by a terminating !pred() branch earlier in the same
+        # function, so reaching the sink proves pred()==true —
+        # whitelist-constrained, not attacker-controlled.
+        _sv = self.graph.vs[start_vid]
+        if self.language == "php" and r1.code == 1:
+            _guard_reason = self._negated_whitelist_guard_for_result(r1)
+            if _guard_reason:
+                return AnalysisResult(
+                    code=-1,
+                    reason=_guard_reason,
+                    chain=[{"step": "negated_whitelist_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
+
         if not (self._redirect_pin_ctx and r1.code == 1 and pinned_seen):
             return r1
         # Pass 2: block pinned concats, see if a fully-controlled path survives
@@ -950,6 +982,36 @@ class GraphAnalyzer:
             chain=[{"step": "redirect_pinned",
                     "vids": sorted(pinned_seen), "code": -1}],
             path=list(r1.path), expr_lineno=r1.expr_lineno)
+
+    def _negated_whitelist_guard_for_result(self, result: AnalysisResult) -> str | None:
+        """Fix 21a post-check: walk the result path; for each tainted var
+        name, ask whether a terminating negated whitelist guard on that
+        name precedes the sink in the sink's function.  Returns a reason
+        string when guarded, None otherwise.
+        """
+        start_vid = result.path[0] if result.path else None
+        if start_vid is None:
+            return None
+        seen_names = set()
+        for pvid in result.path:
+            if not isinstance(pvid, int) or pvid >= self.graph.vcount():
+                continue
+            pv = self.graph.vs[pvid]
+            pname = _vattr(pv, "name", "")
+            if (pname and pname.startswith("$")
+                    and _vattr(pv, "label", "") == NodeLabel.IDENTIFIER.value):
+                seen_names.add(pname)
+        # also the member key form ($sResourceType guards $_GET['Type'] via
+        # the caller-side variable; sink-side param names differ from
+        # caller-side guarded names, so probe every $name on the path)
+        for pname in seen_names:
+            for probe_vid in result.path:
+                if not isinstance(probe_vid, int) or probe_vid >= self.graph.vcount():
+                    continue
+                if self._negated_whitelist_guard_before(probe_vid, pname):
+                    return (f"whitelist guard: '{pname}' constrained by "
+                            f"terminating negated predicate before sink")
+        return None
 
     def _parameters_back_impl(self, start_vid: int, context_vid: int | None = None,
                               max_depth: int = 50) -> AnalysisResult:
@@ -3591,6 +3653,235 @@ class GraphAnalyzer:
                     _vattr(pv0, "type", "") == "binary_op":
                 return False
             cur = parents[0]
+        return False
+
+    # -- Fix 21a: negated safe-predicate predecessor guard --------------------
+
+    _TERMINATOR_FUNCS = frozenset({"die", "exit"})
+
+    def _array_literal_is_const_whitelist(self, call_vid: int) -> bool:
+        """For ``in_array($var, <arg2>)`` — does arg2 resolve to a constant
+        array literal (Fix 21-1 normalizer now keeps its elements)?
+
+        Accepts:
+        - the array() literal node itself (ast/arg children all CONST)
+        - an identifier/subscript node (e.g. $Config['ConfigAllowedTypes'])
+          whose DFG writer is such an array() literal
+        Returns False when the candidate set is dynamic (variable array,
+        function call return, etc.) — membership then proves nothing.
+        """
+        candidates = []
+        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(ae, "role", "") == "arg":
+                candidates.append(ae.target)
+        if len(candidates) < 2:
+            return False
+        wl_vid = candidates[1]
+        wl = self.graph.vs[wl_vid]
+
+        # Case 1: direct array() literal
+        if (_vattr(wl, "label") == NodeLabel.OPERATOR.value
+                and _vattr(wl, "name") == "array"):
+            elems = [e.target for e in self.graph.es.select(
+                _source=wl_vid, label="ast")
+                if _vattr(e, "role", "") == "arg"]
+            if not elems:
+                return False
+            return all(_vattr(self.graph.vs[el], "label")
+                       == NodeLabel.CONST.value for el in elems)
+
+        # Case 2: identifier/subscript → chase DFG upstream to the writer
+        seen = set()
+        frontier = [wl_vid]
+        for _ in range(6):
+            nxt = []
+            for fv in frontier:
+                if fv in seen:
+                    continue
+                seen.add(fv)
+                for de in self.graph.es.select(_source=fv, label="dfg"):
+                    sv = de.source
+                    svv = self.graph.vs[sv]
+                    if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
+                            and _vattr(svv, "name") == "array"):
+                        elems = [e.target for e in self.graph.es.select(
+                            _source=sv, label="ast")
+                            if _vattr(e, "role", "") == "arg"]
+                        if elems and all(
+                                _vattr(self.graph.vs[el], "label")
+                                == NodeLabel.CONST.value for el in elems):
+                            return True
+                    elif _vattr(sv, "label", "") in (
+                            NodeLabel.IDENTIFIER.value,):
+                        nxt.append(sv)
+            frontier = nxt
+            if not frontier:
+                break
+        return False
+
+    def _branch_body_always_terminates(self, branch_vid: int) -> bool:
+        """Does the guarded branch body provably terminate execution?
+
+        True when the body calls die/exit directly, or calls a function
+        whose execution cannot return past its end (bare ``exit;``/
+        ``die;`` as the final statement — e.g. CouchCMS SendError()).
+        Returns False on any doubt (unknown callee, conditional exit).
+        """
+        stack = [branch_vid]
+        seen = set()
+        calls = []
+        while stack:
+            sv = stack.pop()
+            if sv in seen:
+                continue
+            seen.add(sv)
+            svv = self.graph.vs[sv]
+            if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(svv, "type", "") in _CALL_TYPES):
+                calls.append(sv)
+            for ee in self.graph.es.select(_source=sv, label="own"):
+                stack.append(ee.target)
+            for ee in self.graph.es.select(_source=sv, label="ast"):
+                stack.append(ee.target)
+        if not calls:
+            return False
+        for cv in calls:
+            cname = _vattr(self.graph.vs[cv], "name", "")
+            if cname in self._TERMINATOR_FUNCS:
+                return True
+            # one-level callee expansion: does control return past the
+            # callee's end?  "Not" iff the callee's LAST top-level
+            # statement is a bare die/exit call.
+            for ue in self.graph.es.select(_source=cv, label="use"):
+                # Bug A fix: wrap int index in Vertex — b15 trace showed
+                # _vattr(int, "label") silently failing the FUNCTION check
+                fv = self.graph.vs[ue.target]
+                if _vattr(fv, "label") != NodeLabel.FUNCTION.value:
+                    continue
+                last_top_stmt = None
+                top_stmts = []
+                for oe in self.graph.es.select(_source=fv, label="own"):
+                    top_stmts.append((int(_vattr(oe, "index", 0) or 0),
+                                      oe.target))
+                if not top_stmts:
+                    continue
+                top_stmts.sort()
+                last_top_stmt = top_stmts[-1][1]
+                lv = self.graph.vs[last_top_stmt]
+                # bare exit/die call statement
+                if (_vattr(lv, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(lv, "type", "") in _CALL_TYPES
+                        and _vattr(lv, "name", "") in self._TERMINATOR_FUNCS):
+                    return True
+                # return-statement wrapper: return exit(); (rare)
+                if _vattr(lv, "label") == NodeLabel.RETURN.value:
+                    for re_ in self.graph.es.select(
+                            _source=last_top_stmt, label="ast"):
+                        rv = self.graph.vs[re_.target]
+                        if (_vattr(rv, "label") == NodeLabel.OPERATOR.value
+                                and _vattr(rv, "name", "")
+                                in self._TERMINATOR_FUNCS):
+                            return True
+        return False
+
+    def _negated_whitelist_guard_before(self, sink_vid: int,
+                                        var_name: str) -> bool:
+        """Fix 21a: CouchCMS whitelist pattern.
+
+        In the function owning *sink_vid*, an if-branch BEFORE the sink
+        lineno has condition ``!pred($var)`` where pred is either
+        ``in_array`` with a constant whitelist (Fix 21-1 keeps the literal
+        in the graph) or a user predicate with a 'safe' summary (Fix 20a
+        infrastructure), and the guarded body provably terminates.
+
+        Reaching the sink therefore proves pred($var) == TRUE — the
+        variable is whitelist-constrained, so taint from ``$var`` is not
+        attacker-controlled content at the sink.
+        """
+        sv = self.graph.vs[sink_vid]
+        s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        if not s_file:
+            return False
+        s_lineno = int(_vattr(sv, "lineno", 0) or 0)
+
+        # the function owning the sink — guards must live in the same one.
+        # Walk up via own AND ast edges (identifier/operand nodes have no
+        # own parent; Bug A fix — b15/b16 probes).
+        owner_fn = None
+        cur = sink_vid
+        for _ in range(30):
+            up = None
+            for e in self.graph.es.select(_target=cur, label="own"):
+                up = e.source
+                break
+            if up is None:
+                for e in self.graph.es.select(_target=cur, label="ast"):
+                    up = e.source
+                    break
+            if up is None:
+                break
+            if _vattr(self.graph.vs[up], "label") == NodeLabel.FUNCTION.value:
+                owner_fn = up
+                break
+            cur = up
+        if owner_fn is None:
+            return False
+
+        branch_list = self._nfile_lineno.get(
+            (NodeLabel.BRANCH.value, s_file), [])
+        for b_lineno, bvid in branch_list:
+            if b_lineno >= s_lineno:
+                break  # guards must run BEFORE the sink
+            bv = self.graph.vs[bvid]
+            if _vattr(bv, "type", "") != "if":
+                continue
+            cond_vid = self._get_condition_root(bvid)
+            if cond_vid is None:
+                continue
+            # expect unary '!' wrapping a call
+            cv = self.graph.vs[cond_vid]
+            if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
+                    or _vattr(cv, "type", "") != "unary_op"):
+                continue
+            call_vid = None
+            for ce in self.graph.es.select(_source=cond_vid, label="ast"):
+                if _vattr(ce, "role", "") == "operand":
+                    call_vid = ce.target
+                    break
+            if call_vid is None:
+                continue
+            callee = _vattr(self.graph.vs[call_vid], "name", "")
+            if callee in _EXISTENCE_CHECK_FUNCS:
+                # isset/empty etc. only prove existence, not value
+                # constraint — excluding them here mirrors the 20a
+                # predicate-guard exclusion (@4738).
+                continue
+            if callee not in ("in_array",) and not (
+                    callee and self._is_safe_function_call(call_vid)):
+                continue
+            # NOTE: no double-negation exclusion here — the expected shape
+            # IS the negated predicate `!pred($var)` (cond = unary_op '!'
+            # wrapping the call, already verified above).  b19 probe: an
+            # exclusion copied from the 20a context skipped EVERY target
+            # branch, since _condition_call_is_negated finds exactly that
+            # one '!'.
+            # arg0 must reference var_name
+            args = [e.target for e in self.graph.es.select(
+                _source=call_vid, label="ast")
+                if _vattr(e, "role", "") == "arg"]
+            if not args:
+                continue
+            if not self._subtree_contains_name(args[0], var_name, depth=0):
+                continue
+            # whitelist form needs a constant array; user predicates don't
+            if callee == "in_array":
+                if not self._array_literal_is_const_whitelist(call_vid):
+                    continue
+            # guarded body must provably terminate (else fall-through is
+            # NOT proven pred()==true)
+            if not self._branch_body_always_terminates(bvid):
+                continue
+            return True
         return False
 
     def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
