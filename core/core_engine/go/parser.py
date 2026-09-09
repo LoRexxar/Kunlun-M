@@ -1133,17 +1133,53 @@ def _extract_function_name(line_text):
     return None
 
 
+def _source_hit(expr_str, src):
+    """Fix 21g: position-aware source matching.
+
+    Old logic was `src in expr_str` — pure substring containment.  Any
+    TEXT mentioning a source name matched: comments ("// see also
+    c.Param usage"), method declarations ("func (c *Context) Param"),
+    accidental suffix hits ("myc.ParamX"), and whole-statement texts
+    that merely contain a c.Param call somewhere.  That mis-attribution
+    turned receiver/context mentions into taint sources (echo.go:709
+    c.File(file) FP: chain 'c' → 'c.Param' although the argument is the
+    developer-supplied `file`).
+
+    Member sources ("c.Param", "r.URL.Query()", …) now match only at an
+    invocation position: <src> followed by optional space and "(".
+    Bare identifiers ("os.Args") match on word boundaries so
+    "myos.Args" / "os.Args2" don't hit but "os.Args" and "os.Args[0]"
+    do.
+    """
+    pat = re.compile(re.escape(src) + r"\s*\(")
+    if pat.search(expr_str):
+        return True
+    # bare identifier form (no dot, e.g. a local alias): word-boundary so
+    # "myalias" / "alias2" don't hit but "alias" and "alias[0]" do.
+    # Dot-containing members ("c.Param", "os.Args") NEVER match as mentions —
+    # only the call position above counts.
+    if "." not in src:
+        return re.search(r"\b" + re.escape(src) + r"\b", expr_str) is not None
+    return False
+
+
 def _is_controllable_source(expr_str, controlled_params=None):
     """检查表达式是否是可控输入源"""
     if controlled_params is None:
         controlled_params = is_controlled_params
 
     for cp in controlled_params:
-        if cp in expr_str:
+        # Fix 21g: word-boundary + no member-access lookahead.  Bare `cp in
+        # expr_str` made a rule param named 'c' (echo/gin handler receiver)
+        # mark EVERY text containing the letter c controllable — including
+        # 'c.File(file)' where the receiver mention is not the data flow.
+        # Now `c` matches as a standalone variable only: 'foo(c)', 'c[0]'
+        # match; 'c.File', 'echo.Context' do not.
+        if re.search(r"\b" + re.escape(cp) + r"\b(?!\s*\.)", expr_str):
             return True
 
     for src in GO_CONTROLLED_SOURCES:
-        if src in expr_str:
+        if _source_hit(expr_str, src):
             return True
 
     # Source Discovery: 检查用户自定义 source
