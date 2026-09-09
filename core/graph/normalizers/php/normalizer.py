@@ -701,7 +701,15 @@ class Normalizer:
             for attr in ("keyvar", "valvar"):
                 val = getattr(node, attr, None)
                 if val:
-                    self._walk_node(val, add_node, add_edge, ctx_stack, file_path, 0)
+                    var_pos = self._walk_node(val, add_node, add_edge, ctx_stack, file_path, 0)
+                    # Fix 21c: link the walked var to the branch — without
+                    # this edge the key/val vars are orphan nodes and the
+                    # DFG builder cannot connect array -> elements.
+                    if var_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": var_pos,
+                            "attrs": {"role": attr},
+                        })
 
         ctx_stack.pop()
         return pos
@@ -1361,7 +1369,11 @@ class Normalizer:
 
             # -- ForeachVariable --------------------------------------------------
             if node_type_name == "ForeachVariable":
-                var = getattr(ast_node, "node", None)
+                # Fix 21c: lphply >= 2.0 stores the wrapped Variable in
+                # `.name`; stock phply used `.node`.  Try both — getting
+                # this wrong silently drops the foreach valvar, leaving
+                # element reads with no data-flow ancestry (FN risk).
+                var = getattr(ast_node, "name", None) or getattr(ast_node, "node", None)
                 if var:
                     return self._walk_node(var, add_node, add_edge, ctx_stack, file_path, depth)
                 return None

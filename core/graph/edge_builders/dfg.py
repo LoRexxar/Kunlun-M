@@ -249,6 +249,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # for DFG incoming edges on output param identifiers.
             self._analyze_builtin_and_summary(language)
             self._analyze_same_variables()
+            # Fix 21c: foreach array -> keyvar/valvar element flows
+            self._analyze_foreach_flows()
             try:
                 self._analyze_cross_file_variables(language)
             except Exception:
@@ -1124,6 +1126,43 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     # -- 分析步骤 4：同名变量链接 ---------------------------------------------
 
+    def _analyze_foreach_flows(self) -> None:
+        """Fix 21c: foreach (expr as $k => $v) — connect the iterated array
+        to its key/val variables.
+
+        For every branch(type='foreach'):
+          dfg(condition_node -> keyvar)   keys of a user-supplied array are
+                                          attacker-controlled strings too
+          dfg(condition_node -> valvar)   element values carry the array's
+                                          taint (this is what killed
+                                          `foreach ($arr as $v) echo $v;`
+                                          traces — $v used to be an island)
+
+        The sanitizer case needs no special handling here: if the array
+        came from a safe re-assignment ($d = array_map(hsc(...), $d)),
+        the valvar's dfg source IS that re-assigned identifier, whose
+        taint_type='safe' stops the BFS in the analyzer (Fix 21b-2
+        repaired_result semantics report code=2).
+        """
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.BRANCH.value:
+                continue
+            if self._vtype[v.index] != "foreach":
+                continue
+
+            cond_vids = self._get_ast_children(v.index, role="condition")
+            if not cond_vids:
+                continue
+            cond_vid = cond_vids[0]
+
+            for role in ("keyvar", "valvar"):
+                var_vids = self._get_ast_children(v.index, role=role)
+                for var_vid in var_vids:
+                    if var_vid == cond_vid:
+                        continue
+                    # 跳过数组自身（taint 沿 dfg 已有边可达时无需自环式补边）
+                    self._add_dfg_edge(cond_vid, var_vid, DfgType.SAME.value)
+
     def _analyze_same_variables(self) -> None:
         """#4: 同名变量链接 — 在同一作用域内链接同名变量的「使用→定义」。
 
@@ -1210,6 +1249,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
             scope_vars[(scope_vid, scope_label)][vname].append(v.index)
 
         # 对每个作用域中同名 identifier，建立使用→最近LHS 的 same 链
+        # Fix 21c: foreach 头部的 keyvar/valvar 声明节点是「定义」——
+        # 同一 lineno 上循环体内的读必须排在其后（否则 (lineno, vid)
+        # 平局可能让读节点 vid 更小而排前面，链不上循环变量）。
+        foreach_header_vids: set[int] = set()
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.BRANCH.value \
+                    or self._vtype[v.index] != "foreach":
+                continue
+            for role in ("keyvar", "valvar"):
+                foreach_header_vids.update(
+                    self._get_ast_children(v.index, role=role))
         for scope_key, name_groups in scope_vars.items():
             scope_vid, scope_label = scope_key
             # Skip file-level scope ONLY for identifiers inside functions.
@@ -1261,7 +1311,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 # doesn't fix that (vid order IS the degenerate order), so
                 # we additionally skip same-statement LHS owners below.
                 vids_sorted = sorted(
-                    vids, key=lambda vid: (self._vlineno[vid], vid)
+                    vids,
+                    key=lambda vid: (
+                        self._vlineno[vid],
+                        0 if vid in foreach_header_vids else 1,
+                        vid,
+                    ),
                 )
                 # 从每个非 LHS 的 identifier，向前找最近的同名 LHS
                 for i, vid in enumerate(vids_sorted):
