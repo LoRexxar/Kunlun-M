@@ -746,11 +746,17 @@ class Normalizer:
             # 从 AST 节点获取类名
             class_node = getattr(node, "class_", None)
             if class_node:
-                cn = getattr(class_node, "name", "")
-                if isinstance(cn, str):
-                    call_class_name = cn
-                elif isinstance(cn, phpast.Variable):
-                    call_class_name = cn.name
+                # phply parses `Format::input` with class_ as a *plain string*
+                # ('Format'), not an Identifier node — probe1f. Handle that
+                # form first so the qualified fullname survives (Fix 21h).
+                if isinstance(class_node, str):
+                    call_class_name = class_node
+                else:
+                    cn = getattr(class_node, "name", "")
+                    if isinstance(cn, str):
+                        call_class_name = cn
+                    elif isinstance(cn, phpast.Variable):
+                        call_class_name = cn.name
 
         # Determine operator type based on call kind
         if node_type_name == "FunctionCall":

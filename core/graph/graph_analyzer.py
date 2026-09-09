@@ -166,6 +166,10 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # by _is_repair_function via that knowledge base.
     # Framework-specific sanitizer aliases
     "hsc",  # DokuWiki htmlspecialchars alias
+    "htmlchars",  # osTicket Format::htmlchars — array-recursive htmlspecialchars
+    "Format.htmlchars",  # qualified static call (dotted fullname on the wire)
+    "Format.input",  # osTicket Format::input — alias of Format::htmlchars
+    #    (NEVER add bare "input": it would match Laravel $request->input etc.)
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
     "sanitize_file_name", "sanitize_title", "sanitize_text_field",  # WordPress
     "sanitize_url",  # WordPress (alias of esc_url since WP 5.3)
@@ -4441,6 +4445,11 @@ class GraphAnalyzer:
         if not name:
             return False
         clean = name.lstrip("\\")
+        # Normalize PHP static-call separator to the dotted form used in
+        # graph fullname attributes ('Format.input' on the wire vs
+        # 'Format::input' in the knowledge sets) — same normalization
+        # _locate_sinks applies.  (Fix 21h)
+        clean = clean.replace("::", ".")
         if "\\" in clean:
             clean = clean.rsplit("\\", 1)[-1]
         if clean in _REPAIR_FUNCTIONS:
@@ -5507,6 +5516,18 @@ class GraphAnalyzer:
                     # Sanity check: resolved_name must look like a valid
                     # function name (no spaces, no SQL keywords, etc.)
                     if resolved_name and " " not in resolved_name:
+                        # PHP static_call: prefer the operator's qualified
+                        # fullname ('Format.input') when the alias resolved to
+                        # the bare method name — class context disambiguates
+                        # framework sanitizers such as Format::input from
+                        # unrelated same-named methods.  (Fix 21h)
+                        if "." not in resolved_name:
+                            op_fullname = _vattr(
+                                self.graph.vs[op_vid], "fullname", "")
+                            if (op_fullname and "." in op_fullname
+                                    and op_fullname.endswith(
+                                        "." + resolved_name)):
+                                return op_fullname
                         return resolved_name
         callee_names: list[tuple[str, int]] = []  # (name, target_vid)
         for e in self.graph.es.select(_source=op_vid, label="ast"):
@@ -5529,7 +5550,16 @@ class GraphAnalyzer:
                 if resolved_name and " " not in resolved_name:
                     alias_names.add(resolved_name)
             if len(alias_names) == 1:
-                return alias_names.pop()
+                _alias_hit = alias_names.pop()
+                # Same PHP static_call qualified-name recovery as the
+                # ast-callee alias path above.  (Fix 21h)
+                if "." not in _alias_hit:
+                    op_fullname = _vattr(
+                        self.graph.vs[op_vid], "fullname", "")
+                    if (op_fullname and "." in op_fullname
+                            and op_fullname.endswith("." + _alias_hit)):
+                        return op_fullname
+                return _alias_hit
             # 0 or >1 aliases: fall through to AST analysis
         # Prefer the last identifier callee (actual method name in chains)
         for idx in range(len(callee_names) - 1, -1, -1):
@@ -5553,6 +5583,15 @@ class GraphAnalyzer:
                         obj_name = _vattr(obj, "name", "")
                         if obj_name:
                             return obj_name + "." + name
+                    # PHP static_call with class context lost from the callee
+                    # chain (phply gives class_ as plain str) — recover it from
+                    # the operator fullname so Format::input resolves qualified
+                    # instead of the ambiguous bare method name.  (Fix 21h)
+                    if "." not in name:
+                        op_fullname = _vattr(self.graph.vs[op_vid], "fullname", "")
+                        if (op_fullname and "." in op_fullname
+                                and op_fullname.endswith("." + name)):
+                            return op_fullname
                     return name
                 resolved = self._resolve_variable_callee(tvid, name)
                 if resolved:
@@ -5566,7 +5605,17 @@ class GraphAnalyzer:
                         return obj_name + "." + name
         # No identifier callee found — return the last callee name overall
         if callee_names:
-            return callee_names[-1][0]
+            short = callee_names[-1][0]
+            # PHP static_call: prefer the operator's qualified fullname
+            # ('Format.input') over the bare method name — class context is
+            # required to disambiguate framework sanitizers such as
+            # Format::input from unrelated same-named methods.  (Fix 21h)
+            if short and "." not in short:
+                op_fullname = _vattr(self.graph.vs[op_vid], "fullname", "")
+                if (op_fullname and "." in op_fullname
+                        and op_fullname.endswith("." + short)):
+                    return op_fullname
+            return short
         # Fallback: use edge target — check alias first, then variable callee
         for e in self.graph.es.select(_source=op_vid, label="use"):
             # Check alias edges on the function target
