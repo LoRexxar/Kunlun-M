@@ -959,7 +959,8 @@ class GraphAnalyzer:
         # whitelist-constrained, not attacker-controlled.
         _sv = self.graph.vs[start_vid]
         if self.language == "php" and r1.code == 1:
-            _guard_reason = self._negated_whitelist_guard_for_result(r1)
+            _guard_reason = self._negated_whitelist_guard_for_result(
+                r1, sink_vid=start_vid)
             if _guard_reason:
                 return AnalysisResult(
                     code=-1,
@@ -1121,15 +1122,26 @@ class GraphAnalyzer:
                         f"constrained by filesystem check before assignment")
         return None
 
-    def _negated_whitelist_guard_for_result(self, result: AnalysisResult) -> str | None:
+    def _negated_whitelist_guard_for_result(self, result: AnalysisResult,
+                                            sink_vid: int | None = None) -> str | None:
         """Fix 21a post-check: walk the result path; for each tainted var
         name, ask whether a terminating negated whitelist guard on that
         name precedes the sink in the sink's function.  Returns a reason
         string when guarded, None otherwise.
+
+        *sink_vid* is the actual sink node whose lineno orders the guard
+        check.  The path often starts at nodes created BEFORE the guard
+        (e.g. `$in` assigned at L31, guard at L35, sink echo at L43) —
+        ordering each probe against the probe node itself would reject
+        the very guard that protects the sink (Fix 21e: getsimple
+        api.php).  Falls back to path[0] when sink_vid is unavailable.
         """
-        start_vid = result.path[0] if result.path else None
+        start_vid = sink_vid
+        if start_vid is None:
+            start_vid = result.path[0] if result.path else None
         if start_vid is None:
             return None
+        sink_lineno = int(_vattr(self.graph.vs[start_vid], "lineno", 0) or 0) or None
         seen_names = set()
         for pvid in result.path:
             if not isinstance(pvid, int) or pvid >= self.graph.vcount():
@@ -1146,7 +1158,21 @@ class GraphAnalyzer:
             for probe_vid in result.path:
                 if not isinstance(probe_vid, int) or probe_vid >= self.graph.vcount():
                     continue
-                if self._negated_whitelist_guard_before(probe_vid, pname):
+                # sink_lineno only applies within the sink's OWN file: the
+                # sink (basexml.php:57) can legitimately sit BEFORE a guard
+                # living in another file (connector.php:61) of the same
+                # call path — order each cross-file probe by its own
+                # lineno (Fix 21e CouchCMS regression).
+                probe_lineno = sink_lineno
+                if probe_lineno is not None:
+                    pv_file = _vattr(self.graph.vs[probe_vid], "file_path", "") \
+                        or _vattr(self.graph.vs[probe_vid], "path", "")
+                    sink_file = _vattr(self.graph.vs[start_vid], "file_path", "") \
+                        or _vattr(self.graph.vs[start_vid], "path", "")
+                    if pv_file != sink_file:
+                        probe_lineno = None
+                if self._negated_whitelist_guard_before(
+                        probe_vid, pname, sink_lineno=probe_lineno):
                     return (f"whitelist guard: '{pname}' constrained by "
                             f"terminating negated predicate before sink")
         return None
@@ -3914,7 +3940,9 @@ class GraphAnalyzer:
             return all(_vattr(self.graph.vs[el], "label")
                        == NodeLabel.CONST.value for el in elems)
 
-        # Case 2: identifier/subscript → chase DFG upstream to the writer
+        # Case 2: identifier/subscript → chase DFG upstream to the writer.
+        # dfg edges point writer → reader, so follow INCOMING edges
+        # (Bug C fix — b10 probe: chasing _source is a self-loop).
         seen = set()
         frontier = [wl_vid]
         for _ in range(6):
@@ -3923,7 +3951,7 @@ class GraphAnalyzer:
                 if fv in seen:
                     continue
                 seen.add(fv)
-                for de in self.graph.es.select(_source=fv, label="dfg"):
+                for de in self.graph.es.select(_target=fv, label="dfg"):
                     sv = de.source
                     svv = self.graph.vs[sv]
                     if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
@@ -3935,7 +3963,7 @@ class GraphAnalyzer:
                                 _vattr(self.graph.vs[el], "label")
                                 == NodeLabel.CONST.value for el in elems):
                             return True
-                    elif _vattr(sv, "label", "") in (
+                    elif _vattr(svv, "label", "") in (
                             NodeLabel.IDENTIFIER.value,):
                         nxt.append(sv)
             frontier = nxt
@@ -4009,7 +4037,8 @@ class GraphAnalyzer:
         return False
 
     def _negated_whitelist_guard_before(self, sink_vid: int,
-                                        var_name: str) -> bool:
+                                        var_name: str,
+                                        sink_lineno: int | None = None) -> bool:
         """Fix 21a: CouchCMS whitelist pattern.
 
         In the function owning *sink_vid*, an if-branch BEFORE the sink
@@ -4021,12 +4050,19 @@ class GraphAnalyzer:
         Reaching the sink therefore proves pred($var) == TRUE — the
         variable is whitelist-constrained, so taint from ``$var`` is not
         attacker-controlled content at the sink.
+        *sink_lineno* overrides the sink position for the branch-order
+        test (the post-check probes path nodes created BEFORE the guard —
+        e.g. `$in` at L31 guarded at L35, sink at L43 — where the guard
+        must be ordered against the real sink, not the probe node).
         """
         sv = self.graph.vs[sink_vid]
         s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
         if not s_file:
             return False
-        s_lineno = int(_vattr(sv, "lineno", 0) or 0)
+        if sink_lineno is not None:
+            s_lineno = int(sink_lineno)
+        else:
+            s_lineno = int(_vattr(sv, "lineno", 0) or 0)
 
         # the function owning the sink — guards must live in the same one.
         # Walk up via own AND ast edges (identifier/operand nodes have no
@@ -4045,6 +4081,12 @@ class GraphAnalyzer:
             if up is None:
                 break
             if _vattr(self.graph.vs[up], "label") == NodeLabel.FUNCTION.value:
+                owner_fn = up
+                break
+            if _vattr(self.graph.vs[up], "label") == NodeLabel.FILE.value:
+                # Bug E fix: top-level script scope (getsimple api.php) —
+                # the file itself is the enclosing "function"; branch
+                # lookup below is already file-scoped.
                 owner_fn = up
                 break
             cur = up
@@ -4075,13 +4117,21 @@ class GraphAnalyzer:
             if call_vid is None:
                 continue
             callee = _vattr(self.graph.vs[call_vid], "name", "")
-            if callee in _EXISTENCE_CHECK_FUNCS:
+            # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
+            # only — content unchanged"), but HERE membership in a constant
+            # whitelist IS the value constraint this guard encodes.  Accept
+            # it explicitly BEFORE the existence-check exclusion, else this
+            # branch is unreachable for the very predicate it was written
+            # for (probe: guard trace L4086→L4090 continue on callee=in_array).
+            if callee == "in_array":
+                if not self._array_literal_is_const_whitelist(call_vid):
+                    continue
+            elif callee in _EXISTENCE_CHECK_FUNCS:
                 # isset/empty etc. only prove existence, not value
                 # constraint — excluding them here mirrors the 20a
                 # predicate-guard exclusion (@4738).
                 continue
-            if callee not in ("in_array",) and not (
-                    callee and self._is_safe_function_call(call_vid)):
+            elif not (callee and self._is_safe_function_call(call_vid)):
                 continue
             # NOTE: no double-negation exclusion here — the expected shape
             # IS the negated predicate `!pred($var)` (cond = unary_op '!'
@@ -4096,7 +4146,18 @@ class GraphAnalyzer:
             if not args:
                 continue
             if not self._subtree_contains_name(args[0], var_name, depth=0):
-                continue
+                # Bug D fix: `$in->method` guards use the PROPERTY name
+                # ('method') as arg0, while the path carries '$in'.  Accept
+                # when arg0 is a property whose member-parent is var_name.
+                prop_ok = False
+                a0 = self.graph.vs[args[0]]
+                if (_vattr(a0, "type", "") == "property"):
+                    for me in self.graph.es.select(_target=args[0], label="member"):
+                        if _vattr(self.graph.vs[me.source], "name", "") == var_name:
+                            prop_ok = True
+                            break
+                if not prop_ok:
+                    continue
             # whitelist form needs a constant array; user predicates don't
             if callee == "in_array":
                 if not self._array_literal_is_const_whitelist(call_vid):
