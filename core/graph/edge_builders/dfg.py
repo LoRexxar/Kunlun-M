@@ -238,6 +238,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
             self._analyze_chained_call_returns()
             self._analyze_member_access_flows()
             self._analyze_assignments()
+            # Fix 21b-1: assignment LHS/RHS edges must be accumulated BEFORE
+            # scope flows, so the "has dfg-in" guard there sees re-assigns
+            # ($d = array_map(hsc,$d)) and skips param→use links that would
+            # bypass the sanitizer.
             self._analyze_parameter_scope_flows()
             # NOTE: builtin_and_summary (step 5) must run BEFORE same_variables
             # (step 4) so that param_flow DFG edges (e.g. snprintf output params)
@@ -1263,6 +1267,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 for i, vid in enumerate(vids_sorted):
                     if vid in assign_lhs_vids:
                         continue  # LHS 不向前链接（已有 dfg(RHS→LHS)）
+                    # Fix 21b-1: this use's own element offset — if the use
+                    # reads $d['title'], an element-write LHS of a DIFFERENT
+                    # element ($d['pop']=1) must not act as its definition.
+                    # Whole-var writes ($d = ...) always qualify.
+                    use_offset = self._array_offset_key(vid)
                     # 跳过 array offset index 节点 ($arr[$key] 中的 $key)
                     # — index 是 lookup key，不是 subscript 值。
                     if any(
@@ -1298,15 +1307,28 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             break
                     # 找前方最近的 LHS
                     found = False
+                    elem_write_seen = False
                     for j in range(i - 1, -1, -1):
                         cand = vids_sorted[j]
                         if cand not in assign_lhs_vids:
                             continue
                         if vid_assign_op is not None and lhs_owner.get(cand) == vid_assign_op:
                             continue  # same statement's LHS — skip
-                        self._add_dfg_edge(
-                            cand, vid, DfgType.SAME.value
-                        )
+                        # Fix 21b-1: element-write LHS ($d['pop']=1) only
+                        # defines its OWN element. For a different-offset
+                        # use (or whole-var use), keep searching for a
+                        # whole-var write — e.g. `$d = array_map(hsc,$d)`
+                        # between the param and this use must win over
+                        # the element-write.
+                        cand_offset = self._array_offset_key(cand)
+                        if cand_offset is not None:
+                            if use_offset is not None and cand_offset == use_offset:
+                                self._add_dfg_edge(cand, vid, DfgType.SAME.value)
+                                found = True
+                                break
+                            elem_write_seen = True
+                            continue
+                        self._add_dfg_edge(cand, vid, DfgType.SAME.value)
                         found = True
                         break
                     if found:
@@ -1329,14 +1351,30 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             break
                     # 回退3：如果前方有同名 parameter，创建 parameter → identifier 的 DFG 边
                     # 使 parameters_back 能从 body identifier 追溯到函数参数
+                    # Fix 21b-1: NOT when a whole-var re-assign of the same
+                    # name exists earlier in the scope ($d = array_map(hsc,$d)
+                    # dominates — the param value no longer reaches this use).
                     for j in range(i - 1, -1, -1):
-                        if vids_sorted[j] in assign_lhs_vids:
+                        cand = vids_sorted[j]
+                        if cand in assign_lhs_vids and self._array_offset_key(cand) is None:
+                            # a whole-var write exists between param and use —
+                            # the param link must not bypass it
                             break
-                        if self._vlabel[vids_sorted[j]] == NodeLabel.PARAMETER.value:
+                        if self._vlabel[cand] == NodeLabel.PARAMETER.value:
                             self._add_dfg_edge(
-                                vids_sorted[j], vid, DfgType.SAME.value
+                                cand, vid, DfgType.SAME.value
                             )
                             break
+
+    def _array_offset_key(self, vid: int) -> str | None:
+        """Fix 21b-1: element offset for identifier `$d['title']` → 'title';
+        plain `$d` → None. Reads the member/array_offset child name."""
+        for eid in self.graph.incident(vid, mode="out"):
+            e = self.graph.es[eid]
+            if e["label"] == "member" and (e["access_type"] or "") == "array_offset":
+                tgt = e.target
+                return self._vname[tgt] or "?"
+        return None
 
     def _analyze_parameter_scope_flows(self) -> None:
         """#0d: parameter → body identifier — 对每个 function 的 parameter，
@@ -1351,10 +1389,26 @@ class DataFlowBuilder(BaseEdgeBuilder):
         不一定挂在 function 的 own 子树中，此方法按 file 粒度匹配。
         """
         # 预收集全图 assign LHS（提到循环外，避免每个 function 重复扫描）
+        # Fix 21b-1: roles here are SOURCE-side (assign --lhs--> ident), so
+        # the key is (assign_vid, 'lhs') with the LHS ident in the value
+        # list — invert it to collect LHS identifier vids.
         assign_lhs_vids: set[int] = set()
-        for vid in self._node_label_idx.get(NodeLabel.IDENTIFIER.value, []):
-            if self._ast_role_from.get((vid, "lhs"), []) or self._ast_role_from.get((vid, "assign_lhs"), []):
-                assign_lhs_vids.add(vid)
+        for (src_vid, role), tgt_list in self._ast_role_from.items():
+            if role in ("lhs", "assign_lhs"):
+                assign_lhs_vids.update(tgt_list)
+
+        # Fix 21b-1: per-scope "re-assigned names" — a parameter whose name is
+        # whole-var re-assigned ($d = array_map(hsc,$d)) anywhere inside the
+        # function must NOT link to bare body uses: the param value no longer
+        # reaches them.  Key: (func_vid, pname).
+        reassign_scopes: set[tuple[int, str]] = set()
+        for vid in assign_lhs_vids:
+            if self._array_offset_key(vid) is not None:
+                continue  # element-write, not a whole-var redefinition
+            scope = self._get_scope_parent(vid)
+            pname = self._vname[vid]
+            if scope is not None and pname:
+                reassign_scopes.add((scope, pname))
 
         for func_vid in self._node_label_idx.get(NodeLabel.FUNCTION.value, []):
             func_path = self._vpath[func_vid]
@@ -1372,6 +1426,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             # 在同 file 内查找同名 identifier（无 DFG 入边且非 LHS）
             for pname, param_vids in params.items():
+                # Fix 21b-1: skip the whole name if it is re-assigned in this
+                # scope — bare uses get their value from the re-assign chain.
+                if (func_vid, pname) in reassign_scopes:
+                    continue
                 for ident_vid in self._name_label_idx.get((pname, NodeLabel.IDENTIFIER.value), []):
                     # 跳过 parameter 自身
                     if ident_vid in param_vids:

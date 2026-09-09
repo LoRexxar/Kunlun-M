@@ -187,6 +187,14 @@ _TYPE_CAST_SAFE: frozenset[str] = frozenset({
     "bool", "boolean", "array", "object",
 })
 
+# Fix 21b-2: PHP functions whose result elements pass through a caller-
+# supplied CALLBACK (arg0).  If the callback is provably safe, the whole
+# result is sanitized (code=2) regardless of the passthrough annotation.
+_ARRAY_CALLBACK_FUNCS: frozenset[str] = frozenset({
+    "array_map", "array_filter", "array_walk", "array_walk_recursive",
+    "usort", "uasort", "uksort",
+})
+
 _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "system", "exec", "passthru", "shell_exec", "popen", "proc_open", "pcntl_exec", "expect_popen",
     "eval", "create_function",
@@ -1445,6 +1453,9 @@ class GraphAnalyzer:
         # boundary entry.
         param_fallback: AnalysisResult | None = None
         inconclusive_fallback: AnalysisResult | None = None
+        # Fix 21b-2: a proven sanitation stop (tt='safe' re-assign) — used
+        # as the exhausted-fallback result when no route reaches a source.
+        repaired_result: AnalysisResult | None = None
         crossed_function_boundary: bool = False
         # Fix 20b: pin-collection state is owned by the public driver
         # (parameters_back); recursive/impl invocations reuse whatever the
@@ -1500,6 +1511,20 @@ class GraphAnalyzer:
                 # Safe node — taint propagation stops here
                 up_taint = _vattr(uv, "taint_type", "")
                 if up_taint == "safe":
+                    # Fix 21b-2: remember the sanitation proof.  If ALL routes
+                    # dead-end clean, the result is repaired (code=2), not
+                    # inconclusive.  Only trust safe marks that a call node
+                    # with a safe resolver backs (enrich_taint sets 'safe'
+                    # exactly for safe-call reassignments).
+                    if repaired_result is None:
+                        repaired_result = AnalysisResult(
+                            code=2,
+                            reason=f"'{sname}' sanitized by safe reassignment "
+                                   f"(vid={up_vid})",
+                            chain=[{"step": "safe_reassign", "vid": up_vid,
+                                    "name": _vattr(uv, "name", ""), "code": 2}],
+                            path=path + [up_vid],
+                            expr_lineno=_vattr(uv, "lineno", 0))
                     continue
                 # Fix 14: type cast operators also sanitize taint.
                 # (int), (float), (bool) etc. destroy string content.
@@ -2207,6 +2232,25 @@ class GraphAnalyzer:
                             if receiver_result is not None:
                                 return self._cached(cache_key, receiver_result)
 
+                        # Fix 21b-2: array-callback functions (array_map etc.)
+                        # pass elements through their CALLBACK (arg0).  When
+                        # that callback resolves to a safe function (builtin
+                        # safe like htmlspecialchars, or func_summary safe
+                        # like dokuwiki hsc), every element of the result is
+                        # sanitized — the passthrough route from arg1 must
+                        # report repaired, not controllable.
+                        if (callee in _ARRAY_CALLBACK_FUNCS
+                                and self._callback_arg_is_safe(up_vid)):
+                            return self._cached(cache_key, AnalysisResult(
+                                code=2,
+                                reason=(f"array elements sanitized by safe "
+                                        f"callback through '{callee}'"),
+                                chain=[{"step": "array_callback_safe",
+                                        "vid": up_vid,
+                                        "name": callee, "code": 2}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
+
                         # 位置参数 passthrough：读 function 节点的常驻属性
                         tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
                         pt_param_indices: set[int] = set(
@@ -2637,6 +2681,8 @@ class GraphAnalyzer:
             return self._cached(cache_key, inconclusive_fallback)
         if param_fallback is not None:
             return self._cached(cache_key, param_fallback)
+        if repaired_result is not None:
+            return self._cached(cache_key, repaired_result)
         return self._cached(cache_key, AnalysisResult(
             code=3,
             reason=f"Inconclusive for vid={start_vid} ('{sname}') after {max_depth} hops",
@@ -3627,6 +3673,54 @@ class GraphAnalyzer:
                 fv = self.graph.vs[fvid]
                 if _vattr(fv, "func_summary_type", "") == "safe":
                     return True
+        return False
+
+    def _callback_arg_is_safe(self, call_vid: int) -> bool:
+        """Fix 21b-2: for an _ARRAY_CALLBACK_FUNCS call, resolve the callback
+        (arg0) to its function definition and check safety via the same
+        three sources as _is_safe_function_call. First-first-first semantics:
+        string callback 'hsc' / first-class callable hsc(...) / arrow fn are
+        resolved through ast[role=arg idx=0] then the callee name lookup.
+        """
+        callback_vid = None
+        arg_counter = 0
+        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(ae, "role") != "arg":
+                continue
+            # index attr is '' on most graphs (probe 25); positional
+            # enumeration with arg_index fallback mirrors Rule 4c.
+            idx = _vattr(ae, "index")
+            actual_idx = int(idx) if idx else arg_counter
+            arg_counter += 1
+            if actual_idx == 0:
+                callback_vid = ae.target
+                break
+        if callback_vid is None:
+            return False
+        cb = self.graph.vs[callback_vid]
+        # Case 1: first-class callable / direct call node — reuse the
+        # standard safe-call check on the callback node itself.
+        if _vattr(cb, "label") == NodeLabel.OPERATOR.value:
+            return self._is_safe_function_call(callback_vid)
+        # Case 2: bare identifier naming the callback (string 'hsc',
+        # [Instance, 'method'] is not handled — conservative False).
+        if _vattr(cb, "label") == NodeLabel.IDENTIFIER.value:
+            cname = _vattr(cb, "name", "").lstrip("$'\"")
+            if not cname:
+                return False
+            _bk = self._load_builtin_knowledge(self.language)
+            if _bk:
+                _entry = _bk.get(cname)
+                if isinstance(_entry, dict) and _entry.get("safe"):
+                    return True
+            # func_summary safe via use edge from the OUTER call is for the
+            # callee, not the callback — resolve callback def by name.
+            for fv in self.graph.vs:
+                if (_vattr(fv, "label") == NodeLabel.FUNCTION.value
+                        and _vattr(fv, "name", "") == cname):
+                    if _vattr(fv, "func_summary_type", "") == "safe":
+                        return True
+                    break
         return False
 
     def _condition_call_is_negated(self, call_vid: int, max_up: int = 3) -> bool:
