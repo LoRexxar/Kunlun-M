@@ -982,6 +982,37 @@ class GraphAnalyzer:
                     chain=[{"step": "existence_whitelist_guard",
                             "vid": start_vid, "code": -1}],
                     path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
+        # Fix 21f: XXE disabled by libxml_disable_entity_loader() (getsimple
+        # api.php:19).  When a call to libxml_disable_entity_loader() precedes
+        # an XML-parsing sink (simplexml_load_string/file, DOMDocument load,
+        # xml_parse) earlier in the same file, external entity expansion is
+        # off — the parsed content cannot dereference attacker file:// or
+        # http:// entities, so the sink result is not an XXE vector.
+        if self.language == "php" and r1.code == 1:
+            _xxe_sink = None
+            if (_vattr(_sv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(_sv, "name", "") in self._XXE_SINK_FUNCS):
+                _xxe_sink = start_vid
+            else:
+                # scanner typically enters parameters_back at the sink's
+                # ARG node — find an XML-parse call this node feeds as an
+                # ast argument (api.php:29 enters at '$_POST[data]').
+                for pe in self.graph.es.select(_target=start_vid, label="ast"):
+                    if _vattr(pe, "role", "") != "arg":
+                        continue
+                    pv = self.graph.vs[pe.source]
+                    if (_vattr(pv, "label") == NodeLabel.OPERATOR.value
+                            and _vattr(pv, "name", "") in self._XXE_SINK_FUNCS):
+                        _xxe_sink = pe.source
+                        break
+            if _xxe_sink is not None and self._xxe_disabled_before(_xxe_sink):
+                return AnalysisResult(
+                    code=-1,
+                    reason="xxe disabled: libxml_disable_entity_loader() "
+                           "precedes XML sink in same file",
+                    chain=[{"step": "xxe_disabled_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
 
         if not (self._redirect_pin_ctx and r1.code == 1 and pinned_seen):
             return r1
@@ -1121,6 +1152,51 @@ class GraphAnalyzer:
                 return (f"existence whitelist: '{sg_name}[{prop_name}]' value "
                         f"constrained by filesystem check before assignment")
         return None
+
+    # Fix 21f: XML parsers whose external-entity exposure is neutralized
+    # by a preceding libxml_disable_entity_loader() call.
+    _XXE_SINK_FUNCS: frozenset[str] = frozenset({
+        "simplexml_load_string", "simplexml_load_file",
+        "domdocument_load", "domdocument_loadxml", "domdocument::load",
+        "domdocument::loadxml", "load", "loadxml", "loadxmlhtml",
+        "xml_parse", "xml_parse_into_struct",
+    })
+
+    def _xxe_disabled_before(self, sink_vid: int) -> bool:
+        """Fix 21f: libxml_disable_entity_loader() precedes an XML sink.
+
+        Scans call nodes in the SAME FILE as the sink for
+        libxml_disable_entity_loader on a strictly earlier line.  The
+        libxml disable call is process-global once executed, so any
+        earlier straight-line execution in the file suffices (getsimple
+        api.php calls it at L19 before every request dispatch).
+        """
+        sv = self.graph.vs[sink_vid]
+        s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        if not s_file:
+            return False
+        try:
+            s_lineno = int(_vattr(sv, "lineno", 0) or 0)
+        except (TypeError, ValueError):
+            return False
+        if s_lineno <= 0:
+            return False
+        for vid in range(self.graph.vcount()):
+            v = self.graph.vs[vid]
+            if _vattr(v, "label") != NodeLabel.OPERATOR.value:
+                continue
+            if _vattr(v, "name", "") != "libxml_disable_entity_loader":
+                continue
+            v_file = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if v_file != s_file:
+                continue
+            try:
+                v_lineno = int(_vattr(v, "lineno", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if 0 < v_lineno < s_lineno:
+                return True
+        return False
 
     def _negated_whitelist_guard_for_result(self, result: AnalysisResult,
                                             sink_vid: int | None = None) -> str | None:
