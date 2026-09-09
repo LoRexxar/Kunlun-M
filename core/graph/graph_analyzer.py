@@ -967,6 +967,20 @@ class GraphAnalyzer:
                     chain=[{"step": "negated_whitelist_guard",
                             "vid": start_vid, "code": -1}],
                     path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
+        # Fix 21d: filesystem existence whitelist (getsimple theme-edit
+        # form).  `if ($_GET[t] && is_dir(PREFIX . $_GET[t])) { $v =
+        # $_GET[t]; } echo $v;` — the guard constrains the assigned value
+        # to a REAL directory/file name under a constant prefix, so the
+        # echo reflects a server-controlled name, not attacker input.
+        if self.language == "php" and r1.code == 1:
+            _ex_reason = self._existence_whitelist_guard_for_result(r1)
+            if _ex_reason:
+                return AnalysisResult(
+                    code=-1,
+                    reason=_ex_reason,
+                    chain=[{"step": "existence_whitelist_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
 
         if not (self._redirect_pin_ctx and r1.code == 1 and pinned_seen):
             return r1
@@ -990,6 +1004,122 @@ class GraphAnalyzer:
             chain=[{"step": "redirect_pinned",
                     "vids": sorted(pinned_seen), "code": -1}],
             path=list(r1.path), expr_lineno=r1.expr_lineno)
+
+    # -- Fix 21d: filesystem existence whitelist -----------------------------
+
+    _FS_EXISTENCE_FUNCS = frozenset({"is_dir", "is_file", "file_exists"})
+
+    def _ast_children_role(self, vid: int, role: str) -> list[int]:
+        """Ast out-edges of vid with the given role."""
+        out = []
+        for e in self.graph.es.select(_source=vid, label="ast"):
+            if (e["role"] or "") == role:
+                out.append(e.target)
+        return out
+
+    def _subtree_contains_superglobal_member(
+            self, root_vid: int, sg_name: str, prop_name: str,
+            max_depth: int = 14) -> bool:
+        """Does the subtree rooted at root_vid read <sg_name>[prop_name]?"""
+        stack = [(root_vid, 0)]
+        while stack:
+            vid, depth = stack.pop()
+            if depth > max_depth:
+                continue
+            v = self.graph.vs[vid]
+            if (v["label"] == NodeLabel.IDENTIFIER.value
+                    and _vattr(v, "name", "") == prop_name
+                    and _vattr(v, "type", "") == "property"):
+                for e in self.graph.es.select(_target=vid, label="member"):
+                    src = self.graph.vs[e.source]
+                    if (_vattr(src, "label", "") == NodeLabel.IDENTIFIER.value
+                            and _vattr(src, "name", "") == sg_name):
+                        return True
+            for e in self.graph.es.select(_source=vid, label="ast"):
+                stack.append((e.target, depth + 1))
+        return False
+
+    def _existence_whitelist_guard_for_result(self, result: AnalysisResult) -> str | None:
+        """Fix 21d post-check: walk the result path; for a superglobal
+        member read whose value was assigned inside a branch whose
+        condition ran a filesystem existence check (is_dir/is_file/
+        file_exists) over a path CONTAINING that same member, the
+        assigned value is constrained to real filesystem entries under
+        the checked prefix → reflect it = reflect a server-controlled
+        name.  Returns a reason string when guarded, None otherwise.
+        """
+        if not result.path:
+            return None
+        for idx, pvid in enumerate(result.path):
+            if not isinstance(pvid, int) or pvid >= self.graph.vcount():
+                continue
+            pv = self.graph.vs[pvid]
+            if (_vattr(pv, "label", "") != NodeLabel.IDENTIFIER.value
+                    or _vattr(pv, "type", "") != "property"):
+                continue
+            prop_name = _vattr(pv, "name", "")
+            # superglobal owner of this property read
+            sg_name = None
+            for e in self.graph.es.select(_target=pvid, label="member"):
+                src = self.graph.vs[e.source]
+                n = _vattr(src, "name", "")
+                if n.startswith("$") and n.upper() in (
+                        "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_SERVER"):
+                    sg_name = n
+                    break
+            if sg_name is None:
+                continue
+            # climb ast to the assign op that wrote this value, then own
+            # to the guarding branch
+            cur = pvid
+            assign_vid = None
+            for _ in range(8):
+                ups = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+                if not ups:
+                    break
+                cur = ups[0]
+                cv = self.graph.vs[cur]
+                if (_vattr(cv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(cv, "type", "") == "assign"):
+                    assign_vid = cur
+                    break
+            if assign_vid is None:
+                continue
+            guarded = False
+            for own_src in self.graph.es.select(_target=assign_vid, label="own"):
+                bv = self.graph.vs[own_src.source]
+                if _vattr(bv, "label", "") != NodeLabel.BRANCH.value:
+                    continue
+                for cond_vid in self._ast_children_role(own_src.source, "condition"):
+                    # every call in the condition subtree
+                    stack = [(cond_vid, 0)]
+                    while stack:
+                        cvid, depth = stack.pop()
+                        if depth > 12:
+                            continue
+                        cv = self.graph.vs[cvid]
+                        if (_vattr(cv, "label", "") == NodeLabel.OPERATOR.value
+                                and _vattr(cv, "type", "") == "call"):
+                            callees = self._ast_children_role(cvid, "callee")
+                            cname = _vattr(self.graph.vs[callees[0]], "name", "") if callees else ""
+                            if cname in self._FS_EXISTENCE_FUNCS:
+                                for ae in self._ast_children_role(cvid, "arg"):
+                                    if self._subtree_contains_superglobal_member(
+                                            ae, sg_name, prop_name):
+                                        guarded = True
+                                        break
+                            if guarded:
+                                break
+                        for e in self.graph.es.select(_source=cvid, label="ast"):
+                            stack.append((e.target, depth + 1))
+                    if guarded:
+                        break
+                if guarded:
+                    break
+            if guarded:
+                return (f"existence whitelist: '{sg_name}[{prop_name}]' value "
+                        f"constrained by filesystem check before assignment")
+        return None
 
     def _negated_whitelist_guard_for_result(self, result: AnalysisResult) -> str | None:
         """Fix 21a post-check: walk the result path; for each tainted var
