@@ -1018,6 +1018,96 @@ class GraphAnalyzer:
                             "vid": start_vid, "code": -1}],
                     path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
 
+        # Fix 21h-2: dead code after unconditional die/exit (imcat
+        # userc.php).  A bare die()/exit() top-level statement before the
+        # sink's statement makes the sink unreachable — any superglobal
+        # taint flowing to it is vacuous.
+        if self.language == "php" and r1.code == 1:
+            if self._unconditional_terminate_before(start_vid):
+                return AnalysisResult(
+                    code=-1,
+                    reason="dead code: unconditional die/exit precedes "
+                           "this statement in the same scope",
+                    chain=[{"step": "unconditional_terminate_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
+
+        # Fix 21h-3: constructor property-write whitelist guard (osTicket
+        # $report->end).  The sink reads $obj->prop on a `new`-created
+        # object whose constructor whitelists the stored value via
+        # array_key_exists/in_array — the read cannot yield attacker
+        # content.  Also probe path nodes feeding this sink (scanner may
+        # enter at a superglobal member arg instead of the property read).
+        if self.language == "php" and r1.code == 1:
+            if self._ctor_property_whitelist_guard(start_vid):
+                return AnalysisResult(
+                    code=-1,
+                    reason="constructor whitelist guard constrains this "
+                           "property's stored value",
+                    chain=[{"step": "ctor_property_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
+            # Fix 21h-3c: the scanner may enter at the object VARIABLE
+            # (sink arg extraction picks the base identifier of
+            # `$obj->prop`), not the property node itself.  Run the same
+            # guard on every property read reached via a member edge from
+            # this variable (dashboard.inc.php:178 entry shape).
+            # Fix 21h-3d: scanner may enter AT the sink operator itself
+            # (echo L178 vid 211620 — PB-EXIT log evidence).  Run the ctor
+            # guard on every ast-arg child of the sink call/echo.
+            if (_vattr(_sv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(_sv, "type", "") in _CALL_TYPES | {"echo"}):
+                for _se in self.graph.es.select(
+                        _source=start_vid, label="ast"):
+                    if _vattr(_se, "role", "") != "arg":
+                        continue
+                    if self._ctor_property_whitelist_guard(_se.target):
+                        return AnalysisResult(
+                            code=-1,
+                            reason="constructor whitelist guard constrains "
+                                   "this property's stored value",
+                            chain=[{"step": "ctor_property_guard",
+                                    "vid": _se.target, "code": -1}],
+                            path=list(r1.path),
+                            expr_lineno=_vattr(_sv, "lineno", 0))
+            for _me in self.graph.es.select(_source=start_vid, label="member"):
+                if self._ctor_property_whitelist_guard(_me.target):
+                    return AnalysisResult(
+                        code=-1,
+                        reason="constructor whitelist guard constrains this "
+                               "property's stored value",
+                        chain=[{"step": "ctor_property_guard",
+                                "vid": _me.target, "code": -1}],
+                        path=list(r1.path),
+                        expr_lineno=_vattr(_sv, "lineno", 0))
+            for _pe in self.graph.es.select(_target=start_vid, label="ast"):
+                if _vattr(_pe, "role", "") != "arg":
+                    continue
+                _pv = self.graph.vs[_pe.source]
+                if (_vattr(_pv, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(_pv, "type", "") in _CALL_TYPES):
+                    continue
+                if self._ctor_property_whitelist_guard(_pe.source):
+                    return AnalysisResult(
+                        code=-1,
+                        reason="constructor whitelist guard constrains this "
+                               "property's stored value",
+                        chain=[{"step": "ctor_property_guard",
+                                "vid": _pe.source, "code": -1}],
+                        path=list(r1.path),
+                        expr_lineno=_vattr(_sv, "lineno", 0))
+            # Fix 21h-3b: entry IS a new-call arg (scanner's actual entry
+            # for `new C($_POST[...], ...)` sites) — param i is stored via
+            # a whitelist ternary, so taint through this arg is constrained.
+            if self._new_arg_constrained_by_ctor(start_vid):
+                return AnalysisResult(
+                    code=-1,
+                    reason="constructor parameter is whitelist-constrained "
+                           "before storage",
+                    chain=[{"step": "ctor_param_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(_sv, "lineno", 0))
+
         if not (self._redirect_pin_ctx and r1.code == 1 and pinned_seen):
             return r1
         # Pass 2: block pinned concats, see if a fully-controlled path survives
@@ -4114,6 +4204,359 @@ class GraphAnalyzer:
                                 and _vattr(rv, "name", "")
                                 in self._TERMINATOR_FUNCS):
                             return True
+        return False
+
+    def _unconditional_terminate_before(self, sink_vid: int) -> bool:
+        """Fix 21h-2: dead code after unconditional die/exit.
+
+        True when, in the function (or file top-level scope) owning
+        *sink_vid*, some top-level statement BEFORE the statement
+        containing the sink unconditionally calls die()/exit() at its
+        top level.  Execution can never reach the sink, so any taint
+        verdict for it is vacuous (imcat userc.php: ``die();`` then
+        ``print_r(@$_GET)`` etc.).
+        Only BARE die/exit statements count — an exit inside an if-body
+        is conditional and does NOT make later code unreachable.
+        """
+        sv = self.graph.vs[sink_vid]
+        s_lineno = int(_vattr(sv, "lineno", 0) or 0)
+        # owner: walk up via own AND ast edges (21a Bug B pattern)
+        owner_vid = None
+        cur = sink_vid
+        for _ in range(30):
+            up = None
+            for e in self.graph.es.select(_target=cur, label="own"):
+                up = e.source
+                break
+            if up is None:
+                for e in self.graph.es.select(_target=cur, label="ast"):
+                    up = e.source
+                    break
+            if up is None:
+                break
+            ulabel = _vattr(self.graph.vs[up], "label")
+            if ulabel in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                owner_vid = up
+                break
+            cur = up
+        if owner_vid is None:
+            return False
+        top_stmts = []
+        for oe in self.graph.es.select(_source=owner_vid, label="own"):
+            top_stmts.append((int(_vattr(oe, "index", 0) or 0), oe.target))
+        if not top_stmts:
+            return False
+        top_stmts.sort()
+
+        def _stmt_contains(vid: int, target: int) -> bool:
+            stack = [vid]
+            seen = set()
+            while stack:
+                w = stack.pop()
+                if w in seen:
+                    continue
+                seen.add(w)
+                if w == target:
+                    return True
+                for ee in self.graph.es.select(_source=w, label="own"):
+                    stack.append(ee.target)
+                for ee in self.graph.es.select(_source=w, label="ast"):
+                    stack.append(ee.target)
+            return False
+
+        # which top-level statement contains the sink?
+        sink_stmt_idx = None
+        for idx, (_i, stmt) in enumerate(top_stmts):
+            if _stmt_contains(stmt, sink_vid):
+                sink_stmt_idx = idx
+                break
+        limit = sink_stmt_idx if sink_stmt_idx is not None else len(top_stmts)
+        for idx in range(limit):
+            lv = self.graph.vs[top_stmts[idx][1]]
+            # bare terminator call as the statement itself
+            if (_vattr(lv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(lv, "type", "") in _CALL_TYPES
+                    and _vattr(lv, "name", "") in self._TERMINATOR_FUNCS):
+                return True
+            # return-statement wrapper: return exit(); (rare, still bare)
+            if _vattr(lv, "label") == NodeLabel.RETURN.value:
+                for re_ in self.graph.es.select(
+                        _source=top_stmts[idx][1], label="ast"):
+                    rv = self.graph.vs[re_.target]
+                    if (_vattr(rv, "label") == NodeLabel.OPERATOR.value
+                            and _vattr(rv, "name", "")
+                            in self._TERMINATOR_FUNCS):
+                        return True
+        return False
+
+    # -- Fix 21h-3: constructor property-write whitelist guard ---------------
+
+    def _ctor_property_whitelist_guard(self, sink_vid: int) -> bool:
+        """True when *sink_vid* reads ``$obj->prop`` where $obj was created
+        with ``new C(...)``, and C's constructor assigns ``$this->prop``
+        under a whitelist ternary/conjunction on a constructor parameter
+        (``$this->end = array_key_exists($end, choices) ? $end : 'now';``).
+
+        The whitelist constrains the stored value regardless of what the
+        caller passed, so the property read cannot return attacker
+        content (osTicket dashboard.inc.php:178 ``echo $report->end``).
+        """
+        sv = self.graph.vs[sink_vid]
+        prop_vid = sink_vid
+        if _vattr(sv, "type", "") not in ("field", "property"):
+            return False
+        obj_vid = None
+        for me in self.graph.es.select(_target=sink_vid, label="member"):
+            obj_vid = me.source
+            break
+        if obj_vid is None:
+            return False
+        prop_name = _vattr(self.graph.vs[prop_vid], "name", "")
+        if not prop_name:
+            return False
+        obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
+        if not obj_name:
+            return False
+        # find the assign whose LHS is this object variable.
+        # The dfg edge lands on the LHS identifier node (e.g. 23 '$report'),
+        # not the assign operator itself — climb to the ast parent and
+        # verify the identifier is the assign's LHS child.
+        def _assign_of_lhs(lhs_vid: int):
+            for pe in self.graph.es.select(_target=lhs_vid, label="ast"):
+                parent = pe.source
+                pv = self.graph.vs[parent]
+                if (_vattr(pv, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(pv, "type", "") == "assign"):
+                    # confirm lhs role
+                    for le in self.graph.es.select(_source=parent, label="ast"):
+                        if (_vattr(le, "role", "") == "lhs"
+                                and le.target == lhs_vid):
+                            return parent
+            return None
+
+        ctor_fn = None
+        for de in self.graph.es.select(_target=obj_vid, label="dfg"):
+            src = de.source
+            svv = self.graph.vs[src]
+            assign_vid = None
+            if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(svv, "type", "") == "assign"):
+                assign_vid = src
+            elif _vattr(svv, "label") == NodeLabel.IDENTIFIER.value:
+                assign_vid = _assign_of_lhs(src)
+            if assign_vid is None:
+                continue
+            src = assign_vid
+            # RHS: new call with a linked ctor function
+            for re_ in self.graph.es.select(_source=src, label="ast"):
+                if _vattr(re_, "role", "") != "rhs":
+                    continue
+                rhs_v = self.graph.vs[re_.target]
+                if (_vattr(rhs_v, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(rhs_v, "type", "") == "new"):
+                    class_name = _vattr(rhs_v, "name", "")
+                    for fe in self.graph.es.select(
+                            _source=re_.target, label="use"):
+                        fv = self.graph.vs[fe.target]
+                        if _vattr(fv, "label") == NodeLabel.FUNCTION.value:
+                            ctor_fn = fe.target
+                            break
+                    # Stub fallback: the use edge may land on an external
+                    # stub (own_edges=0) when the class body lives in
+                    # another file of the same graph.  Locate the real
+                    # constructor by its qualified fullname
+                    # '<Class>.__construct' (probe4: new OverviewReport
+                    # → stub 1202, real ctor 293 in class.report.php).
+                    if ctor_fn is not None and not any(
+                            True for _ in self.graph.es.select(
+                                _source=ctor_fn, label="own")):
+                        ctor_fn = None
+                    if ctor_fn is None and class_name:
+                        want_fullname = f"{class_name.lstrip(chr(39)).rstrip(chr(39))}.__construct"
+                        for fv in self.graph.vs:
+                            if (_vattr(fv, "label")
+                                    == NodeLabel.FUNCTION.value
+                                    and _vattr(fv, "fullname", "")
+                                    == want_fullname
+                                    and any(True for _ in
+                                            self.graph.es.select(
+                                                _source=fv.index,
+                                                label="own"))):
+                                ctor_fn = fv.index
+                                break
+            if ctor_fn is not None:
+                break
+        if ctor_fn is None:
+            return False
+        # walk ctor body: find `$this->prop = ...` assign
+        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+            stack = [oe.target]
+            seen = set()
+            while stack:
+                w = stack.pop()
+                if w in seen:
+                    continue
+                seen.add(w)
+                wv = self.graph.vs[w]
+                if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(wv, "type", "") == "assign"):
+                    lhs_name = None
+                    rhs_vid = None
+                    for ae in self.graph.es.select(_source=w, label="ast"):
+                        if _vattr(ae, "role", "") == "lhs":
+                            av = self.graph.vs[ae.target]
+                            if _vattr(av, "type", "") in ("field", "property"):
+                                lhs_name = _vattr(av, "name", "")
+                        elif _vattr(ae, "role", "") == "rhs":
+                            rhs_vid = ae.target
+                    if lhs_name == prop_name and rhs_vid is not None:
+                        if self._rhs_is_whitelist_ternary(rhs_vid):
+                            return True
+                        return False
+                for ce in self.graph.es.select(_source=w, label="ast"):
+                    stack.append(ce.target)
+                for ce in self.graph.es.select(_source=w, label="own"):
+                    stack.append(ce.target)
+        return False
+
+    def _rhs_is_whitelist_ternary(self, rhs_vid: int) -> bool:
+        """Does this expression constrain its value to a whitelist?
+
+        Accepted shape: an expression containing array_key_exists($p, <const
+        array>) or in_array($p, <const array>) — the tested parameter can
+        only contribute a whitelisted value (ternary true-branch echoes the
+        parameter back, false-branch is a constant).
+        """
+        calls = []
+        stack = [rhs_vid]
+        seen = set()
+        while stack:
+            w = stack.pop()
+            if w in seen:
+                continue
+            seen.add(w)
+            wv = self.graph.vs[w]
+            if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(wv, "type", "") in _CALL_TYPES):
+                calls.append(w)
+            for ee in self.graph.es.select(_source=w, label="ast"):
+                stack.append(ee.target)
+        for cv in calls:
+            cname = _vattr(self.graph.vs[cv], "name", "")
+            if cname == "array_key_exists":
+                args = [e.target for e in self.graph.es.select(
+                    _source=cv, label="ast")
+                    if _vattr(e, "role", "") == "arg"]
+                if len(args) >= 2 and self._array_literal_is_const_whitelist(
+                        args[1]):
+                    return True
+                # static prop as key set (self::$end_choices): class-static
+                # arrays are fixed at load time, the request cannot alter
+                # them — treat as whitelist (osTicket OverviewReport).
+                if len(args) >= 2:
+                    a1 = self.graph.vs[args[1]]
+                    if (_vattr(a1, "type", "") == "static"
+                            and "$" in _vattr(a1, "name", "")):
+                        return True
+            elif cname == "in_array":
+                if self._array_literal_is_const_whitelist(cv):
+                    return True
+                args = [e.target for e in self.graph.es.select(
+                    _source=cv, label="ast")
+                    if _vattr(e, "role", "") == "arg"]
+                if len(args) >= 2:
+                    a1 = self.graph.vs[args[1]]
+                    if (_vattr(a1, "type", "") == "static"
+                            and "$" in _vattr(a1, "name", "")):
+                        return True
+        return False
+
+
+    def _new_arg_constrained_by_ctor(self, arg_vid: int) -> bool:
+        """arg_vid is an `arg` child of a `new C(...)` operator.  True when
+        ctor param i (matching this arg position) is only stored into
+        $this-><prop> through a whitelist ternary (Fix 21h-3b)."""
+        new_vid = None
+        arg_idx = None
+        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+            parent = pe.source
+            if _vattr(self.graph.vs[parent], "type", "") != "new":
+                continue
+            new_vid = parent
+            arg_idx = _vattr(pe, "arg_index", None)
+            break
+        if new_vid is None:
+            return False
+        # locate ctor function node (reuse the stub-fallback lookup pattern)
+        class_name = _vattr(self.graph.vs[new_vid], "name", "")
+        if not class_name:
+            return False
+        ctor_fn = None
+        want_fullname = f"{class_name.strip(chr(39)).strip(chr(34))}.__construct"
+        for fv in self.graph.vs:
+            if (_vattr(fv, "label") == NodeLabel.FUNCTION.value
+                    and _vattr(fv, "fullname", "") == want_fullname
+                    and any(True for _ in self.graph.es.select(
+                        _source=fv.index, label="own"))):
+                ctor_fn = fv.index
+                break
+        if ctor_fn is None:
+            return False
+        # param i of the ctor
+        params = []
+        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+            pv_ = self.graph.vs[oe.target]
+            if _vattr(pv_, "label", "") == NodeLabel.PARAMETER.value:
+                params.append(oe.target)
+        try:
+            arg_idx = int(arg_idx)
+        except (TypeError, ValueError):
+            return False
+        if arg_idx < 0 or arg_idx >= len(params):
+            return False
+        param_vid = params[arg_idx]
+        # does the ctor store THIS param through a whitelist ternary?
+        # walk the ctor body: find assigns whose RHS ternary contains a dfg
+        # edge from param_vid and passes _rhs_is_whitelist_ternary.
+        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+            stack = [oe.target]
+            seen = set()
+            while stack:
+                w = stack.pop()
+                if w in seen:
+                    continue
+                seen.add(w)
+                wv = self.graph.vs[w]
+                if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
+                        and _vattr(wv, "type", "") == "assign"):
+                    rhs_vid = None
+                    for ae in self.graph.es.select(_source=w, label="ast"):
+                        if _vattr(ae, "role", "") == "rhs":
+                            rhs_vid = ae.target
+                    if rhs_vid is not None:
+                        # any dfg edge from the param into the rhs subtree?
+                        stack2 = [rhs_vid]
+                        seen2 = set()
+                        hits_param = False
+                        while stack2:
+                            w2 = stack2.pop()
+                            if w2 in seen2:
+                                continue
+                            seen2.add(w2)
+                            if w2 == param_vid:
+                                hits_param = True
+                                break
+                            for e2 in self.graph.es.select(
+                                    _target=w2, label="dfg"):
+                                stack2.append(e2.source)
+                            for e2 in self.graph.es.select(
+                                    _source=w2, label="ast"):
+                                stack2.append(e2.target)
+                        if hits_param and self._rhs_is_whitelist_ternary(
+                                rhs_vid):
+                            return True
+                for ce in self.graph.es.select(_source=w, label="ast"):
+                    stack.append(ce.target)
         return False
 
     def _negated_whitelist_guard_before(self, sink_vid: int,
