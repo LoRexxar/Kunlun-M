@@ -4281,10 +4281,18 @@ class GraphAnalyzer:
         limit = sink_stmt_idx if sink_stmt_idx is not None else len(top_stmts)
         for idx in range(limit):
             lv = self.graph.vs[top_stmts[idx][1]]
-            # bare terminator call as the statement itself
+            # bare terminator call as the statement itself.  Must have NO
+            # ast parent: the normalizer hoists sub-expressions of
+            # short-circuit guards (!defined(...) && die(...)) into their
+            # own index=0 top-level entries, so a die/exit operand of
+            # && would otherwise masquerade as a bare terminator
+            # statement and kill every live sink after it (imcat
+            # fields.php:24/25 TP regression).
             if (_vattr(lv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(lv, "type", "") in _CALL_TYPES
-                    and _vattr(lv, "name", "") in self._TERMINATOR_FUNCS):
+                    and _vattr(lv, "name", "") in self._TERMINATOR_FUNCS
+                    and not self.graph.es.select(
+                        _target=lv.index, label="ast")):
                 return True
             # return-statement wrapper: return exit(); (rare, still bare)
             if _vattr(lv, "label") == NodeLabel.RETURN.value:
