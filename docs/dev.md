@@ -41,14 +41,22 @@ python kunlun.py console
 
 - 入口脚本：`kunlun.py`（初始化 Django 环境后转入 `core.main()`）
 - 命令分发：`core/__init__.py`
-- 扫描编排：`core/cli.py`
-- 引擎执行：`core/engine.py`
-- 规则加载：`core/rule.py`（从 `rules/<language>/CVI_xxxx.py` 动态加载）
-- 语义分析：`core/core_engine/*`、`core/cast.py`、`core/pretreatment.py`
+- 扫描编排：`core/cli.py`（文件收集、语言/框架识别、任务创建）
+- 引擎执行：`core/scanner.py`（图引擎扫描管线；`core/engine.py` 为薄导出层）
+- 图构建：`core/graph/graph_pipeline.py` → `normalizers/<lang>/`（结构边）→ `edge_builders/`（dfg/cg/alias 推导边）
+- 图分析：`core/graph/graph_analyzer.py`（find_sinks、parameters_back 污点回溯、守卫体系）
+- 规则加载：`core/rule.py`（从 `rules/<language>/CVI_xxxx.py` 动态加载，扫描时自动同步数据库）
+- 污点标注与摘要：`core/graph/knowledge_bridge.py`（enrich_taint）、`core/graph/function_summary.py`
+- auto rule：`core/rule_generator.py`（NewCore）
 - Web 模型：`web/index/models.py`
 
 ## 本地修改与验证建议
 
+- 修改图引擎（`core/graph/`）后：删除 `core/graph/__pycache__/` 再验证，避免旧字节码缓存干扰。
+- 守卫/回溯逻辑改动，按以下顺序验证：
+  1. 合成小图探针：确认目标形态的正反例判定正确（可写临时脚本调 `build_ast_graph` + `GraphAnalyzer.parameters_back`）
+  2. 真实项目重扫：`python kunlun.py scan -t <项目> --no-cache`，确认既有 TP/FP 判定不变
+  3. 扫描慢时不要被动等待，用 py-spy dump 采样找瓶颈
 - 修改规则后：规则文件会自动同步到数据库（用于 Web 展示与回滚），无需手动执行 config load。
 - 扫描日志：Web 侧可通过任务详情页 `/dashboard/tasks/detail/<task_id>` 或 `/backend/debuglog/<task_id>` 查看（支持 `token` 分享访问）。
 - API 调用：需要 `apitoken`（来自 `Kunlun_M/settings.py` 的 `API_TOKEN`），参数名是 `apitoken`。

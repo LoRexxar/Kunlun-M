@@ -5,11 +5,16 @@
 - 只想跑 Web 看结果：看 [web.md](./web.md)
 - 想写规则/调 tamper：看 [rules.md](./rules.md) 与 [tamper.md](./tamper.md)
 - 想理解架构与代码入口：看 [architecture.md](./architecture.md) 与 [dev.md](./dev.md)
+- 想理解图结构、守卫体系或各语言 AST 映射：看 [ast-graph-structure.md](./ast-graph-structure.md) 与 [ast-graph-\<lang\>-mapping.md](./ast-graph-php-mapping.md) 系列
+- 想开发图引擎守卫/回溯逻辑：看 [ast-graph-structure.md](./ast-graph-structure.md) 第 5 节与 [design/](./design/) 设计文档
 - 想导出/导入项目数据或导出图到 Neo4j：看 [data-export.md](./data-export.md)
 - 想用 Console 图遍历查询 AST：看 [graph-traversal.md](./graph-traversal.md)
 
 ## 目录
 - [architecture.md](./architecture.md)：项目架构与模块分层
+- [ast-graph-structure.md](./ast-graph-structure.md)：AST 图完整结构（节点/边 Schema、推导边、分支约束、守卫体系）
+- [ast-graph-\<lang\>-mapping.md](./ast-graph-php-mapping.md)：各语言 AST → 图映射（php/js/ts/python/java/go/ruby/rust/c/cpp/csharp/kotlin/lua）
+- [design/](./design/)：图引擎与各语言回溯分析设计文档（内部设计，实现细节以代码为准）
 - [cli.md](./cli.md)：CLI 子命令与常用用法
 - [skill_kunlunm_general.md](./skill_kunlunm_general.md)：kunlun-m-general skill（脚本化工作流：下载/初始化/扫描/生成/回归）
 - [ci.md](./ci.md)：CI/CD 扫描驱动（门禁/JSON 报告/示例配置）
@@ -17,6 +22,7 @@
 - [configuration.md](./configuration.md)：settings 关键配置与运行方式
 - [rules.md](./rules.md)：规则开发与调试要点
 - [tamper.md](./tamper.md)：tamper 机制说明与使用方式
+- [sca.md](./sca.md)：供应链组件漏洞扫描（SCA）
 - [php_unserialize_chain_tools.md](./php_unserialize_chain_tools.md)：反序列化链挖掘与 PoC 生成逻辑复盘
 - [changelog.md](./changelog.md)：更新日志
 - [data-export.md](./data-export.md)：项目归档导入导出、AST 图导出到 Neo4j

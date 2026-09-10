@@ -1,4 +1,32 @@
 ## 更新日志
+- 2026-09-10
+  - **引擎精度专项 — 白名单守卫体系（Fix 16 → 21h 系列）**
+    - 2026-08 下旬至 09 上旬的 16 个 commit，全部由真实项目（osTicket、imcat、zblog、getsimple、xoops26、dokuwiki、CouchCMS、phoronix-test-suite 等）的逐条 FP/TP 验证驱动，每条修复均含合成图探针 + 真实全量重扫双重回归
+
+  - **图保真修复（FP/TP 共同前提）**
+    - Fix 21：phply Array 字面量元素落图（ArrayElement key/value 解包），`in_array($v, [白名单])` 不再退化为空 array 节点
+    - Fix 21h：PHP StaticMethodCall 类上下文丢失修复，`Format::input`/`Format::htmlchars` 等静态净化函数可正确解析为 builtin_knowledge safe 函数
+    - Fix 21c：foreach key/val 变量携带数组数据流（Gap A）
+    - Fix 16+17：stub callee 解析、builtin knowledge 回退、同语句 DFG 环路、摘要饥饿
+
+  - **路径敏感分析**
+    - Fix 20b：redirect sink 两遍分析——第一遍 BFS 命中 code=1 且途经常量前缀拼接节点（`./`、固定 host 等）时，封禁这些节点重跑；存活的全可控路径才判 TP
+    - Fix 19a：unconfirm 桶只收 code=3（不确定），已净化（code=2）链路不再作为可疑结果上报
+
+  - **守卫体系（parameters_back 前置/后置检查，命中即返回 code=-1）**
+    - Fix 21a：同函数内 `!pred()` 终止分支 + `in_array` 常量白名单 → 变量白名单约束（CouchCMS b5）
+    - Fix 21b：`array_map(sanitizer, ...)` 再赋值净化（dokuwiki 4 FP）
+    - Fix 21d：文件系统存在性白名单——`is_dir(前缀 . $t)` 守卫使赋值约束为真实目录名（getsimple）
+    - Fix 21e：白名单守卫可达性修复 + 跨文件 sink 排序
+    - Fix 21f：`libxml_disable_entity_loader()` 先于 XML sink → XXE 不成立
+    - Fix 21h-2：无条件 `die()/exit()` 之后的语句判死代码（含 21h-2b own-index 最大容器、21h-2c 裸终止符无 ast 父边两个图结构防御）
+    - Fix 21h-3：构造函数属性白名单守卫——`new` 创建对象的 `$this->prop` 由白名单三元赋值时，属性读不可控；覆盖 property/对象变量/echo 算子/new 实参四种入口形态
+    - Fix 19b：跨函数路径越狱检测——调用方 `strpos($_POST['p'],'../')` 型 jail 守护被调方文件 sink 参数
+
+  - **其他**
+    - Fix 14/15：方法调用短名 fullname 匹配限制；ssh2 扩展知识库
+    - Fix 21g：Go receiver 提及型污点误归因修复
+
 - 2026-06-26
   - KunLun-M 3.0.0
   - **架构级重构 — 全面基于 AST 图引擎**

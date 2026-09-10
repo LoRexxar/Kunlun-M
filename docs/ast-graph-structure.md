@@ -1,6 +1,6 @@
 # AST 图完整结构文档
 
-> 本文档描述 AST 图引擎的完整图结构，包括节点/边 Schema、边的生成方式、推导边逻辑、以及分支约束分析机制。
+> 本文档描述 AST 图引擎的完整图结构，包括节点/边 Schema、边的生成方式、推导边逻辑、分支约束分析机制、以及守卫体系（parameters_back 后置检查）。
 > **必须与代码同步维护**：`core/graph/node_edge_schema.py`、`core/graph/normalizers/`、`core/graph/edge_builders/`、`core/graph/graph_analyzer.py`。
 
 ---
@@ -350,9 +350,56 @@ branch own→ operator / branch / return  (嵌套)
 
 ---
 
-## 5. 图结构示例
+## 5. 守卫体系（parameters_back 后置检查）
 
-### 5.1 函数定义与调用
+分支约束分析回答"这个变量在分支内被约束了吗"；守卫体系回答"到达 sink 这件事本身是否证明污点无意义"。两者互补：前者作用于 BFS 遍历内部，后者作为后置检查作用于 BFS 返回 code=1（可控）之后。
+
+### 5.1 执行模型
+
+`parameters_back` 公共入口（`graph_analyzer.parameters_back`）的执行顺序：
+
+```
+1. Fix 20b 两遍 redirect 分析（BFS impl 可能跑两次）
+2. BFS 返回 r1（code=1 时才继续）
+3. 守卫链按序短路（命中任一 → 返回 code=-1，chain 带 guard step）：
+   a. Fix 21a  negated whitelist guard   !in_array($v, [...]) 终止分支
+   b. Fix 21d  existence whitelist guard  is_dir/is_file(前缀.$t) 存在性守卫
+   c. Fix 21f  xxe disabled guard         libxml_disable_entity_loader() 先于 XML sink
+   d. Fix 21h-2 dead code guard           无条件 die/exit 之后的语句
+   e. Fix 21h-3 ctor property guard       构造函数属性白名单
+4. Fix 21a 后置检查（遍历 r1.path 逐变量验证）
+5. 返回 r1（或守卫翻转结果）
+```
+
+### 5.2 各守卫判据
+
+| 守卫 | 触发形态 | 判定依据 |
+|---|---|---|
+| **21a negated whitelist** | `if (!in_array($v, ['a','b'])) die;` 在 sink 前、同函数内 | 到达 sink 证明 `in_array` 为真 → 变量受白名单约束 |
+| **21d existence whitelist** | `if ($_GET[t] && is_dir(PREFIX . $_GET[t])) { $v = $_GET[t]; } echo $v;` | 守卫使赋值值为常量前缀下的真实目录/文件名 → 服务端语义值 |
+| **21f xxe disabled** | `libxml_disable_entity_loader()` 先于 simplexml/DOM/xml_parse sink | 外部实体展开已关闭 → 内容不可引用 file:// 实体 |
+| **21h-2 dead code** | sink 语句前存在顶层裸 `die()/exit()`（仅 own 父边、无 ast 父边） | sink 不可达 → 任何污点流均无意义 |
+| **21h-3 ctor property** | `new C(...)` 后读 `$obj->prop`，构造函数内 `$this->prop = array_key_exists(...) ? ... : 默认` | 存储值被白名单三元约束 → 读值不可控 |
+| **19b path jail**（遍历内） | 调用方 `strpos($_POST['p'],'../') !== FALSE ... die` 守护传入被调方文件 sink | jail 检查先于 sink 执行 → 路径穿越被阻断 |
+
+### 5.3 图结构防御（守卫自身的正确性前提）
+
+守卫依赖"顶层语句枚举"，Normalizer 的图保真行为直接影响判定，已知两个陷阱及防御：
+
+1. **`@` 一元算子 hoist**：`print_r(@$_GET)` 的 `@` 操作数可能被 hoist 为独立 index=0 顶层语句，与真语句脱钩 → sink 语句容器必须取 **own-index 最大** 的命中（21h-2b）
+2. **`&&` 短路守卫操作数**：`(!defined(...)) && die(...)` 的 die 操作数带 own 边，貌似裸 die 语句 → 裸终止符必须**无 ast 父边**（21h-2c），否则守卫误杀其后全部活代码 sink
+
+### 5.4 守卫开发约定
+
+- 新守卫独立成函数（`_xxx_guard`），在守卫链中按序插入，命中返回带 `{"step": "xxx_guard"}` 的 chain
+- sink 入口形态多样（property / 对象变量 / echo 算子 / new 实参 / 实参标识符），守卫须覆盖 scanner 真实入口，用 env 门控日志（或 graph REPL）验证入口 vid 身份，不凭猜测
+- 每个守卫须通过：合成图探针正反例 + 真实项目全量重扫回归（确认既有 TP/FP 判定不变）
+
+---
+
+## 6. 图结构示例
+
+### 6.1 函数定义与调用
 
 ```php
 function foo($id) {
@@ -369,7 +416,7 @@ operator use→ function(name=system)      // use 边：引用关系
 operator ast[arg, arg_index=0]→ identifier(name=$id)
 ```
 
-### 5.2 赋值与数据流
+### 6.2 赋值与数据流
 
 ```php
 $id = $_GET['id'];
@@ -389,7 +436,7 @@ dfg[forward_slice]: identifier($id) → operator(call system)
 // 或：operator(assign) → identifier($id) → operator(call)
 ```
 
-### 5.3 分支条件
+### 6.3 分支条件
 
 ```php
 if (is_numeric($x)) {
@@ -408,7 +455,7 @@ branch own→ operator(type=call, name=system)
 // check_branch_constraint: is_numeric($x) → type validator → 安全
 ```
 
-### 5.4 三元表达式
+### 6.4 三元表达式
 
 ```php
 $id = $cmd == 'test' ? $_GET['id'] : '1';
@@ -430,7 +477,7 @@ dfg: identifier($_GET) → identifier($id)     // iftrue 分支
 dfg: const('1') → identifier($id)           // iffalse 分支
 ```
 
-### 5.5 Switch Case
+### 6.5 Switch Case
 
 ```php
 switch ($x) {
@@ -449,7 +496,7 @@ branch(type=switch)
 
 ---
 
-## 6. 节点索引（SQLite）
+## 7. 节点索引（SQLite）
 
 SQLite 索引仅存储 5 种核心节点，用于快速定位：
 

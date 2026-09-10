@@ -249,6 +249,7 @@ web/
 - [docs/README.md](./docs/README.md) — Documentation index
 - [docs/cli.md](./docs/cli.md) — CLI detailed reference
 - [docs/architecture.md](./docs/architecture.md) — Architecture overview
+- [docs/ast-graph-structure.md](./docs/ast-graph-structure.md) — AST graph schema, branch constraints & guard system
 - [docs/data-export.md](./docs/data-export.md) — Export/import & Neo4j
 - [docs/graph-traversal.md](./docs/graph-traversal.md) — Graph traversal REPL
 - [docs/changelog.md](./docs/changelog.md) — Changelog
