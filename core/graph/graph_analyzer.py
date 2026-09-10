@@ -4264,12 +4264,20 @@ class GraphAnalyzer:
                     stack.append(ee.target)
             return False
 
-        # which top-level statement contains the sink?
+        # which top-level statement contains the sink?  A sink sub-expression
+        # can be owned by MORE than one top-level entry: the normalizer may
+        # hoist an operand (e.g. the ``@`` unary_op of ``print_r(@$_GET)``)
+        # as its own index=0 statement alongside the real call statement.
+        # The real enclosing statement carries the LARGER own-index, so pick
+        # the container with the max index, not the first match — otherwise
+        # the truncated limit hides the die/exit that precedes the real
+        # statement (imcat userc.php:9 FP survived exactly this way).
         sink_stmt_idx = None
+        best_idx = -1
         for idx, (_i, stmt) in enumerate(top_stmts):
-            if _stmt_contains(stmt, sink_vid):
+            if _stmt_contains(stmt, sink_vid) and _i > best_idx:
+                best_idx = _i
                 sink_stmt_idx = idx
-                break
         limit = sink_stmt_idx if sink_stmt_idx is not None else len(top_stmts)
         for idx in range(limit):
             lv = self.graph.vs[top_stmts[idx][1]]
