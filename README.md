@@ -260,7 +260,7 @@ web/
 
 ## Stargazers
 
-<div align=center><a href="https://github.com/LoRexxar/Kunlun-M"><img src="https://api.star-history.com/svg?repos=LoRexxar/Kunlun-M&type=Timeline"></a></div>
+<div align=center><a href="https://github.com/LoRexxar/Kunlun-M"><img src="https://star-history.dera.page/svg?repos=LoRexxar/Kunlun-M&type=Timeline"></a></div>
 
 ## 404StarLink Project
 
