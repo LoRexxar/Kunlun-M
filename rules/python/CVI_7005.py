@@ -13,32 +13,64 @@ class CVI_7005(SingleRuleMixin):
         self.description = "使用了可能存在路径遍历或文件操作风险的函数"
         self.level = 6
         self.match_mode = "function-param-regex"
-        self.match = r"open\(|os\.path\.join|shutil\.copy|shutil\.copyfile|shutil\.move|os\.remove|os\.unlink|os\.rename|send_file|FileResponse|pathlib\.Path|os\.mkdir|os\.makedirs|shutil\.rmtree|shutil\.make_archive|shutil\.unpack_archive|tempfile\.mktemp"
-        self.vul_function = ["open", "join", "copy", "copyfile", "move", "remove", "unlink", "rename", "send_file", "FileResponse", "rmtree", "make_archive", "unpack_archive", "mktemp"]
+        # 仅保留执行实际文件 I/O 的函数
+        # path.join/basename/dirname/exists/abspath 已移除：纯字符串操作，不执行文件 I/O
+        self.match = r"\bopen\s*\(|shutil\.copy|shutil\.copyfile|shutil\.move|os\.remove|os\.unlink|os\.rename|send_file|FileResponse|os\.mkdir|os\.makedirs|shutil\.rmtree|shutil\.make_archive|shutil\.unpack_archive|tempfile\.mktemp"
+        self.vul_function = [
+            # 实际执行文件 I/O 的函数
+            "open", "send_file", "FileResponse",
+            "os.remove", "os.unlink", "os.rename", "os.mkdir", "os.makedirs",
+            "shutil.copy", "shutil.copyfile", "shutil.move",
+            "shutil.rmtree", "shutil.make_archive", "shutil.unpack_archive",
+            "tempfile.mktemp",
+        ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
-        二次筛选：过滤纯硬编码路径
-
-        安全模式 (return False):
-        - open('/etc/hosts')  硬编码路径
-        - open('config.ini')  硬编码文件名
-        - shutil.copy('a.txt', 'b.txt')  硬编码
-
-        危险模式 (return None):
-        - open('/var/data/' + filename)  变量拼接
-        - open(user_input)  变量
-        - send_file(filepath)  变量
+        Graph-based filtering: filter hardcoded paths and non-file-IO calls.
+        open('/etc/hosts') → False (const)
+        open(filepath) → None (variable)
+        send_file(BytesIO_obj) → False (content, not path)
         """
-        if not regex_string:
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # const/string literal → hardcoded path, safe
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+                # send_file / FileResponse with function-return argument:
+                # if arg0 comes from a function call, the return value is
+                # typically an in-memory content object (BytesIO, string),
+                # not a file path.  Path arguments are almost always string
+                # variables, not function returns.
+                sn = str(regex_string).lower() if regex_string else ''
+                if 'send_file' in sn or 'fileresponse' in sn:
+                    if arg0.get('is_func_return'):
+                        return False
             return None
 
-        # 检查 open() 的参数
+        # Regex fallback
+        if not regex_string:
+            return None
+        # 过滤 str.join
+        if re.search(r'\.join\s*\(', regex_string):
+            if re.search(r'["\'][^"\']*["\']\s*\.\s*join', regex_string):
+                return False
+            if re.search(r'\b\w+\s*\.\s*join\s*\(', regex_string):
+                if not re.search(r'os\.path\.join|path\.join', regex_string):
+                    if not re.search(r'\bpath\b', regex_string):
+                        return False
+        # dict.copy / list.copy
+        if re.search(r'\.copy\s*\(\s*\)', regex_string):
+            return False
+        # receiver.open()
+        if re.search(r'\w+\s*\.\s*open\s*\(', regex_string):
+            return False
         open_match = re.search(r'\bopen\s*\(\s*(.+)', regex_string, re.I)
         if open_match:
             arg = open_match.group(1).strip()
-            # 纯字符串字面量（硬编码路径）
-            if re.match(r'^[\'\"][^\'\"]*[\'\"]\s*(?:,|\))', arg):
+            if re.match(r'^[\'"][^\'"]*[\'"]\s*(?:,|\))', arg):
                 return False
-
         return None

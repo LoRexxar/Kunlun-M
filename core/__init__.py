@@ -60,7 +60,7 @@ def main():
         t1 = time.time()
 
         # 核心命令列表，在 -h 中分组展示
-        CORE_COMMANDS = {'init', 'scan', 'console', 'web'}
+        CORE_COMMANDS = {'init', 'scan', 'console', 'web', 'analyze', 'export-project', 'import-project', 'export-neo4j', 'reset'}
 
         class GroupedSubparsersFormatter(argparse.RawDescriptionHelpFormatter):
             """自定义 formatter：将 subparsers 拆分为 Core Commands 和 Other Commands 两组"""
@@ -91,7 +91,7 @@ def main():
                     return chr(10).join(parts)
                 return super()._format_action(action)
 
-        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__.format(detail="Main Program"), epilog=__epilog__, formatter_class=GroupedSubparsersFormatter, usage=argparse.SUPPRESS)
+        parser = argparse.ArgumentParser(prog=__title__, description=__introduction__.format(detail="Commands"), epilog=__epilog__, formatter_class=GroupedSubparsersFormatter, usage=argparse.SUPPRESS)
 
         subparsers = parser.add_subparsers()
 
@@ -162,6 +162,7 @@ def main():
         # for scan profile
         parser_group_scan.add_argument('-uc', '--unconfirm', dest='unconfirm', action='store_true', default=False, help='show unconfirmed vuls')
         parser_group_scan.add_argument('-upc', '--unprecom', dest='unprecom', action='store_true', default=False, help='without Precompiled')
+        parser_group_scan.add_argument('--no-cache', dest='no_cache', action='store_true', default=False, help='force rebuild graph without loading cache')
 
         # for vendor vuln scan
         parser_group_scan.add_argument('--without-vendor', dest='without_vendor', action='store_true', default=False, help='without scan vendor vuln (default open)')
@@ -192,6 +193,85 @@ def main():
                                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                                      usage=argparse.SUPPRESS, add_help=True)
         parser_group_console.set_defaults(console=True)
+
+        # analyze — secondary graph analysis
+        parser_group_analyze = subparsers.add_parser('analyze', help='secondary analysis on AST graph',
+                                                    description=__introduction__.format(detail='secondary analysis on AST graph'),
+                                                    formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                    usage=argparse.SUPPRESS, add_help=True)
+        parser_group_analyze.add_argument('-g', '--graph-dir', dest='graph_dir', required=False, default=None,
+                                           help='graph directory (default: auto from workspace)')
+        parser_group_analyze.add_argument('-s', '--scan-id', dest='scan_id', type=int, default=None,
+                                           help='scan ID to analyze (default: latest)')
+        parser_group_analyze.add_argument('-d', '--db', dest='db_path', default=None,
+                                           help='SQLite DB path')
+        parser_group_analyze.add_argument('-l', '--language', dest='language', default='php',
+                                           help='source language')
+        parser_group_analyze.add_argument('query_type', nargs='?', default='overview',
+                                           help='query type: overview/file/function/trace/search')
+        parser_group_analyze.add_argument('query_arg', nargs='?', default=None,
+                                           help='argument for query (file path / function name / file:line)')
+        parser_group_analyze.set_defaults(analyze="analyze")
+
+        # export-project
+        parser_group_export_project = subparsers.add_parser('export-project',
+                                                            help='export a project (DB + graph files) to a portable archive',
+                                                            description=__introduction__.format(detail='export a project to a portable archive'),
+                                                            formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                            usage=argparse.SUPPRESS, add_help=True)
+        parser_group_export_project.add_argument('-p', '--project', dest='project', required=True,
+                                                  metavar='<project_id_or_name>',
+                                                  help='project to export (id or name)')
+        parser_group_export_project.add_argument('-o', '--output', dest='output', default=None,
+                                                  metavar='<output_dir>',
+                                                  help='output directory (default: project root)')
+        parser_group_export_project.set_defaults(export_project="export_project")
+
+        # import-project
+        parser_group_import_project = subparsers.add_parser('import-project',
+                                                            help='import a project archive into this KunLun-M instance',
+                                                            description=__introduction__.format(detail='import a project archive'),
+                                                            formatter_class=argparse.RawDescriptionHelpFormatter,
+                                                            usage=argparse.SUPPRESS, add_help=True)
+        parser_group_import_project.add_argument('-f', '--file', dest='archive', required=True,
+                                                  metavar='<archive_path>',
+                                                  help='path to kunlun-export-*.tar.gz')
+        parser_group_import_project.add_argument('--force', dest='force', action='store_true', default=False,
+                                                  help='overwrite existing project with same hash')
+        parser_group_import_project.set_defaults(import_project="import_project")
+
+        # export-neo4j
+        parser_group_export_neo4j = subparsers.add_parser('export-neo4j',
+                                    help='export project AST graphs to Neo4j',
+                                    description=__introduction__.format(detail='export project AST graphs to Neo4j'),
+                                    formatter_class=argparse.RawDescriptionHelpFormatter,
+                                    usage=argparse.SUPPRESS, add_help=True)
+        parser_group_export_neo4j.add_argument('-p', '--project', dest='project', default=None,
+                                              metavar='<project_id_or_name>',
+                                              help='export all scans of a project')
+        parser_group_export_neo4j.add_argument('-s', '--scan', dest='scan', default=None,
+                                              metavar='<scan_id>', type=int,
+                                              help='export a single scan')
+        parser_group_export_neo4j.add_argument('--neo4j-uri', dest='neo4j_uri', default=None,
+                                              metavar='<uri>',
+                                              help='Neo4j URI (default: settings.NEO4J_URI)')
+        parser_group_export_neo4j.add_argument('--neo4j-user', dest='neo4j_user', default=None,
+                                              metavar='<user>',
+                                              help='Neo4j username (default: settings.NEO4J_USER)')
+        parser_group_export_neo4j.add_argument('--neo4j-password', dest='neo4j_password', default=None,
+                                              metavar='<password>',
+                                              help='Neo4j password (default: settings.NEO4J_PASSWORD)')
+        parser_group_export_neo4j.add_argument('--clean', dest='clean', action='store_true', default=False,
+                                              help='clear existing KunlunM nodes before export')
+        parser_group_export_neo4j.add_argument('--batch-size', dest='batch_size', default=500, type=int,
+                                              metavar='<n>',
+                                              help='batch size for Neo4j writes (default: 500)')
+        parser_group_export_neo4j.set_defaults(export_neo4j="export_neo4j")
+
+        # reset
+        parser_group_reset = subparsers.add_parser('reset', help='Reset database — clear scan data and workspace, re-init')
+        parser_group_reset.add_argument('--keep-workspace', action='store_true', default=False, help='Keep workspace (graph cache) files')
+        parser_group_reset.set_defaults(reset="reset")
 
         # 加载插件参数列表以及帮助
 
@@ -322,6 +402,145 @@ def main():
                 parser_group_show.print_help()
                 exit()
 
+        if hasattr(args, "analyze") and args.analyze == "analyze":
+            import json as _json
+            from core.graph.session import AstGraphSession
+            from core.graph.workspace import get_workspace_db
+
+            workspace_db = get_workspace_db()
+            scan_id = getattr(args, 'scan_id', None)
+            graph_dir = args.graph_dir
+
+            # 自动查找 scan
+            if not graph_dir:
+                from core.graph.sqlite_index import ScanRecord
+                sr = ScanRecord(workspace_db)
+                if scan_id is not None:
+                    info = sr.get_by_id(scan_id)
+                else:
+                    info = sr.get_latest()
+                if not info:
+                    logger.error("No scan found in workspace. Run a scan first.")
+                    exit(1)
+                scan_id = info['id']
+                graph_dir = os.path.dirname(info['graph_path'])
+                logger.info("[ANALYZE] Using scan_id=%s, graph_dir=%s", scan_id, graph_dir)
+
+            try:
+                session = AstGraphSession(graph_dir, db_path=workspace_db, language=args.language)
+                session.load()
+
+                if args.query_type == "overview":
+                    result = session.query.overview()
+                elif args.query_type == "file":
+                    if not args.query_arg:
+                        logger.error("Usage: kunlun.py analyze file <path>")
+                        exit(1)
+                    result = session.query.get_file(args.query_arg)
+                elif args.query_type == "function":
+                    if not args.query_arg:
+                        logger.error("Usage: kunlun.py analyze function <name>")
+                        exit(1)
+                    result = session.query.get_function(args.query_arg)
+                elif args.query_type == "trace":
+                    if not args.query_arg:
+                        logger.error("Usage: kunlun.py analyze trace <file:line>")
+                        exit(1)
+                    parts = args.query_arg.rsplit(":", 1)
+                    if len(parts) != 2:
+                        logger.error("trace argument format: <file_path>:<line_number>")
+                        exit(1)
+                    result = session.query.trace(parts[0], int(parts[1]))
+                elif args.query_type == "search":
+                    if not args.query_arg:
+                        result = session.query.search()
+                    else:
+                        tokens = args.query_arg.split(":", 2)
+                        label = tokens[0] if len(tokens) > 0 else None
+                        name = tokens[1] if len(tokens) > 1 else None
+                        result = session.query.search(label=label, name=name)
+                else:
+                    logger.error("Unknown query type: %s", args.query_type)
+                    exit(1)
+
+                print(_json.dumps(result, indent=2, ensure_ascii=False, default=str))
+            except FileNotFoundError as e:
+                logger.error(e)
+                exit(1)
+            except Exception as e:
+                logger.error("[ANALYZE] Error: %s", e)
+                exit(1)
+
+        if hasattr(args, "export_project") and args.export_project == "export_project":
+            import json as _json
+            from core.import_export import export_project
+            try:
+                path = export_project(args.project, output_dir=args.output)
+                logger.info("[EXPORT] Project exported to: {}".format(path))
+            except ValueError as e:
+                logger.error("[EXPORT] {}".format(e))
+                exit(1)
+            exit()
+
+        if hasattr(args, "import_project") and args.import_project == "import_project":
+            import json as _json
+            from core.import_export import import_project
+            try:
+                report = import_project(args.archive, force=args.force)
+                logger.info("[IMPORT] Import completed:\n{}".format(
+                    "\n".join("  {}: {}".format(k, v) for k, v in report.items())))
+            except ValueError as e:
+                logger.error("[IMPORT] {}".format(e))
+                exit(1)
+            exit()
+
+        if hasattr(args, "export_neo4j") and args.export_neo4j == "export_neo4j":
+            from core.neo4j_export import (
+                export_project_to_neo4j,
+                export_scan_to_neo4j,
+                list_projects_with_graphs,
+            )
+            try:
+                if args.scan is not None:
+                    report = export_scan_to_neo4j(
+                        scan_id=args.scan,
+                        uri=args.neo4j_uri,
+                        user=args.neo4j_user,
+                        password=args.neo4j_password,
+                        clean=args.clean,
+                        batch_size=args.batch_size,
+                    )
+                elif args.project:
+                    report = export_project_to_neo4j(
+                        project_ref=args.project,
+                        uri=args.neo4j_uri,
+                        user=args.neo4j_user,
+                        password=args.neo4j_password,
+                        clean=args.clean,
+                        batch_size=args.batch_size,
+                    )
+                else:
+                    projects = list_projects_with_graphs()
+                    if projects:
+                        logger.info("Usage: export-neo4j -p <project_id_or_name> OR -s <scan_id>")
+                        logger.info("Available projects with graphs:")
+                        for pid, pname, scount in projects:
+                            logger.info("  {}  {} ({} scans)".format(pid, pname, scount))
+                    else:
+                        logger.info("No projects with graph files found.")
+                    exit()
+                logger.info("[NEO4J] Export complete:\n{}".format(
+                    "\n".join("  {}: {}".format(k, v) for k, v in report.items())))
+            except (ValueError, ImportError) as e:
+                logger.error("[NEO4J] {}".format(e))
+                exit(1)
+            exit()
+
+        if hasattr(args, "reset") and args.reset == "reset":
+            from core.reset import reset_database
+            reset_database(keep_workspace=args.keep_workspace)
+            exit()
+
         if hasattr(args, "console"):
             # 静默同步规则和 tamper
             logger.debug("[INIT] Syncing rules and tampers...")
@@ -434,7 +653,7 @@ def main():
         s.save()
 
         try:
-            cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom, template_path=args.html_template)
+            cli.start(args.target, args.format, args.output, args.special_rules, sid, args.language, args.tamper_name, args.black_path, args.unconfirm, args.unprecom, template_path=args.html_template, no_cache=args.no_cache, auto_yes=args.yes)
         except Exception as e:
             s.is_finished = 0
             s.finished_at = timezone.now()

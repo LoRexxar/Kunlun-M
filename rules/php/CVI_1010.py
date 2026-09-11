@@ -29,7 +29,7 @@ class CVI_1010(SingleRuleMixin):
         self.match_mode = "function-param-regex"
         self.match = r"(ldap_add|ldap_delete|ldap_list|ldap_read|ldap_search|ldap_bind)"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

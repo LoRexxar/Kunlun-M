@@ -1,198 +1,648 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-	<title>{{ title }}</title>
-	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>{{ title }}</title>
+  {% load static %}
+  <link rel="icon" href="{% static 'favicon.ico' %}">
 
-    {% load static %}
-    <link rel="icon" href="{% static 'favicon.ico' %}" ><link rel="stylesheet" href="{% static 'css/bulma.css' %}">
-    <link rel="stylesheet" href="{% static 'css/default.css' %}?v=9">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/css/tabler.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="{% static 'font-awesome/css/font-awesome.min.css' %}">
 
-	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <style>
+    :root {
+      --km-primary: #1e40af;
+      --km-primary-light: #3b82f6;
+      --km-bg: #f1f5f9;
+      --km-hero-from: #1a3a8f;
+      --km-hero-to: #0d2159;
+      --km-text-dark: #0f172a;
+      --km-text-muted: #64748b;
+      --km-border: #e2e8f0;
+    }
+
+    html, body { width: 100%; }
+    body.layout-fluid {
+      background: var(--km-bg);
+    }
+    .km-landing-page {
+      background: var(--km-bg);
+      overflow-x: hidden;
+    }
+
+    /* ===== Navbar (full-width bg, centered content) ===== */
+    .km-navbar {
+      background: rgba(13, 33, 89, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 14px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .km-navbar .km-brand {
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 20px;
+      letter-spacing: .3px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .km-navbar .km-brand .km-brand-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #3b82f6, #1e40af);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 19px;
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.45);
+    }
+    .km-navbar .km-brand:hover { color: #ffffff; }
+    .km-navbar .km-nav-link {
+      color: rgba(226, 232, 240, 0.92);
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: 8px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: color .15s ease, background .15s ease;
+    }
+    .km-navbar .km-nav-link:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .km-navbar .km-user-chip {
+      color: rgba(226, 232, 240, 0.92);
+      font-size: 13px;
+    }
+    .km-navbar .km-user-chip .fa-circle {
+      color: #4ade80;
+      font-size: 9px;
+      margin-right: 4px;
+    }
+    .km-navbar .btn-outline-glass {
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.05);
+      font-weight: 600;
+      transition: background .15s ease, border-color .15s ease;
+    }
+    .km-navbar .btn-outline-glass:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.55);
+    }
+
+    /* ===== Hero (full-width gradient + grid pattern) ===== */
+    .km-hero {
+      position: relative;
+      color: #ffffff;
+      padding: 88px 0 104px;
+      overflow: hidden;
+      background: linear-gradient(135deg, var(--km-hero-from) 0%, var(--km-hero-to) 100%);
+    }
+    .km-hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 56px 56px;
+      -webkit-mask-image: radial-gradient(circle at 30% 35%, black, transparent 75%);
+      mask-image: radial-gradient(circle at 30% 35%, black, transparent 75%);
+      pointer-events: none;
+    }
+    .km-hero::after {
+      content: "";
+      position: absolute;
+      top: -160px;
+      right: -160px;
+      width: 520px;
+      height: 520px;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.5), transparent 70%);
+      pointer-events: none;
+    }
+    .km-hero .km-hero-inner {
+      position: relative;
+      z-index: 2;
+    }
+    .km-hero .km-hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.18);
+      border: 1px solid rgba(96, 165, 250, 0.4);
+      color: #bfdbfe;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .km-hero .km-hero-badge .fa {
+      color: #60a5fa;
+    }
+    .km-hero h1 {
+      color: #ffffff;
+      font-size: 3.4rem;
+      font-weight: 800;
+      letter-spacing: -.5px;
+      line-height: 1.1;
+      margin: 22px 0 14px;
+      text-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    }
+    .km-hero .km-hero-subtitle {
+      font-size: 1.55rem;
+      font-weight: 700;
+      letter-spacing: .3px;
+      margin-bottom: 16px;
+      background: linear-gradient(120deg, #93c5fd 0%, #60a5fa 60%, #bfdbfe 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      display: inline-block;
+    }
+    .km-hero .km-hero-tagline {
+      color: rgba(226, 232, 240, 0.88);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      max-width: 560px;
+      margin-bottom: 28px;
+    }
+    .km-hero .km-hero-actions {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .km-hero .km-hero-actions .btn {
+      border-radius: 10px;
+      padding: 0.75rem 1.6rem;
+      font-weight: 700;
+      letter-spacing: .2px;
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease, background .18s ease;
+    }
+    .km-hero .km-hero-actions .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #1e40af);
+      border: none;
+      box-shadow: 0 12px 28px rgba(59, 130, 246, 0.4);
+    }
+    .km-hero .km-hero-actions .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 36px rgba(59, 130, 246, 0.55);
+      filter: brightness(1.08);
+    }
+    .km-hero .km-hero-actions .btn-light {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      color: #ffffff;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .km-hero .km-hero-actions .btn-light:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+      color: #ffffff;
+    }
+
+    /* ===== Hero stat cards ===== */
+    .km-hero-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    .km-stat-card {
+      position: relative;
+      padding: 22px 20px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: transform .25s ease, background .25s ease, border-color .25s ease;
+      overflow: hidden;
+    }
+    .km-stat-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #60a5fa, #93c5fd);
+      opacity: 0.85;
+    }
+    .km-stat-card:hover {
+      transform: translateY(-4px);
+      background: rgba(255, 255, 255, 0.13);
+      border-color: rgba(147, 197, 253, 0.4);
+    }
+    .km-stat-card .km-stat-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(59, 130, 246, 0.28);
+      color: #bfdbfe;
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    .km-stat-card .km-stat-value {
+      font-size: 2.1rem;
+      font-weight: 800;
+      color: #ffffff;
+      line-height: 1.05;
+      letter-spacing: -.5px;
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+    }
+    .km-stat-card .km-stat-suffix {
+      font-size: 1.15rem;
+      color: #93c5fd;
+      font-weight: 700;
+    }
+    .km-stat-card .km-stat-label {
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 13px;
+      font-weight: 500;
+      margin-top: 6px;
+    }
+
+    @keyframes kmFadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .km-stat-card { animation: kmFadeUp .6s ease both; }
+    .km-stat-card:nth-child(1) { animation-delay: .05s; }
+    .km-stat-card:nth-child(2) { animation-delay: .15s; }
+    .km-stat-card:nth-child(3) { animation-delay: .25s; }
+    .km-stat-card:nth-child(4) { animation-delay: .35s; }
+
+    /* ===== Features ===== */
+    .km-features {
+      padding: 96px 0;
+      background: var(--km-bg);
+    }
+    .km-features .km-section-title {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--km-text-dark);
+      margin: 0 0 8px;
+      letter-spacing: -.5px;
+    }
+    .km-features .km-section-subtitle {
+      color: var(--km-text-muted);
+      font-size: 1rem;
+    }
+    .km-feature-card {
+      position: relative;
+      border: 1px solid var(--km-border);
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 30px 26px;
+      height: 100%;
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+      overflow: hidden;
+    }
+    .km-feature-card::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--km-accent, #3b82f6), transparent);
+      opacity: 0;
+      transition: opacity .25s ease;
+    }
+    .km-feature-card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 22px 44px rgba(15, 23, 42, 0.12);
+      border-color: transparent;
+    }
+    .km-feature-card:hover::after { opacity: 1; }
+    .km-feature-card.km-feature-blue   { --km-accent: #3b82f6; }
+    .km-feature-card.km-feature-green  { --km-accent: #10b981; }
+    .km-feature-card.km-feature-orange { --km-accent: #f59e0b; }
+    .km-feature-card .km-feature-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      margin-bottom: 18px;
+      color: #ffffff;
+      box-shadow: 0 10px 22px rgba(0, 0, 0, 0.12);
+    }
+    .km-feature-card.km-feature-blue   .km-feature-icon { background: linear-gradient(135deg, #60a5fa, #1e40af); }
+    .km-feature-card.km-feature-green  .km-feature-icon { background: linear-gradient(135deg, #34d399, #047857); }
+    .km-feature-card.km-feature-orange .km-feature-icon { background: linear-gradient(135deg, #fbbf24, #d97706); }
+    .km-feature-card h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--km-text-dark);
+      margin: 0 0 10px;
+    }
+    .km-feature-card p {
+      color: var(--km-text-muted);
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    /* ===== Footer ===== */
+    .km-footer {
+      padding: 28px 0;
+      color: var(--km-text-muted);
+      font-size: 13px;
+      border-top: 1px solid var(--km-border);
+      background: #ffffff;
+    }
+
+    /* ===== Auth modal ===== */
+    .km-auth-modal .modal-header {
+      background: linear-gradient(110deg, #1e40af, #3b82f6);
+    }
+    .km-auth-modal .modal-title {
+      color: #ffffff;
+      font-weight: 700;
+    }
+    .km-auth-modal .nav-tabs .nav-link {
+      color: var(--km-text-muted);
+      border: 0;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 8px 16px;
+      font-weight: 600;
+    }
+    .km-auth-modal .nav-tabs .nav-link.active {
+      color: var(--km-primary);
+      background: transparent;
+      border-bottom-color: var(--km-primary);
+    }
+    .km-auth-modal .auth-messages .alert {
+      margin-bottom: 14px;
+    }
+
+    @media (max-width: 1199.98px) {
+      .km-hero h1 { font-size: 2.9rem; }
+    }
+    @media (max-width: 991.98px) {
+      .km-hero { padding: 64px 0 80px; }
+      .km-hero h1 { font-size: 2.4rem; }
+      .km-hero-stats { margin-top: 32px; }
+      .km-features { padding: 72px 0; }
+    }
+    @media (max-width: 768px) {
+      .km-hero h1 { font-size: 2rem; }
+      .km-hero .km-hero-subtitle { font-size: 1.25rem; }
+      .km-hero-stats { grid-template-columns: 1fr; }
+      .km-navbar { position: relative; }
+    }
+  </style>
 </head>
 
-<body class="landing-body">
-<section class="hero is-large landing-hero">
-  <div class="hero-head">
-    <nav class="navbar">
-      <div class="container">
-        <div class="navbar-brand">
-          <a class="navbar-item">
-            <h3>{{ title }}</h3>
+<body class="layout-fluid">
+<div class="page km-landing-page">
+
+  <header class="km-navbar">
+    <div class="container">
+      <div class="d-flex align-items-center justify-content-between flex-nowrap">
+        <a href="/" class="km-brand">
+          <span class="km-brand-mark"><i class="ti ti-shield-lock"></i></span>
+          <span>{{ title }}</span>
+        </a>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <a class="km-nav-link" href="/">
+            <i class="fa fa-home"></i>
+            <span>首页</span>
           </a>
-          <span class="navbar-burger burger" data-target="navbarMenuHeroB">
-            <span></span>
-            <span></span>
-            <span></span>
-          </span>
-        </div>
-        <div id="navbarMenuHeroB" class="navbar-menu">
-          <div class="navbar-end">
-            <a class="navbar-item is-active" href="/">
-              首页
-            </a>
-
 {% if user.is_authenticated %}
-    <a class="navbar-item" href="{% url 'dashboard:index' %}">
-      控制台
-    </a>
-    <a class="navbar-item">
-      加载中
-    </a>
-    <span class="navbar-item">
-      <h3>{{ user }} </h3>
-      <a class="button is-success is-outlined" style="margin-left: 10px" href="{% url 'index:logout' %}">退出登录</a>
-    </span>
+          <a class="km-nav-link" href="{% url 'dashboard:index' %}">
+            <i class="fa fa-dashboard"></i>
+            <span>控制台</span>
+          </a>
+          <span class="km-user-chip ms-2">
+            <i class="fa fa-circle"></i>{{ user }}
+          </span>
+          <a class="btn btn-outline-glass btn-sm" href="{% url 'index:logout' %}">
+            <i class="fa fa-sign-out"></i>
+            <span>退出登录</span>
+          </a>
 {% else %}
-            <span class="navbar-item">
-              <a class="button is-info is-inverted js-open-auth" data-auth-target="register" href="{% url 'index:register' %}">
-                <span class="icon">
-                  <i class="fa fa-sign-in"></i>
-                </span>
-                <span>注册</span>
-              </a>
-            </span>
-            <span class="navbar-item">
-              <a class="button is-info is-inverted js-open-auth" data-auth-target="login" href="{% url 'index:login' %}">
-                <span class="icon">
-                  <i class="fa fa-sign-in"></i>
-                </span>
-                <span>登录</span>
-              </a>
-            </span>
+          <a class="btn btn-outline-glass btn-sm js-open-auth" data-auth-target="register" href="{% url 'index:register' %}">
+            <i class="fa fa-user-plus"></i>
+            <span>注册</span>
+          </a>
+          <a class="btn btn-outline-glass btn-sm js-open-auth" data-auth-target="login" href="{% url 'index:login' %}">
+            <i class="fa fa-sign-in"></i>
+            <span>登录</span>
+          </a>
 {% endif %}
-
-          </div>
         </div>
       </div>
-    </nav>
-  </div>
+    </div>
+  </header>
 
-  <div class="hero-body">
-    <div class="container">
-      <div class="columns is-vcentered">
-        <div class="column is-7 has-text-left">
-          <p class="landing-badge">KUNLUN-M WEB 模式</p>
-          <p class="title landing-title">
-            {{ title }}
-          </p>
-          <p class="subtitle landing-subtitle">
-            代码安全审计平台
-          </p>
-          <div class="content landing-content">
-            专注静态代码审计与供应链风险识别
-          </div>
-          <div class="landing-actions">
-            {% if user.is_authenticated %}
-              <a class="button is-primary is-medium is-rounded" href="{% url 'dashboard:index' %}">
-                进入控制台
-              </a>
-            {% else %}
-              <a class="button is-primary is-medium is-rounded js-open-auth" data-auth-target="login" href="{% url 'index:login' %}">
-                立即登录
-              </a>
-              {% if is_open_register %}
-              <a class="button is-light is-medium is-rounded js-open-auth" data-auth-target="register" href="{% url 'index:register' %}">
-                免费注册
-              </a>
-              {% endif %}
-            {% endif %}
+  <section class="km-hero">
+    <div class="container km-hero-inner">
+      <div class="row align-items-center g-5">
+        <div class="col-lg-7">
+          <span class="km-hero-badge">
+            <i class="fa fa-bolt"></i>
+            <span>KUNLUN-M WEB 模式</span>
+          </span>
+          <h1>{{ title }}</h1>
+          <div class="km-hero-subtitle">代码安全审计平台</div>
+          <p class="km-hero-tagline">专注静态代码审计与供应链风险识别，结合污点跟踪、AST 分析与 CVI 规则引擎，从源码到依赖为开发者提供完整可见性。</p>
+          <div class="km-hero-actions">
+{% if user.is_authenticated %}
+            <a class="btn btn-primary" href="{% url 'dashboard:index' %}">
+              <i class="fa fa-dashboard me-1"></i>进入控制台
+            </a>
+{% else %}
+            <a class="btn btn-primary js-open-auth" data-auth-target="login" href="{% url 'index:login' %}">
+              <i class="fa fa-sign-in me-1"></i>立即登录
+            </a>
+  {% if is_open_register %}
+            <a class="btn btn-light js-open-auth" data-auth-target="register" href="{% url 'index:register' %}">
+              <i class="fa fa-user-plus me-1"></i>免费注册
+            </a>
+  {% endif %}
+{% endif %}
           </div>
         </div>
-        <div class="column is-5">
-          <div class="landing-panel">
-            <h4>为什么选择 {{ title }}</h4>
-            <ul>
-              <li><i class="fa fa-check-circle"></i> 多语言规则引擎，快速识别高危风险</li>
-              <li><i class="fa fa-check-circle"></i> 项目与依赖安全一体化管理</li>
-            </ul>
+        <div class="col-lg-5">
+          <div class="km-hero-stats">
+            <div class="km-stat-card">
+              <div class="km-stat-icon"><i class="fa fa-code"></i></div>
+              <div class="km-stat-value">
+                <span class="km-stat-number" data-target="14">0</span><span class="km-stat-suffix">+</span>
+              </div>
+              <div class="km-stat-label">主流编程语言支持</div>
+            </div>
+            <div class="km-stat-card">
+              <div class="km-stat-icon"><i class="fa fa-sitemap"></i></div>
+              <div class="km-stat-value">
+                <span class="km-stat-number" data-target="71">0</span><span class="km-stat-suffix">万+</span>
+              </div>
+              <div class="km-stat-label">AST 节点分析能力</div>
+            </div>
+            <div class="km-stat-card">
+              <div class="km-stat-icon"><i class="fa fa-bullseye"></i></div>
+              <div class="km-stat-value">
+                <span class="km-stat-number" data-target="98.7">0</span><span class="km-stat-suffix">%</span>
+              </div>
+              <div class="km-stat-label">污点跟踪准确率</div>
+            </div>
+            <div class="km-stat-card">
+              <div class="km-stat-icon"><i class="fa fa-shield"></i></div>
+              <div class="km-stat-value">
+                <span class="km-stat-number" data-target="1000">0</span><span class="km-stat-suffix">+</span>
+              </div>
+              <div class="km-stat-label">CVI 安全规则库</div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
-</section>
+  </section>
+
+  <section class="km-features">
+    <div class="container">
+      <div class="text-center mb-5">
+        <h2 class="km-section-title">平台能力</h2>
+        <p class="km-section-subtitle">面向源码与依赖的完整安全审计闭环</p>
+      </div>
+      <div class="row g-4">
+        <div class="col-md-4">
+          <div class="km-feature-card km-feature-blue">
+            <div class="km-feature-icon"><i class="fa fa-search"></i></div>
+            <h3>静态代码审计</h3>
+            <p>支持 PHP / JavaScript / Java / Python 等主流语言，结合污点跟踪与 AST 分析定位真实风险路径。</p>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="km-feature-card km-feature-green">
+            <div class="km-feature-icon"><i class="fa fa-cubes"></i></div>
+            <h3>供应链风险识别</h3>
+            <p>自动解析 composer / npm / maven 等依赖，结合已知漏洞库给出修复建议与影响范围。</p>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="km-feature-card km-feature-orange">
+            <div class="km-feature-icon"><i class="fa fa-gear"></i></div>
+            <h3>规则与插件可扩展</h3>
+            <p>支持 CVI 规则与 Tamper 插件自定义，灵活适配业务专属安全策略与误报抑制需求。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="km-footer">
+    <div class="container text-center">
+      <strong>Copyright &copy; 2018 <a href="#" class="text-decoration-none">{{ title }}</a>.</strong> 保留所有权利。
+      <span class="ms-2 text-muted">由 LoRexxar 提供支持</span>
+    </div>
+  </footer>
+
+</div>
 
 {% if not user.is_authenticated %}
-<div class="modal landing-auth-modal" id="auth-modal">
-  <div class="modal-background"></div>
-  <div class="modal-card">
-    <header class="modal-card-head">
-      <p class="modal-card-title">账户中心</p>
-      <button class="delete js-close-auth" aria-label="close"></button>
-    </header>
-    <section class="modal-card-body">
-      <div class="tabs is-toggle is-fullwidth">
-        <ul>
-          <li class="auth-tab is-active" data-auth-target="login"><a>登录</a></li>
-          {% if is_open_register %}
-          <li class="auth-tab" data-auth-target="register"><a>注册</a></li>
-          {% endif %}
+<div class="modal fade km-auth-modal" id="auth-modal" tabindex="-1" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">账户中心</h5>
+        <button type="button" class="btn-close btn-close-white js-close-auth" data-bs-dismiss="modal" aria-label="close"></button>
+      </div>
+      <div class="modal-body">
+        <ul class="nav nav-tabs mb-3">
+          <li class="nav-item">
+            <button type="button" class="nav-link active auth-tab" data-auth-target="login">登录</button>
+          </li>
+{% if is_open_register %}
+          <li class="nav-item">
+            <button type="button" class="nav-link auth-tab" data-auth-target="register">注册</button>
+          </li>
+{% endif %}
         </ul>
-      </div>
 
-      {% if messages %}
-      <div class="auth-messages">
-        <ul class="messages">
-          {% for message in messages %}
-          <li{% if message.tags %} class="notification is-danger is-{{ message.tags }}"{% endif %}>{{ message }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
+{% if messages %}
+        <div class="auth-messages">
+{% for message in messages %}
+          <div class="alert alert-danger mb-0">{{ message }}</div>
+{% endfor %}
+        </div>
+{% endif %}
 
-      <div class="auth-panel" data-auth-panel="login">
-        <form id="login-form" method="post" action="{% url 'index:login' %}">
-          {% csrf_token %}
-          <div class="field">
-            <div class="control has-icons-left">
-              <input class="input" type="text" placeholder="用户名" name="username" required>
-              <span class="icon is-small is-left"><i class="fa fa-user"></i></span>
+        <div class="auth-panel" data-auth-panel="login">
+          <form id="login-form" method="post" action="{% url 'index:login' %}">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label">用户名</label>
+              <div class="input-icon">
+                <span class="input-icon-addon"><i class="fa fa-user text-muted"></i></span>
+                <input type="text" class="form-control" placeholder="请输入用户名" name="username" required>
+              </div>
             </div>
-          </div>
-          <div class="field">
-            <div class="control has-icons-left">
-              <input class="input" type="password" placeholder="密码" name="password" required>
-              <span class="icon is-small is-left"><i class="fa fa-lock"></i></span>
+            <div class="mb-3">
+              <label class="form-label">密码</label>
+              <div class="input-icon">
+                <span class="input-icon-addon"><i class="fa fa-lock text-muted"></i></span>
+                <input type="password" class="form-control" placeholder="请输入密码" name="password" required>
+              </div>
             </div>
-          </div>
-          <button class="button is-info is-fullwidth">登录并继续</button>
-        </form>
-      </div>
+            <div class="form-footer">
+              <button type="submit" class="btn btn-primary w-100">登录并继续</button>
+            </div>
+          </form>
+        </div>
 
-      {% if is_open_register %}
-      <div class="auth-panel is-hidden" data-auth-panel="register">
-        <form id="register-form" method="post" action="{% url 'index:register' %}">
-          {% csrf_token %}
-          <div class="field">
-            <div class="control has-icons-left">
-              <input class="input" type="text" placeholder="用户名" name="username" required minlength="3">
-              <span class="icon is-small is-left"><i class="fa fa-user"></i></span>
+{% if is_open_register %}
+        <div class="auth-panel d-none" data-auth-panel="register">
+          <form id="register-form" method="post" action="{% url 'index:register' %}">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label">用户名</label>
+              <input type="text" class="form-control" placeholder="请输入用户名" name="username" required minlength="3">
             </div>
-          </div>
-          <div class="field">
-            <div class="control has-icons-left">
-              <input class="input" type="password" placeholder="密码" name="password1" required minlength="8">
-              <span class="icon is-small is-left"><i class="fa fa-lock"></i></span>
+            <div class="mb-3">
+              <label class="form-label">密码</label>
+              <input type="password" class="form-control" placeholder="请输入密码" name="password1" required minlength="8">
             </div>
-          </div>
-          <div class="field">
-            <div class="control has-icons-left">
-              <input class="input" type="password" placeholder="确认密码" name="password2" required minlength="8">
-              <span class="icon is-small is-left"><i class="fa fa-shield"></i></span>
+            <div class="mb-3">
+              <label class="form-label">确认密码</label>
+              <input type="password" class="form-control" placeholder="请再次输入密码" name="password2" required minlength="8">
             </div>
-          </div>
-          <button class="button is-primary is-fullwidth">创建账号</button>
-        </form>
+            <div class="form-footer">
+              <button type="submit" class="btn btn-primary w-100">创建账号</button>
+            </div>
+          </form>
+        </div>
+{% endif %}
       </div>
-      {% endif %}
-    </section>
+    </div>
   </div>
 </div>
 {% endif %}
 
 <script src="{% static 'js/jquery.min.js' %}"></script>
-<script src="{% static 'js/bootstrap.min.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
 <script>
 (function () {
   var authModal = document.getElementById('auth-modal');
@@ -200,26 +650,44 @@
     return;
   }
 
+  var bsModal = null;
+  if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+    bsModal = bootstrap.Modal.getOrCreateInstance(authModal, { backdrop: true });
+  }
+
   function switchAuthPanel(target) {
     var tabs = authModal.querySelectorAll('.auth-tab');
     var panels = authModal.querySelectorAll('.auth-panel');
+    var resolved = target || 'login';
     for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-auth-target') === target);
+      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-auth-target') === resolved);
     }
     for (var j = 0; j < panels.length; j++) {
-      panels[j].classList.toggle('is-hidden', panels[j].getAttribute('data-auth-panel') !== target);
+      panels[j].classList.toggle('d-none', panels[j].getAttribute('data-auth-panel') !== resolved);
     }
   }
 
   function openAuthModal(target) {
-    switchAuthPanel(target || 'login');
-    authModal.classList.add('is-active');
-    document.body.classList.add('modal-open');
+    switchAuthPanel(target);
+    if (bsModal) {
+      bsModal.show();
+    } else {
+      authModal.classList.add('show');
+      authModal.style.display = 'block';
+      authModal.removeAttribute('aria-hidden');
+      document.body.classList.add('modal-open');
+    }
   }
 
   function closeAuthModal() {
-    authModal.classList.remove('is-active');
-    document.body.classList.remove('modal-open');
+    if (bsModal) {
+      bsModal.hide();
+    } else {
+      authModal.classList.remove('show');
+      authModal.style.display = '';
+      authModal.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('modal-open');
+    }
   }
 
   var openTriggers = document.querySelectorAll('.js-open-auth');
@@ -230,9 +698,12 @@
     });
   }
 
-  var closeTriggers = authModal.querySelectorAll('.js-close-auth, .modal-background');
+  var closeTriggers = authModal.querySelectorAll('.js-close-auth');
   for (var j = 0; j < closeTriggers.length; j++) {
-    closeTriggers[j].addEventListener('click', closeAuthModal);
+    closeTriggers[j].addEventListener('click', function (e) {
+      e.preventDefault();
+      closeAuthModal();
+    });
   }
 
   var tabs = authModal.querySelectorAll('.auth-tab');
@@ -248,11 +719,51 @@
     }
   });
 
-  {% if auth_modal == 'register' %}
+{% if auth_modal == 'register' %}
   openAuthModal('register');
-  {% elif auth_modal == 'login' %}
+{% elif auth_modal == 'login' %}
   openAuthModal('login');
-  {% endif %}
+{% endif %}
+})();
+
+(function () {
+  var numbers = document.querySelectorAll('.km-stat-number');
+  if (!numbers.length) { return; }
+
+  function animate(el) {
+    var raw = el.getAttribute('data-target') || '0';
+    var target = parseFloat(raw);
+    var decimals = (raw.split('.')[1] || '').length;
+    var duration = 1600;
+    var startTime = null;
+
+    function step(ts) {
+      if (startTime === null) { startTime = ts; }
+      var progress = Math.min((ts - startTime) / duration, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var current = target * eased;
+      el.textContent = decimals > 0 ? current.toFixed(decimals) : Math.floor(current);
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        el.textContent = decimals > 0 ? target.toFixed(decimals) : target;
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  var started = false;
+  function start() {
+    if (started) { return; }
+    started = true;
+    for (var i = 0; i < numbers.length; i++) { animate(numbers[i]); }
+  }
+
+  if (document.readyState === 'complete') {
+    setTimeout(start, 150);
+  } else {
+    window.addEventListener('load', function () { setTimeout(start, 150); });
+  }
 })();
 </script>
 </body>

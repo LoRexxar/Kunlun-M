@@ -16,31 +16,51 @@ class CVI_7009(SingleRuleMixin):
         self.match = r"redirect\(|HttpResponseRedirect\(|RedirectResponse\(|Redirect\(|flask\.redirect|django\.http\.HttpResponseRedirect"
         self.vul_function = ["redirect", "HttpResponseRedirect", "RedirectResponse", "Redirect"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
-        二次筛选：过滤硬编码URL重定向
-
-        安全模式 (return False):
-        - redirect('/home')  硬编码路径
-        - redirect(url_for('index'))  内部路由
-        - HttpResponseRedirect('/login')  硬编码
-
-        危险模式 (return None):
-        - redirect(url)  变量
-        - redirect(request.GET.get('next'))  用户输入
+        Graph-based filtering: filter hardcoded URL redirects.
+        redirect('/home') → False (const)
+        redirect(url_for(...)) → False (operator with callee 'url_for')
+        redirect(request.url) → False (PRG self-redirect)
+        redirect(form.instance) → False (Model.get_absolute_url() returns safe internal path)
+        redirect(url) → None (variable)
         """
-        if not regex_string:
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # const/string literal → hardcoded path, safe
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                # resolved_value → identifier with const assignment
+                if arg0.get('resolved_value', ''):
+                    return False
+                # operator (function call) → check callee name
+                if arg0.get('label') == 'operator':
+                    arg_name = arg0.get('name', '').lower()
+                    if 'url_for' in arg_name or 'reverse' in arg_name:
+                        return False
+                # member/property: request.url / request.path / request.full_path → PRG self-redirect
+                if arg0.get('type') == 'property' and arg0.get('name', '').lower() in ('url', 'path', 'full_path'):
+                    return False
+                # identifier → check if name suggests model instance
+                # (e.g. form.instance) which calls get_absolute_url() internally
+                if arg0.get('label') == 'identifier':
+                    arg_name = arg0.get('name', '').lower()
+                    if '.instance' in arg_name or '.obj' in arg_name:
+                        return False
             return None
 
+        # Regex fallback
+        if not regex_string:
+            return None
         redirect_match = re.search(
             r'(?:redirect|HttpResponseRedirect|RedirectResponse|Redirect)\s*\(\s*(.+)', regex_string, re.I)
         if redirect_match:
             arg = redirect_match.group(1).strip()
-            # 纯字符串字面量（硬编码路径）
-            if re.match(r'^[\'\"][^\'\"]*[\'\"]\s*\)', arg):
+            if re.match(r'^[\'"][^\'"]*[\'"]\s*\)', arg):
                 return False
-            # url_for() 内部路由是安全的
             if re.match(r'^url_for\s*\(', arg):
                 return False
-
+            if re.match(r'^request\.url\s*\)', arg):
+                return False
         return None

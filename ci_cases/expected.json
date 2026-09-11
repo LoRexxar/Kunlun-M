@@ -1,0 +1,69 @@
+{
+  "expected": [
+    {
+      "file": "cmd_inject.java",
+      "cvi_id": "6003",
+      "severity": "high"
+    },
+    {
+      "file": "cmd_inject.py",
+      "cvi_id": "7000",
+      "severity": "high"
+    },
+    {
+      "file": "cmd_inject_node.js",
+      "cvi_id": "3100",
+      "severity": "high"
+    },
+    {
+      "file": "sqli.php",
+      "cvi_id": "1005",
+      "severity": "high"
+    },
+    {
+      "file": "xss.js",
+      "cvi_id": "3002",
+      "severity": "high"
+    },
+    {
+      "file": "eval_inject.py",
+      "cvi_id": "7001",
+      "severity": "high"
+    },
+    {
+      "file": "cross_lang_pollution.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "Must detect even when cross_lang_pollution.js defines app.get"
+    },
+    {
+      "file": "sanitizer_escape.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "shlex.quote called but result not assigned back to cmd"
+    },
+    {
+      "file": "chain_trace.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "Source passes through run_command() to sink"
+    }
+  ],
+  "forbidden": [
+    {
+      "file": "sanitizer_noescape.php",
+      "cvi_id": "3002",
+      "reason": "htmlspecialchars properly sanitizes XSS before echo"
+    },
+    {
+      "file": "sanitizer_python.py",
+      "cvi_id": "7000",
+      "reason": "shlex.quote result IS assigned back to data — real sanitizer"
+    },
+    {
+      "file": "sanitizer_php.php",
+      "cvi_id": "9001",
+      "reason": "escapeshellarg properly sanitizes before system()"
+    }
+  ]
+}

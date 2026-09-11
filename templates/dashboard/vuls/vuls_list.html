@@ -1,0 +1,516 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block title %}漏洞列表{% endblock %}
+{% block body_header %}
+<h1>漏洞列表 <small>全部任务</small></h1>
+{% endblock %}
+
+{% block body %}
+<style>
+.vul-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 1100px;
+}
+.vul-table col.vc-id     { width: 50px; }
+.vul-table col.vc-cvi    { width: 65px; }
+.vul-table col.vc-lang   { width: 55px; }
+.vul-table col.vc-task   { width: 110px; }
+.vul-table col.vc-file   { width: 260px; }
+.vul-table col.vc-chain  { width: auto; }
+.vul-table col.vc-level  { width: 60px; }
+.vul-table col.vc-type   { width: 90px; }
+.vul-table col.vc-status { width: 55px; }
+.vul-table col.vc-ops    { width: 45px; }
+.vul-table td, .vul-table th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 8px 6px !important;
+    font-size: 13px;
+}
+.vul-table td.vc-chain-cell, .vul-table th.vc-chain-cell {
+    white-space: normal;
+    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 展开区 - 传播链代码面板 */
+.km-vul-chain-panel {
+    display: flex;
+    border: 1px solid #d0d7de;
+    border-top: 2px solid #3b82f6;
+    background: #fff;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+.km-vul-chain-sidebar {
+    width: 280px;
+    min-width: 280px;
+    border-right: 1px solid #e5e9ed;
+    background: #f6f8fa;
+    overflow-y: auto;
+}
+.km-vul-chain-sidebar-row {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    font-size: 13px;
+    border-bottom: 1px solid #eef0f3;
+    transition: background 0.1s;
+}
+.km-vul-chain-sidebar-row:last-child { border-bottom: none; }
+.km-vul-chain-sidebar-row:hover { background: #eef3ff; }
+.km-vul-chain-sidebar-row.active {
+    background: #fff;
+    border-left-color: #3b82f6;
+}
+.km-vul-chain-sidebar-row .role-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+    letter-spacing: 0.3px;
+}
+.role-sink { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+.role-source { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.role-propagation { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+.km-vul-chain-sidebar-row .node-name {
+    color: #1f2937;
+    font-weight: 600;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.km-vul-chain-sidebar-row .node-loc {
+    color: #9ca3af;
+    font-size: 11px;
+    margin-top: 3px;
+}
+.km-vul-chain-code {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.km-vul-chain-code .code-header {
+    flex-shrink: 0;
+    padding: 8px 20px;
+    font-size: 12px;
+    color: #6b7280;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.km-vul-chain-code .code-body {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+}
+.km-vul-chain-code .code-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+    line-height: 1.7;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.km-vul-chain-code .code-table td {
+    padding: 0 12px;
+    vertical-align: top;
+    white-space: pre;
+}
+.km-vul-chain-code .code-table .td-line {
+    width: 50px;
+    min-width: 50px;
+    text-align: right;
+    color: #b0b8c4;
+    user-select: none;
+    padding-right: 16px;
+    border-right: 1px solid #eef0f3;
+    font-size: 12px;
+}
+.km-vul-chain-code .code-table tr.hl-line td {
+    background: #fffbe6;
+}
+.km-vul-chain-code .code-table tr.hl-line .td-line {
+    color: #d97706;
+    font-weight: 600;
+}
+.km-vul-chain-code .code-table tr:not(.hl-line):hover td {
+    background: #f8f9fb;
+}
+.km-vul-chain-code .code-table .td-code {
+    color: #1f2937;
+}
+.km-vul-chain-meta {
+    width: 200px;
+    min-width: 200px;
+    max-width: 200px;
+    border-right: 1px solid #e5e9ed;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #475569;
+    background: #fff;
+    overflow: hidden;
+}
+.km-vul-chain-meta .meta-row {
+    padding: 6px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+.km-vul-chain-meta .meta-row:last-child { border-bottom: none; }
+.km-vul-chain-meta .meta-label {
+    display: block;
+    color: #9ca3af;
+    font-size: 11px;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.km-vul-chain-meta .meta-value {
+    display: block;
+    color: #374151;
+    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+    font-size: 12px;
+}
+.km-vul-chain-meta code {
+    display: block;
+    background: #f3f4f6;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #1f2937;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    line-height: 1.5;
+    max-height: 60px;
+}
+</style>
+<div class="card">
+<div class="card-header">
+  <h3 class="card-title">漏洞列表 <span class="badge bg-yellow">{{ total }}</span></h3>
+  <div class="card-tools d-flex ms-auto" style="gap:8px;">
+    <input type="text" id="searchBox" class="form-control form-control-sm" style="width:220px;" placeholder="搜索文件/代码/CVI..." value="{{ f_q }}">
+    <button type="button" class="btn btn-sm btn-primary" id="btnSearch"><i class="fa fa-search"></i></button>
+  </div>
+</div>
+<div class="card-body">
+  <form method="get" id="filterForm" style="margin-bottom:12px;">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <select name="lang" class="form-select form-select-sm" style="width:auto;">
+        <option value="">所有语言</option>
+        {% for l in languages %}
+        <option value="{{ l }}" {% if l == f_lang %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+      <select name="cvi" class="form-select form-select-sm" style="width:auto;">
+        <option value="">所有 CVI</option>
+        {% for c in cvi_ids %}
+        <option value="{{ c }}" {% if c == f_cvi %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      <select name="level" class="form-select form-select-sm" style="width:auto;">
+        <option value="">所有等级</option>
+        <option value="critical" {% if f_level == 'critical' %}selected{% endif %}>严重</option>
+        <option value="high" {% if f_level == 'high' %}selected{% endif %}>高危</option>
+        <option value="medium" {% if f_level == 'medium' %}selected{% endif %}>中危</option>
+        <option value="low" {% if f_level == 'low' %}selected{% endif %}>低危</option>
+      </select>
+      <select name="confirm" class="form-select form-select-sm" style="width:auto;">
+        <option value="" {% if not f_confirm %}selected{% endif %}>所有状态</option>
+        <option value="tp" {% if f_confirm == 'tp' %}selected{% endif %}>已确认 TP</option>
+        <option value="fp" {% if f_confirm == 'fp' %}selected{% endif %}>已标记 FP</option>
+        <option value="unconfirmed" {% if f_confirm == 'unconfirmed' %}selected{% endif %}>未确认</option>
+      </select>
+      <input type="text" name="task_id" class="form-control form-control-sm" style="width:100px;" placeholder="任务ID" value="{{ f_task_id }}">
+      <button type="submit" class="btn btn-sm btn-primary">筛选</button>
+      <a href="?" class="btn btn-sm btn-default">重置</a>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-hover vul-table" id="vulTable">
+      <colgroup>
+        <col class="vc-id">
+        <col class="vc-cvi">
+        <col class="vc-lang">
+        <col class="vc-task">
+        <col class="vc-file">
+        <col class="vc-chain">
+        <col class="vc-level">
+        <col class="vc-type">
+        <col class="vc-status">
+        <col class="vc-ops">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>CVI</th>
+          <th>语言</th>
+          <th>任务</th>
+          <th>文件</th>
+          <th class="vc-chain-cell">传播链</th>
+          <th>等级</th>
+          <th>类型</th>
+          <th>确认</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
+          <td>{{ r.id }}</td>
+          <td>{{ r.cvi_id }}</td>
+          <td>{{ r.language }}</td>
+          <td title="{{ r.task_name|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.task_name|truncatechars:12 }}</a></td>
+          <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></td>
+          <td class="vc-chain-cell" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
+          <td>
+            {% if r.level_lower == 'critical' %}<span class="badge" style="background:#a00!important;color:#fff!important;">严重</span>
+            {% elif r.level_lower == 'high' %}<span class="badge bg-danger">高危</span>
+            {% elif r.level_lower == 'medium' %}<span class="badge bg-warning">中危</span>
+            {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
+            {% else %}<span class="badge bg-light text-dark border">{{ r.level }}</span>{% endif %}
+          </td>
+          <td title="{{ r.result_type|escape }}">{{ r.rule_name|truncatechars:8 }}</td>
+          <td>
+            {% if r.verification_status == 'tp' %}<span style="color:#16a34a;font-weight:600;">TP</span>
+            {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;font-weight:600;">FP</span>
+            {% elif r.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
+            {% else %}<span style="color:#6b7280;">-</span>{% endif %}
+          </td>
+          <td>
+            <div class="dropdown">
+              <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation();" style="padding:2px 8px;">...</button>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'dashboard:task_detail' r.scan_task_id %}">查看任务</a></li>
+                <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'tp')">标记 TP</a></li>
+                <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'fp')">标记 FP</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item text-danger" href="javascript:;" onclick="event.stopPropagation(); delVul({{ r.id }})">删除</a></li>
+              </ul>
+            </div>
+          </td>
+        </tr>
+        <tr class="km-vul-detail-row" style="display:none;">
+          <td colspan="10" style="padding:0!important;border:none!important;">
+            <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}">
+              <div class="km-vul-chain-meta">
+                <div class="meta-row"><span class="meta-label">CVI</span><span class="meta-value">{{ r.cvi_id }}</span></div>
+                <div class="meta-row"><span class="meta-label">文件路径</span><span class="meta-value" title="{{ r.vulfile_path|escape }}">{{ r.vulfile_path }}</span></div>
+                <div class="meta-row"><span class="meta-label">触发代码</span><code title="{{ r.source_code|escape }}">{{ r.source_code|escape }}</code></div>
+                <div class="meta-row"><span class="meta-label">项目</span><span class="meta-value">{{ r.project_name }}</span></div>
+                <div class="meta-row"><span class="meta-label">分析</span><span class="meta-value" title="{{ r.result_type|escape }}">{{ r.result_type }}</span></div>
+              </div>
+              <div class="km-vul-chain-sidebar" id="chainSidebar_{{ r.id }}"></div>
+              <div class="km-vul-chain-code" id="chainCode_{{ r.id }}"></div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if max_page > 1 %}
+  <nav style="margin-top:16px;">
+    <ul class="pagination pagination-sm justify-content-center">
+      {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">&laquo;</a></li>{% endif %}
+      {% for p in page_range %}
+        {% if p == page %}
+          <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+        {% elif p <= 3 or p >= max_page|add:'-2' or p|add:'-1' == page or p|add:'1' == page %}
+          <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">{{ p }}</a></li>
+        {% elif p|add:'-1' == page or p|add:'1' == page %}
+        {% else %}
+          {% if forloop.counter == 1 or p == max_page or forloop.counter == page_range|length %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+        {% endif %}
+      {% endfor %}
+      {% if page < max_page %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">&raquo;</a></li>{% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% csrf_token %}
+</div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+var chainDataMap = {};
+{% for r in results %}
+  {% if r.has_chain %}
+    chainDataMap["{{ r.id }}"] = {{ r.chain_nodes_json|safe }};
+  {% endif %}
+{% endfor %}
+
+var activeVulRow = null;
+
+function toggleVulDetail(row) {
+  var detailRow = row.nextElementSibling;
+  if (!detailRow || !detailRow.classList.contains('km-vul-detail-row')) return;
+  if (activeVulRow && activeVulRow !== row) {
+    var prev = activeVulRow.nextElementSibling;
+    if (prev && prev.classList.contains('km-vul-detail-row')) {
+      prev.style.display = 'none';
+      activeVulRow.classList.remove('km-vul-row-active');
+    }
+  }
+  if (detailRow.style.display === 'none') {
+    detailRow.style.display = 'table-row';
+    row.classList.add('km-vul-row-active');
+    activeVulRow = row;
+    var vulId = row.getAttribute('data-vul-id');
+    renderChainPanel(vulId);
+  } else {
+    detailRow.style.display = 'none';
+    row.classList.remove('km-vul-row-active');
+    activeVulRow = null;
+  }
+}
+
+function getChainRole(idx, total) {
+  if (idx === 0) return 'source';
+  if (idx === total - 1) return 'sink';
+  return 'propagation';
+}
+
+function getRoleLabel(role) {
+  if (role === 'source') return 'SOURCE';
+  if (role === 'sink') return 'SINK';
+  return '传播';
+}
+
+function getRoleClass(role) {
+  if (role === 'source') return 'role-source';
+  if (role === 'sink') return 'role-sink';
+  return 'role-propagation';
+}
+
+
+
+function renderChainPanel(vulId) {
+  var nodes = chainDataMap[vulId];
+  if (!nodes || nodes.length === 0) return;
+  var total = nodes.length;
+
+  // Build sidebar
+  var sidebar = document.getElementById('chainSidebar_' + vulId);
+  var html = '';
+  for (var i = 0; i < total; i++) {
+    var n = nodes[i];
+    var role = getChainRole(i, total);
+    var fname = (n.path || '').split('/').pop();
+    var name = n.content || n.type;
+    html += '<div class="km-vul-chain-sidebar-row' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '" onclick="selectChainNode(' + vulId + ',' + i + ')">';
+    html += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
+    html += '<span class="node-name">' + escapeHtml(name) + '</span>';
+    html += '<div class="node-loc">' + escapeHtml(n.type);
+    if (fname && n.lineno) html += ' · ' + escapeHtml(fname) + ':' + n.lineno;
+    html += '</div></div>';
+
+  }
+  sidebar.innerHTML = html;
+
+  // Select last node (source) by default
+  selectChainNode(vulId, 0);
+}
+
+function selectChainNode(vulId, idx) {
+  var nodes = chainDataMap[vulId];
+  if (!nodes || !nodes[idx]) return;
+  var n = nodes[idx];
+  var role = getChainRole(idx, nodes.length);
+
+  var sidebar = document.getElementById('chainSidebar_' + vulId);
+  sidebar.querySelectorAll('.km-vul-chain-sidebar-row').forEach(function(el) { el.classList.remove('active'); });
+  var activeRow = sidebar.querySelector('[data-idx="' + idx + '"]');
+  if (activeRow) activeRow.classList.add('active');
+
+  var codeArea = document.getElementById('chainCode_' + vulId);
+  if (!codeArea) return;
+  var targetLineno = n.lineno || 0;
+
+  var headerHtml = '<div class="code-header">';
+  headerHtml += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
+  headerHtml += '<strong>' + escapeHtml(n.type) + '</strong> &mdash; ' + escapeHtml(n.content || '');
+  if (n.path) headerHtml += ' <span style="margin-left:12px;color:#9ca3af;">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
+  if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span style="margin-left:8px;color:#9ca3af;">vid=' + n.vid + '</span>';
+  headerHtml += '</div>';
+
+  var sourceLines = n.source_code || '';
+  var codeLines = [];
+  var lineNums = [];
+  if (sourceLines) {
+    var rawLines = sourceLines.split('\n');
+    for (var i = 0; i < rawLines.length; i++) {
+      var m = rawLines[i].match(/^(\s*)(\d+):\s?(.*)/);
+      if (m) {
+        lineNums.push(parseInt(m[2]));
+        codeLines.push(m[3]);
+      }
+    }
+  }
+
+  if (codeLines.length === 0) {
+    codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
+    return;
+  }
+
+  var bodyHtml = '<div class="code-body"><table class="code-table">';
+  for (var j = 0; j < codeLines.length; j++) {
+    var isTarget = (lineNums[j] === targetLineno);
+    bodyHtml += '<tr' + (isTarget ? ' class="hl-line"' : '') + '>';
+    bodyHtml += '<td class="td-line">' + (lineNums[j] || '') + '</td>';
+    bodyHtml += '<td class="td-code">' + escapeHtml(codeLines[j]) + '</td>';
+    bodyHtml += '</tr>';
+  }
+  bodyHtml += '</table></div>';
+  codeArea.innerHTML = headerHtml + bodyHtml;
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function verifyVul(vulid, action) {
+  $.post('/dashboard/vuls/' + vulid + '/verify',
+    {action: action, csrfmiddlewaretoken: $('input[name=csrfmiddlewaretoken]').val() || $("meta[name='csrf-token']").attr('content')},
+    function(data) { if(data.code == 200) location.reload(); else alert(data.message); }
+  );
+}
+function delVul(vulid) {
+  $.get('/dashboard/vuls/' + vulid + '/del', function(data) { if(data.code == 200) location.reload(); else alert(data.message); });
+}
+
+$('#btnSearch').click(function() {
+  var q = $('#searchBox').val();
+  var url = '?q=' + encodeURIComponent(q);
+  var lang = $('select[name=lang]').val();
+  if (lang) url += '&lang=' + lang;
+  var cvi = $('select[name=cvi]').val();
+  if (cvi) url += '&cvi=' + cvi;
+  var level = $('select[name=level]').val();
+  if (level) url += '&level=' + level;
+  var confirm = $('select[name=confirm]').val();
+  if (confirm) url += '&confirm=' + confirm;
+  window.location.href = url;
+});
+$('#searchBox').keydown(function(e) { if (e.keyCode === 13) { e.preventDefault(); $('#btnSearch').click(); } });
+
+$(document).ready(function() {
+  $("#dashboard").removeClass("active menu-open");
+  $("#dashboard").find("ul li").removeClass("active");
+  $("#vuls").addClass("active");
+});
+</script>
+{% endblock %}

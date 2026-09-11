@@ -6,7 +6,7 @@ django>=4.2,<6
 Werkzeug>=3.0.6
 
 # Parser / analysis stack
-lphply>=2.0.0
+lphply>=2.2.0
 lesprima>=2.0.0
 pyjsparser>=2.7.1
 jsbeautifier>=1.15.1
@@ -21,14 +21,25 @@ requests>=2.32.3
 rarfile>=4.2
 
 # Java source parsing
-ljavalang>=2.0.2,<3
+ljavalang>=2.1.0,<3
 
-# Go source parsing (tree-sitter)
+# Graph engine
+python-igraph>=1.0,<2
+
+# AST graph engine — tree-sitter core
 tree-sitter>=0.23,<1
+tree-sitter-python>=0.23,<1
+tree-sitter-java>=0.23,<1
+tree-sitter-javascript>=0.23,<1
+tree-sitter-typescript>=0.23,<1
 tree-sitter-go>=0.23,<1
-# C/C++ source parsing (tree-sitter)
 tree-sitter-c>=0.23,<1
 tree-sitter-cpp>=0.23,<1
+tree-sitter-rust>=0.23,<1
+tree-sitter-ruby>=0.23,<1
+tree-sitter-c-sharp>=0.23,<1
+tree-sitter-kotlin>=1.0,<2
+tree-sitter-lua>=0.5
 
 # Database drivers
 mysqlclient>=2.2.4

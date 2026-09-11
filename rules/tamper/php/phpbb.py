@@ -18,7 +18,7 @@ FILTER_FUNCTIONS = {
 EXTRA_SINKS = [
     ("->sql_query(", [1004]),
     ("->sql_build_query(", [1004]),
-    ("redirect(", [1009]),
+    ("redirect(", [1013]),
     ("include(", [1003]),
 ]
 

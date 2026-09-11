@@ -176,14 +176,31 @@ DEP_PARSERS = {
 
 
 def _match_deps(installed_deps, framework_deps):
-    """Check if any framework dependency matches installed packages."""
+    """Check if any framework dependency matches installed packages.
+
+    installed_deps keys are language-specific file types ('composer',
+    'requirements', 'package', etc.), unified by _parse_* functions.
+    framework_deps (DEPENDENCIES in each tamper module) use the same keys.
+    However, _parse_composer currently returns section names ('require',
+    'require-dev') rather than 'composer'. We handle both: try the exact
+    key, and also scan all installed_deps sections as a fallback.
+    """
     for dep_type, packages in framework_deps.items():
+        # Exact key match (e.g. 'composer' → 'composer')
         installed = installed_deps.get(dep_type, [])
         for pkg in packages:
             pkg_lower = pkg.lower()
             for inst in installed:
                 if pkg_lower in inst.lower():
                     return True
+            # Fallback: scan ALL installed_deps sections. This handles the
+            # _parse_composer key mismatch (require/require-dev vs composer)
+            # and makes dependency matching robust to parser output format.
+            if not installed:
+                for section_pkgs in installed_deps.values():
+                    for inst in section_pkgs:
+                        if pkg_lower in inst.lower():
+                            return True
     return False
 
 

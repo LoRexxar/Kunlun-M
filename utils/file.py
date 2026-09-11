@@ -728,8 +728,15 @@ class Directory(object):
                     # check black path list
                     is_black = False
                     if self.black_path_list:
+                        # 按路径分隔符拆分，逐组件精确匹配（避免子串误匹配如 'docs' in 'htdocs'）
+                        dir_parts = directory.replace('\\', '/').rstrip('/').split('/')
                         for black_path in self.black_path_list:
-                            if black_path in filename:
+                            # 精确匹配目录名或文件名（避免误匹配如 test_controller.php）
+                            if black_path == filename or black_path in dir_parts:
+                                is_black = True
+                                break
+                            # 也支持通配符模式（如 *.pyc）
+                            if black_path.startswith('*') and filename.endswith(black_path[1:]):
                                 is_black = True
                                 break
                     if is_black:

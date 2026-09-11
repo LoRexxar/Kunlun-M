@@ -25,7 +25,8 @@ class CVI_4104(SingleRuleMixin):
         self.level = 3
 
         # 部分配置
-        self.match_mode = "special-crx-keyword-match"
+        self.match_mode = "file-pattern"
+        self.file_pattern = r"manifest.json$"
         self.match = ['bookmarks', 'history', 'topSites', 'tabs', 'pageCapture', 'webRequest', 'downloads', 'sessions']
 
         # for chrome ext
@@ -34,7 +35,7 @@ class CVI_4104(SingleRuleMixin):
         # for regex
         self.unmatch = []
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

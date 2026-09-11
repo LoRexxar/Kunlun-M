@@ -1,0 +1,1073 @@
+"""Graph-based function summary — 图引擎上的函数摘要生成器。
+
+替代旧引擎的 14 语言 summary_generator.py，直接在已构建的 AST 图上工作。
+从 function 的 return 节点沿 DFG 反向 BFS 到 parameter，
+生成摘要并直接标注为图节点属性。
+
+摘要结果写入 function 节点：
+    func_summary_type: "passthrough" | "source" | "safe" | "literal" | "unknown"
+    func_summary_pt: [0, 2, ...]  — 返回值依赖的形参索引
+
+同步到 taint 属性（供 graph_analyzer Rule 4c 消费）：
+    taint_type = func_summary_type
+    taint_passthrough = func_summary_pt
+
+算法：
+    1. 遍历所有 function 节点
+    2. 找 return → ast[value] → 返回值表达式
+    3. 从返回值沿 DFG 反向 BFS（约束在 own 子树内）
+    4. 碰到 parameter → 记录 own 边 index
+    5. 碰到 taint_type=source/safe/passthrough → 标记
+    6. 碰到 call → use → function → 递归查目标摘要
+    7. 汇总 return flows → 确定 summary_type
+    8. 两遍迭代处理解决递归调用依赖
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import igraph as ig
+
+__all__ = ["build_function_summaries"]
+
+logger = logging.getLogger("KunlunLog")
+
+# BFS 递归深度上限
+_MAX_TRACE_DEPTH = 15
+
+# 迭代轮数上限（解决 A→B→A 递归调用）
+_MAX_ITERATIONS = 5
+
+# call operator 类型集合
+_CALL_TYPES = frozenset({"call", "method_call", "static_call"})
+
+
+def _build_edge_index(graph: "ig.Graph"):
+    """一次性遍历所有边，构建 O(1) 索引替代 es.select。
+
+    Returns:
+        out: dict[str, dict[int, list[int]]]  — label → {src_vid: [tgt_vid, ...]}
+        inn: dict[str, dict[int, list[int]]]  — label → {tgt_vid: [src_vid, ...]}
+        ast_children: dict[int, list[tuple[int, str, str]]]  — src_vid → [(tgt_vid, role, arg_index), ...]
+        own_children: dict[int, list[tuple[int, str]]]  — src_vid → [(tgt_vid, index), ...]
+    """
+    from utils.igraph_compat import _vattr
+    out: dict[str, dict[int, list[int]]] = {}
+    inn: dict[str, dict[int, list[int]]] = {}
+    ast_children: dict[int, list[tuple[int, str, str]]] = {}
+    own_children: dict[int, list[tuple[int, str]]] = {}
+    for e in graph.es:
+        el = _vattr(e, "label") or ""
+        s, t = e.source, e.target
+        out.setdefault(el, {}).setdefault(s, []).append(t)
+        inn.setdefault(el, {}).setdefault(t, []).append(s)
+        if el == "ast":
+            role = _vattr(e, "role") or ""
+            arg_idx = _vattr(e, "arg_index") or _vattr(e, "index") or ""
+            ast_children.setdefault(s, []).append((t, role, arg_idx))
+        if el == "own":
+            idx = _vattr(e, "index") or ""
+            own_children.setdefault(s, []).append((t, idx))
+    return {
+        "out": out,
+        "in": inn,
+        "ast_ch": ast_children,
+        "own_ch": own_children,
+    }
+
+
+def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
+                               return_vids: list[int] | None = None, eidx: dict | None = None):
+    """递归收集 start_vid 通过 ast/own 边可达的所有后代节点（BFS）。
+
+    同时追踪 ast 边和 own 边（own 边仅在 branch/control 节点下展开）。
+    因为 PHP 等语言的 if/else body 通过 branch → own → return 连接，
+    而非 ast 边。限制 own 边展开避免跨越到其他 function 节点。
+
+    Args:
+        return_vids: 如果提供，在展开过程中收集到的 return 节点也会追加到此列表。
+    """
+    from collections import deque
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    # 允许展开 own 子节点的节点类型（branch/control/函数体）
+    _OWN_EXPAND_LABELS = {NodeLabel.BRANCH.value, "control", NodeLabel.FUNCTION.value}
+
+    queue = deque([start_vid])
+    result.add(start_vid)
+    if return_vids is not None and _vattr(graph.vs[start_vid], "label", "") == NodeLabel.RETURN.value:
+        return_vids.append(start_vid)
+    while queue:
+        vid = queue.popleft()
+        src_label = _vattr(graph.vs[vid], "label", "")
+        for tgt_vid in eidx["out"].get("ast", {}).get(vid, []):
+            if tgt_vid not in result:
+                result.add(tgt_vid)
+                queue.append(tgt_vid)
+        if src_label in _OWN_EXPAND_LABELS:
+            # branch/control 节点的 own 子节点也展开
+            for tgt_vid in eidx["out"].get("own", {}).get(vid, []):
+                if tgt_vid not in result:
+                    result.add(tgt_vid)
+                    queue.append(tgt_vid)
+                    if return_vids is not None and _vattr(graph.vs[tgt_vid], "label", "") == NodeLabel.RETURN.value:
+                        return_vids.append(tgt_vid)
+
+
+def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
+    """Propagate func_summary_type from definition nodes to same-name
+    reference nodes created by the normalizer when building 'use' edges."""
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    func_by_name: dict[str, list[tuple[int, str]]] = {}
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            continue
+        fname = _vattr(v, "name", "")
+        if fname:
+            fst = _vattr(v, "func_summary_type", "")
+            func_by_name.setdefault(fname, []).append((v.index, fst))
+
+    for fname, entries in func_by_name.items():
+        best = ""
+        for _, fst in entries:
+            if fst in ("safe", "source", "source:user"):
+                best = fst
+                break
+            if fst == "passthrough" and not best:
+                best = fst
+        if best:
+            for vid, fst in entries:
+                if fst != best:
+                    graph.vs[vid]["func_summary_type"] = best
+
+
+def build_function_summaries(
+    graph: ig.Graph,
+    languages: list[str] | None = None,
+) -> dict[str, int]:
+    """在图上构建函数摘要，标注 function 节点属性。
+
+    Args:
+        graph: 已构建 DFG 边的 igraph AST 图
+        languages: 语言过滤列表（可选），None 表示全部
+
+    Returns:
+        统计信息 dict: {"annotated": N, "passthrough": N, "source": N, "safe": N, "literal": N, "unknown": N}
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    lang_set: set[str] | None = set(languages) if languages else None
+
+    stats = {"annotated": 0, "passthrough": 0, "source": 0, "safe": 0, "literal": 0, "unknown": 0}
+
+    # 一次性构建 O(1) 边索引，替代所有 es.select 调用
+    eidx = _build_edge_index(graph)
+
+    # ── 收集所有 function 节点及其结构 ──
+    func_data: dict[int, dict] = {}  # func_vid → {own_vids, param_idx, return_vids, lang}
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            continue
+        if lang_set is not None and _vattr(v, "language", "") not in lang_set:
+            continue
+        vid = v.index
+        own_vids: set[int] = set()
+        param_idx: dict[int, int] = {}  # param_vid → param index
+        return_vids: list[int] = []
+        for child_vid, edge_idx in eidx["own_ch"].get(vid, []):
+            child_label = _vattr(graph.vs[child_vid], "label", "")
+            if child_label == NodeLabel.PARAMETER.value:
+                if edge_idx is not None and edge_idx != "":
+                    param_idx[child_vid] = int(edge_idx)
+                # parameter 不展开 ast 子树（无意义）
+                own_vids.add(child_vid)
+            elif child_label == NodeLabel.RETURN.value:
+                return_vids.append(child_vid)
+                own_vids.add(child_vid)
+            else:
+                # 其他 own 子节点：递归展开 ast 子树（同时收集嵌套 return）
+                _collect_ast_descendants(graph, child_vid, own_vids, return_vids, eidx=eidx)
+        func_data[vid] = {
+            "own_vids": own_vids,
+            "param_idx": param_idx,
+            "return_vids": return_vids,
+        }
+
+    if not func_data:
+        return stats
+
+    # ── 迭代处理（解决递归调用依赖） ──
+    processed: set[int] = set()
+
+    for iteration in range(_MAX_ITERATIONS):
+        new_this_round = 0
+        for vid, fd in func_data.items():
+            if vid in processed:
+                continue
+            if not fd["return_vids"]:
+                # 无 return 的函数（void/无显式返回）— 不需要摘要
+                processed.add(vid)
+                continue
+
+            return_flows = _collect_return_flows(
+                graph, fd["return_vids"], fd["own_vids"], fd["param_idx"], eidx
+            )
+            if not return_flows:
+                processed.add(vid)
+                continue
+
+            # 汇总
+            summary_type, dep_params = _aggregate_flows(return_flows)
+
+            # 如果有未解析的 call（目标函数尚未有摘要），且不是最后一轮，延迟处理
+            has_unresolved = any(
+                f.get("has_unresolved_call")
+                and f.get("origin_type") in ("unknown", "param")
+                for f in return_flows
+            )
+            if has_unresolved and summary_type in ("unknown", "passthrough") and iteration < _MAX_ITERATIONS - 1:
+                continue
+
+            # ── 写入摘要属性 ──
+            graph.vs[vid]["func_summary_type"] = summary_type
+            if dep_params:
+                graph.vs[vid]["func_summary_pt"] = sorted(dep_params)
+
+            # 同步到 taint 属性（仅当 enrich_taint 未标注时）
+            existing_taint = _vattr(graph.vs[vid], "taint_type", "")
+            if not existing_taint and summary_type in ("passthrough", "source", "safe"):
+                # Use "source:user" for source to distinguish from framework/builtin
+                # sources, allowing inline return analysis in graph_analyzer.
+                sync_type = "source:user" if summary_type == "source" else summary_type
+                graph.vs[vid]["taint_type"] = sync_type
+                if summary_type == "passthrough" and dep_params:
+                    sorted_deps = sorted(dep_params)
+                    graph.vs[vid]["taint_passthrough"] = sorted_deps
+                    _mark_passthrough_params(graph, vid, sorted_deps, eidx)
+
+            processed.add(vid)
+            new_this_round += 1
+            stats[summary_type] = stats.get(summary_type, 0) + 1
+
+        stats["annotated"] += new_this_round
+        if new_this_round == 0:
+            break  # 无进展，停止迭代
+
+        # Propagate summaries to same-name reference nodes after each round.
+        # This ensures that when function A (round 1) calls function B (round 2)
+        # via a reference node, the reference already has B's summary.
+        _propagate_same_name_summaries(graph)
+
+    # 将剩余未处理的标记为 processed（避免后续重复计算）
+    for vid in func_data:
+        if vid not in processed:
+            processed.add(vid)
+
+    # Final propagation to same-name reference nodes
+    _propagate_same_name_summaries(graph)
+
+    logger.debug(
+        "build_function_summaries: processed %d/%d functions, stats=%s",
+        len(processed), len(func_data), stats,
+    )
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Internal: return flow 收集与聚合
+# ---------------------------------------------------------------------------
+
+
+def _collect_return_flows(
+    graph: ig.Graph,
+    return_vids: list[int],
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    eidx: dict,
+) -> list[dict]:
+    """从所有 return 节点收集 return flows。"""
+    from utils.igraph_compat import _vattr
+
+    flows = []
+    for ret_vid in return_vids:
+        for tgt, role, _ in eidx["ast_ch"].get(ret_vid, []):
+            if role == "value":
+                flow = _trace_return_value(graph, tgt, own_vids, param_idx, set(), eidx)
+                if flow:
+                    flows.append(flow)
+    return flows
+
+
+def _aggregate_flows(flows: list[dict]) -> tuple[str, set[int]]:
+    """汇总 return flows，返回 (summary_type, dep_params_set)。
+
+    规则：
+    - 有任何 source → "source"
+    - 有 dep_params，且没有 safe flow → "passthrough"
+    - 有 dep_params + safe flow 混合 → "safe"（函数内部做了 sanitization，
+      param return 通常是特殊条件的 fallback，如 is_array 分支）
+    - 全部 literal/safe → "safe"
+    - 否则 → "unknown"
+    """
+    has_source = False
+    has_safe = False
+    all_dep_params: set[int] = set()
+    all_safe_or_literal = True
+
+    for flow in flows:
+        ot = flow.get("origin_type", "")
+        if ot == "source":
+            has_source = True
+            all_safe_or_literal = False
+        elif ot == "param":
+            all_dep_params.update(flow.get("dep_params", []))
+            all_safe_or_literal = False
+        elif ot == "literal":
+            pass  # safe_or_literal stays True
+        elif ot == "safe":
+            has_safe = True
+            pass  # safe_or_literal stays True
+        else:  # unknown
+            all_safe_or_literal = False
+
+    if has_source:
+        return "source", all_dep_params
+    if all_dep_params:
+        # Mixed safe + param: function has a conditional sanitization path
+        # AND a raw parameter passthrough path. Be conservative: mark as
+        # "passthrough" so the taint analysis can still trace the parameter.
+        # Previously this returned "safe", which suppressed TPs when a
+        # function conditionally sanitized but also returned raw input.
+        return "passthrough", all_dep_params
+    if flows and all_safe_or_literal:
+        return "safe", all_dep_params
+    return "unknown", all_dep_params
+
+
+# ---------------------------------------------------------------------------
+# Internal: DFG 反向追踪
+# ---------------------------------------------------------------------------
+
+
+def _trace_return_value(
+    graph: ig.Graph,
+    start_vid: int,
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    visited: set[int],
+    eidx: dict,
+    depth: int = 0,
+) -> dict:
+    """从返回值表达式 vid 沿 DFG 反向追踪到参数/字面量/source。
+
+    Returns dict: {origin, origin_type, dep_params, has_unresolved_call}
+    """
+    from core.graph.node_edge_schema import NodeLabel, AstRole
+    from utils.igraph_compat import _vattr
+
+    if start_vid in visited or depth > _MAX_TRACE_DEPTH:
+        # Fix 17b: a visited-set hit is a CYCLE (we are already tracing this
+        # node higher in the stack), and a depth overflow is a trace bound —
+        # neither is a call to an unknown function, so neither may set
+        # has_unresolved_call.  That flag drives the defer logic in
+        # build_function_summaries; a cyclic flow with has_unresolved=True
+        # deferred its function every iteration (the cycle can never
+        # resolve), starving the function of a summary entirely.
+        return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": False}
+    visited = visited | {start_vid}
+
+    v = graph.vs[start_vid]
+    vlabel = _vattr(v, "label", "")
+    vtype = _vattr(v, "type", "")
+    vname = _vattr(v, "name", "")
+
+    # ── 1. 直接命中 parameter ──
+    if start_vid in param_idx:
+        # 检查 parameter 是否已被 enrich_taint 标注为 source（如 @RequestParam）
+        self_taint = _vattr(v, "taint_type", "")
+        if self_taint == "source":
+            return {
+                "origin": vname,
+                "origin_type": "source",
+                "dep_params": [],
+                "has_unresolved_call": False,
+            }
+        # 引用参数（&$param）的值由调用者提供，不应作为 passthrough 依赖。
+        # 如果函数 return 仅依赖引用参数，调用者的变量已经通过 SAME DFG
+        # 连接到 sink，不需要绕经函数内部产生虚假跨参数 taint 传播。
+        if _vattr(v, "is_reference", ""):
+            return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": False}
+        return {
+            "origin": vname,
+            "origin_type": "param",
+            "dep_params": [param_idx[start_vid]],
+            "has_unresolved_call": False,
+        }
+
+    # ── 2. 字面量 ──
+    if vlabel == NodeLabel.CONST.value:
+        return {"origin": vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
+
+    # ── 2.5. 节点自身已有 taint_type 注解（由 enrich_taint 或 _enrich_source_variables 标注） ──
+    #     适用于 identifier/function/statement 等非 operator 节点。
+    #     例如: return \$_GET (identifier 被标注为 source)
+    #     operator 节点在 step 3 中单独处理（因为 call 还需要追踪 use→function）。
+    self_taint = _vattr(v, "taint_type", "")
+    if self_taint == "source":
+        return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+    if self_taint == "safe":
+        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+    if self_taint == "passthrough":
+        pt = _vattr(v, "taint_passthrough", [])
+        if pt:
+            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
+
+    # ── 2.6. $this / self（链式调用返回自身实例） ──
+    #     PHP/Java 中 `return $this` / `return self` 是链式调用模式，
+    #     返回的是当前对象实例，不是外部输入，视为 safe。
+    if vlabel == NodeLabel.IDENTIFIER.value:
+        iname = _vattr(v, "name", "")
+        if isinstance(iname, str) and iname in ("$this", "self"):
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        # phply 格式: Variable('$this')
+        if isinstance(iname, str) and ("$this" in iname or iname.strip("'\"") == "$this"):
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    # ── 2.7. 静态属性/常量（identifier type='static'） ──
+    #     self::$instance（name 含 Variable，可能从外部赋值）不安全；
+    #     ORM::LIMIT_STYLE_TOP_N（name 不含 Variable，静态常量）safe。
+    #     self::$_config[$key]（name 含 Variable('$key')，$key 是参数）→ passthrough。
+    if vlabel == NodeLabel.IDENTIFIER.value and vtype == "static":
+        if "Variable(" not in vname:
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        # 提取 name 中的所有 Variable('$xxx') 名，尝试与参数关联
+        import re as _re
+        var_names = _re.findall(r"Variable\('\$(\w+)'\)", vname)
+        if var_names:
+            matched_params = []
+            for vn in var_names:
+                for pvid, pidx in param_idx.items():
+                    pname = _vattr(graph.vs[pvid], "name", "")
+                    # 参数名可能是 $xxx 或 Variable('$xxx')
+                    if pname.endswith("$" + vn) or ("Variable('$" + vn + "'") in pname:
+                        matched_params.append(pidx)
+                        break
+            if matched_params:
+                unique = list(dict.fromkeys(matched_params))
+                return {"origin": vname, "origin_type": "param",
+                        "dep_params": unique, "has_unresolved_call": False}
+
+    # ── 3. Operator（call, method_call, static_call 等） ──
+    if vlabel == NodeLabel.OPERATOR.value:
+        # 3a. 已有 taint_type 注解（builtin 函数，由 enrich_taint 标注）
+        taint = _vattr(v, "taint_type", "")
+        if taint == "source":
+            return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+        if taint == "safe":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        if taint == "passthrough":
+            pt = _vattr(v, "taint_passthrough", [])
+            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
+
+        # 3b. call operator → 尝试 use → function（用户自定义函数的摘要）
+        if vtype in _CALL_TYPES:
+            result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, eidx, depth)
+            if result and result.get("origin_type") != "unknown":
+                return result
+            # 3f. 目标函数无摘要（unknown）→ fallback 追踪 ast 实参
+            #     如果实参中包含 source parameter 的引用，call 返回值也继承该 origin。
+            #     这是保守估计：对于无摘要的外部/框架函数，假设返回值包含实参的污点。
+            #
+            # BUT: if the call target is a user-defined function whose summary
+            # hasn't been computed yet (e.g. Format::htmlchars called by
+            # Format::input before htmlchars's summary is ready), mark as
+            # unresolved so build_function_summaries defers this function to
+            # a later iteration round.
+            has_use_target = bool(eidx["out"].get("use", {}).get(start_vid, []))
+            if result and result.get("has_unresolved_call"):
+                for arg_vid, role, arg_idx in eidx["ast_ch"].get(start_vid, []):
+                    if not role.startswith("arg"):
+                        continue
+                    # 跳过 callee（ast child role 不是 arg 的部分）
+                    arg_sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, eidx, depth + 1)
+                    if arg_sub and arg_sub.get("origin_type") in ("source", "param"):
+                        return {"origin": vname, "origin_type": arg_sub["origin_type"],
+                                "dep_params": arg_sub.get("dep_params", []),
+                                "has_unresolved_call": has_use_target}
+                    # 如果实参中有 source 但 return type 是 unknown，优先报告 unknown
+                    if arg_sub and arg_sub.get("origin_type") == "unknown":
+                        # 继续检查其他实参
+                        pass
+
+        # 3c. 内置安全构造函数——不传播外部污点
+        #     array() 是 PHP 数组字面量构造，返回值仅由参数决定，
+        #     但其参数（如果有的话）已经通过 arg DFG 被单独追踪。
+        #     call 本身视为 safe 容器。
+        callee = _vattr(v, "callee", "")
+        if callee == "array":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+        # 3d. type_cast → 追踪内部表达式（passthrough）
+        #     (int)$x, (string)$x, (bool)$x — 类型转换不消除污点，
+        #     结果取决于内部表达式。递归追踪 ast 子节点。
+        if vtype == "type_cast":
+            for inner in [t for t, r, _ in eidx["ast_ch"].get(start_vid, [])]:
+                sub = _trace_return_value(graph, inner, own_vids, param_idx, visited, eidx, depth + 1)
+                if sub["origin_type"] in ("source", "param", "safe"):
+                    return sub
+                # 内部是 unknown/literal → type_cast 也是 unknown
+                return sub
+            # 无子节点 → safe（如 return (int) 42 — 但正常不会被解析为 type_cast）
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+        # 3e. new → 安全构造（无外部输入）
+        #     new ClassName() 创建新实例，不传播外部污点。
+        #     TODO: 有参数时（new Foo($param)）应追踪构造函数。
+        if vtype == "new":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    # ── 3.5. Branch/Ternary 追踪 ──
+    #    return $x ? $a : $b — 追踪 iftrue 和 iffalse 两个分支，
+    #    聚合结果（condition 不影响污点传播）。
+    if vlabel == NodeLabel.BRANCH.value:
+        branch_flows = []
+        for tgt, role, _ in eidx["ast_ch"].get(start_vid, []):
+            if role in ("iftrue", "iffalse"):
+                sub = _trace_return_value(graph, tgt, own_vids, param_idx, visited, eidx, depth + 1)
+                branch_flows.append(sub)
+        if branch_flows:
+            # 用 _aggregate_flows 聚合所有分支
+            agg_type, agg_params = _aggregate_flows(branch_flows)
+            if agg_type in ("source", "param"):
+                return {"origin": vname, "origin_type": agg_type,
+                        "dep_params": list(agg_params), "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
+            if agg_type == "safe":
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            if agg_params:
+                return {"origin": vname, "origin_type": "param",
+                        "dep_params": list(agg_params), "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
+            # 所有分支都 unknown
+            return {"origin": vname, "origin_type": "unknown", "dep_params": [],
+                    "has_unresolved_call": any(f.get("has_unresolved_call") for f in branch_flows)}
+
+    # ── 3.6. Return statement → trace AST[value] child ──
+    #    return Format::htmlchars($var)
+    #    → return node has AST child role=value → htmlchars call operator
+    #    → trace into it to determine if it's safe/passthrough/source
+    if vlabel == NodeLabel.RETURN.value:
+        value_children = [
+            (tgt, role, idx)
+            for tgt, role, idx in eidx["ast_ch"].get(start_vid, [])
+            if role == AstRole.VALUE.value
+        ]
+        if value_children:
+            sub = _trace_return_value(graph, value_children[0][0], own_vids, param_idx, visited, eidx, depth + 1)
+            if sub and sub.get("origin_type") != "unknown":
+                return sub
+
+    # ── 4. 通用 DFG 反向追踪 ──
+    all_dep_params: list[int] = []
+    has_source = False
+    has_safe = False
+    any_unresolved = False
+    dfg_has_safe_source = False  # DFG 链中是否存在 safe/literal 源
+
+    # Collect DFG sources, prioritizing safe/source over param.
+    # When a binary_op has both h($x) (safe) and $x (param) as DFG sources,
+    # safe should take precedence — the parameter is only reachable through
+    # the safe function call, not directly.
+    dfg_src_list = list(eidx["in"].get("dfg", {}).get(start_vid, []))
+
+    # Two-pass: first check for immediate safe/source taint on DFG sources
+    for src_vid in dfg_src_list:
+        src_taint = _vattr(graph.vs[src_vid], "taint_type", "")
+        if src_taint == "source":
+            return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+        if src_taint == "safe":
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        # For call operators, check use→function for func_summary_type
+        src_label = _vattr(graph.vs[src_vid], "label", "")
+        src_type = _vattr(graph.vs[src_vid], "type", "")
+        if src_label == NodeLabel.OPERATOR.value and src_type in _CALL_TYPES:
+            result = _trace_call_to_function(graph, src_vid, own_vids, param_idx, visited, eidx, depth)
+            if result and result.get("origin_type") in ("safe", "source"):
+                return result
+
+    # Second pass: trace into own-vid sources
+    for src_vid in dfg_src_list:
+        if src_vid not in own_vids:
+            continue
+        sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, eidx, depth + 1)
+        if sub["origin_type"] == "source":
+            return sub  # source 立即返回
+        if sub["origin_type"] == "safe":
+            return sub  # safe 立即返回（阻断）
+        if sub["origin_type"] == "literal":
+            dfg_has_safe_source = True
+            continue  # 字面量不传播污点，忽略此 DFG 源
+        all_dep_params.extend(sub.get("dep_params", []))
+        if sub.get("has_unresolved_call"):
+            any_unresolved = True
+
+    # ── 5. Member 边检查（$obj[$key] / obj.prop 等成员访问） ──
+    #    identifier 通过 member 边连接到容器对象，如果容器是 source，
+    #    则 member access 的结果也是 source。
+    #    e.g. $_COOKIE['theme'] → member ← $_COOKIE (source)
+    #    e.g. $array[array_rand($array)] → member ← $array (parameter)
+    if vlabel == NodeLabel.IDENTIFIER.value:
+        for container_vid in eidx["in"].get("member", {}).get(start_vid, []):
+            container = graph.vs[container_vid]
+            container_taint = _vattr(container, "taint_type", "")
+            # $this / self：链式调用或属性访问，返回对象实例，非外部输入
+            container_name = _vattr(container, "name", "")
+            if isinstance(container_name, str) and container_name in ("$this", "self"):
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            if container_taint == "source":
+                return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+            # 容器直接是函数参数 → 返回值与该参数关联
+            #   注意：normalizer 对同一变量名可能创建多个 vid，
+            #   所以需要按 name 匹配而非 vid。
+            container_name_raw = _vattr(container, "name", "")
+            if isinstance(container_name_raw, str) and container_name_raw.startswith("$"):
+                for pvid, pidx in param_idx.items():
+                    pname = _vattr(graph.vs[pvid], "name", "")
+                    if pname == container_name_raw:
+                        return {"origin": vname, "origin_type": "param",
+                                "dep_params": [pidx], "has_unresolved_call": False}
+                        break
+            # 容器可能是 passthrough 函数的返回值——递归追踪
+            if container_vid in own_vids:
+                sub = _trace_return_value(graph, container_vid, own_vids, param_idx, visited, eidx, depth + 1)
+                if sub["origin_type"] in ("source", "param"):
+                    return sub
+
+    # ── 6. AST 赋值 fallback（DFG 缺失时，通过 assignment AST 追踪） ──
+    #    当 identifier 无 DFG 且 member 追踪无果时，在 own subtree 内搜索
+    #    同名 identifier 作为 assignment LHS 的节点，追踪 RHS 表达式。
+    #    这弥补了 PHP normalizer 不生成 assignment DFG 边的缺陷。
+    #    e.g. $markup = $this->elements($Elements); return $markup;
+    if vlabel == NodeLabel.IDENTIFIER.value and depth < 3:
+        ret_name = _vattr(v, "name", "")
+        if ret_name:
+            assign_found = _trace_assign_fallback(
+                graph, ret_name, start_vid, own_vids, param_idx, visited, eidx, depth
+            )
+            if assign_found and assign_found["origin_type"] != "unknown":
+                return assign_found
+            if assign_found and assign_found.get("dep_params"):
+                return assign_found
+
+    # Filter out reference parameters from dep_params
+    # (they are write-back semantics, not read-through)
+    ref_param_indices = set()
+    for pvid, pidx in param_idx.items():
+        if _vattr(graph.vs[pvid], "is_reference", ""):
+            ref_param_indices.add(pidx)
+    if ref_param_indices:
+        all_dep_params = [p for p in all_dep_params if p not in ref_param_indices]
+
+    if all_dep_params:
+        unique = list(dict.fromkeys(all_dep_params))
+        return {
+            "origin": vname,
+            "origin_type": "param",
+            "dep_params": unique,
+            "has_unresolved_call": any_unresolved,
+        }
+
+    # 4c. DFG 链全部追溯到 safe/literal 但无 dep_params → safe
+    #     e.g. return $compiled; // $compiled = $a . $b . ' ' （DFG 链到 string literal）
+    if dfg_has_safe_source and not any_unresolved:
+        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": any_unresolved}
+
+
+def _trace_assign_fallback(
+    graph: ig.Graph,
+    target_name: str,
+    origin_vid: int,
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    visited: set[int],
+    eidx: dict,
+    depth: int,
+) -> dict | None:
+    """在 own subtree 内搜索 assignment LHS 同名 identifier，追踪 RHS 表达式。
+
+    用于弥补 PHP/JS 等语言 normalizer 不生成 assignment DFG 边的缺陷。
+    e.g. $x = call($param); return $x; → 追踪 call 的返回值。
+
+    Returns: _trace_return_value 的结果 dict，或 None（未找到匹配赋值）。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    new_visited = visited | {origin_vid}
+    for n in own_vids:
+        if _vattr(graph.vs[n], "label") != NodeLabel.OPERATOR.value:
+            continue
+        if _vattr(graph.vs[n], "type") not in ("assign", "aug_assign"):
+            continue
+        # 检查 LHS —— 直接 identifier 或 ArrayOffset（映射为 identifier/property）
+        for lhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "left"]:
+            lhs = graph.vs[lhs_vid]
+            lhs_label = _vattr(lhs, "label", "")
+            lhs_name = _vattr(lhs, "name", "")
+
+            matched_lhs = False
+            if lhs_label == NodeLabel.IDENTIFIER.value and lhs_name == target_name:
+                matched_lhs = True
+            elif lhs_label == NodeLabel.IDENTIFIER.value and _vattr(lhs, "type") == "property":
+                # ArrayOffset 返回 identifier/property
+                # 检查 member 边是否来自目标变量
+                # $arr[$key] = $val → member($arr → $key)，LHS 是 $key (property)
+                # 搜索 member 边的 source（container = $arr）
+                for container_vid in eidx["in"].get("member", {}).get(lhs_vid, []):
+                    container = graph.vs[container_vid]
+                    if (_vattr(container, "label") == NodeLabel.IDENTIFIER.value and
+                            _vattr(container, "name", "") == target_name):
+                        matched_lhs = True
+                        break
+
+            if matched_lhs:
+                # 找到匹配的赋值，追踪 RHS
+                for rhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "right"]:
+                    if depth + 1 >= 3:
+                        return None
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, eidx, depth + 1)
+                    return sub
+                # PHP normalizer 用 "lhs"/"rhs"，兼容
+                for rhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "rhs"]:
+                    if depth + 1 >= 3:
+                        return None
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, eidx, depth + 1)
+                    return sub
+                return None  # RHS 不存在
+        # PHP normalizer 兼容：lhs role
+        for lhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "lhs"]:
+            lhs = graph.vs[lhs_vid]
+            lhs_label = _vattr(lhs, "label", "")
+            lhs_name = _vattr(lhs, "name", "")
+
+            matched_lhs = False
+            if lhs_label == NodeLabel.IDENTIFIER.value and lhs_name == target_name:
+                matched_lhs = True
+            elif lhs_label == NodeLabel.IDENTIFIER.value and _vattr(lhs, "type") == "property":
+                for container_vid in eidx["in"].get("member", {}).get(lhs_vid, []):
+                    container = graph.vs[container_vid]
+                    if (_vattr(container, "label") == NodeLabel.IDENTIFIER.value and
+                            _vattr(container, "name", "") == target_name):
+                        matched_lhs = True
+                        break
+
+            if matched_lhs:
+                for rhs_vid in [t for t, r, _ in eidx["ast_ch"].get(n, []) if r == "rhs"]:
+                    if depth + 1 >= 3:
+                        return None
+                    sub = _trace_return_value(graph, rhs_vid, own_vids, param_idx, new_visited, eidx, depth + 1)
+                    return sub
+                return None
+    return None  # 未找到同名赋值
+
+
+# ---------------------------------------------------------------------------
+# Internal: short-name index (Fix 16 perf)
+# ---------------------------------------------------------------------------
+
+_short_name_index_cache: dict[int, tuple[int, dict]] = {}  # id(graph) -> (vcount, index)
+
+
+def _get_short_name_index(graph: "ig.Graph") -> dict[str, list[int]]:
+    """Build (once per graph) a short-name → [function vids] index.
+
+    Keyed on the last segment of the function name, so a bare-name stub
+    node ("keep_in_string") can find qualified definition nodes
+    ("pts_strings.keep_in_string" / "pts_strings::keep_in_string").
+    igraph Graph is unhashable, so we key on id(graph) and invalidate
+    when the vertex count changes.
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    key = id(graph)
+    entry = _short_name_index_cache.get(key)
+    if entry is not None and entry[0] == graph.vcount():
+        return entry[1]
+
+    idx: dict[str, list[int]] = {}
+    for v in graph.vs:
+        if _vattr(v, "label") != NodeLabel.FUNCTION.value:
+            continue
+        n = _vattr(v, "name", "")
+        if not n:
+            continue
+        short = n
+        for sep in ("::", "."):
+            if sep in short:
+                short = short.rsplit(sep, 1)[-1]
+        short = short.lstrip("\\")
+        if short:
+            idx.setdefault(short, []).append(v.index)
+
+    _short_name_index_cache[key] = (graph.vcount(), idx)
+    return idx
+
+
+def _trace_call_to_function(
+    graph: ig.Graph,
+    call_vid: int,
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    visited: set[int],
+    eidx: dict,
+    depth: int,
+) -> dict | None:
+    """追踪 call → use → function，读取目标函数的摘要。
+
+    Fix 16: use-edge targets may include bare-name stub nodes (created by
+    the normalizer for cross-file static calls like
+    pts_strings::keep_in_string()) that never receive a summary, while the
+    real definition node (fullname pts_strings.keep_in_string) holds one.
+    Therefore:
+      1. Iterate ALL use targets; prefer one that carries a summary/taint.
+      2. If none has one, do a same-short-name lookup across the graph
+         (mirrors graph_analyzer Rule 3a2's same-name safe lookup).
+      3. If still nothing, consult builtin_knowledge — builtin functions
+         (strtolower, substr, ...) never get function-def summaries, so
+         deferring on them loops _MAX_ITERATIONS times and leaves the
+         CALLER function unannotated entirely (silent FP factory).
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    call_vname = _vattr(graph.vs[call_vid], "name", "")
+
+    targets = [t for t in eidx["out"].get("use", {}).get(call_vid, [])
+               if _vattr(graph.vs[t], "label") == NodeLabel.FUNCTION.value]
+
+    # ── Pass 1: a use target that already has a summary / taint ──
+    for target_vid in targets:
+        target = graph.vs[target_vid]
+        target_summary = _vattr(target, "func_summary_type", "")
+        target_pt = _vattr(target, "func_summary_pt", [])
+
+        if target_summary == "passthrough" and target_pt:
+            return _trace_passthrough_call(graph, call_vid, target_pt, own_vids, param_idx, visited, eidx, depth)
+        if target_summary == "source":
+            return {"origin": call_vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+        if target_summary == "safe":
+            return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+        if target_summary in ("literal",):
+            return {"origin": call_vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
+
+        # 目标无 func_summary_type → fallback 检查 enrich_taint 标注的 taint_type
+        # （内置 source/safe 函数由 source_registry 通过 enrich_taint 标注）
+        target_taint = _vattr(target, "taint_type", "")
+        if target_taint in ("source", "safe"):
+            return {"origin": call_vname, "origin_type": target_taint, "dep_params": [], "has_unresolved_call": False}
+        if target_taint == "passthrough" and _vattr(target, "taint_passthrough", []):
+            return _trace_passthrough_call(
+                graph, call_vid, list(_vattr(target, "taint_passthrough", [])),
+                own_vids, param_idx, visited, eidx, depth)
+
+    # ── Pass 2: short-name graph lookup ──
+    # A stub use target has a bare name; the definition node's name is
+    # qualified (Class.method / Class::method).  Match on the last segment.
+    # Uses a module-level cached short-name → vids index (built once per
+    # graph via a WeakKeyDictionary) instead of a full graph scan per call.
+    def _short(n: str) -> str:
+        if not n:
+            return ""
+        for sep in ("::", "."):
+            if sep in n:
+                n = n.rsplit(sep, 1)[-1]
+        return n.lstrip("\\")
+
+    short_index = _get_short_name_index(graph)
+
+    if targets:
+        stub_names = {_short(_vattr(graph.vs[t], "name", "")) for t in targets}
+        stub_names.discard("")
+        if stub_names:
+            best = ("", [])
+            for sname in stub_names:
+                for fvid in short_index.get(sname, ()):
+                    if fvid in targets:
+                        continue
+                    fst = _vattr(graph.vs[fvid], "func_summary_type", "")
+                    if not fst:
+                        continue
+                    if fst in ("safe", "source") and best[0] != "safe":
+                        best = (fst, [])
+                        break
+                    if fst == "passthrough" and best[0] != "passthrough":
+                        best = (fst, list(_vattr(graph.vs[fvid], "func_summary_pt", []) or []))
+                if best[0] in ("safe", "source"):
+                    break
+            if best[0] == "safe":
+                return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            if best[0] == "source":
+                return {"origin": call_vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
+            if best[0] == "passthrough" and best[1]:
+                return _trace_passthrough_call(graph, call_vid, best[1], own_vids, param_idx, visited, eidx, depth)
+
+            # fallback: GraphAnalyzer._REPAIR_FUNCTIONS whitelist (pre-existing
+            # behaviour — repair functions not in builtin_knowledge still count
+            # as safe origins, not unresolved).
+            from core.graph.graph_analyzer import _REPAIR_FUNCTIONS
+            if stub_names & _REPAIR_FUNCTIONS:
+                return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    # ── Pass 3: builtin_knowledge fallback ──
+    # Builtin functions have no function-def node with a summary and never
+    # will.  Without this, a call like strtolower($input) is reported as
+    # has_unresolved_call=True forever, deferring the caller's summary
+    # until _MAX_ITERATIONS runs out — the caller stays unannotated and
+    # every sanitized return through it becomes a false positive.
+    if targets:
+        lang = _vattr(graph.vs[targets[0]], "language", "") or "php"
+        try:
+            import importlib
+            mod = importlib.import_module(f"core.core_engine.{lang}.builtin_knowledge")
+            knowledge_get = getattr(mod, "lookup", None)
+        except (ImportError, AttributeError):
+            knowledge_get = None
+        if knowledge_get is not None:
+            for t in targets:
+                tname = _vattr(graph.vs[t], "name", "")
+                entry = knowledge_get(tname) or knowledge_get(_short(tname))
+                if not entry:
+                    continue
+                if entry.get("safe"):
+                    return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+                pt = [i for i in entry.get("passthrough", []) if isinstance(i, int)]
+                if pt:
+                    return _trace_passthrough_call(graph, call_vid, pt, own_vids, param_idx, visited, eidx, depth)
+                # Known but no passthrough and not safe → return value does
+                # not depend on any argument in a tracked way.
+                return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    if targets:
+        # 目标完全未知 → 返回 None，让调用方继续 DFG 追踪
+        return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
+
+    return None  # 无 use 边，让调用方继续
+
+
+def _trace_passthrough_call(
+    graph: ig.Graph,
+    call_vid: int,
+    pt_indices: list,
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    visited: set[int],
+    eidx: dict,
+    depth: int,
+) -> dict:
+    """追踪 passthrough call 的参数——将 passthrough 索引映射到 call 的 ast[arg] 实参，递归追踪。"""
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    all_dep_params: list[int] = []
+    any_unresolved = False
+    arg_counter = 0
+
+    for tgt, role, arg_idx in eidx["ast_ch"].get(call_vid, []):
+        if role != "arg":
+            continue
+        actual_idx = int(arg_idx) if arg_idx else arg_counter
+        if actual_idx in pt_indices:
+            arg_vid = tgt
+            # 实参为字面量 const（如 str_repeat('<br>', $n)）→ 直接标 safe
+            if _vattr(graph.vs[arg_vid], "label") == NodeLabel.CONST.value:
+                vname = _vattr(graph.vs[call_vid], "name", "")
+                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, eidx, depth + 1)
+            if sub["origin_type"] == "source":
+                return sub
+            if sub["origin_type"] == "safe":
+                return sub
+            # str_replace / str_ireplace with literal search/replace args
+            # acts as a sanitizer on the subject (e.g. adminer's h() =
+            # str_replace(array('&','<','"',"'"), array('&amp;',...), $s)).
+            # When ALL non-passthrough args are constants, the function
+            # performs a fixed mapping → safe, not passthrough.
+            if sub["origin_type"] == "param":
+                callee = _vattr(graph.vs[call_vid], "callee", "") or ""
+                if callee in ("str_replace", "str_ireplace"):
+                    non_pt_args_all_const = True
+                    for tgt2, role2, arg_idx2 in eidx["ast_ch"].get(call_vid, []):
+                        if role2 != "arg":
+                            continue
+                        aidx2 = int(arg_idx2) if arg_idx2 else 0
+                        if aidx2 in pt_indices:
+                            continue
+                        lbl2 = _vattr(graph.vs[tgt2], "label", "")
+                        # array() literal is an operator with callee="array"
+                        if lbl2 == NodeLabel.OPERATOR.value:
+                            callee2 = _vattr(graph.vs[tgt2], "callee", "")
+                            if callee2 == "array":
+                                continue
+                        if lbl2 != NodeLabel.CONST.value:
+                            non_pt_args_all_const = False
+                            break
+                    if non_pt_args_all_const:
+                        vname = _vattr(graph.vs[call_vid], "name", "")
+                        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+            all_dep_params.extend(sub.get("dep_params", []))
+            if sub.get("has_unresolved_call"):
+                any_unresolved = True
+        arg_counter += 1
+
+    # Filter out reference parameters from dep_params
+    ref_param_indices = set()
+    for pvid, pidx in param_idx.items():
+        if _vattr(graph.vs[pvid], "is_reference", ""):
+            ref_param_indices.add(pidx)
+    if ref_param_indices:
+        all_dep_params = [p for p in all_dep_params if p not in ref_param_indices]
+
+    vname = _vattr(graph.vs[call_vid], "name", "")
+    unique = list(dict.fromkeys(all_dep_params))
+    if unique:
+        return {
+            "origin": vname,
+            "origin_type": "param",
+            "dep_params": unique,
+            "has_unresolved_call": any_unresolved,
+        }
+    return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": any_unresolved}
+
+
+# ---------------------------------------------------------------------------
+# Internal: parameter 标记
+# ---------------------------------------------------------------------------
+
+
+def _mark_passthrough_params(graph: ig.Graph, func_vid: int, passthrough_indices: list[int], eidx: dict):
+    """标记 function 下对应的 parameter 节点为 passthrough_arg。
+
+    遍历 function → own → parameter，匹配 own 边的 index 属性。
+    注意：index 在 own 边上，不在 parameter 节点上。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    idx_set = set(i for i in passthrough_indices if isinstance(i, int))
+    for child_vid, edge_idx in eidx["own_ch"].get(func_vid, []):
+        target_label = _vattr(graph.vs[child_vid], "label")
+        if target_label != NodeLabel.PARAMETER.value:
+            continue
+        # index 在 own 边上（不在 parameter 节点上）
+        pidx = edge_idx
+        if pidx is not None and int(pidx) in idx_set:
+            graph.vs[child_vid]["taint_type"] = "passthrough_arg"

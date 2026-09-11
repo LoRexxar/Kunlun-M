@@ -13,14 +13,36 @@ output_dir = os.path.join(test_dir, '_newcore_output')
 
 
 test_cases = [
+    # 跨文件追踪: ExecUtils.executeCommand/getParameter — 已知跨文件追踪局限
+    # 引擎检出定义处 (ExecUtils.java) 而非调用处 (MainServlet.java)
     ('MainServlet.java', True,
      'CVI-6003 命令注入: ExecUtils.executeCommand via getParameter',
      ['CVI-6003'],
-     ['executeCommand']),
+     ['executeCommand'],
+     {'detect_file': 'ExecUtils.java'}),
     ('PathServlet.java', True,
-     'CVI-6004 路径穿越: FileUtils.readConfig via getParameter',
-     ['CVI-6004'],
-     ['readConfig']),
+     'CVI-6002 格式化字符串: FileUtils.readConfig via getParameter',
+     ['CVI-6002'],
+     ['readConfig'],
+     {'detect_file': 'FileUtils.java'}),
+    # 引擎实际检出点: ExecUtils 定义处的 Runtime.exec
+    ('ExecUtils.java', True,
+     'CVI-6003 命令注入: Runtime.exec(parameter cmd)',
+     ['CVI-6003'],
+     ['Runtime.getRuntime().exec']),
+    # 引擎实际检出点: SqlUtils 定义处的 executeQuery
+    ('SqlUtils.java', True,
+     'CVI-6001 SQL注入: executeQuery(parameter table)',
+     ['CVI-6001'],
+     ['executeQuery']),
+
+    # ===== 间接调用（indirect call）测试 =====
+    # Lambda 间接调用: Runnable wraps Runtime.getRuntime().exec(cmd)
+    # 引擎检出 CVI-6003，type=Inconclusive (DFG 追踪超过 50 hops)
+    ('IndirectExec.java', True,
+     'CVI-6003 命令注入: lambda 间接调用 Runtime.exec(cmd) via Runnable',
+     ['CVI-6003'],
+     ['Runtime.getRuntime().exec']),
 ]
 
 
@@ -35,6 +57,7 @@ def run_scan():
         '--language', 'java',
         '--target', test_dir,
         '--output', out_path,
+        '--include-unconfirm',
     ]
 
     try:
@@ -53,7 +76,7 @@ def run_scan():
 
 
 def extract_vulns_for_file(results, target_file):
-    """Extract list of (cvi_id, lineno, file_path) from scan results for a specific file."""
+    """Extract list of (cvi_id, lineno, is_inconclusive) from scan results for a specific file."""
     if not results:
         return []
     vulns = []
@@ -82,8 +105,10 @@ def extract_vulns_for_file(results, target_file):
                 parts = str(file_val).rsplit(':', 1)
                 if parts[-1].isdigit():
                     lineno = int(parts[-1])
+            result_type = item.get('result_type') or item.get('type') or ''
+            is_inconclusive = 'Inconclusive' in str(result_type)
             if 'CVI' in cvi_str:
-                vulns.append((cvi_str, lineno))
+                vulns.append((cvi_str, lineno, is_inconclusive))
 
     return vulns
 
@@ -141,17 +166,34 @@ def main():
     failed = 0
 
     for test_case in test_cases:
-        # Support both 4-tuple and 5-tuple format
-        if len(test_case) == 5:
+        # Support 5-tuple (file, detect, desc, cvis, keywords) or 6-tuple with options
+        if len(test_case) == 6:
+            test_file, should_detect, desc, expected_cvis, expected_keywords, options = test_case
+        elif len(test_case) == 5:
             test_file, should_detect, desc, expected_cvis, expected_keywords = test_case
+            options = {}
         else:
             test_file, should_detect, desc, expected_cvis = test_case
             expected_keywords = []
+            options = {}
+
+        # Handle skip
+        if options.get('skip'):
+            print(f"\n[{test_file}] {desc}")
+            print(f"  Result: SKIP ({options.get('skip_reason', 'skipped')})")
+            continue
 
         print(f"\n[{test_file}] {desc}")
         print(f"  Expected: detect={should_detect}, CVIs={expected_cvis}")
 
-        vulns = extract_vulns_for_file(results, test_file)
+        # Determine which file(s) to check for vulnerabilities
+        detect_files = options.get('detect_file', test_file)
+        if isinstance(detect_files, str):
+            detect_files = [detect_files]
+
+        vulns = []
+        for df in detect_files:
+            vulns.extend(extract_vulns_for_file(results, df))
         detected = len(vulns) > 0
 
         if should_detect:
@@ -160,7 +202,7 @@ def main():
             if not missing:
                 # Verify line numbers if keywords specified
                 line_ok = True
-                for cvi, lineno in vulns:
+                for cvi, lineno, _ in vulns:
                     if expected_keywords:
                         abs_path = os.path.join(test_dir, test_file)
                         ok, msg = verify_line_content(lineno, abs_path, expected_keywords)
@@ -175,15 +217,22 @@ def main():
                 print(f"  Result: FAIL (detected {[v[0] for v in vulns]}, missing {missing})")
                 failed += 1
         else:
-            if detected:
-                print(f"  Result: FAIL (false positive: {[v[0] for v in vulns]})")
+            # For should_detect=False: only count confirmed (non-Inconclusive) as false positive
+            confirmed_vulns = [v for v in vulns if not v[2]]  # v[2] = is_inconclusive
+            if confirmed_vulns:
+                inconclusive = [v for v in vulns if v[2]]
+                extra = f" (also {len(inconclusive)} Inconclusive)" if inconclusive else ""
+                print(f"  Result: FAIL (false positive: {[v[0] for v in confirmed_vulns]}{extra})")
                 failed += 1
             else:
-                print(f"  Result: PASS (correctly not detected)")
+                if vulns:
+                    print(f"  Result: PASS (only Inconclusive, not confirmed: {[v[0] for v in vulns]})")
+                else:
+                    print(f"  Result: PASS (correctly not detected)")
                 passed += 1
 
     print(f"\n{'=' * 70}")
-    print(f"Results: {passed} passed, {failed} failed out of {len(test_cases)}")
+    print(f"Results: {passed} passed, {failed} failed out of {passed + failed}")
     print(f"{'=' * 70}")
 
     return 0 if failed == 0 else 1

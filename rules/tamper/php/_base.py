@@ -44,7 +44,7 @@ IS_REPAIR = {
 
     # ---- SQL 注入防御 ----
     # 参数化查询相关
-    "intval": [1000, 1004, 1005, 1006, 1001, 1002, 1003],
+    "intval": [1000, 1004, 1005, 1006, 1001, 1002, 1003, 1007, 1009, 1011, 1013],
     "floatval": [1000, 1004, 1005, 1006, 1001, 1002, 1003],
     "mysql_real_escape_string": [1004, 1005, 1006],
     "mysqli_real_escape_string": [1004, 1005, 1006],
@@ -56,11 +56,6 @@ IS_REPAIR = {
     # ---- 命令注入防御 (1009) ----
     "escapeshellcmd": [1009, 1011],
     "escapeshellarg": [1009, 1011],
-    "intval": [1009],
-
-    # ---- 代码执行防御 (1011) ----
-    # 代码执行没有直接的"修复函数"，类型转换可部分防御
-    "intval": [1011],
 
     # ---- SSRF 防御 (1001, 1002, 1003) ----
     # URL 解析验证
@@ -95,6 +90,21 @@ IS_REPAIR = {
 
     # ---- 变量覆盖防御 (1014) ----
     # 主要靠代码规范，没有运行时修复函数
+
+    # ---- Laravel response methods ----
+    # response()->json() JSON-encodes data, escaping HTML → safe for XSS
+    "json": [1000],
+    # Laravel ORM: return DB records, not user input → safe for XSS
+    "find": [1000],
+    "findMany": [1000],
+    "findOrFail": [1000],
+    "first": [1000],
+    "firstOrFail": [1000],
+    "get": [1000],
+    "all": [1000],
+    "pluck": [1000],
+    "where": [1000],
+    "whereKey": [1000],
 }
 
 IS_CONTROLLED = [

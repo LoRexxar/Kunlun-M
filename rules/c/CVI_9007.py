@@ -32,10 +32,20 @@ class CVI_9007(SingleRuleMixin):
 
         self.vul_function = ["open", "pread"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：排除 fopen/fread 等（属其他 CVI 范畴），仅关注 POSIX open()/pread()。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

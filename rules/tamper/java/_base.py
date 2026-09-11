@@ -14,7 +14,7 @@
     - 6007: XXE
     - 6008: 不安全加密
     - 6009: 硬编码密码
-    - 6010: 日志注入
+    - 6010: 日志注入 (已移除)
     - 6011: 不安全文件上传
     - 6012: SpEL/OGNL 注入
     - 6013: LDAP 注入
@@ -128,10 +128,6 @@ IS_REPAIR = {
     "HtmlUtils.htmlEscape": [6041],
     "StringEscapeUtils.escapeHtml4": [6041],
     "escapeHtml4": [6041],
-
-    # ---- 日志注入防御 ----
-    "escapeHtml": [6010],
-    "encodeForHTML": [6010],
 
     # ---- Cookie 安全 ----
     "setHttpOnly": [6014],

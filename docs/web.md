@@ -21,7 +21,7 @@ python kunlun.py web -p 9999
 示例：
 ```
 /dashboard/tasks/detail/<task_id>?token=<visit_token>
-/backend/tasklog/<task_id>?token=<visit_token>
+/backend/debuglog/<task_id>?token=<visit_token>
 ```
 
 ### 3) API Token（参数名：apitoken）
@@ -40,7 +40,7 @@ python kunlun.py web -p 9999
 - `GET /api/task/list`
 - `GET /api/task/<task_id>`
 - `GET /api/task/<task_id>/result`
-- `GET /api/task/<task_id>/resultflow`
+- `GET /api/task/<task_id>/taintchain`
 - `GET /api/task/<task_id>/newevilfunc`
 - `GET /api/rule/list`
 - `GET /api/rule/<rule_id>`
@@ -64,6 +64,5 @@ Dashboard 提供“Tasks → New Scan”用于上传 zip 包并创建扫描任�
 - 配置扫描：`/dashboard/tasks/config/<task_id>`
 - 任务列表：`/dashboard/tasks/list`
 - 任务详情：`/dashboard/tasks/detail/<task_id>`
-- 日志与链路：`/backend/tasklog/<task_id>`
 - Debug 日志：`/backend/debuglog/<task_id>`
 - 导出结果：`/backend/export/<task_id>?format=csv|json`

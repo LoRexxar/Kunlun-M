@@ -31,11 +31,21 @@ class CVI_8001(SingleRuleMixin):
 
         self.vul_function = ["exec.Command", "exec.CommandContext", "os.StartProcess", "syscall.Exec"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         二次筛选：检查匹配到的代码行是否真正属于危险的命令执行调用，
         排除硬编码字符串参数。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 

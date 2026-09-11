@@ -1,4 +1,98 @@
 ## 更新日志
+- 2026-09-10
+  - **引擎精度专项 — 白名单守卫体系（Fix 16 → 21h 系列）**
+    - 2026-08 下旬至 09 上旬的 16 个 commit，全部由真实项目（osTicket、imcat、zblog、getsimple、xoops26、dokuwiki、CouchCMS、phoronix-test-suite 等）的逐条 FP/TP 验证驱动，每条修复均含合成图探针 + 真实全量重扫双重回归
+
+  - **图保真修复（FP/TP 共同前提）**
+    - Fix 21：phply Array 字面量元素落图（ArrayElement key/value 解包），`in_array($v, [白名单])` 不再退化为空 array 节点
+    - Fix 21h：PHP StaticMethodCall 类上下文丢失修复，`Format::input`/`Format::htmlchars` 等静态净化函数可正确解析为 builtin_knowledge safe 函数
+    - Fix 21c：foreach key/val 变量携带数组数据流（Gap A）
+    - Fix 16+17：stub callee 解析、builtin knowledge 回退、同语句 DFG 环路、摘要饥饿
+
+  - **路径敏感分析**
+    - Fix 20b：redirect sink 两遍分析——第一遍 BFS 命中 code=1 且途经常量前缀拼接节点（`./`、固定 host 等）时，封禁这些节点重跑；存活的全可控路径才判 TP
+    - Fix 19a：unconfirm 桶只收 code=3（不确定），已净化（code=2）链路不再作为可疑结果上报
+
+  - **守卫体系（parameters_back 前置/后置检查，命中即返回 code=-1）**
+    - Fix 21a：同函数内 `!pred()` 终止分支 + `in_array` 常量白名单 → 变量白名单约束（CouchCMS b5）
+    - Fix 21b：`array_map(sanitizer, ...)` 再赋值净化（dokuwiki 4 FP）
+    - Fix 21d：文件系统存在性白名单——`is_dir(前缀 . $t)` 守卫使赋值约束为真实目录名（getsimple）
+    - Fix 21e：白名单守卫可达性修复 + 跨文件 sink 排序
+    - Fix 21f：`libxml_disable_entity_loader()` 先于 XML sink → XXE 不成立
+    - Fix 21h-2：无条件 `die()/exit()` 之后的语句判死代码（含 21h-2b own-index 最大容器、21h-2c 裸终止符无 ast 父边两个图结构防御）
+    - Fix 21h-3：构造函数属性白名单守卫——`new` 创建对象的 `$this->prop` 由白名单三元赋值时，属性读不可控；覆盖 property/对象变量/echo 算子/new 实参四种入口形态
+    - Fix 19b：跨函数路径越狱检测——调用方 `strpos($_POST['p'],'../')` 型 jail 守护被调方文件 sink 参数
+
+  - **其他**
+    - Fix 14/15：方法调用短名 fullname 匹配限制；ssh2 扩展知识库
+    - Fix 21g：Go receiver 提及型污点误归因修复
+
+- 2026-06-26
+  - KunLun-M 3.0.0
+  - **架构级重构 — 全面基于 AST 图引擎**
+    - 这是一次涉及 275 个 commit、跨越两周的深度重构，涵盖扫描引擎、Web 层、CLI、文档的全面升级
+    - 旧扫描引擎（oldscan）代码标记为 LEGACY，所有扫描链路 100% 基于图引擎
+    - `engine.py` 精简为仅导出 `scan` 和 `Running` 的薄层
+    - Web 层扫描分发（scan_dispatcher）全部指向新引擎，移除 oldscan 回退路径
+    - Web 显示层与 NewEvilFunc 脱钩，删除 `TaskNewEvilFuncApiView` 及 URL
+
+  - **图引擎核心**
+    - `scanner.py` 新 `scan()` 方法：构建 AST 图 → 污点分析 → 结果写入，支持缓存复用
+    - 图缓存机制：同 target 二次扫描自动复用 graphmlz，交互模式下提示选择加载或重建
+    - 规则匹配增强：`rule.main()` 二次筛选 + vendor/test 过滤 + 后缀匹配
+    - receiver passthrough 机制：`taint_receiver_pt` 标记追踪
+    - 跨函数 taint enrichment：enrich_taint + builtin source registry（document.cookie/location.hash/process.env 等）
+    - 字符串插值 DFG 追踪：JS template literal、Python f-string、Ruby `"#{expr}"`、TypeScript/Kotlin/C# 插值、Rust format macro
+    - alias 边（间接调用解析）：支持 C 函数指针、Lua 函数引用、Ruby `op.call` 等模式
+    - 修复 50+ 个图构建 bug（GraphML 属性类型混合、lineno float、DFG 链路、BFS 回溯等）
+    - 修复 `igraph` 节点 lineno 为 float 的问题，所有 chain 构建强制 `int()` 转换
+
+  - **14 语言全面支持**
+    - 新增 6 种语言的 Normalizer + 规则：**Rust / Ruby / C# / Kotlin / Lua / C++**
+    - 新增 5 语言 34 条漏洞规则 + 测试文件
+    - TypeScript 语言完整接入扫描流程（engine + source_discovery）
+    - 全语言 normalizer 统一添加 `use` 边（变量使用关系）
+    - JS/C/C++ 跨函数调用（static_call）支持
+    - 全语言内置 187 个 benchmark 测试，145P / 0F / 0S
+
+  - **Web 模式全面升级**
+    - **图可视化**：Cytoscape.js WebGL 渲染（970×550 深色主题），4 种布局（cose/breadthfirst/circle/concentric）
+    - **子图交互**：节点点击展开邻居子图，4 个分析 Tab 概览/文件/函数/污点追踪全部可视化
+    - **污点链路图**：漏洞传播链内嵌 Cytoscape 可视化（sink→source 方向高亮）
+    - **节点详情联动**：节点关联漏洞显示、源码上下文展示（core 方法 + API + 前端）
+    - **传播链增强**：节点类型图标扩展 + 调用链摘要 + VID 跳转到图分析子图
+    - **Graph API 体系**：`/api/graph/query`、`/api/graph/subgraph`、`/api/graph/chain_subgraph`、`/api/graph/node_vulns`、`/api/graph/node_source`
+    - **任务创建 API**：`POST /api/task/create` + `POST /api/task/create/start` + 轻量级状态查询
+    - 扫描任务管理增强：实时日志 + 任务取消/重试 + PID 跟踪
+    - 安全修复：统一路径安全校验（symlink 绕过防护）、API 认证/错误处理
+    - 项目文件管理器（文件树 + 源码浏览 + 行号高亮 + 漏洞文件链接跳转）
+    - 统计仪表盘 + 导出格式扩展（HTML/MD）+ Vendor 搜索增强
+    - 权限角色系统 + API Token 多 token 管理
+
+  - **Console 模式**
+    - GraphTraversal REPL：Joern CPGQL 风格的图遍历查询语言（fluent API，6 种语言通过）
+    - 终端操作符自动调用：`count`/`ids`/`nodes` 无需括号
+
+  - **数据导入导出**
+    - `export-project` / `import-project`：项目级完整数据打包迁移（DB + graph files → tar.gz）
+    - `export-neo4j`：igraph → Neo4j 图导出（12 种节点类型 + 9 种关系类型，UNWIND 批量写入）
+    - CLI + Console 双模式支持
+
+  - **文档与帮助系统**
+    - 完全重写 README.md / README.zh.md（中英文双语，反映当前架构）
+    - 重构 CLI `-h` 帮助系统（版本升级 3.0.0，Quick Start 格式，覆盖全部 8 个核心命令）
+    - `scan -h` 新增 11 条使用示例
+    - Console global_help 同步更新
+    - 新增 docs/data-export.md（导入导出 + Neo4j）
+    - 新增 docs/graph-traversal.md（图遍历 REPL 使用手册）
+    - 新增 6 种语言的 AST 映射文档
+    - 新增 AST 图引擎设计文档 + alias 边设计文档
+
+  - **依赖与工具链**
+    - 补全 python-igraph、tree-sitter 全语言依赖到 requirements.txt
+    - tree-sitter 版本约束修正（lua/kotlin/ts 等）
+    - 语言别名归一化（js→javascript、ts→typescript 等）
+
 - 2026-06-17
   - KunLun-M 2.15.1
   - **Tamper 数据模型重构**

@@ -41,12 +41,12 @@ class autorule:
         self.vulnerability = "Auto Rule"
         self.description = "Auto Rule"
         self.status = True
-        self.match_mode = "vustomize-match"
+        self.match_mode = "function-param-regex"
         self.match = ""
         self.vul_function = None
         self.is_eval_object = is_eval_object
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         sql_sen = check_tuple(regex_string[0])
         if self.language.lower() == 'php':
             reg = r"\$\w+"

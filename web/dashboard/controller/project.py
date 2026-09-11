@@ -44,7 +44,7 @@ class ProjectListView(TemplateView):
             search_project_name = self.request.GET['project_name']
 
         rows = search_project_by_name(search_project_name)
-        project_count = Project.objects.all().count()
+        project_count = len(rows)
 
         # 分页
         if 'p' in self.request.GET:
@@ -66,7 +66,23 @@ class ProjectListView(TemplateView):
 
             vendors_count = ProjectVendors.objects.filter(project_id=project.id).count()
 
-            results_count = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1).count()
+            results_qs = ScanResultTask.objects.filter(scan_project_id=project.id, is_active=1)
+            results_count = results_qs.count()
+            tp_count = results_qs.filter(verification_status='tp').count()
+            fp_count = results_qs.filter(verification_status='fp').count()
+            unconfirmed_count = results_qs.filter(verification_status='').count()
+            langs = list(results_qs.values_list('language', flat=True).distinct().order_by('language'))
+            if not langs:
+                # 从任务的 parameter_config 或路径提取语言
+                for t in tasks[:1]:
+                    m = re.search(r"'-lan',\s*'([^']+)'", t.parameter_config or '')
+                    if m:
+                        langs = [m.group(1)]
+                    else:
+                        path = t.source_dir or t.target_path or ''
+                        m2 = re.search(r'/realworld_scan(?:_new)?/(\w+)/', path)
+                        if m2:
+                            langs = [m2.group(1)]
 
             last_scan_time = None
             if tasks:
@@ -74,6 +90,10 @@ class ProjectListView(TemplateView):
 
             project.tasks_count = tasks_count
             project.results_count = results_count
+            project.tp_count = tp_count
+            project.fp_count = fp_count
+            project.unconfirmed_count = unconfirmed_count
+            project.languages = ', '.join(langs) if langs else '-'
             project.last_scan_time = last_scan_time
             project.vendors_count = vendors_count
 
@@ -109,36 +129,37 @@ class ProjectDetailView(View):
             task.is_finished = int(task.is_finished)
             task.parameter_config = del_sensitive_for_config(task.parameter_config)
 
-        # 加载漏洞链：用最新有结果的 task 的 ResultFlow
+        # 加载漏洞链数据
         chain_map = {}
         source_root = ''
         finished_tasks = [t for t in tasks if int(t.is_finished) == 1]
-        for t in finished_tasks:
+        task_ids = [t.id for t in finished_tasks]
+        if task_ids:
             try:
-                from web.index.models import get_resultflow_class
-                RF = get_resultflow_class(t.id)
-                if RF:
-                    for rf in RF.objects.all().order_by('id'):
-                        chain_map.setdefault(rf.vul_id, []).append({
-                            'type': rf.node_type,
-                            'content': rf.node_content or '',
-                            'path': rf.node_path or '',
-                            'lineno': str(rf.node_lineno or ''),
-                            'source': rf.node_source or '',
-                        })
-                    source_root = t.source_dir or t.target_path or ''
-                    break  # 只加载最新 task 的链
-            except Exception:
-                continue
+                from web.index.models import TaintChain
+                srt_ids = [tr.id for tr in taskresults]
+                for tc in TaintChain.objects.filter(scan_task__in=task_ids, vul_result__in=srt_ids).order_by('vul_result', 'chain_index', 'step_order'):
+                    chain_map.setdefault(tc.vul_result, []).append({
+                        'type': tc.node_label,
+                        'content': tc.node_name or '',
+                        'path': tc.file_path or '',
+                        'lineno': str(tc.lineno or ''),
+                        'source': tc.source_code or '',
+                        'vid': tc.vid,
+                    })
+                source_root = finished_tasks[0].source_dir or finished_tasks[0].target_path or ''
+            except Exception as e:
+                import logging
+                logging.getLogger('django').warning('[chain] load chain data failed: %s', e)
 
         for taskresult in taskresults:
-            taskresult.is_unconfirm = int(taskresult.is_unconfirm)
             taskresult.level = 0
             taskresult.vid = 0
             taskresult.chain_nodes = chain_map.get(taskresult.id, [])
             taskresult.has_chain = len(taskresult.chain_nodes) > 0
 
             if taskresult.cvi_id == '9999':
+                taskresult.rule_name = 'Vendor Vuln'
                 vender_vul_id = taskresult.vulfile_path.split(":")[-1]
                 if vender_vul_id:
                     vv = VendorVulns.objects.filter(id=vender_vul_id).first()
@@ -162,6 +183,7 @@ class ProjectDetailView(View):
             else:
                 r = Rules.objects.filter(svid=taskresult.cvi_id).first()
                 taskresult.level = VUL_LEVEL[r.level]
+                taskresult.rule_name = r.rule_name if r else taskresult.cvi_id
 
         if not project:
             return HttpResponseNotFound('Project Not Found.')

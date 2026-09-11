@@ -35,16 +35,45 @@ class CVI_8006(SingleRuleMixin):
             "os.Open", "os.ReadFile", "ioutil.ReadFile", "os.Stat",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None, context=None):
         """
         二次筛选：检查是否使用 filepath.Clean 或有路径校验，
         标记存在路径穿越风险的代码。
+        context: ±15 lines around sink (from graph engine) for
+        cross-line context checks (e.g. url.URL struct on nearby line).
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            # Check context for non-filesystem usage patterns
+            check_text = context or regex_string
+            if check_text and isinstance(check_text, str):
+                # path.Join inside url.URL{} struct — URL construction, not filesystem
+                if re.search(r'url\.URL\{', check_text):
+                    return False
+                # KMS/crypto context identifiers
+                if re.search(r'AssociatedData|KMS|kms|crypto\.', check_text):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
 
         # 安全写法：使用了 filepath.Clean 清理路径
         if re.search(r'filepath\.Clean\s*\(', regex_string):
+            return False
+
+        # URL 构造场景：path.Join 用于 url.URL{} 或 HTTP URL 拼接，
+        # 不是文件系统操作，不存在路径穿越
+        if re.search(r'url\.URL\{|http\.|https\.', regex_string):
+            return False
+        # path.Join 用作 KMS/加密上下文标识（非文件路径）
+        if re.search(r'AssociatedData|kms|KMS|crypto\.', regex_string):
             return False
 
         # 检测 ../ 路径穿越模式

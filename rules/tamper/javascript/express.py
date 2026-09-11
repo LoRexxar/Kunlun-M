@@ -27,8 +27,11 @@ FILTER_FUNCTIONS = {
 EXTRA_SINKS = [
     ("res.render(", [3005]),
     ("res.redirect(", [3004]),
-    ("res.json(", [3100, 3110]),
-    ("res.send(", [3100, 3110]),
+    # NOTE: res.send()/res.json() send HTTP responses, NOT commands.
+    # They are not CVI-3100 (command injection) sinks. XSS (CVI-3110)
+    # depends on Content-Type: Express sends objects as application/json
+    # (safe), strings as text/html (potentially dangerous). This nuance
+    # cannot be captured by a blanket EXTRA_SINKS entry.
     ("res.sendFile(", [3102, 3106]),
     ("res.download(", [3102, 3106]),
     ("child_process.exec(", [3101]),

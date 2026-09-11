@@ -14,6 +14,8 @@ def detect(project_dir, language='php'):
 
 FILTER_FUNCTIONS = {
     'esc_url': {'safe_for': [1000]},
+    'sanitize_url': {'safe_for': [1000]},
+    'sanitize_key': {'safe_for': [1000]},
     'esc_js': {'safe_for': [1000]},
     'esc_html': {'safe_for': [1000, 10001, 10002]},
     'esc_attr': {'safe_for': [1000, 10001, 10002]},
@@ -45,7 +47,7 @@ EXTRA_SINKS = [
     ('$wpdb->prepare', []),
     ('wp_remote_get(', [1005]),
     ('wp_remote_post(', [1005]),
-    ('wp_redirect(', [1009]),
+    ('wp_redirect(', [1013]),
     ('include(', [1003]),
     ('require(', [1003]),
     ('$wpdb->insert(', [1004]),

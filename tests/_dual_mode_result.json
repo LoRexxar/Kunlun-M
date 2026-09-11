@@ -1,0 +1,186 @@
+[
+  {
+    "file": "v.php",
+    "old_vuln": 12,
+    "new_vuln": 15,
+    "diffs": 14,
+    "diff_details": [
+      {
+        "lineno": 14,
+        "sink": "array_map",
+        "old_code": null,
+        "new_code": 1,
+        "new_reason": "superglobal '$_REQUEST' via member access",
+        "type": "extra_in_new"
+      },
+      {
+        "lineno": 20,
+        "sink": "system",
+        "old_code": -1,
+        "new_code": 1,
+        "new_reason": "superglobal '$_GET' via member access",
+        "type": "extra_in_new"
+      },
+      {
+        "lineno": 31,
+        "sink": "mkdir",
+        "old_code": null,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=63 ('.') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 36,
+        "sink": "curl_setopt",
+        "old_code": -1,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=77 ('$ch') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 37,
+        "sink": "curl_setopt",
+        "old_code": -1,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=82 ('$ch') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 38,
+        "sink": "curl_exec",
+        "old_code": -1,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=86 ('$ch') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 55,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=120 ('get_headers') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 58,
+        "sink": "print",
+        "old_code": -1,
+        "new_code": 1,
+        "new_reason": "superglobal '$_GET' via member access",
+        "type": "extra_in_new"
+      },
+      {
+        "lineno": 94,
+        "sink": "header",
+        "old_code": -1,
+        "new_code": 1,
+        "new_reason": "superglobal '$_GET' via member access",
+        "type": "extra_in_new"
+      },
+      {
+        "lineno": 103,
+        "sink": "parse_str",
+        "old_code": 3,
+        "new_code": 1,
+        "new_reason": "superglobal '$_SERVER' via member access",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 108,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": -1,
+        "new_reason": "''true!'' is a constant",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 110,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": -1,
+        "new_reason": "''false!'' is a constant",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 121,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": 1,
+        "new_reason": "superglobal '$_GET' via member access",
+        "type": "extra_in_new"
+      },
+      {
+        "lineno": 130,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": 2,
+        "new_reason": "repair 'htmlentities'",
+        "type": "code_mismatch"
+      }
+    ]
+  },
+  {
+    "file": "v_parser.php",
+    "old_vuln": 0,
+    "new_vuln": 0,
+    "diffs": 2,
+    "diff_details": [
+      {
+        "lineno": 7,
+        "sink": "print",
+        "old_code": -1,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=13 ('system') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 7,
+        "sink": "system",
+        "old_code": null,
+        "new_code": 2,
+        "new_reason": "calls repair 'trim'",
+        "type": "code_mismatch"
+      }
+    ]
+  },
+  {
+    "file": "v_source_discovery_discrimination.php",
+    "old_vuln": 0,
+    "new_vuln": 1,
+    "diffs": 2,
+    "diff_details": [
+      {
+        "lineno": 23,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": 3,
+        "new_reason": "Inconclusive for vid=19 ('$safe') after 50 hops",
+        "type": "code_mismatch"
+      },
+      {
+        "lineno": 24,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": 1,
+        "new_reason": "superglobal '$_POST' via member access",
+        "type": "extra_in_new"
+      }
+    ]
+  },
+  {
+    "file": "v_source_discovery_producer.php",
+    "old_vuln": 0,
+    "new_vuln": 1,
+    "diffs": 1,
+    "diff_details": [
+      {
+        "lineno": 24,
+        "sink": "echo",
+        "old_code": null,
+        "new_code": 1,
+        "new_reason": "superglobal '$_GET' via member access",
+        "type": "extra_in_new"
+      }
+    ]
+  }
+]

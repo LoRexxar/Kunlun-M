@@ -1,48 +1,113 @@
 {
   "meta": {
-    "target": "/home/ubuntu/.hermes/hermes-agent/Kunlun-M/tests/php",
-    "task_id": 9,
-    "project_id": 9,
-    "started_at": "2026-06-10T03:39:41.230194+00:00",
-    "finished_at": "2026-06-10T03:39:41.712827+00:00",
+    "target": "/home/ubuntu/.hermes/hermes-agent/Kunlun-M/ci_cases",
+    "task_id": 90,
+    "project_id": 90,
+    "started_at": "2026-08-04T12:50:43.458496+00:00",
+    "finished_at": "2026-08-04T12:50:44.675170+00:00",
     "fail_on": "none",
     "include_unconfirm": false,
     "with_vendor": false,
     "settings_module": "Kunlun_M.settings_ci",
-    "mode": "threshold"
+    "mode": "expected_comparison"
   },
   "summary": {
-    "total": 2,
+    "total": 5,
     "by_severity": {
-      "critical": 2,
-      "high": 0,
-      "medium": 0,
+      "critical": 0,
+      "high": 4,
+      "medium": 1,
       "low": 0
     },
-    "max_severity": "critical"
+    "max_severity": "high",
+    "expected_count": 5,
+    "missing_count": 0,
+    "unexpected_count": 0
   },
-  "vulnerabilities": [
+  "expected": [
     {
-      "id": 55,
-      "cvi_id": "1011",
-      "rule_name": "RCE",
-      "severity": "critical",
-      "language": "php",
-      "file": "30_indirect_exec.php:13",
-      "is_unconfirm": false,
-      "result_type": "Arbitrary-function-call",
-      "source_code": "$func()"
+      "file": "cmd_inject.java",
+      "cvi_id": "6003",
+      "severity": "high"
     },
     {
-      "id": 56,
-      "cvi_id": "1011",
-      "rule_name": "RCE",
-      "severity": "critical",
+      "file": "cmd_inject.py",
+      "cvi_id": "7000",
+      "severity": "high"
+    },
+    {
+      "file": "cmd_inject_node.js",
+      "cvi_id": "3100",
+      "severity": "high"
+    },
+    {
+      "file": "sqli.php",
+      "cvi_id": "1005",
+      "severity": "high"
+    },
+    {
+      "file": "xss.js",
+      "cvi_id": "3002",
+      "severity": "high"
+    }
+  ],
+  "missing": [],
+  "unexpected": [],
+  "vulnerabilities": [
+    {
+      "id": 345,
+      "cvi_id": "1005",
+      "rule_name": "SQLI",
+      "severity": "high",
       "language": "php",
-      "file": "31_indirect_callback.php:11",
+      "file": "sqli.php:3",
       "is_unconfirm": false,
-      "result_type": "Arbitrary-function-call",
-      "source_code": "call_user_func()"
+      "result_type": "superglobal '$_GET.id' (via member chain from 'id')",
+      "source_code": "mysql_query"
+    },
+    {
+      "id": 346,
+      "cvi_id": "3100",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "javascript",
+      "file": "cmd_inject_node.js:7",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'req.query.cmd' (operator member chain)",
+      "source_code": "exec"
+    },
+    {
+      "id": 347,
+      "cvi_id": "3002",
+      "rule_name": "XSS",
+      "severity": "medium",
+      "language": "javascript",
+      "file": "xss.js:4",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'location.search' (operator member chain)",
+      "source_code": "document.write"
+    },
+    {
+      "id": 348,
+      "cvi_id": "6003",
+      "rule_name": "Command Injection",
+      "severity": "high",
+      "language": "java",
+      "file": "cmd_inject.java:7",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.getParameter' (operator member chain)",
+      "source_code": "ProcessBuilder"
+    },
+    {
+      "id": 349,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "cmd_inject.py:5",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.GET' via method 'get'",
+      "source_code": "subprocess.call"
     }
   ],
   "exit": {

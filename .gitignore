@@ -137,6 +137,10 @@ rules/*
 !rules/nodejs/
 !rules/nodejs/*
 !rules/nodejs/__init__.py
+!rules/php/
+!rules/php/*
+!rules/ruby/
+!rules/ruby/*
 
 # upload
 uploads/*.zip
@@ -188,3 +192,7 @@ docs/design/
 
 # Function summary cache
 .kunlun_cache/
+
+# Scan workspace (runtime output)
+workspace/
+supervisor/supervisord.pid

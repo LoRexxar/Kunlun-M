@@ -35,11 +35,13 @@ CONTROLLED_SOURCES = [
 
 EXTRA_SINKS = [
     ("beego.AppConfig.String(", []),
-    ("c.Ctx.Output.Body(", [8008]),
+    # XSS sinks: only text/html output
+    ("c.Ctx.Output.Body(", [8003, 8008]),
     ("c.Ctx.WriteString(", [8003, 8008]),
-    ("c.ServeJSON(", [8003, 8008]),
-    ("c.ServeXML(", [8003, 8008]),
     ("c.ServeJSONP(", [8003, 8008]),
+    # NOT XSS: structured responses
+    ("c.ServeJSON(", [8008]),
+    ("c.ServeXML(", [8008]),
     ("c.ServeFile(", [8006]),
     ("c.Redirect(", [8013]),
 ]

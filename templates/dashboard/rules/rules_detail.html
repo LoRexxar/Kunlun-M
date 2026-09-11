@@ -1,24 +1,28 @@
 {% extends "dashboard/base.html" %}
 {% load static %}
 {% block title %}规则详情{% endblock %}
+{% block body_header %}
+<h1>规则详情 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
 <div class="row">
-    <div class="col-xs-12">
-      <div class="box">
-        <div class="box-header">
-            <h3 class="box-title">规则详情<small> {{ rule.rule_name }}.py</small></h3>
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <h3 class="card-title">规则详情<small> {{ rule.rule_name }}.py</small></h3>
             {% if rule.language %}
-            <span class="label label-default">{{ rule.language }}</span>
+            <span class="badge bg-secondary">{{ rule.language }}</span>
             {% endif %}
-            {% if rule.level == 1 %}<span class="label label-danger">高危</span>
-            {% elif rule.level == 2 %}<span class="label label-warning">中危</span>
-            {% elif rule.level == 3 %}<span class="label label-primary">低危</span>
-            {% else %}<span class="label label-info">信息</span>{% endif %}
+            {% if rule.level == 1 %}<span class="badge bg-danger">高危</span>
+            {% elif rule.level == 2 %}<span class="badge bg-warning">中危</span>
+            {% elif rule.level == 3 %}<span class="badge bg-primary">低危</span>
+            {% else %}<span class="badge bg-info">信息</span>{% endif %}
         </div>
-        <div class="box box-solid">
-            <div class="box-body">
+        <div class="card">
+            <div class="card-body">
 {% if source_code %}
 <pre class="language-python line-numbers"><code class="language-python">{{ source_code|force_escape }}</code></pre>
 {% else %}

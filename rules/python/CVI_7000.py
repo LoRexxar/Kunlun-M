@@ -14,31 +14,41 @@ class CVI_7000(SingleRuleMixin):
         self.level = 8
         self.match_mode = "function-param-regex"
         self.match = r"os\.system|os\.popen|subprocess\.call|subprocess\.run|subprocess\.Popen|subprocess\.check_output|subprocess\.check_call|subprocess\.getoutput|subprocess\.getstatusoutput|commands\.getoutput|commands\.getstatusoutput"
+        self.vul_function = [
+            "os.system", "os.popen",
+            "subprocess.call", "subprocess.run", "subprocess.Popen",
+            "subprocess.check_output", "subprocess.check_call",
+            "subprocess.getoutput", "subprocess.getstatusoutput",
+            "commands.getoutput", "commands.getstatusoutput",
+            # Short names for graph sink matching (Python normalizer uses
+            # method short name, not qualified module.method)
+            "system", "popen",
+        ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
-        二次筛选：过滤硬编码常量字符串参数
-        os.system('ls -la') -> False (硬编码)
-        os.system(cmd) -> True (变量)
+        Graph-based filtering: filter hardcoded constant string arguments.
+        os.system('ls -la') -> False (const)
+        os.system(cmd) -> None (variable)
         """
-        if not regex_string:
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                # const/string literal → hardcoded command, not dangerous
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
             return None
 
-        # 提取函数调用参数部分: func(arg1, arg2, ...)
+        # Regex fallback
+        if not regex_string:
+            return None
         match = re.search(r'(?:os\.system|os\.popen|subprocess\.[\w]+|commands\.[\w]+)\s*\((.*)\)', regex_string, re.I)
         if not match:
             return None
-
         arg = match.group(1).strip()
-
-        # 纯字符串字面量（单引号/双引号包裹）
         if re.match(r'^[\'\"](.*?)[\'\"]$', arg):
             return False
-
-        # f-string 无插值变量: f"constant string"
         if re.match(r'^f[\'\"](.*?)[\'\"]$', arg):
-            # 检查是否有 {} 插值
             if '{' not in arg:
                 return False
-
         return None

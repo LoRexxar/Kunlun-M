@@ -42,11 +42,15 @@ class SourceRegistry:
     """Registry of all known source entry points for a PHP project."""
     framework: Optional[str] = None
 
-    # PHP builtin superglobals
+    # PHP builtin superglobals ($_SESSION / $_SERVER / $_ENV excluded —
+    # $_SESSION is server-side session data; $_SERVER has mixed
+    # controllability handled per-key by graph_analyzer
+    # ._SERVER_UNCONTROLLED_KEYS; $_ENV is OS-level environment variables
+    # that are not controllable by HTTP clients.)
     builtin_sources: Set[str] = field(default_factory=lambda: {
-        '$_GET', '$_POST', '$_REQUEST', '$_COOKIE', '$_SERVER',
-        '$_FILES', '$_SESSION', '$_ENV',
-        '$HTTP_RAW_POST_DATA', '$argc', '$argv',
+        '$_GET', '$_POST', '$_REQUEST', '$_COOKIE',
+        '$_FILES',
+        '$HTTP_RAW_POST_DATA',
         '$HTTP_POST_FILES', '$HTTP_COOKIE_VARS', '$HTTP_REQUEST_VARS',
         '$HTTP_POST_VARS', '$HTTP_GET_VARS',
     })
@@ -62,6 +66,10 @@ class SourceRegistry:
 
     # User-defined source producer functions: {func_name: SourceInfo}
     user_source_functions: Dict[str, SourceInfo] = field(default_factory=dict)
+
+    # Dotted member names recognized as sources by graph_analyzer.
+    # Populated from framework config (e.g. "request.input", "request.query").
+    source_members: Set[str] = field(default_factory=set)
 
     def is_source_variable(self, name: str) -> bool:
         """Check if a variable name is a known source (superglobal)."""
@@ -101,19 +109,47 @@ class SourceRegistry:
         """Check if a function name is a framework global source function."""
         return func_name in self.framework_global_functions
 
+    def is_source_member(self, chain: str) -> bool:
+        """Check if a dotted name chain matches a known source member.
+
+        Matches both exact (e.g. "request.input") and suffix
+        (e.g. "request.input" matches when chain is a longer
+        dotted path ending with a registered member).
+        """
+        if chain in self.source_members:
+            return True
+        # Suffix match: chain="foo.request.input" should match
+        # source_member "request.input" when "foo" is a request object name.
+        for sm in self.source_members:
+            if chain.endswith('.' + sm):
+                # Check if the prefix is a known request object name
+                prefix = chain[:-(len(sm) + 1)]
+                if prefix in self.framework_request_objects:
+                    return True
+        return False
+
     def add_framework(self, framework: str):
         """Initialize framework-specific source patterns."""
         self.framework = framework
         config = FRAMEWORK_CONFIGS[framework]
+        self._fw_config = config  # 保留完整配置供 knowledge_bridge 使用
 
         self.framework_request_objects = set(config['request_object_names'])
 
-        for method in config['request_methods']:
-            self.framework_methods[method] = SourceInfo(
-                type='framework',
-                name=method,
-                framework=framework,
-            )
+        # ⚠️ request_methods 不注册为 framework_methods（即不作为全局 source producer）。
+        # 这些方法（如 get, query, all）只有在 request 对象上调用时才是 source，
+        # 全局注册会导致所有名为 get() 的方法被误标。保留在 request_methods 中
+        # 供 is_framework_request_method() 上下文检查使用。
+        self.request_methods = set(config['request_methods'])
+
+        # Register dotted member names for graph_analyzer's _is_source_variable
+        # and _is_source_via_member_chain.  e.g. "request.input", "$request.get".
+        for obj in self.framework_request_objects:
+            clean = obj.lstrip('$')
+            for method in self.request_methods:
+                self.source_members.add(f'{clean}.{method}')
+                if obj != clean:
+                    self.source_members.add(f'{obj}.{method}')
 
         for func in config.get('global_source_functions', set()):
             self.framework_global_functions[func] = SourceInfo(
@@ -173,9 +209,19 @@ FRAMEWORK_CONFIGS = {
     'symfony': {
         'request_object_names': {'request', '$request'},
         'request_methods': {
-            'get', 'query', 'request',
+            'get', 'query', 'request', 'getContent', 'getPayload',
+            'toArray', 'getBasePath', 'getBaseUrl', 'getRequestUri',
         },
+        # ParameterBag 方法：$request->query->get(), $request->request->all() 等
+        # 这些通过链式调用（query→get）使用，需要特殊处理
+        'parameter_bag_methods': {'get', 'all', 'has', 'set', 'remove'},
         'global_source_functions': set(),
+        # 方法返回值经过安全转换（hash/枚举/常量），不应传播污点
+        'safe_return_methods': {
+            'getCacheKey', 'getScheme', 'getHost', 'getPort',
+            'getHttpHost', 'getBaseUrl', 'getBasePath', 'getPathInfo',
+            'getSchemeAndHttpHost',
+        },
     },
 }
 
@@ -200,7 +246,9 @@ def detect_framework(project_dir: str) -> Optional[str]:
                     return 'thinkphp'
                 if dep.startswith('codeigniter'):
                     return 'codeigniter'
-                if dep.startswith('symfony/') and 'framework' in dep:
+                if dep.startswith('symfony/'):
+                    # 任何 symfony/* 组件都算 Symfony 框架
+                    # 特别是 symfony/http-foundation 包含 Request 对象
                     return 'symfony'
         except (json.JSONDecodeError, OSError):
             pass
@@ -273,6 +321,23 @@ def _node_contains_source(node: Any, registry: SourceRegistry) -> bool:
             method_name = get_simple_name(node.name)
             if method_name and registry.is_framework_request_method(obj_name, method_name):
                 return True
+
+    # Chain call on request sub-property: $request->query->get()
+    # Recognized pattern: $obj-><request_prop>-><method>()
+    # where request_prop is 'query', 'request', 'headers', 'cookies', 'attributes'
+    if isinstance(node, _METHOD_CALL_TYPES):
+        obj_node = node.node
+        if isinstance(obj_node, _METHOD_CALL_TYPES):
+            inner_obj_name = extract_method_object_name(obj_node.node)
+            inner_method_name = get_simple_name(obj_node.name)
+            outer_method_name = get_simple_name(node.name)
+            if (inner_obj_name and inner_method_name and outer_method_name
+                    and registry.is_framework_request_method(inner_obj_name, inner_method_name)):
+                # $request->query is a request method returning ParameterBag
+                config = FRAMEWORK_CONFIGS.get(registry.framework, {})
+                bag_methods = config.get('parameter_bag_methods', set())
+                if outer_method_name in bag_methods:
+                    return True
 
     # Function call to framework global function: input()
     if isinstance(node, php.FunctionCall):

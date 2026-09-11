@@ -10,7 +10,7 @@ Kunlun-M 的 SCA 目标是：在不引入大规模爬虫/离线漏洞库的前�
 2. 组件写入 `ProjectVendors`（按 project 维度）
 3. 组件漏洞查询（按 `ACTIVE_SCA_SYSTEM` 启用源）
 4. 漏洞写入/更新 `VendorVulns`
-5. 若关联扫描任务（task_id），同时写入扫描结果流（ResultFlow）用于任务详情展示
+5. 若关联扫描任务（task_id），同时写入传播链（TaintChain）用于任务详情展示
 
 ## 为什么不做“全量漏洞库/爬虫”
 

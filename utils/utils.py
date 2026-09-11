@@ -19,6 +19,7 @@ import string
 import sys
 import time
 import ast
+import json
 import zipfile
 
 from Kunlun_M.settings import RULES_PATH, PROJECT_DIRECTORY
@@ -714,7 +715,12 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     filename = check_filepath(PROJECT_DIRECTORY, filename)
 
     line_number = line_number if line_number else 0
-    line_start = int(line_number) - show_line if (int(line_number) - show_line) > 0 else 0
+    # 容错处理：line_number 可能是 float 字符串（如 '13.0'），先转 float 再 int
+    try:
+        _lineno = int(line_number)
+    except (ValueError, TypeError):
+        _lineno = int(float(line_number))
+    line_start = _lineno - show_line if (_lineno - show_line) > 0 else 0
     line_start = line_start if line_start else 1
     line_end = int(line_start) + show_line + show_line
 
@@ -726,7 +732,7 @@ def show_context(filename, line_number, show_line=3, is_back=False):
     for line in lines:
 
         if not is_back:
-            if line_start + i == int(line_number):
+            if line_start + i == _lineno:
                 logger_console.warning("%4d: %s" % (line_start+i, line.replace("\n", "")))
             else:
                 logger_console.info("%4d: %s" % (line_start+i, line.replace("\n", "")))
@@ -739,7 +745,18 @@ def show_context(filename, line_number, show_line=3, is_back=False):
 
 def del_sensitive_for_config(param_config):
     result_list = []
-    param_config_list = ast.literal_eval(param_config)
+    if not param_config or not param_config.strip():
+        return "[]"
+    try:
+        param_config_list = ast.literal_eval(param_config)
+    except Exception:
+        return param_config
+
+    if not isinstance(param_config_list, list):
+        try:
+            return json.dumps(param_config_list, ensure_ascii=False)
+        except Exception:
+            return param_config
 
     last_param = ""
 

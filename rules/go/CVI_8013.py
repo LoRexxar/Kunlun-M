@@ -31,9 +31,21 @@ class CVI_8013(SingleRuleMixin):
 
         self.vul_function = ["http.Redirect"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
         if re.search(r'http\.Redirect\s*\(', regex_string):
+            # 重定向到变量（如 rURL）通常是自身 URL 重定向
+            if re.search(r'req\.URL|request\.URL|r\.URL|rURL|c\.Request|EscapedPath|URL\.Path', regex_string):
+                return False
             return True
         return None

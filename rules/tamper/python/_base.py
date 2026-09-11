@@ -63,6 +63,10 @@ IS_REPAIR = {
     "jinja2.escape": [7006],
     # 类型转换（确保不会注入模板表达式）
     "str": [7006],
+    # string.Template.substitute only does $variable replacement,
+    # NOT Python expression evaluation. Safe for SSTI/expr injection.
+    "substitute": [7006, 7014],
+    "safe_substitute": [7006, 7014],
 
     # ---- XXE 防御 (7011) ----
     # 安全 XML 解析库
@@ -116,10 +120,10 @@ IS_CONTROLLED = [
     # 标准输入
     "input()",
     "sys.argv",
-    # 环境变量
-    "os.environ",
-    "environ.get",
-    "environ",
+    # 环境变量 — 服务器环境变量，非用户直接可控，不作为 taint source
+    # "os.environ",
+    # "environ.get",
+    # "environ",
     # CGI
     "cgi.FieldStorage",
     "cgi.parse_qs",

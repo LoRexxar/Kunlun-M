@@ -22,8 +22,9 @@
 
   function setTheme(mode) {
     var body = document.body;
-    body.classList.remove('light-mode', 'dark-mode');
+    body.classList.remove('light-mode', 'dark-mode', 'theme-dark', 'theme-light');
     body.classList.add(mode + '-mode');
+    body.classList.add(mode === 'dark' ? 'theme-dark' : 'theme-light');
     localStorage.setItem('dashboard_theme', mode);
     var icon = document.getElementById('themeIcon');
     if (icon) {

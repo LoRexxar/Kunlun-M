@@ -1,267 +1,181 @@
 #!/usr/bin/env python
 # encoding: utf-8
-'''
-@author: LoRexxar
-@contact: lorexxar@gmail.com
-@file: main.py
-@time: 2020/11/9 14:08
-@desc:
+"""EntranceFinder — 基于 AST 图引擎的入口文件发现插件。
 
-'''
+通过分析 igraph 图中每个 File 节点的子图规模（子节点数量、边数量、
+函数/类数量），找出"最复杂"的文件作为入口点。
 
+用法:
+    python kunlun.py plugin entrancefinder -t <target> [-l 2] [-b "vendor,tests"]
+"""
 
-import re
-import difflib
-import traceback
+import os
 
 from core.plugins.baseplugin import BasePluginClass
-
-from core.pretreatment import ast_object
-
 from utils.file import Directory
-from utils.utils import ParseArgs
 from utils.log import logger
-
-from Kunlun_M.const import ext_dict
+from utils.igraph_compat import _vattr
 
 
 class EntranceFinder(BasePluginClass):
-    """
-    发现入口文件
-    """
-    def __init__(self, *args, **kwargs):
-        super(EntranceFinder, self).__init__(*args)
+    """发现入口文件 — 基于图引擎重写版"""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args)
         self.plugin_name = 'entrance_finder'
 
-        # new 参数
-        self.parser_group_plugin.add_argument('-l', '--limit', dest='limit', action='store', default=2,
-                                              help='limit node number(default 2)')
+        self.parser_group_plugin.add_argument(
+            '-l', '--limit', dest='limit', action='store', default=2,
+            help='Minimum subgraph size to be considered an entrance (default: 2)',
+        )
+        self.parser_group_plugin.add_argument(
+            '-b', '--blackwords', dest='blackwords', action='store', default='',
+            help='File path blacklist (comma-separated substrings)',
+        )
 
-        self.parser_group_plugin.add_argument('-b', '--blackwords', dest='blackwords', action='store', default="",
-                                              help='set blacklist for scan(use \',\' split string)')
-
-        # 参数列表
         self.required_arguments_list = ['target']
         self.arguments_list = ['target', 'debug', 'limit', 'blackwords']
-
-        # 检查参数
         self.check_args()
-
-        # 赋值
         self.eval_args()
         self.limit = int(self.limit)
+        self.black_list = self.blackwords.split(',') if self.blackwords else []
 
-        self.black_node = ['Function', 'Class']
-        self.black_function_name = ['define']
-        self.import_node = ['Include', 'Require', 'Assignment', 'ListAssignment']
-        self.filter_node = ['InlineHTML', 'header']
-        self.switch_node = ['If', 'ElseIf', 'Else', 'Try', 'While', 'DoWhile', 'For', 'Foreach', 'Switch', 'Case',
-                            'Default']
-        self.import_node = self.import_node + ['UseDeclarations', 'UseDeclaration', 'ClassVariables', 'ClassVariable', 'Static',
-                            'StaticVariable', 'AssignOp', 'PreIncDecOp', 'PostIncDecOp',
-                            'ClassConstants', 'ClassConstant', 'ConstantDeclarations', 'ConstantDeclaration']
-
-        self.filedata_dict = {}
-        self.black_list = []
-
-        # core
         self.main()
 
     def main(self):
+        self._load_and_build_graph()
+        self._get_statistics()
 
-        self.load_files()
-        self.get_statistics()
+    def _load_and_build_graph(self):
+        """解析目标目录，构建 AST 图，提取每个文件的子图指标。"""
+        from core.pretreatment import ast_object
+        from core.graph.graph_pipeline import build_ast_graph
 
-    def load_files(self):
         target = self.target
+        logger.info('[EntranceFinder] Target: {}'.format(target))
+        logger.info('[EntranceFinder] Limit: {}'.format(self.limit))
 
-        targetlist = re.split(r"[\\/]", target)
-        if target.endswith("/") or target.endswith("\\"):
-            filename = targetlist[-2]
-        else:
-            filename = targetlist[-1]
+        if self.black_list:
+            logger.info('[EntranceFinder] Blacklist: {}'.format(self.black_list))
 
-        logger.info('[EntranceFinder] Target {} start scan.'.format(filename))
-        logger.info('[EntranceFinder] Set Scan limit node number is {}'.format(self.limit))
+        # 收集文件
+        files, file_count, _ = Directory(target).collect_files()
 
-        if self.blackwords:
-            self.black_list_split()
-            logger.info('[EntranceFinder] Set Scan Blacklist is {}'.format(self.black_list))
-
-        # 加载目录文件
-        pa = ParseArgs(self.target, '', 'csv', '', 'php', '', a_sid=None)
-        target_mode = pa.target_mode
-
-        target_directory = pa.target_directory(target_mode)
-        logger.info('[CLI] Target : {d}'.format(d=target_directory))
-
-        # static analyse files info
-        files, file_count, time_consume = Directory(target_directory).collect_files()
-
-        # Pretreatment ast object
-        ast_object.init_pre(target_directory, files)
+        # AST 预处理
+        ast_object.init_pre(target, files)
         ast_object.pre_ast_all(['php'])
 
-        filecontent_dict = {}
+        # 构建图
+        graph = build_ast_graph(ast_object)
 
-        for file in files:
+        if not graph or graph.vcount() == 0:
+            logger.warn('[EntranceFinder] Graph is empty, no files to analyze.')
+            self.file_stats = {}
+            return
 
-            if file[0] in ext_dict['php']:
-                filename_list = file[1]['list']
+        # 提取每个 File 节点的子图规模
+        self.file_stats = {}
 
-                for filename in filename_list:
-                    all_nodes = ast_object.get_nodes(filename)
-                    now_content = ast_object.get_content(filename)
+        for vid in range(graph.vcount()):
+            v = graph.vs[vid]
+            vlabel = _vattr(v, "label", "")
+            if vlabel != "file":
+                continue
 
-                    # check black list
-                    is_black = False
-                    for bword in self.black_list:
-                        if bword in now_content:
-                            logger.debug('[EntranceFinder] found {} in File {}'.format(bword, filename))
-                            is_black = True
+            # graph_builder 将 attrs 展开到 vertex attribute 顶层
+            fpath = _vattr(v, "location", "") or _vattr(v, "path", "")
 
-                    if is_black:
-                        continue
+            fname = _vattr(v, "name", "")
 
-                    nodes_count, black_nodes_count = self.count_line(all_nodes)
+            # 检查黑名单
+            is_black = False
+            for bword in self.black_list:
+                if bword in fpath or bword in fname:
+                    is_black = True
+                    break
 
-                    if nodes_count in self.filedata_dict:
-                        check_ratio = self.get_check_ratio(now_content, filecontent_dict[nodes_count])
+            if is_black:
+                continue
 
-                        self.filedata_dict[nodes_count].append((filename, nodes_count, black_nodes_count, check_ratio))
+            # 提取子图：BFS 收集该 File 节点下所有可达的节点
+            sub_nodes = self._collect_subgraph_nodes(graph, vid)
 
-                    else:
-                        self.filedata_dict[nodes_count] = [(filename, nodes_count, black_nodes_count, 1)]
-                        filecontent_dict[nodes_count] = now_content
+            # 统计
+            func_count = 0
+            class_count = 0
+            edge_count = 0
+            for sn in sub_nodes:
+                sl = _vattr(graph.vs[sn], "label", "")
+                if sl == "function":
+                    func_count += 1
+                elif sl == "class":
+                    class_count += 1
 
-    def get_statistics(self):
-        """
-        获取统计结果
-        :return:
-        """
-        more_than_twoline_nodes = []
-        oneline_nodes = []
-        similar_nodes = {}
+            # 统计子图内部边数
+            sub_set = set(sub_nodes)
+            for ei in range(graph.ecount()):
+                s_vid = graph.es[ei].source
+                t_vid = graph.es[ei].target
+                if s_vid in sub_set and t_vid in sub_set:
+                    edge_count += 1
 
-        for node_count in self.filedata_dict:
-            file_similars = {}
+            node_count = len(sub_nodes) - 1  # 排除 file 节点本身
 
-            for data in self.filedata_dict[node_count]:
-                now_similar = data[3]
-                similar_variance = self.check_similar_variance(now_similar, file_similars)
+            self.file_stats[fpath] = {
+                'filename': fname,
+                'nodes': node_count,
+                'functions': func_count,
+                'classes': class_count,
+                'edges': edge_count,
+            }
 
-                if similar_variance:
-                    # log in file_similars
-                    file_similars[similar_variance[0]].append(data)
+        logger.info('[EntranceFinder] Analyzed {} files.'.format(len(self.file_stats)))
 
-                else:
-                    file_similars[data[0]] = [data]
+    def _collect_subgraph_nodes(self, graph, file_vid):
+        """BFS 收集 File 节点下所有通过 own/ast 边可达的节点。"""
+        visited = set()
+        queue = [file_vid]
+        visited.add(file_vid)
 
-                    if node_count > self.limit:
-                        more_than_twoline_nodes.append(data)
+        while queue:
+            current = queue.pop(0)
+            neighbors = graph.successors(current)
 
-                    elif 0 < node_count <= self.limit:
-                        oneline_nodes.append(data)
+            for nb in neighbors:
+                if nb in visited:
+                    continue
+                visited.add(nb)
+                # 所有后继都纳入子图
+                queue.append(nb)
 
-            similar_nodes.update(file_similars)
+        return list(visited)
 
-        # sort
-        def get_count(node):
-            return node[1]
+    def _get_statistics(self):
+        """输出统计结果。"""
+        more_than_limit = []
+        less_than_limit = []
 
-        more_than_twoline_nodes.sort(key=get_count, reverse=True)
-        oneline_nodes.sort(key=get_count, reverse=True)
+        for fpath, stats in self.file_stats.items():
+            entry = (stats['filename'], stats['nodes'], stats['functions'],
+                     stats['classes'], stats['edges'])
+            if stats['nodes'] > self.limit:
+                more_than_limit.append(entry)
+            elif 0 < stats['nodes'] <= self.limit:
+                less_than_limit.append(entry)
 
-        # print
-        logger.info("[EntranceFinder] Target has more than {}:\n-----------------------------------------------------".format(self.limit))
+        more_than_limit.sort(key=lambda x: x[1], reverse=True)
+        less_than_limit.sort(key=lambda x: x[1], reverse=True)
 
-        for data in more_than_twoline_nodes:
-            logger.info("[EntranceFinder] {} has {} nodes".format(data[0], data[1]))
+        logger.info("[EntranceFinder] ===== Entrance candidates (> {} nodes) =====".format(self.limit))
+        for entry in more_than_limit:
+            logger.info("[EntranceFinder]   {} — {} nodes ({} funcs, {} classes, {} edges)".format(*entry))
 
-            if data[0] in similar_nodes:
-                if len(similar_nodes) > 1:
-                    similar_nodes[data[0]].pop(0)
+        logger.info("[EntranceFinder] ===== Small files (<= {} nodes) =====".format(self.limit))
+        for entry in less_than_limit:
+            logger.info("[EntranceFinder]   {} — {} nodes ({} funcs, {} classes, {} edges)".format(*entry))
 
-                    for snode in similar_nodes[data[0]]:
-                        logger.info("[EntranceFinder] - Similar File {} has {} nodes".format(snode[0], snode[1]))
 
-        logger.info("[EntranceFinder] Target has < {} node:\n------------------------------------------------------".format(self.limit))
-
-        for data in oneline_nodes:
-            logger.info("[EntranceFinder] {} has {} nodes".format(data[0], data[1]))
-
-            if data[0] in similar_nodes:
-                if len(similar_nodes) > 1:
-                    similar_nodes[data[0]].pop(0)
-
-                    for snode in similar_nodes[data[0]]:
-
-                        logger.info("[EntranceFinder] - Similar File {} has {} nodes".format(snode[0], snode[1]))
-
-    def count_line(self, nodes):
-        """
-        统计节点数量
-        :param nodes:
-        :return:
-        """
-
-        nodes_count = len(nodes)
-        black_nodes_count = 0
-
-        for node in nodes:
-            node_typename = node.__class__.__name__
-
-            if node_typename in self.black_node:
-                nodes_count -= 1
-                black_nodes_count += 1
-
-            elif node_typename in self.filter_node or node_typename in self.import_node:
-                nodes_count -= 1
-
-            elif node_typename == 'NoneType':
-                nodes_count -= 1
-
-            elif node_typename == 'FunctionCall' and node.name in self.black_function_name:
-                nodes_count -= 1
-                black_nodes_count += 1
-
-            elif node_typename in self.switch_node:
-                nodes_count += 2
-
-            # else:
-            #     print(node_typename)
-
-        return nodes_count, black_nodes_count
-
-    def check_similar(self, content, origin_content):
-
-        ratio = difflib.SequenceMatcher(None, content, origin_content).quick_ratio()
-
-        if ratio > 0.95:
-            return True
-
-        return False
-
-    def check_similar_variance(self, similar, file_similars):
-
-        for filename in file_similars:
-            file_similar = file_similars[filename][0]
-
-            if abs(file_similar[3] - similar) < 0.03:
-                return file_similar
-
-        return False
-
-    def get_check_ratio(self, content, origin_content):
-
-        ratio = difflib.SequenceMatcher(None, content, origin_content).quick_ratio()
-
-        return ratio
-
-    def black_list_split(self):
-        if ',' in self.blackwords:
-            self.black_list = self.blackwords.split(',')
-
-        else:
-            self.black_list = [self.blackwords]
+PLUGIN_NAME = 'entrancefinder'
+PLUGIN_OBJECT = EntranceFinder
+PLUGIN_STATUS = True
+PLUGIN_DESCRIPTION = 'Find entry files based on AST graph subgraph complexity analysis'

@@ -9,7 +9,7 @@ from django.urls import path
 from django.contrib.auth.decorators import login_required
 
 from web.dashboard import views
-from web.dashboard.controller import tasks, rules, tampers, project, vendor, files
+from web.dashboard.controller import tasks, rules, tampers, project, vendor, files, graph_analysis, vuls
 from web.dashboard.interface import scanresult
 
 app_name = "dashboard"
@@ -64,4 +64,10 @@ urlpatterns = [
     # interface
     # scan result
     path('vuls/<int:vul_id>/del', scanresult.ScanResultDelInterfaceView.as_view(), name="vul_del"),
+    path('vuls/<int:vul_id>/verify', scanresult.ScanResultVerifyView.as_view(), name="vul_verify"),
+
+    # graph analysis
+
+    path('vuls/list', login_required(vuls.VulListView.as_view()), name='vuls_list'),
+    path('graph', login_required(graph_analysis.GraphAnalysisView.as_view()), name='graph_analysis'),
 ]

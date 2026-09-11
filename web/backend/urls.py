@@ -13,9 +13,6 @@ app_name = "backend"
 urlpatterns = [
     path('', views.index, name='index'),
 
-    # task log
-    path("tasklog/<int:task_id>", views.tasklog, name="tasklog"),
-    path("tasklogtail/<int:task_id>", views.tasklogtail, name="tasklogtail"),
     # task debug log
     path("debuglog/<int:task_id>", views.debuglog, name="debuglog"),
     # download debug log

@@ -22,17 +22,34 @@ FILTER_FUNCTIONS = {
     # URL encoding
     'urlencode': {'safe_for': [1005, 1006]},
     # signed redirect is safe
-    'redirect()->signedRoute': {'safe_for': [1009]},
+    'redirect()->signedRoute': {'safe_for': [1013]},
 }
 
 EXTRA_SINKS = [
+    # DB facade — raw SQL methods
     ("DB::raw", [1004]),
     ("DB::select", [1004]),
     ("DB::statement", [1004]),
     ("DB::unprepared", [1004]),
-    ("redirect(", [1009]),
-    ("view(", [1000]),
-    ("Response::json(", [1000]),
+    ("DB::insert", [1004]),
+    ("DB::update", [1004]),
+    ("DB::delete", [1004]),
+    # Query Builder / Eloquent — raw SQL injection vectors
+    ("->selectRaw(", [1004]),
+    ("->whereRaw(", [1004]),
+    ("->havingRaw(", [1004]),
+    ("->orderByRaw(", [1004]),
+    ("->groupByRaw(", [1004]),
+    # NOTE: view() removed as EXTRA_SINK — Blade {{ }} auto-escapes
+    # by default, so view('tpl', $data) is NOT a direct XSS sink.
+    # Raw output in templates ({!! !!} or <?php echo ?>) is detected
+    # via the echo/print sink when scanning .blade.php files directly.
+    # NOTE: Response::json() removed — JSON responses set
+    # Content-Type: application/json, which browsers do not parse as
+    # HTML, so reflected XSS is not possible through JSON output.
+    # Redirect — Open Redirect
+    ("redirect(", [1013]),
+    # Storage — File operation
     ("Storage::download(", [1002]),
     ("Storage::get(", [1002]),
 ]

@@ -1,14 +1,18 @@
 {% extends "dashboard/base.html" %}
 {% block title %}个人信息{% endblock %}
+{% block body_header %}
+<h1>个人信息 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <div class="row">
   <div class="col-md-6">
-    <div class="box box-warning">
+    <div class="card">
       <div class="box-header with-border">
-        <h3 class="box-title">个人信息</h3>
+        <h3 class="card-title">个人信息</h3>
       </div>
-      <div class="box-body">
+      <div class="card-body">
         <form role="form">
           <div class="form-group">
             <label>用户名</label>
@@ -28,11 +32,11 @@
   </div>
 
   <div class="col-md-6">
-    <div class="box box-info">
+    <div class="card">
       <div class="box-header with-border">
-        <h3 class="box-title">API Token</h3>
+        <h3 class="card-title">API Token</h3>
       </div>
-      <div class="box-body">
+      <div class="card-body">
         {% if tokens %}
         <table class="table table-hover">
           <thead>
@@ -54,7 +58,7 @@
               <td>
                 <form method="post" action="{% url 'dashboard:userinfo_token_delete' t.id %}" style="display:inline;">
                   {% csrf_token %}
-                  <button type="submit" class="btn btn-danger btn-xs" onclick="return confirm('确定撤销此 Token？')">撤销</button>
+                  <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('确定撤销此 Token？')">撤销</button>
                 </form>
               </td>
             </tr>

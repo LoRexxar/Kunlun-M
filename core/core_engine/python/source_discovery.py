@@ -50,6 +50,10 @@ class SourceRegistry:
         
         支持前缀匹配：注册了 'request.args' 则 'request.args.get("x")' 也匹配
         """
+        # 拒绝包含运算符的表达式名称（如 "request.META.get() || ''"）
+        # 这些不是合法的 source member 名称
+        if any(op in expr_str for op in ('||', '&&', ' and ', ' or ')):
+            return False
         for sm in self.source_members:
             if sm == expr_str or expr_str.startswith(sm + '.') or expr_str.startswith(sm + '['):
                 return True
@@ -77,25 +81,34 @@ class SourceRegistry:
 # ---------------------------------------------------------------------------
 
 _BUILTIN_SOURCE_MEMBERS = {
-    # 命令行参数
-    'sys.argv',
-    # 环境变量
-    'os.environ',
-    # 用户输入
-    'input',
-    # 标准输入
-    'sys.stdin',
     # HTTP 请求对象（通用，不依赖框架检测）
+    # Flask-style
     'request.args',
     'request.form',
     'request.data',
     'request.json',
     'request.files',
     'request.cookies',
-    'request.headers',
     'request.values',
     'request.get_json',
     'request.get_data',
+    'request.headers',
+    'request.query_string',
+    # Django-style
+    'request.GET',
+    'request.POST',
+    'request.FILES',
+    'request.COOKIES',
+    'request.META',
+    'request.body',
+    'request.get_full_path',
+    'request.get_host',
+    'request.build_absolute_uri',
+    # FastAPI-style
+    'request.query_params',
+    # NOTE: 'input', 'sys.argv', 'os.environ' removed — CLI-only
+    # sources that cause FP in web scans. Environment variables are
+    # server-side config, not HTTP-client controllable.
 }
 
 # ---------------------------------------------------------------------------
@@ -114,16 +127,17 @@ _FRAMEWORK_CONFIGS = {
             'request.json',
             'request.files',
             'request.cookies',
-            'request.headers',
             'request.values',
+            'request.headers',
             'request.get_json',
             'request.get_data',
             'request.query_string',
             'request.remote_addr',
-            'request.url',
+            # request.url removed: redirect(request.url) is the standard Flask
+            # PRG (Post-Redirect-Get) self-redirect pattern, never an open
+            # redirect. Query params are already covered by request.args.
             'request.referrer',
-            # Flask session
-            'session',
+            # session removed: server-side data, not user input
             # Flask config
             'flask.request',
         },
@@ -149,11 +163,12 @@ _FRAMEWORK_CONFIGS = {
             # Django forms
             'form.cleaned_data',
             'self.cleaned_data',
-            # Django URL params
-            'kwargs',
-            'self.kwargs',
-            'args',
-            'self.args',
+            # self.kwargs/self.args removed: too generic.
+            # They appear in pytest fixtures, celery extensions, and non-view
+            # code. Framework detection in setup.py can also false-positive
+            # (e.g. celery lists 'django' as an optional extra dependency).
+            # If needed, these can be re-added as user_source_functions via
+            # _walk_for_functions when Django CBV patterns are detected.
         },
     },
     'fastapi': {
@@ -163,8 +178,8 @@ _FRAMEWORK_CONFIGS = {
             # FastAPI 依赖注入参数（通常在函数签名中，但 body/params 是通用模式）
             'request.args',
             'request.query_params',
-            'request.headers',
             'request.cookies',
+            'request.headers',
             'request.body',
             'request.json',
         },

@@ -24,7 +24,7 @@ class CVI_6035(SingleRuleMixin):
         self.level = 9
 
         # 部分配置
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "readObject"
 
         # for solidity
@@ -32,6 +32,7 @@ class CVI_6035(SingleRuleMixin):
 
         # for regex
         self.unmatch = []
+        self.vul_function = ["ObjectInputStream.readObject"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

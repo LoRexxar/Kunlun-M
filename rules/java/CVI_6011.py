@@ -16,15 +16,42 @@ class CVI_6011(SingleRuleMixin):
         self.level = 3
 
         self.match_mode = "function-param-regex"
-        self.match = r"transferTo\s*\(|\.getInputStream\(\)|\.getBytes\(\)|\.getOriginalFilename\(\)|MultipartFile"
+        self.match = r"transferTo\s*\(|\.getOriginalFilename\(\)|MultipartFile|\.transferTo\s*\("
         self.unmatch = [r"isValidExtension", r"checkFileType", r"MimeTypeUtils"]
-        self.vul_function = ["transferTo", "getInputStream", "getBytes", "getOriginalFilename"]
+        self.vul_function = ["MultipartFile.transferTo", "MultipartFile.getOriginalFilename", "MultipartFile.write"]
 
-    def main(self, regex_string):
-        if not isinstance(regex_string, str):
-            regex_string = str(regex_string)
-        # 排除有扩展名白名单校验的写法
-        if re.search(r"ALLOWED_EXTENSIONS|allowedExtensions|isValidExtension|checkFileType|ImageIO\.read|MimeTypeUtils", regex_string, re.I):
+    def main(self, regex_string, sink_args=None, context=None, **kwargs):
+        """Graph-based: const filename is hardcoded (safe).
+        context: broader source window (±15 lines) for sanitizer detection.
+        """
+        # Build a combined text for regex checks
+        check_text = ''
+        if isinstance(regex_string, str):
+            check_text = regex_string
+        if context and isinstance(context, str):
+            check_text = check_text + ' ' + context
+
+        # Check for sanitizers first (applies to both graph and regex modes)
+        if check_text and re.search(
+            r"ALLOWED_EXTENSIONS|allowedExtensions|isValidExtension"
+            r"|checkFileType|ImageIO\.read|MimeTypeUtils",
+            check_text, re.I
+        ):
             return False
+        if check_text and re.search(
+            r"(verify|sanitize|clean|filter|validate)\w*(File|FileName|Filename|Name)",
+            check_text, re.I
+        ):
+            return False
+
+        if sink_args:
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         return None
 

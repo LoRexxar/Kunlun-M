@@ -32,7 +32,29 @@ import asyncio
 import subprocess
 from collections.abc import Hashable
 
-could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c"]
+could_ast_pase_lans = ["php", "chromeext", "javascript", "html", "java", "python", "go", "c", "typescript",
+                       "rust", "ruby", "csharp", "kotlin", "lua", "cpp"]
+
+# 语言别名映射：用户输入的缩写 → 内部标准名称
+_LANGUAGE_ALIASES = {
+    "js": "javascript",
+    "ts": "typescript",
+    "py": "python",
+    "rb": "ruby",
+    "cs": "csharp",
+    "kt": "kotlin",
+    "c++": "cpp",
+}
+
+
+def normalize_language(lan_list):
+    """将语言别名归一化为内部标准名称。"""
+    result = []
+    for lang in lan_list:
+        normalized = _LANGUAGE_ALIASES.get(lang.lower(), lang.lower())
+        if normalized not in result:
+            result.append(normalized)
+    return result
 
 
 class Pretreatment:
@@ -119,6 +141,10 @@ class Pretreatment:
             return None
 
     def pre_ast_all(self, lan=None, is_unprecom=False):
+
+        # 归一化语言别名（js→javascript, ts→typescript 等）
+        if lan is not None:
+            lan = normalize_language(lan)
 
         if lan is not None:
             # 检查是否在可ast pasre列表中
@@ -242,31 +268,38 @@ class Pretreatment:
 
                         # 合并字典
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        continue  # 解析成功，跳过 repair 逻辑
 
-                    except SyntaxError as e:
+                    except (SyntaxError, AssertionError) as e:
+                        if isinstance(e, AssertionError):
+                            logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                            continue
                         if self.is_unprecom:
                             logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
                             continue
 
+                    try:
                         repaired_code_content = self._repair_php_code_for_parser(code_content)
-
-                        if repaired_code_content == code_content:
-                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
-                            continue
-
-                        try:
-                            parser = make_parser()
-                            all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
-                            logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
-                            self.pre_result[filepath]['ast_nodes'] = all_nodes
-                        except Exception:
-                            logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
-                            continue
-
-                    except AssertionError as e:
-                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                    except Exception:
+                        logger.warning('[AST] [ERROR] lexer repair failed for {}'.format(filepath))
                         continue
 
+                    # repair 成功后，尝试用修复后的代码重新解析
+                    if repaired_code_content == code_content:
+                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        continue
+
+                    try:
+                        parser = make_parser()
+                        all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
+                        logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
+                        self.pre_result[filepath]['ast_nodes'] = all_nodes
+                    except AssertionError:
+                        logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                        continue
+                    except Exception:
+                        logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        continue
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
                         continue
@@ -572,6 +605,60 @@ class Pretreatment:
                     except Exception:
                         logger.warning("[AST] [JAR] 处理异常: {}".format(traceback.format_exc()))
 
+            elif fileext[0] == '.class' and 'java' in self.lan:
+                # 针对 .class 文件的反编译预处理
+                for filepath in fileext[1]['list']:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]['language'] = 'java'
+                    self.pre_result[filepath]['ast_nodes'] = []
+                    self.pre_result[filepath]['type'] = 'class'
+
+                    try:
+                        # 1. 确保有 CFR
+                        cfr_path = self._ensure_cfr()
+                        if not cfr_path:
+                            logger.warning("[AST] [CLASS] CFR 不可用，跳过反编译: {}".format(filepath))
+                            continue
+
+                        # 2. 反编译 .class 文件
+                        decompiled_dir = filepath + "_decompiled/"
+                        if not os.path.isdir(decompiled_dir) or not os.listdir(decompiled_dir):
+                            os.makedirs(decompiled_dir, exist_ok=True)
+                            subprocess.run(
+                                ['java', '-jar', cfr_path, filepath, '--outputdir', decompiled_dir],
+                                capture_output=True, timeout=120
+                            )
+
+                        self.pre_result[filepath]['decompiled_dir'] = decompiled_dir
+
+                        # 3. 遍历反编译输出的 .java 文件，做 AST 解析
+                        for root, dirs, java_files in os.walk(decompiled_dir):
+                            for jf in java_files:
+                                if jf.endswith('.java'):
+                                    java_path = os.path.join(root, jf)
+                                    self.pre_result[java_path] = {}
+                                    self.pre_result[java_path]['language'] = 'java'
+                                    self.pre_result[java_path]['ast_nodes'] = []
+                                    self.pre_result[java_path]['source_class'] = filepath
+
+                                    try:
+                                        with codecs.open(java_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                            code = f.read()
+                                        if not self.is_unprecom:
+                                            tree = javalang.parse.parse(code)
+                                            self.pre_result[java_path]['ast_nodes'] = tree
+                                    except javalang.parser.JavaSyntaxError:
+                                        logger.warning("[AST] [CLASS] 反编译文件语法错误: {}".format(java_path))
+                                    except Exception:
+                                        logger.warning("[AST] [CLASS] 解析异常: {}".format(traceback.format_exc()))
+
+                                    # 加入反编译文件列表，供后续扫描使用
+                                    self.decompiled_files.append(java_path)
+
+                    except Exception:
+                        logger.warning("[AST] [CLASS] 处理异常: {}".format(traceback.format_exc()))
+
             elif fileext[0] in ext_dict['java'] and 'java' in self.lan:
                 # 针对 Java 的预处理
                 for filepath in fileext[1]['list']:
@@ -629,8 +716,7 @@ class Pretreatment:
 
             elif fileext[0] in ext_dict["go"] and "go" in self.lan:
                 # 针对 Go 的预处理
-                # Go 没有 Python 端的 AST 解析器，将源码以文本形式存储，
-                # 后续由 core/core_engine/go/parser.py 做基于正则和行扫描的静态分析。
+                # 使用 tree-sitter 解析 Go 源文件，生成 AST（供图引擎使用）
                 for filepath in fileext[1]["list"]:
                     filepath = self.get_path(filepath)
                     self.pre_result[filepath] = {}
@@ -642,14 +728,29 @@ class Pretreatment:
                         code_content = fi.read()
                         fi.close()
 
-                        # 存储源码行列表供 parser 使用
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_go as tsgo
+                                from tree_sitter import Language, Parser
+                                GO_LANG = Language(tsgo.language())
+                                ts_parser = Parser(GO_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-go not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        # 存储源码行列表供老引擎 parser 使用（保持向后兼容）
                         self.pre_result[filepath]["source_lines"] = code_content.splitlines()
 
                     except Exception:
                         logger.warning("[AST] something error, {}".format(traceback.format_exc()))
                         continue
 
-            elif fileext[0] in ext_dict["c"] and ("c" in self.lan or "c++" in self.lan):
+            elif fileext[0] in ext_dict["c"] and ("c" in self.lan or "c++" in self.lan or "cpp" in self.lan):
                 # 针对 C/C++ 的预处理
                 # 使用 tree-sitter 解析 C/C++ 源文件，生成 AST
                 for filepath in fileext[1]["list"]:
@@ -679,6 +780,216 @@ class Pretreatment:
                             self.pre_result[filepath]["ast_nodes"] = []
 
                         # 存储源码供 parser 使用
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["typescript"] and "typescript" in self.lan:
+                # 针对 TypeScript 的预处理
+                # 使用 tree-sitter 解析 TypeScript 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "typescript"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_typescript as tsts
+                                from tree_sitter import Language, Parser
+                                TS_LANG = Language(tsts.language_typescript())
+                                ts_parser = Parser(TS_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-typescript not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["rust"] and "rust" in self.lan:
+                # 针对 Rust 的预处理
+                # 使用 tree-sitter 解析 Rust 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "rust"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_rust as tsrust
+                                from tree_sitter import Language, Parser
+                                RUST_LANG = Language(tsrust.language())
+                                ts_parser = Parser(RUST_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-rust not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["ruby"] and "ruby" in self.lan:
+                # 针对 Ruby 的预处理
+                # 使用 tree-sitter 解析 Ruby 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "ruby"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_ruby as tsruby
+                                from tree_sitter import Language, Parser
+                                RUBY_LANG = Language(tsruby.language())
+                                ts_parser = Parser(RUBY_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-ruby not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["csharp"] and "csharp" in self.lan:
+                # 针对 C# 的预处理
+                # 使用 tree-sitter 解析 C# 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "csharp"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_c_sharp as tscs
+                                from tree_sitter import Language, Parser
+                                CSHARP_LANG = Language(tscs.language())
+                                ts_parser = Parser(CSHARP_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-c-sharp not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["kotlin"] and "kotlin" in self.lan:
+                # 针对 Kotlin 的预处理
+                # 使用 tree-sitter 解析 Kotlin 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "kotlin"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_kotlin as tskt
+                                from tree_sitter import Language, Parser
+                                KOTLIN_LANG = Language(tskt.language())
+                                ts_parser = Parser(KOTLIN_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-kotlin not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
+                        self.pre_result[filepath]["source_lines"] = code_content.splitlines()
+
+                    except Exception:
+                        logger.warning("[AST] something error, {}".format(traceback.format_exc()))
+                        continue
+
+            elif fileext[0] in ext_dict["lua"] and "lua" in self.lan:
+                # 针对 Lua 的预处理
+                # 使用 tree-sitter 解析 Lua 源文件，生成 AST
+                for filepath in fileext[1]["list"]:
+                    filepath = self.get_path(filepath)
+                    self.pre_result[filepath] = {}
+                    self.pre_result[filepath]["language"] = "lua"
+                    self.pre_result[filepath]["ast_nodes"] = []
+
+                    try:
+                        fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
+                        code_content = fi.read()
+                        fi.close()
+
+                        if not self.is_unprecom:
+                            try:
+                                import tree_sitter_lua as tslua
+                                from tree_sitter import Language, Parser
+                                LUA_LANG = Language(tslua.language())
+                                ts_parser = Parser(LUA_LANG)
+                                tree = ts_parser.parse(bytes(code_content, 'utf8'))
+                                self.pre_result[filepath]['ast_nodes'] = tree
+                            except ImportError:
+                                logger.warning("[AST] tree-sitter-lua not installed, skip AST for {}".format(filepath))
+                            except Exception as e:
+                                logger.warning("[AST] [ERROR] tree-sitter parse error for {}: {}".format(filepath, str(e)))
+                        else:
+                            self.pre_result[filepath]["ast_nodes"] = []
+
                         self.pre_result[filepath]["source_lines"] = code_content.splitlines()
 
                     except Exception:

@@ -42,13 +42,27 @@ class CVI_8002(SingleRuleMixin):
             "gorm.DB.Raw", "gorm.DB.Where", "gorm.DB.Select", "gorm.DB.Having",
         ]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
-        二次筛选：片段模式下无法判断参数化查询。
-        保守策略：匹配到数据库查询函数就检出。
+        二次筛选：检查是否为参数化查询（占位符?或$1）。
+        如果包含参数化查询特征，返回 False（安全）。
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
+        # 检查 unmatch 规则（参数化查询特征）
+        for pattern in self.unmatch:
+            if re.search(pattern, regex_string):
+                return False
         if re.search(r'\.(Query|Exec|QueryRow|Raw|Where|Select|Having)\s*\(', regex_string):
             return True
         return None

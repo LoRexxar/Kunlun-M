@@ -37,6 +37,6 @@ EXTRA_SINKS = [
     ("->render(", [1000]),
     ("->renderPartial(", [1000]),
     ("->renderAjax(", [1000]),
-    ("->redirect(", [1009]),
-    ("Yii::\$app->response->redirect(", [1009]),
+    ("->redirect(", [1013]),
+    ("Yii::\$app->response->redirect(", [1013]),
 ]

@@ -14,28 +14,50 @@ import os
 import re
 import logging
 
+try:
+    import javalang
+except ImportError:
+    javalang = None
+
 logger = logging.getLogger('KunlunLog')
+
+# Known request variable name prefixes — used to gate bare-name suffix matching
+# so that tree.getParameter doesn't match getParameter.
+_JAVA_REQUEST_PREFIXES: frozenset[str] = frozenset({
+    "request", "req", "httpRequest", "httpServletRequest",
+    "servletRequest", "httpReq",
+})
 
 
 # ---------------------------------------------------------------------------
 # 内置 source 成员 — Servlet API 标准方法
 # ---------------------------------------------------------------------------
 _BUILTIN_SOURCE_MEMBERS = frozenset({
-    # HttpServletRequest 方法
+    # HttpServletRequest/ServletRequest 方法
+    # 限定名用于精确匹配，裸名用于 suffix fallback（_is_source_variable
+    # 中 Java 语言额外检查 prefix 是否为已知 request 变量名）
+    "HttpServletRequest.getParameter", "HttpServletRequest.getHeader",
+    "HttpServletRequest.getInputStream", "HttpServletRequest.getReader",
+    "HttpServletRequest.getQueryString", "HttpServletRequest.getCookies",
+    "HttpServletRequest.getParameterValues", "HttpServletRequest.getParameterMap",
+    "HttpServletRequest.getPart", "HttpServletRequest.getParts",
+    "ServletRequest.getParameter", "ServletRequest.getHeader",
+    "ServletRequest.getInputStream", "ServletRequest.getReader",
+    "ServletRequest.getQueryString", "ServletRequest.getCookies",
+    "ServletRequest.getParameterValues", "ServletRequest.getParameterMap",
+    "ServletRequest.getPart", "ServletRequest.getParts",
+    # 裸名 — suffix fallback 受 _JAVA_REQUEST_PREFIXES 门控
     "getParameter", "getHeader", "getInputStream", "getReader",
     "getQueryString", "getCookies", "getParameterValues", "getParameterMap",
-    "getProtocol", "getScheme", "getServerName", "getRemoteAddr",
-    "getRemoteHost", "getRequestURI", "getRequestURL",
-    "getContextPath", "getPathInfo", "getPart", "getParts",
-    "getAttribute", "getSession",
+    "getPart", "getParts",
+    # 注意：以下方法已移除，它们不是用户可控输入：
+    # getSession, getAttribute - 服务端 session/attribute，非用户直接输入
+    # getContextPath, getPathInfo - 路径信息，服务端配置
+    # getRemoteHost, getRequestURI, getRequestURL - 服务端信息
 })
 
 # 内置 source producer 函数（方法名匹配）
-_BUILTIN_SOURCE_PRODUCERS = {
-    # System
-    "System.getenv": "system",
-    "System.getProperty": "system",
-}
+_BUILTIN_SOURCE_PRODUCERS = {}
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +123,12 @@ class SourceRegistry:
             return info
         # 匹配 builtin source members
         if short in self.source_members:
+            # 对于含点的调用名（如 tree.getParameter），裸名匹配太泛。
+            # 要求调用者的变量名是已知 request 对象（如 request.getParameter）。
+            if "." in func_name:
+                caller = func_name.rsplit(".", 1)[0]
+                if caller not in _JAVA_REQUEST_PREFIXES:
+                    return None
             return SourceInfo(type='builtin', name=short, origin='Servlet API')
         # 匹配 builtin source producers
         for full_name, origin in _BUILTIN_SOURCE_PRODUCERS.items():
@@ -167,6 +195,12 @@ _FRAMEWORK_CONFIGS = {
             'tomcat-servlet-api',
         ],
         'source_members': set(_BUILTIN_SOURCE_MEMBERS),
+    },
+    'dubbo': {
+        'detect_packages': [
+            'dubbo', 'org.apache.dubbo',
+        ],
+        'source_members': set(),  # Dubbo URL parameters are config, not user input
     },
 }
 
@@ -280,18 +314,15 @@ def _find_source_producers_in_tree(tree, file_path=None):
     source_members = set()
     annotated_params = set()
 
-    try:
-        import javalang
-    except ImportError:
-        return producers, source_members, annotated_params
-
     # 所有内置 source members
     source_members.update(_BUILTIN_SOURCE_MEMBERS)
 
-    # 遍历所有 MethodDeclaration
+    # 遍历所有 MethodDeclaration（javalang 必须已安装，否则 Java 解析阶段已失败）
+    import javalang
+
     methods = list(tree.filter(javalang.tree.MethodDeclaration))
 
-    for method_node in methods:
+    for method_path, method_node in methods:
         _process_method_declaration(method_node, source_members, annotated_params)
 
     return producers, source_members, annotated_params
@@ -316,8 +347,21 @@ def _process_method_declaration(method_node, source_members, annotated_params):
             if hasattr(param, 'type') and param.type:
                 param_type = param.type.name if hasattr(param.type, 'name') else str(param.type)
 
-            # HttpServletRequest / MultipartFile / InputStream / Principal 类型
-            if any(t in param_type for t in ('Request', 'MultipartFile', 'InputStream', 'Principal')):
+            # HttpServletRequest / InputStream / Principal types
+            # Only match Servlet/API request types, not user classes named "*Request*".
+            # (MultipartFile excluded: carries uploaded file metadata, not direct user string source)
+            _HTTP_REQUEST_TYPES = {
+                'HttpServletRequest', 'ServletRequest',
+                'HttpServletRequestWrapper', 'ServletRequestWrapper',
+                'MultipartHttpServletRequest',
+                'InputStream', 'ServletInputStream',
+                'Principal', 'java.security.Principal',
+            }
+            # Check exact type name (strip generics and package prefix)
+            bare_type = param_type.split('<')[0].strip()
+            if '.' in bare_type:
+                bare_type = bare_type.rsplit('.', 1)[-1]
+            if bare_type in _HTTP_REQUEST_TYPES:
                 annotated_params.add(param.name)
                 continue
 
@@ -342,7 +386,14 @@ def _process_method_declaration(method_node, source_members, annotated_params):
             ptype = ""
             if hasattr(param, 'type') and param.type:
                 ptype = param.type.name if hasattr(param.type, 'name') else str(param.type)
-            if 'Request' in ptype:
+            # Only match actual Servlet API request types, not user classes
+            # named "*Request*" (e.g., jmeter's curl Request).
+            bare_ptype = ptype.split('<')[0].strip()
+            if '.' in bare_ptype:
+                bare_ptype = bare_ptype.rsplit('.', 1)[-1]
+            if bare_ptype in ('HttpServletRequest', 'ServletRequest',
+                              'HttpServletRequestWrapper', 'ServletRequestWrapper',
+                              'MultipartHttpServletRequest'):
                 request_var_names.add(param.name)
 
     for stmt in method_node.body:
@@ -375,11 +426,7 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
     """
     registry = SourceRegistry()
 
-    if tree is None:
-        logger.debug('[AST][Java] Source Discovery: tree is None, skipping')
-        return registry
-
-    # 1. 框架检测
+    # 1. 框架检测（仅需 project_dir，不依赖 tree）
     framework, deps = _detect_framework(project_dir)
     if framework:
         registry.framework = framework
@@ -398,7 +445,11 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
     # 2. 内置 source members
     registry.source_members.update(_BUILTIN_SOURCE_MEMBERS)
 
-    # 3. AST 遍历发现 source producers
+    if tree is None:
+        # 无 AST 时仅返回框架 + 内置种子 source，不遍历 AST
+        return registry
+
+    # 3. AST 遍历发现 source producers（仅在有 AST 时执行）
     producers, source_members, annotated_params = _find_source_producers_in_tree(tree, file_path)
 
     for member in source_members:

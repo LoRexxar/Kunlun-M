@@ -16,5 +16,5 @@ class CVI_7012(SingleRuleMixin):
         self.match = r"\.xpath\(|lxml\.etree\.xpath|etree\.xpath|ElementTree\.xpath|tree\.xpath|root\.xpath"
         self.vul_function = ["xpath"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         pass

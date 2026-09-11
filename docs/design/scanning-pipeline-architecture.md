@@ -105,20 +105,44 @@ Kunlun-M 是一个多语言静态白盒漏洞扫描框架，采用**规则驱动
 
 ## 3. 匹配模式详解
 
+### 3.0 v3.0 图引擎模式（当前主路径）
+
+v3.0 全面基于 AST 图引擎，sink 匹配流程为：`build_ast_graph()` → `find_sinks()` → `parameters_back()`。
+
+大部分规则通过 `vul_function` 的 fullname sink 走图引擎路径，不依赖传统 match_mode 分流。
+
+### 3.1 独立扫描模式（不依赖图引擎）
+
 | match_mode | 说明 | 是否需要 AST |
 |---|---|---|
-| `only-regex` | 纯正则匹配，匹配即确认漏洞 | ❌ |
-| `function-param-regex` | 正则定位 sink → AST 回溯参数可控性 | ✅ |
-| `java-function-param-regex` | Java 专用：grep + rule.main() + AST | ✅ |
-| `go-function-param-regex` | Go 专用：Go AST 污点追踪 | ✅ |
-| `c-function-param-regex` | C/C++ 专用：C AST 污点追踪 | ✅ |
-| `vustomize-match` | 自定义参数匹配 → CAST.is_controllable_param() | ✅ |
-| `regex-return-regex` | 回馈式正则，匹配结果再用于二次正则 | ❌ |
-| `special-crx-keyword-match` | Chrome 扩展关键词匹配 | ❌ |
-| `file-path-regex-match` | 敏感文件名/路径匹配 | ❌ |
+| `file-pattern` | 文件名正则 + 内容正则双重匹配。规则可选设置 `file_pattern` 限制文件名范围（如 `r'.*Mapper\.xml$'`），`match` 定义内容匹配正则。适用场景：MyBatis `${}` 检测等需要按文件名限定扫描范围的规则 | ❌ |
 | `framework-dependency` | 框架依赖版本检测 (pom.xml 等) | ❌ |
+| `file-path-regex-match` | 敏感文件名/路径匹配 | ❌ |
+| `special-crx-keyword-match` | Chrome 扩展关键词匹配 | ❌ |
 
-### 3.1 `function-param-regex` 模式的 grep 策略
+### 3.2 图引擎 sink 规则的 match_mode
+
+以下 match_mode 的规则会被 `scan()` 收集后通过图引擎处理：
+
+| match_mode | 说明 |
+|---|---|
+| `function-param-regex` | 通用 sink 规则（PHP/JS/Python/Ruby/TypeScript 等） |
+| `java-function-param-controllable` | Java 专用 sink 规则 |
+| `go-function-param-controllable` | Go 专用 sink 规则 |
+| `c-function-param-controllable` | C/C++ 专用 sink 规则 |
+
+### 3.3 已跳过模式（LEGACY）
+
+以下 match_mode 的规则在 `scan()` 中被跳过，不参与图引擎扫描：
+
+| `only-regex` | 纯正则匹配（已跳过） |
+| `vustomize-match` | 自定义参数匹配（已跳过） |
+| `regex-return-regex` | 回馈式正则（已跳过） |
+| `only-keyword` | 纯关键字匹配（已跳过） |
+
+> 以下为旧引擎（LEGACY）的匹配模式说明，保留仅供参考。v3.0 图引擎模式下不经过此路径。
+
+### 3.10 [LEGACY] `function-param-regex` 模式的 grep 策略
 
 对于传统 PHP/JS 规则，`match` 字段是敏感函数名（如 `system`），需要包装成正则：
 

@@ -25,17 +25,27 @@ class CVI_30051(SingleRuleMixin):
         self.level = 4
 
         # 部分配置
-        self.match_mode = "vustomize-match"
+        self.match_mode = "function-param-regex"
         self.match = r"(\.outerHTML\s*=\s*([^;]+)\b)"
 
         self.vul_function = r"outerHTML"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         just for sql statements
         :return:
         """
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         def clean_string(match):
             result = []
 

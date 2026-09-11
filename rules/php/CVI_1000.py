@@ -27,12 +27,28 @@ class CVI_1000(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"print|print_r|exit|die|printf|vprintf|trigger_error|user_error|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
+        self.match = r"echo|print|print_r|printf|vprintf|odbc_result_all|ovrimos_result_all|ifx_htmltbl_result"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
-        regex string input
-        :regex_string: regex match string
-        :return:
+        Graph-based: filter out print_r($var, true) which returns a string
+        instead of outputting to the browser. When the second argument is
+        boolean true, print_r is a string function, not an XSS output sink.
         """
-        pass
+        if sink_args and len(sink_args) >= 2:
+            # Check if this is a print_r call with second arg = true
+            arg1 = sink_args[1]
+            val = arg1.get('resolved_value', '') or ''
+            if not val:
+                val = arg1.get('name', '')
+            if val and val.strip().lower() in ('true', '1', 'true'):
+                return False
+
+        # Also check source code line for print_r(..., true) pattern
+        if regex_string and 'print_r' in regex_string.lower():
+            import re
+            # Match print_r(..., true) where second arg is literal true
+            if re.search(r'print_r\s*\([^)]*,\s*true\s*\)', regex_string, re.IGNORECASE):
+                return False
+
+        return None

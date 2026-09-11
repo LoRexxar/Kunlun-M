@@ -20,13 +20,23 @@ class CVI_6047(SingleRuleMixin):
         self.description = "Jackson ObjectMapper启用了enableDefaultTyping，允许多态反序列化，可能导致远程代码执行"
         self.level = 6
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "enableDefaultTyping"
-        self.vul_function = ["enableDefaultTyping"]
+        self.vul_function = ["ObjectMapper.enableDefaultTyping"]
         self.is_config_vuln = True
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：确认是 enableDefaultTyping 调用"""
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'enableDefaultTyping', code):
             return False

@@ -498,6 +498,14 @@ def is_controllable(expr, flag=None):  # 获取表达式中的变量，看是否
         array_name = get_node_name(expr.node)
 
         if array_name in controlled_params:
+            # $_FILES special case: 'tmp_name' and 'error' are server-generated,
+            # not user-controlled. Only 'name', 'type', 'size' are attacker-controlled.
+            if array_name in ('$_FILES', '$HTTP_POST_FILES'):
+                dim_key = get_node_name(expr.expr)
+                dim_key_str = str(dim_key).strip("'\"") if dim_key else ''
+                if dim_key_str in ('tmp_name', 'error'):
+                    logger.debug('[AST] $_FILES dim {} is server-generated, not controllable'.format(dim_key_str))
+                    return -1, php.Variable(array_name)
             logger.debug('[AST] is_controllable --> {expr}'.format(expr=array_name))
             if flag:
                 return 1, array_name
@@ -632,6 +640,23 @@ def _judge_from_summary_php(summary, call_node):
 
         elif rf.origin_type == "call":
             origin = rf.origin
+            # Check if the return wraps a known repair/sanitizer function
+            # (e.g., html_output returns htmlentities($str)). If so, the
+            # return value is sanitized → code 2.
+            if is_repair(origin):
+                logger.debug("[AST][PHP] Summary: {} wraps repair function {}, sanitized".format(
+                    summary.name, origin))
+                return (2, call_node, 0)
+            # Recursively check if the called function's summary also wraps a repair.
+            # Handles multi-level wrappers: Format::input → Format::htmlchars → htmlspecialchars
+            from core.core_engine.php.summary_generator import lookup_summary as _lookup
+            nested_summary = _lookup(origin)
+            if nested_summary and nested_summary.return_flow:
+                for nested_rf in nested_summary.return_flow:
+                    if nested_rf.origin_type == "call" and is_repair(nested_rf.origin):
+                        logger.debug("[AST][PHP] Summary: {} → {} → repair {}, sanitized".format(
+                            summary.name, origin, nested_rf.origin))
+                        return (2, call_node, 0)
             co, _ = is_controllable(origin)
             if co == 1:
                 return (1, origin, 0)
@@ -681,6 +706,20 @@ def function_back(param, nodes, function_params, vul_function=None, file_path=No
     scan_function_stack.append(function_name)
 
     try:
+        # ---- array_map 特殊处理：callback 为已知安全函数时返回值安全 ----
+        if function_name == 'array_map':
+            actual_params = param.params if hasattr(param, 'params') else []
+            if actual_params:
+                callback_arg = actual_params[0]
+                callback_expr = callback_arg.node if hasattr(callback_arg, 'node') else callback_arg
+                callback_name = get_node_name(callback_expr) if hasattr(callback_expr, '__class__') else str(callback_expr)
+                # callback_name may include quotes from string literal, strip them
+                if callback_name:
+                    callback_name = callback_name.strip("'\"")
+                if callback_name and is_repair(callback_name):
+                    logger.debug("[AST][PHP] array_map callback {} is repair function, return safe".format(callback_name))
+                    return -1, param, 0
+
         # ---- 查内置知识库 ----
         knowledge = _trace_cache.lookup_builtin(function_name)
         if knowledge:
@@ -1302,6 +1341,16 @@ def extract_constraints_from_php_expr(expr):
                             var_name=var_name, op='regex_validated',
                             value=pattern
                         ))
+        elif func_name == 'in_array':
+            # in_array($needle, $haystack) — $needle is constrained to
+            # values present in $haystack.  Treat as whitelist validation.
+            if expr.params and len(expr.params) >= 2:
+                var_name = _extract_var_name(expr.params[0])
+                if var_name:
+                    constraints.append(BranchConstraint(
+                        var_name=var_name, op='in_array',
+                        value=None,
+                    ))
 
     elif isinstance(expr, php.BinaryOp):
         if expr.op == '&&':
@@ -1522,7 +1571,7 @@ def _parameters_back_impl(param, nodes, function_params=None, lineno=0,
                 true_names = _collect_var_names(terna1)
                 false_names = _collect_var_names(terna2)
                 for c in constraints:
-                    if c.op in ('==', '===', 'in', 'type_validated', 'regex_validated'):
+                    if c.op in ('==', '===', 'in', 'type_validated', 'regex_validated', 'in_array'):
                         if c.var_name in true_names and c.var_name not in false_names:
                             # 约束变量只在 true 分支 → true 路径中 var == fixed → 阻断
                             logger.info("[AST] Ternary constraint BLOCKS: {} {} {}".format(c.var_name, c.op, c.value))
@@ -1906,8 +1955,8 @@ def _parameters_back_impl(param, nodes, function_params=None, lineno=0,
             # 3. 立即检查约束（仅在 sink 在具体分支内时执行，即 sink_branch != 'outside'）
             if sink_branch != 'outside':
                 for c in constraints:
-                    if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated'):
-                        # 等值约束：变量被限定为固定值，不可控
+                    if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated', 'in_array'):
+                        # 等值/白名单约束：变量被限定，不可控
                         logger.info("[AST] Branch constraint BLOCKS param {}: {} {}".format(param_name, c.op, c.value))
                         return -1, param, 0
 
@@ -1947,7 +1996,7 @@ def _parameters_back_impl(param, nodes, function_params=None, lineno=0,
                 if body_start and body_end and body_start <= _lineno <= body_end:
                     constraints = extract_constraints_from_php_expr(node.expr)
                     for c in constraints:
-                        if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated'):
+                        if c.var_name == param_name and c.op in ('==', '===', 'in', 'type_validated', 'regex_validated', 'in_array'):
                             logger.info("[AST] While constraint BLOCKS param {}: {} {}".format(param_name, c.op, c.value))
                             return -1, param, 0
 

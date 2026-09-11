@@ -39,7 +39,7 @@ from core import cli
 from core.engine import Running
 
 from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, NewEvilFunc
-from web.index.models import get_resultflow_class, get_dataflow_class
+from web.index.models import TaintChain
 from web.index.models import get_and_check_scantask_project_id, get_and_check_scanresult, check_and_new_project_id
 
 
@@ -263,12 +263,16 @@ class KunlunInterpreter(BaseInterpreter):
     global_help = __introduction__.format(detail="""Global commands:
     help                                             Print this help menu
     scan                                             Enter the scan mode
-    load <scan_id>                                   Load Scan task
-    showt                                            Show all Scan task list
+    load <scan_id>                                   Load scan result
+    showt                                            Show all scan task list
     show [rule, tamper] <key>                        Show rules or tampers
-    search [vendor, ] <vendor_name> <vendor_version> Search Project which contains vendor
+    search [vendor, ] <vendor_name> <vendor_version> Search project by vendor
     config [rule, tamper] <rule_id> | <tamper_name>  Config mode for rule & tamper
-    exit                                             Exit KunLun-M & save Config""")
+    export <project_id_or_name>                     Export project (DB + graph) to archive
+    import <archive_path>                           Import project from archive
+    neo4j <project_or_scan_id> [--clean]             Export AST graphs to Neo4j
+    reset [--keep-workspace]                         Reset database (clear scan data, workspace)
+    exit                                             Exit KunLun-M""")
 
     config_rule_help = """Config Rule commands:
     help                          Print this help menu
@@ -302,8 +306,9 @@ class KunlunInterpreter(BaseInterpreter):
                                               Show result vuls/new evil func with option or show display option
     del [vuls, newevilfunc] <result_id>       Del result id
     set <option_name> <option_value>          Config for show mode
+    graph                                     Enter graph traversal REPL (g.function.main.ownout)
     check_log                                 Open log file
-    back                                      Back to the root list 
+    back                                      Back to the root list
     """
 
     def __init__(self):
@@ -312,10 +317,10 @@ class KunlunInterpreter(BaseInterpreter):
         self.prompt_hostname = "KunLun-M"
         self.current_mode = 'root'
 
-        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'exit']
+        self.global_commands = ['help', 'scan', 'load ', 'showt', 'show ', 'search ', 'config ', 'export ', 'import ', 'neo4j ', 'reset', 'exit']
         self.config_commands = ['help', 'set ', 'save', 'back', 'showit']
         self.scan_commands = ['help', 'set ', 'show ', 'run', 'status']
-        self.result_commands = ['help', 'show ', 'del ', 'set ', 'back']
+        self.result_commands = ['help', 'show ', 'del ', 'set ', 'graph', 'back']
 
         self.subcommand_root_list = ['rule', 'tamper']
         self.subcommand_result_list = ['options', 'vuls', 'newevilfunc']
@@ -514,6 +519,82 @@ class KunlunInterpreter(BaseInterpreter):
 
         logger_console.info(self.scan_help)
         self.command_status()
+
+    def command_export(self, *args, **kwargs):
+        arg = args[0].strip() if args else ''
+        if not arg:
+            from core.import_export import list_projects
+            projects = list_projects()
+            if projects:
+                logger_console.info("Usage: export <project_id_or_name>")
+                logger_console.info("Available projects:")
+                for pid, pname in projects:
+                    logger_console.info("  {}  {}".format(pid, pname))
+            else:
+                logger_console.info("No projects found.")
+            return
+        from core.import_export import export_project
+        try:
+            path = export_project(arg)
+            logger_console.info("[Console] Project exported to: {}".format(path))
+        except ValueError as e:
+            logger_console.error("Export failed: {}".format(e))
+
+    def command_import(self, *args, **kwargs):
+        arg = args[0].strip() if args else ''
+        if not arg:
+            logger_console.info("Usage: import <archive_path>")
+            return
+        from core.import_export import import_project
+        try:
+            report = import_project(arg)
+            logger_console.info("[Console] Import completed:")
+            for k, v in report.items():
+                logger_console.info("  {}: {}".format(k, v))
+        except ValueError as e:
+            logger_console.error("Import failed: {}".format(e))
+
+    def command_neo4j(self, *args, **kwargs):
+        """Export AST graphs to Neo4j."""
+        arg = args[0].strip() if args else ''
+        if not arg:
+            from core.neo4j_export import list_projects_with_graphs
+            projects = list_projects_with_graphs()
+            if projects:
+                logger_console.info("Usage: neo4j <project_id_or_name|scan_id> [--clean]")
+                logger_console.info("Available projects with graphs:")
+                for pid, pname, scount in projects:
+                    logger_console.info("  {}  {} ({} scans)".format(pid, pname, scount))
+            else:
+                logger_console.info("No projects with graph files found.")
+            return
+
+        parts = arg.split()
+        target = parts[0]
+        clean = '--clean' in parts
+
+        from core.neo4j_export import export_project_to_neo4j, export_scan_to_neo4j
+        try:
+            # 判断是 scan_id 还是 project：纯数字→尝试 scan，否则→project
+            if target.isdigit():
+                report = export_scan_to_neo4j(
+                    scan_id=int(target), clean=clean,
+                )
+            else:
+                report = export_project_to_neo4j(
+                    project_ref=target, clean=clean,
+                )
+            logger_console.info("[Console] Neo4j export complete:")
+            for k, v in report.items():
+                logger_console.info("  {}: {}".format(k, v))
+        except (ValueError, ImportError) as e:
+            logger_console.error("Neo4j export failed: {}".format(e))
+
+    def command_reset(self, *args, **kwargs):
+        """Reset database."""
+        keep_workspace = '--keep-workspace' in (kwargs.get('raw_args') or [])
+        from core.reset import reset_database
+        reset_database(keep_workspace=keep_workspace)
 
     def command_exit(self, *args, **kwargs):
         raise EOFError
@@ -1227,22 +1308,20 @@ Tamper Name:
                                 logger.info("[Result] ScanResult id {}:\n{}".format(key, table))
 
                                 # show Vuls Chain
-                                ResultFlow = get_resultflow_class(int(self.result_task_id))
+                                from web.index.models import TaintChain
+                                chains = TaintChain.objects.filter(vul_result=sr.id).order_by('chain_index', 'step_order')
 
-                                if ResultFlow:
-                                    rfs = ResultFlow.objects.filter(vul_id=sr.id)
+                                if chains:
+                                    logger.info("[Chain] Vul {}".format(sr.id))
+                                    for tc in chains:
+                                        logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name,
+                                                                                   tc.file_path, tc.lineno))
+                                        if not show_context(tc.file_path, tc.lineno):
+                                            logger_console.info(tc.source_code)
 
-                                    if rfs:
-                                        logger.info("[Chain] Vul {}".format(sr.id))
-                                        for rf in rfs:
-                                            logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content,
-                                                                                       rf.node_path, rf.node_lineno))
-                                            if not show_context(rf.node_path, rf.node_lineno):
-                                                logger_console.info(rf.node_source)
-
-                                        logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
-                                        logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
-                                        return
+                                    logger.info("[SCAN] ending\r\n -------------------------------------------------------------------------")
+                                    logger.warn("[Console] Use 'del vuls <id>' could delete Wrong vul.")
+                                    return
 
                             else:
                                 logger.error("[Console] ScanTask {} not found id {}. please check you result id.".format(self.result_task_id, key))
@@ -1489,6 +1568,83 @@ Tamper Name:
             self.current_mode = "result"
             logger_console.info(self.result_help)
 
+    def command_graph(self, *args, **kwargs):
+        """Enter graph traversal REPL for the current scan result."""
+        if self.current_mode != 'result':
+            logger.warn("[Console] Command graph only for result mode")
+            return
+
+        if not self.result_task_id:
+            logger.error("[Console] No scan task loaded. Use 'load <scan_id>' first.")
+            return
+
+        scan_id = self.result_task_id
+
+        # 加载图
+        from core.graph.workspace import get_scan_dir
+        from core.graph.graph_io import AstGraphIO
+
+        scan_dir = get_scan_dir(scan_id)
+        graph_io = AstGraphIO(scan_dir)
+
+        if not graph_io.exists():
+            logger.error(f"[Console] Graph file not found for scan {scan_id}. Path: {scan_dir}")
+            return
+
+        graph = graph_io.load()
+        if graph is None:
+            logger.error(f"[Console] Failed to load graph for scan {scan_id}")
+            return
+
+        logger_console.info(f"Graph loaded: {graph.vcount()} nodes, {graph.ecount()} edges")
+        logger_console.info("Type 'help' for available commands, 'exit' to return to console.")
+
+        # 获取语言
+        language = ""
+        if self.result_obj and hasattr(self.result_obj, 'language'):
+            language = self.result_obj.language or ""
+
+        # 创建 GraphTraversal 实例
+        from core.graph.graph_traversal import GraphTraversal
+        g = GraphTraversal(graph, language=language)
+
+        # 预注入常用函数
+        from core.graph.graph_analyzer import GraphAnalyzer
+        analyzer = GraphAnalyzer(graph, language=language)
+
+        # 构建本地命名空间
+        local_ns = {
+            "g": g,
+            "graph": graph,
+            "analyzer": analyzer,
+        }
+
+        # 启动 Python REPL
+        import code
+        try:
+            code.interact(
+                banner=(
+                    "\n=== KunLun-M Graph Traversal REPL ===\n"
+                    f"Scan ID: {scan_id}\n"
+                    f"Nodes: {graph.vcount()}, Edges: {graph.ecount()}\n\n"
+                    "Available:\n"
+                    "  g.function            All function nodes\n"
+                    "  g.function.cp.ownout   Nodes owned by function 'cp'\n"
+                    "  g.function.cp.useout  Nodes using function 'cp'\n"
+                    "  g.file.ownout         All nodes in file scope\n"
+                    "  g.function.l()       Print formatted list\n"
+                    "  g.function.count     Node count (no parens needed)\n"
+                    "  g.function.ids       Node vid list (no parens needed)\n"
+                    "  g.find_dfg(src, dst)  Data flow path\n"
+                    "  g.shortest_path(a, b) Shortest path\n"
+                    "\nType 'exit()' or Ctrl+D to return.\n"
+                ),
+                local=local_ns,
+                exitmsg="\nReturning to KunLun-M console.\n",
+            )
+        except SystemExit:
+            pass
+
     def command_check_log(self, *args, **kwargs):
         if self.current_mode != 'result':
             logger.warn("[Console] Command check_log only for result mode")
@@ -1509,6 +1665,10 @@ Tamper Name:
         else:
             logger.error("[Console] Log File {} does not exist.".format(log_file_path))
             return
+
+    @stop_after(2)
+    def complete_graph(self, text, *args, **kwargs):
+        return []
 
     @stop_after(2)
     def complete_show(self, text, *args, **kwargs):

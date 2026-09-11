@@ -129,17 +129,17 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "getHeaderNames":       {"passthrough": [], "safe": False},
         "getCookies":           {"passthrough": [0], "safe": False},
         "getQueryString":       {"passthrough": [0], "safe": False},
-        "getRequestURI":        {"passthrough": [0], "safe": False},
-        "getContextPath":       {"passthrough": [0], "safe": False},
-        "getPathInfo":          {"passthrough": [0], "safe": False},
+        "getRequestURI":        {"passthrough": [], "safe": True},  # URI path is server-routed, not a redirect/SSRF payload
+        "getContextPath":       {"passthrough": [0], "safe": True},  # Server-side config
+        "getPathInfo":          {"passthrough": [0], "safe": False},  # PATH_INFO IS user input
         "getInputStream":       {"passthrough": [0], "safe": False},
         "getReader":            {"passthrough": [0], "safe": False},
-        "getAttribute":         {"passthrough": [0], "safe": False},
-        "getSession":           {"passthrough": [0], "safe": False},
-        "getServletContext":    {"passthrough": [0], "safe": False},
+        "getAttribute":         {"passthrough": [0], "safe": False},  # CAN be user-influenced via forward
+        "getSession":           {"passthrough": [0], "safe": True},  # Server-side session
+        "getServletContext":    {"passthrough": [0], "safe": True},  # Server-side context
 
         # ===== Response sinks =====
-        "getWriter":            {"passthrough": [0], "safe": False},
+        "getWriter":            {"passthrough": [], "safe": False},
         "getOutputStream":      {"passthrough": [0], "safe": False},
         "setHeader":            {"passthrough": [1], "safe": False},
         "addHeader":            {"passthrough": [1], "safe": False},
@@ -206,10 +206,10 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "HttpServletRequest.getParameterMap":  {"passthrough": [0], "safe": False},
         "HttpServletRequest.getHeader":        {"passthrough": [0], "safe": False},
         "HttpServletRequest.getQueryString":   {"passthrough": [0], "safe": False},
-        "HttpServletRequest.getRequestURI":    {"passthrough": [0], "safe": False},
+        "HttpServletRequest.getRequestURI":    {"passthrough": [], "safe": True},
         "HttpServletRequest.getInputStream":   {"passthrough": [0], "safe": False},
         "HttpServletRequest.getReader":        {"passthrough": [0], "safe": False},
-        "HttpServletResponse.getWriter":       {"passthrough": [0], "safe": False},
+        "HttpServletResponse.getWriter":       {"passthrough": [], "safe": False},
         "HttpServletResponse.getOutputStream": {"passthrough": [0], "safe": False},
         "HttpServletResponse.sendRedirect":    {"passthrough": [0], "safe": False},
         "HttpServletResponse.setHeader":       {"passthrough": [1], "safe": False},
@@ -331,6 +331,23 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "NameValuePair":                  {"passthrough": [0], "safe": False},
         "HttpClientBuilder.build":        {"passthrough": [], "safe": True},
         "HttpClientBuilder.create":       {"passthrough": [], "safe": True},
+
+        # ===== Framework config readers (return server-side values) =====
+        # NOTE: expandString, getProperty, getPropertyValue were previously
+        # marked safe=True. Removed because:
+        # - expandString: Ofbiz FlexibleStringExpander can expand ${} from user-influenced sources
+        # - getProperty: too generic, can read user-controlled properties
+        # - getPropertyValue: Ofbiz EntityUtilProperties can read from DB
+        "getInitParameter":               {"passthrough": [], "safe": True},  # ServletConfig
+        "getServletContextName":          {"passthrough": [], "safe": True},  # ServletContext
+        "getRealPath":                    {"passthrough": [], "safe": True},  # ServletContext.getRealPath
+
+        # ===== Temp file/dir generators (return framework-controlled paths) =====
+        "createTempFile":                 {"passthrough": [], "safe": True},  # Files.createTempFile
+
+        # ===== Spring AOP compile-time constants =====
+        "getSignature":                   {"passthrough": [], "safe": True},  # JoinPoint.getSignature
+        "getStaticPart":                  {"passthrough": [], "safe": True},  # JoinPoint.getStaticPart
 }
 
 

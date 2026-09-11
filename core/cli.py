@@ -33,8 +33,8 @@ from core.vendors import get_project_by_version, get_and_save_vendor_vuls
 from Kunlun_M.settings import RULES_PATH
 from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
 
-from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, NewEvilFunc, Project, ProjectVendors, VendorVulns
-from web.index.models import get_resultflow_class, get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
+from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, Project, ProjectVendors, VendorVulns
+from web.index.models import get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
 
 import importlib
 
@@ -183,19 +183,19 @@ def display_result(scan_id, is_ask=False):
             table.add_row(row)
 
             # show Vuls Chain
-            ResultFlow = get_resultflow_class(scan_id)
-            rfs = ResultFlow.objects.filter(vul_id=sr.id)
+            from web.index.models import TaintChain
+            chains = TaintChain.objects.filter(vul_result=sr.id).order_by('chain_index', 'step_order')
 
             logger.info("[Chain] Vul {}".format(sr.id))
-            for rf in rfs:
-                logger.info("[Chain] {}, {}, {}:{}".format(rf.node_type, rf.node_content, rf.node_path, rf.node_lineno))
+            for tc in chains:
+                logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
 
                 try:
                     if author == 'SCA':
                         continue
 
-                    if not show_context(rf.node_path, rf.node_lineno):
-                        logger_console.info(rf.node_source)
+                    if not show_context(tc.file_path, tc.lineno):
+                        logger_console.info(tc.source_code)
                 except:
                     logger.error("[SCAN] Error: {}".format(traceback.print_exc()))
                     continue
@@ -205,30 +205,11 @@ def display_result(scan_id, is_ask=False):
 
         logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
 
-        # show New evil Function
-        nfs = NewEvilFunc.objects.filter(project_id=project_id, is_active=1)
-
-        if nfs:
-
-            table2 = PrettyTable(
-                ['#', 'NewFunction', 'OriginFunction', 'Related Rules id'])
-
-            table2.align = 'l'
-            idy = 1
-
-            for nf in nfs:
-                row = [idy, nf.func_name, nf.origin_func_name, nf.svid]
-
-                table2.add_row(row)
-                idy += 1
-
-            logger.info("[MainThread] New evil Function list by NewCore:\r\n{table}".format(table=table2))
-
     else:
         logger.info("[MainThread] Scan id {} has no Result.".format(scan_id))
 
 
-def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False, template_path=None):
+def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False, template_path=None, no_cache=False, auto_yes=False):
     """
     Start CLI
     :param black_path: 
@@ -279,11 +260,21 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         Vendors(task_id, project_id, target_directory, files)
 
         # detection main language and framework
-
-        if not language:
+        if language and str(language).strip().lower() == 'all':
             dt = Detection(target_directory, files)
-            main_language = dt.language
+            detected_languages = dt.language
             main_framework = dt.framework
+            main_language = detected_languages  # 扫描所有 chiefly 语言
+            logger.info('[CLI] [STATISTIC] All-mode detected languages: %s',
+                        ','.join(detected_languages))
+        elif not language or (language and str(language).lower() == 'auto'):
+            dt = Detection(target_directory, files)
+            detected_languages = dt.language
+            main_framework = dt.framework
+            # auto 模式：只以主语言（文件数最多的 chiefly 语言）为主扫描
+            main_language = [detected_languages[0]] if detected_languages else []
+            logger.info('[CLI] [STATISTIC] Auto-detected languages: %s, primary: %s',
+                        ','.join(detected_languages), main_language[0] if main_language else 'none')
         else:
             main_language = pa.language
             main_framework = pa.language
@@ -325,7 +316,7 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
         # scan
         scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
              language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
-             files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm)
+             files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm, no_cache=no_cache, auto_yes=auto_yes)
 
         # show result
         display_result(task_id)

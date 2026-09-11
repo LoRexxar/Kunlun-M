@@ -28,8 +28,9 @@ class CVI_1005(SingleRuleMixin):
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = r"(mysql_query|mysql_db_query)"
+        self.vul_function = ["mysql_query", "mysql_db_query"]
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
         regex string input
         :regex_string: regex match string

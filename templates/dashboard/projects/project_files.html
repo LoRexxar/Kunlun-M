@@ -1,6 +1,10 @@
 {% extends "dashboard/base.html" %}
 {% load static %}
 {% block title %}源码浏览 - {{ project.project_name }}{% endblock %}
+{% block body_header %}
+<h1>源码浏览 - {{ project.project_name }} <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
@@ -10,14 +14,14 @@
 <div style="display:flex; gap:8px; height:calc(100vh - 100px);">
   <!-- 左侧文件树 -->
   <div style="width:280px; min-width:280px; flex-shrink:0;">
-    <div class="box box-solid">
-      <div class="box-header" style="padding:6px 12px;">
-        <h3 class="box-title" style="font-size:14px;margin:0;"><i class="fa fa-sitemap"></i> 文件树</h3>
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between" style="padding:6px 12px;">
+        <h3 class="card-title" style="font-size:14px;margin:0;"><i class="fa fa-sitemap"></i> 文件树</h3>
       </div>
       <div style="padding:4px 8px; border-bottom:1px solid #ddd; background:#eaedf1;">
-        <input type="text" id="treeFilter" class="form-control input-sm" placeholder="过滤文件..." style="font-size:12px;">
+        <input type="text" id="treeFilter" class="form-control form-control-sm" placeholder="过滤文件..." style="font-size:12px;">
       </div>
-      <div id="treeWrapper" class="box-body" style="padding:4px 0; max-height:calc(100vh - 160px); overflow-y:auto; background:#eaedf1 !important; scrollbar-width:none; -ms-overflow-style:none;">
+      <div id="treeWrapper" class="card-body" style="padding:4px 0; max-height:calc(100vh - 160px); overflow-y:auto; background:#eaedf1 !important; scrollbar-width:none; -ms-overflow-style:none;">
         <ul id="fileTree" class="km-file-tree" style="list-style:none; padding-left:8px; margin:0; font-size:13px;">
           <li class="km-tree-loading"><i class="fa fa-spinner fa-spin"></i> 加载中...</li>
         </ul>
@@ -27,14 +31,14 @@
 
   <!-- 右侧代码查看器 -->
   <div style="flex:1; min-width:0;">
-    <div class="box box-solid" style="border:1px solid #e1e4e8; background:#eaedf1; height:100%;">
+    <div class="card" style="border:1px solid #e1e4e8; background:#eaedf1; height:100%;">
       <div class="box-header with-border" style="padding:8px 12px; background:#eaedf1 !important; border-bottom:1px solid #e1e4e8;">
         <div id="breadcrumb" style="font-size:13px; margin:0; line-height:28px;">
           <i class="fa fa-code"></i> 选择文件查看源码
         </div>
 
       </div>
-      <div id="codeBodyWrapper" class="box-body" style="padding:0; max-height:calc(100vh - 120px); overflow:auto; background:#eaedf1 !important; scrollbar-width:none; -ms-overflow-style:none;">
+      <div id="codeBodyWrapper" class="card-body" style="padding:0; max-height:calc(100vh - 120px); overflow:auto; background:#eaedf1 !important; scrollbar-width:none; -ms-overflow-style:none;">
         <div id="codePanel" class="km-code-panel" style="display:none;">
           <table class="km-code-table" style="width:100%; border-collapse:collapse; font-family:'Fira Code',Consolas,monospace; font-size:14px; line-height:1.15;">
             <tbody id="codeBody"></tbody>
@@ -73,58 +77,56 @@
 #codeBodyWrapper::-webkit-scrollbar { display:none; }
 #treeWrapper::-webkit-scrollbar { display:none; }
 
-/* ── 代码面板（浅灰） ── */
-.km-code-panel { font-family:'Fira Code',Consolas,'Courier New',monospace; font-size:14px; line-height:1.15; }
-.km-code-table { width:100%; border-collapse:collapse; background:#eaedf1; color:#24292e; table-layout:fixed; }
+/* ── 代码面板（GitHub Dark 暗色风格） ── */
+.km-code-panel { font-family:'Fira Code',Consolas,'Courier New',monospace; font-size:14px; line-height:1.15; background:#0d1117; color:#c9d1d9; }
+.km-code-table { width:100%; border-collapse:collapse; background:#0d1117; color:#c9d1d9; table-layout:fixed; }
 .km-code-table tr { border:none !important; height:auto !important; }
-.km-code-table td { padding:0 12px !important; vertical-align:top; border:none !important; line-height:1.15; }
-.km-code-line-num { width:50px; min-width:50px; text-align:right; color:#6a737d; user-select:none; cursor:pointer; font-size:14px; font-family:Consolas,monospace; }
-.km-code-line-num:hover { background:rgba(0,0,0,0.06); }
-.km-code-line { white-space:pre; tab-size:4; }
-.km-line-highlight { background:#fffbe6 !important; }
-.km-line-hl-anchor { background:#fff3cd !important; border-left:3px solid #f0ad4e; }
-.km-code-table tr:hover td { background:rgba(0,0,0,0.04) !important; }
-.km-line-hl-anchor:hover td { background:#ffe69c !important; }
-.km-line-highlight:hover td { background:#fff5cc !important; }
+.km-code-table td { padding:0 12px !important; vertical-align:top; border:none !important; line-height:1.15; background:transparent !important; color:#c9d1d9; }
+.km-code-line-num { width:85px; min-width:85px; text-align:right; color:#484f58; user-select:none; cursor:pointer; font-size:14px; font-family:Consolas,monospace; white-space:nowrap; }
+.km-code-line-num:hover { background:rgba(255,255,255,0.06); }
+.km-code-line { white-space:pre; tab-size:4; color:#c9d1d9; }
+.km-line-highlight { background:#1c2433 !important; }
+.km-line-hl-anchor { background:#293548 !important; border-left:3px solid #f0883e; }
+.km-code-table tr:hover td { background:rgba(255,255,255,0.04) !important; }
+.km-line-hl-anchor:hover td { background:#344056 !important; }
+.km-line-highlight:hover td { background:#243042 !important; }
 
-/* Prism 浅色 token 覆盖（覆盖 okaidia 暗色主题） */
+/* Prism 暗色 token 配色（GitHub Dark 风格，兼容 okaidia） */
 .km-code-panel .token.comment,
 .km-code-panel .token.prolog,
 .km-code-panel .token.doctype,
-.km-code-panel .token.cdata { color:slategray; font-style:italic; text-shadow:none; }
-.km-code-panel .token.punctuation { color:#999; }
+.km-code-panel .token.cdata { color:#8b949e; font-style:italic; }
+.km-code-panel .token.punctuation { color:#c9d1d9; }
+.km-code-panel .token.tag { color:#ff7b72; background:transparent !important; border:none !important; padding:0 !important; border-radius:0 !important; box-shadow:none !important; display:inline !important; gap:0 !important; align-items:inherit !important; }
 .km-code-panel .token.property,
-.km-code-panel .token.tag,
 .km-code-panel .token.boolean,
 .km-code-panel .token.number,
 .km-code-panel .token.constant,
 .km-code-panel .token.symbol,
-.km-code-panel .token.deleted { color:#905; }
-/* 修复 Bulma .number 样式泄漏到 .token.number */
+.km-code-panel .token.deleted { color:#ff7b72; }
 .km-code-panel .token.number {
   display:inline !important; font-size:inherit !important; line-height:inherit !important;
   height:auto !important; vertical-align:baseline !important; background:transparent !important;
   background-color:transparent !important; border-radius:0 !important; margin:0 !important;
-  padding:0 !important; min-width:0 !important; align-items:baseline !important;
-  justify-content:flex-start !important;
+  padding:0 !important; min-width:0 !important;
 }
 .km-code-panel .token.selector,
 .km-code-panel .token.attr-name,
 .km-code-panel .token.string,
 .km-code-panel .token.char,
 .km-code-panel .token.builtin,
-.km-code-panel .token.inserted { color:#690; }
+.km-code-panel .token.inserted { color:#a5d6ff; }
 .km-code-panel .token.operator,
 .km-code-panel .token.entity,
-.km-code-panel .token.url { color:#9a6e3a; background:transparent !important; }
+.km-code-panel .token.url { color:#79c0ff; }
 .km-code-panel .token.atrule,
 .km-code-panel .token.attr-value,
-.km-code-panel .token.keyword { color:#07a; }
+.km-code-panel .token.keyword { color:#ff7b72; }
 .km-code-panel .token.function,
-.km-code-panel .token.class-name { color:#DD4A68; }
+.km-code-panel .token.class-name { color:#d2a8ff; }
 .km-code-panel .token.regex,
 .km-code-panel .token.important,
-.km-code-panel .token.variable { color:#e90; text-shadow:none; }
+.km-code-panel .token.variable { color:#ffa657; }
 .km-code-panel .token.important,
 .km-code-panel .token.bold { font-weight:bold; }
 .km-code-panel .token.italic { font-style:italic; }

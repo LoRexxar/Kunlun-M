@@ -17,8 +17,20 @@ class CVI_6018(SingleRuleMixin):
 
         self.match_mode = "function-param-regex"
         self.match = "forName|getDeclaredMethod|getMethod"
-        self.vul_function = ["forName", "getDeclaredMethod", "getMethod"]
+        self.vul_function = ["Class.forName", "Class.getDeclaredMethod", "Class.getMethod"]
 
-    def main(self, regex_string):
-        """函数名足够精确，不做额外筛选"""
+    def main(self, regex_string, sink_args=None):
+        """过滤编译器反射获取类型名的场景（非用户输入）"""
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
+        if regex_string and re.search(r'MirroredTypeException|getQualifiedName|getTypeMirror', regex_string):
+            return False
         return None

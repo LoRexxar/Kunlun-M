@@ -64,29 +64,7 @@ class SourceRegistry:
 # 内置 source 定义（与 GO_CONTROLLED_SOURCES 互补）
 # ---------------------------------------------------------------------------
 
-_BUILTIN_SOURCE_MEMBERS = {
-    # 命令行参数
-    'os.Args',
-    # 环境变量
-    'os.Getenv',
-    'os.LookupEnv',
-    # flag 包
-    'flag.String',
-    'flag.Int',
-    'flag.Bool',
-    # io
-    'ioutil.ReadFile',
-    'os.ReadFile',
-    'io.ReadAll',
-    'bufio.Scanner',
-    # URL 解析
-    'url.Parse',
-    # encoding
-    'json.Unmarshal',
-    'xml.Unmarshal',
-    # net 标准库
-    'net/http',
-}
+_BUILTIN_SOURCE_MEMBERS = set()
 
 # ---------------------------------------------------------------------------
 # 框架配置
@@ -110,7 +88,6 @@ _FRAMEWORK_CONFIGS = {
             'c.ShouldBindQuery',
             'c.ShouldBindXML',
             'c.ShouldBindYAML',
-            'c.Request',
         },
     },
     'echo': {
@@ -124,7 +101,6 @@ _FRAMEWORK_CONFIGS = {
             'c.FormValue',
             'c.Param',
             'c.Cookie',
-            'c.Request',
         },
     },
     'fiber': {
@@ -153,7 +129,6 @@ _FRAMEWORK_CONFIGS = {
             'this.GetString',
             'this.GetStrings',
             'this.Ctx.Input',
-            'this.Ctx.Request',
         },
     },
     'chi': {

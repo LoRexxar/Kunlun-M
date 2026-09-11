@@ -50,11 +50,37 @@ class SourceRegistry:
         return name in self.source_variables
 
     def is_source_member(self, chain: str) -> bool:
-        """Check if a member-expression chain matches any known source (prefix-aware)."""
+        """Check if a member-expression chain matches any known source (prefix-aware).
+
+        Exact match: ``req.query`` ∈ source_members → True
+        Prefix match (one extra segment): ``window.location.href`` starts
+        with ``window.location.`` → True (``href`` is a known location
+        property registered in source_members as ``location.href``).
+        But ``window.location.replace`` → False because ``replace`` is not
+        a known source property of the ``location`` object.
+        """
         if chain in self.source_members:
             return True
+        # Pre-compute known property suffixes: last segment of every SR entry
+        # that is longer than one segment.  Used to validate prefix matches.
         for src in self.source_members:
-            if chain.startswith(src + '.') or chain.startswith(src + '['):
+            if chain.startswith(src + '.'):
+                remainder = chain[len(src) + 1:]
+                if '.' not in remainder:
+                    # One extra property level — only allow if the
+                    # remainder is a known source property (i.e., some SR
+                    # entry ends with ".<remainder>").
+                    for sm2 in self.source_members:
+                        if sm2.endswith('.' + remainder):
+                            return True
+                    # Also allow if src itself has sub-properties registered
+                    # (e.g., src=window.location, remainder=href, and
+                    # location.href is in SR).
+                    for sm2 in self.source_members:
+                        if sm2 == remainder or sm2.endswith(src.split('.')[-1] + '.' + remainder):
+                            return True
+                continue
+            if chain.startswith(src + '['):
                 return True
         return False
 
@@ -120,8 +146,13 @@ _BUILTIN_SOURCE_MEMBERS = {
     'document.cookie', 'document.URL', 'document.documentURI',
     'document.referrer', 'document.domain', 'document.baseURI',
     'window.name', 'window.location',
-    # Node.js
-    'process.env', 'process.argv',
+    # Common HTTP request sources (Express/Koa/NestJS/Fastify)
+    'req.query', 'req.body', 'req.params', 'req.headers', 'req.cookies',
+    'req.files', 'req.url', 'req.method',
+    'request.query', 'request.body', 'request.params',
+    'request.headers', 'request.cookies',
+    'ctx.query', 'ctx.querystring', 'ctx.params',
+    'ctx.request.body', 'ctx.request.query',
 }
 
 _CHROME_EXT_SOURCE_MEMBERS = {

@@ -58,8 +58,10 @@ def search_project_by_name(project_name):
         :param project_name:
         :return:
         """
+    base = Project.objects.filter(id__in=ScanTask.objects.values('project_id').distinct())
+
     if not project_name:
-        ps = Project.objects.all().order_by('-id')
+        ps = base.order_by('-id')
         return ps
 
     # 去除自定义 * 通配符后，转义 SQL LIKE 通配符 % 和 _
@@ -68,17 +70,17 @@ def search_project_by_name(project_name):
 
     if project_name.startswith('*'):
         if project_name.endswith('*'):
-            ps = Project.objects.filter(project_name__icontains=safe_name).order_by('-id')
+            ps = base.filter(project_name__icontains=safe_name).order_by('-id')
 
         else:
-            ps = Project.objects.filter(project_name__iendswith=safe_name).order_by('-id')
+            ps = base.filter(project_name__iendswith=safe_name).order_by('-id')
 
     else:
         if project_name.endswith('*'):
-            ps = Project.objects.filter(project_name__istartswith=safe_name).order_by('-id')
+            ps = base.filter(project_name__istartswith=safe_name).order_by('-id')
 
         else:
-            ps = Project.objects.filter(project_name__iexact=safe_name).order_by('-id')
+            ps = base.filter(project_name__iexact=safe_name).order_by('-id')
 
     return ps
 
@@ -269,6 +271,14 @@ def check_and_new_project_id(scantask_id, task_name, project_origin, project_des
 #         ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Target-File:Line-Number',
 #          'Commit(Author)', 'Source Code Content', 'Analysis'])
 class ScanResultTask(models.Model):
+    VERIFICATION_CHOICES = [
+        ('', '未确认'),
+        ('tp', 'True Positive'),
+        ('fp', 'False Positive'),
+        ('pending', '待验证'),
+        ('unknown', '无法判断'),
+    ]
+
     scan_project_id = models.IntegerField(default=0)
     scan_task_id = models.IntegerField()
     # result_id = models.IntegerField()
@@ -280,6 +290,16 @@ class ScanResultTask(models.Model):
     vul_hash = models.CharField(max_length=32, default='')
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    # 验证状态字段
+    verification_status = models.CharField(
+        max_length=10,
+        choices=VERIFICATION_CHOICES,
+        default='',
+        db_index=True
+    )
+    verified_by = models.CharField(max_length=100, default='')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verification_notes = models.TextField(default='')
 
     def save(self, *args, **kwargs):
 
@@ -299,6 +319,28 @@ class ScanResultTask(models.Model):
             return self.save(*args, **kwargs)
 
         super().save(*args, **kwargs)
+
+
+class TaintChain(models.Model):
+    """漏洞传播链路存储（替代 ResultFlow_* 动态表）"""
+    scan_task = models.IntegerField(db_index=True)
+    vul_result = models.IntegerField(db_index=True)
+    chain_index = models.IntegerField(default=0)
+    step_order = models.IntegerField(default=0)
+    node_label = models.CharField(max_length=50)
+    node_name = models.CharField(max_length=500)
+    file_path = models.CharField(max_length=500)
+    lineno = models.IntegerField(default=0)
+    vid = models.IntegerField(null=True, blank=True)
+    source_code = models.TextField(default='')
+
+    class Meta:
+        db_table = 'taint_chain'
+        ordering = ['vul_result', 'chain_index', 'step_order']
+        indexes = [
+            models.Index(fields=['scan_task', 'vul_result']),
+            models.Index(fields=['vul_result', 'chain_index']),
+        ]
 
 
 def get_and_check_scanresult(scan_task_id):
@@ -324,7 +366,7 @@ def get_and_check_scanresult(scan_task_id):
 
 
 def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path, source_code, result_type,
-                                   is_unconfirm, is_active):
+                                   is_unconfirm=None, is_active=True):
     # 优化基础扫描结果
     if str(cvi_id).startswith('5'):
         vulfile_path = vulfile_path.split(':')[0]
@@ -343,18 +385,21 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         sr.vulfile_path = vulfile_path
         sr.source_code = source_code
         sr.result_type = result_type
-        sr.is_unconfirm = is_unconfirm
+        sr.is_active = is_active
+        # 过期状态重置为未确认（新扫描重新发现了这个漏洞）
+        if sr.verification_status == 'stale':
+            sr.verification_status = ''
 
         try:
             sr.save()
         except IntegrityError:
             logger.warn("[Model Save] Model param not changed")
 
-        return False
+        return sr
 
     else:
         sr = ScanResultTask(scan_project_id=scan_project_id, scan_task_id=scan_task_id, cvi_id=cvi_id, language=language, vulfile_path=vulfile_path, source_code=source_code, result_type=result_type,
-                            is_unconfirm=is_unconfirm, is_active=is_active)
+                            is_active=is_active, verification_status='', is_unconfirm=False)
         sr.save()
 
     return sr
@@ -445,55 +490,6 @@ def get_and_check_evil_func(task_id):
     return nefs
 
 
-# 数据流模板表
-def get_dataflow_table(name, isnew=False):
-
-    prefix = ""
-
-    if isnew:
-        prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
-
-    table_name = "DataFlow_{}{}".format(name, prefix)
-
-    model_name = "DataFlowTemplate_{}".format(table_name)
-
-    if model_name in globals():
-        return globals()[model_name]
-
-    model_class = type(
-        model_name,
-        (models.Model,),
-        {
-            "__module__": __name__,
-            "node_locate": models.CharField(max_length=1000),
-            "node_sort": models.IntegerField(),
-            "source_node": models.CharField(max_length=500),
-            "node_type": models.CharField(max_length=500),
-            "sink_node": models.CharField(max_length=500, null=True),
-            "is_exists": staticmethod(
-                lambda: table_name in connection.introspection.table_names()
-            ),
-            "Meta": type("Meta", (), {"db_table": table_name}),
-        },
-    )
-    globals()[model_name] = model_class
-    return model_class
-
-
-def get_dataflow_class(name, isnew=False, isrenew=False):
-    DateflowObject = get_dataflow_table(name, isnew)
-
-    if DateflowObject.is_exists() and isrenew:
-        with connection.schema_editor() as schema_editor:
-            schema_editor.delete_model(DateflowObject)
-
-    if not DateflowObject.is_exists():
-        with connection.schema_editor() as schema_editor:
-            schema_editor.create_model(DateflowObject)
-
-    return DateflowObject
-
-
 # 结果流模板表
 def get_resultflow_table(table_name):
     # prefix = "_{}".format(datetime.today().strftime("%Y%m%d"))
@@ -513,6 +509,7 @@ def get_resultflow_table(table_name):
             "node_path": models.CharField(max_length=300),
             "node_source": models.TextField(null=True),
             "node_lineno": models.CharField(max_length=20, null=True),
+            "node_vid": models.IntegerField(null=True, blank=True),
             "is_exists": staticmethod(
                 lambda: table_name in connection.introspection.table_names()
             ),
@@ -558,6 +555,13 @@ def get_resultflow_class(scanid):
             node_source = models.TextField(null=True, db_column="node_source")
             node_source.set_attributes_from_name("node_source")
             schema_editor.add_field(ResultflowObject, node_source)
+        except OperationalError:
+            pass
+
+        try:
+            node_vid = models.IntegerField(null=True, blank=True, db_column="node_vid")
+            node_vid.set_attributes_from_name("node_vid")
+            schema_editor.add_field(ResultflowObject, node_vid)
         except OperationalError:
             pass
 

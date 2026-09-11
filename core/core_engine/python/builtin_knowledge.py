@@ -337,6 +337,23 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "lxml.html.tostring":           {"passthrough": [0], "safe": False},
         "lxml.html.clean.clean_html":   {"passthrough": [0], "safe": True},
         "lxml.html.soupparser.fromstring": {"passthrough": [0], "safe": False},
+
+        # ===== OS temp file/dir generators (return framework-controlled paths) =====
+        "os.mkstemp":                     {"passthrough": [], "safe": True},
+        "os.mkdtemp":                     {"passthrough": [], "safe": True},
+        "mkstemp":                        {"passthrough": [], "safe": True},
+        "mkdtemp":                        {"passthrough": [], "safe": True},
+
+        # ===== Django URL builders (return internal URLs, not user input) =====
+        "reverse":                        {"passthrough": [], "safe": True},
+        "get_redirect_url":               {"passthrough": [], "safe": True},
+        "get_success_url":                {"passthrough": [], "safe": True},
+        "get_absolute_url":               {"passthrough": [], "safe": True},
+
+        # ===== Path sanitization =====
+        "canonicalize":                   {"passthrough": [], "safe": True},
+        "normalize":                      {"passthrough": [], "safe": True},
+        "sanitize":                       {"passthrough": [], "safe": True},
 }
 
 

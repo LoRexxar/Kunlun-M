@@ -20,17 +20,27 @@ class CVI_6045(SingleRuleMixin):
         self.description = "Fastjson启用了setAutoTypeSupport(true)，允许任意类反序列化，可能绕过AutoType安全检查导致远程代码执行"
         self.level = 3
 
-        self.match_mode = "java-function-param-regex"
+        self.match_mode = "function-param-regex"
         self.match = "setAutoTypeSupport"
-        self.vul_function = ["setAutoTypeSupport"]
+        self.vul_function = ["ParserConfig.setAutoTypeSupport"]
         self.is_config_vuln = True
 
         # 危险配置参数声明：当参数值匹配这些正则时，视为漏洞（配置型漏洞）
         # 不依赖外部输入可控性，调用本身 + 危险参数值 = 漏洞
         self.config_vuln_args = [r'^true$']
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """二次筛选：只有参数为 true 时才继续 AST 分析"""
+        if sink_args:
+            # Graph path: const arg is hardcoded → safe
+            if len(sink_args) >= 1:
+                arg0 = sink_args[0]
+                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                    return False
+                if arg0.get('resolved_value', ''):
+                    return False
+            return None
+
         code = regex_string.strip() if isinstance(regex_string, str) else str(regex_string)
         if not re.search(r'setAutoTypeSupport\s*\(\s*true\s*\)', code, re.I):
             return False

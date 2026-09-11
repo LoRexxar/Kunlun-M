@@ -1,20 +1,24 @@
 {% extends "dashboard/base.html" %}
 {% load static %}
 {% block title %}文档{% endblock %}
+{% block body_header %}
+<h1>文档 <small>KunLun-MA</small></h1>
+{% endblock %}
+
 
 {% block body %}
 <link rel="stylesheet" href="{% static 'css/prism.css' %}">
 <div class="row">
-  <div class="col-xs-12">
-    <div class="box">
-      <div class="box-header">
-        <h3 class="box-title">文档</h3>
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h3 class="card-title">文档</h3>
       </div>
-      <div class="box-body">
+      <div class="card-body">
         <div class="km-docs-split">
           <div class="km-docs-list">
             <div class="km-docs-list-header">
-              <input id="docsFilterInput" class="form-control input-sm" placeholder="搜索文档...">
+              <input id="docsFilterInput" class="form-control form-control-sm" placeholder="搜索文档...">
             </div>
             <div id="docsList" class="km-docs-items"></div>
           </div>
@@ -23,8 +27,8 @@
             <div class="km-docs-toolbar">
               <div class="km-docs-title" id="docsTitle">加载中...</div>
               <div class="km-docs-actions">
-                <button id="docsModeRender" type="button" class="btn btn-default btn-xs">渲染</button>
-                <button id="docsModeSource" type="button" class="btn btn-default btn-xs">源码</button>
+                <button id="docsModeRender" type="button" class="btn btn-default btn-sm">渲染</button>
+                <button id="docsModeSource" type="button" class="btn btn-default btn-sm">源码</button>
               </div>
             </div>
             <div id="docsRendered" class="km-md km-docs-rendered"></div>

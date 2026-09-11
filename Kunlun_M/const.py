@@ -13,17 +13,18 @@
 """
 
 # Match-Mode
-mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配
-mm_java_function_param_controllable = 'java-function-param-regex'  # Java 专用：纯文本 grep + AST 污点分析
-mm_go_function_param_controllable = 'go-function-param-regex'     # Go 专用：Go AST 解析 + 污点追踪
-mm_c_function_param_controllable = 'c-function-param-regex'      # C/C++ 专用：C AST 解析 + 污点追踪
-mm_regex_param_controllable = 'vustomize-match'  # 自定义匹配
-mm_regex_only_match = 'only-regex'
-mm_regex_return_regex = 'regex-return-regex'
-sp_crx_keyword_match = 'special-crx-keyword-match'  # crx特殊匹配
-file_path_regex_match = 'file-path-regex-match'  # 文件名或者路径匹配
+mm_function_param_controllable = 'function-param-regex'  # 函数正则匹配（主路径）
+mm_java_function_param_controllable = 'java-function-param-regex'  # LEGACY: all rules migrated to function-param-regex
+mm_go_function_param_controllable = 'go-function-param-regex'     # LEGACY: all rules migrated to function-param-regex
+mm_c_function_param_controllable = 'c-function-param-regex'      # LEGACY: all rules migrated to function-param-regex
+mm_regex_param_controllable = 'vustomize-match'  # LEGACY: no rules use this anymore
+mm_regex_only_match = 'only-regex'  # LEGACY: rules using this mode are skipped
+mm_regex_return_regex = 'regex-return-regex'  # LEGACY: rules using this mode are skipped
+sp_crx_keyword_match = 'special-crx-keyword-match'  # LEGACY: migrated to file-pattern
+file_path_regex_match = 'file-path-regex-match'  # LEGACY: migrated to file-pattern
 vendor_source_match = 'vendor_source_match'  # sca
 mm_framework_dependency = 'framework-dependency'  # 框架依赖版本检测 (pom.xml/build.gradle)
+mm_file_pattern = 'file-pattern'  # 文件名+内容双重匹配
 
 match_modes = [
     mm_regex_only_match,
@@ -69,24 +70,57 @@ ext_dict = {
     "php": ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml'],
     "solidity": ['.sol'],
     "javascript": ['.js'],
+    "typescript": ['.ts', '.tsx'],
     "chromeext": ['.crx'],
     "html": ['.html'],
     "python": ['.py'],
-    "java": ['.java', '.jar', '.xml'],
+    "java": ['.java', '.jar', '.class', '.xml'],
     "go": ['.go'],
     "c": ['.c', '.cpp', '.h', '.hpp', '.cc', '.cxx'],
+    "rust": ['.rs'],
+    "ruby": ['.rb'],
+    "csharp": ['.cs'],
+    "kotlin": ['.kt', '.kts'],
+    "lua": ['.lua'],
     "base": ['*']
 }
 
 ext_comment_dict = {
     "php": ['//', '/*'],
     "javascript": ['//', '/*'],
+    "typescript": ['//', '/*'],
     "python": ['#'],
     "go": ['//'],
     "c": ['//', '/*'],
+    "rust": ['//', '/*'],
+    "ruby": ['#', '=begin'],
+    "csharp": ['//', '/*'],
+    "kotlin": ['//', '/*'],
+    "lua": ['--', '--[['],
 }
 
-default_black_list = ['.crx_files', 'vendor']
+default_black_list = [
+    # 依赖目录
+    '.crx_files', 'vendor', 'node_modules', 'bower_components',
+    # 压缩文件
+    '.min.js', '.min.css',
+    # 测试目录（减少测试文件误报）
+    'test', 'tests', 'spec', 'specs', '__tests__', 'testcases',
+    # 示例和文档目录（减少示例代码误报）
+    'examples', 'example', 'sample', 'samples', 'demo', 'demos',
+    'docs', 'documentation', 'doc',
+    # 构建和输出目录
+    'build', 'dist', 'out', 'output', 'target',
+    # 版本控制
+    '.git', '.svn', '.hg',
+    # 编辑器和IDE
+    '.idea', '.vscode', '.vs', '.eclipse',
+    # 二进制和编译产物（保留 .class 用于 Java 反编译）
+    '__pycache__', '*.pyc', '*.pyo', '*.o', '*.so', '*.dll',
+    # NOTE: 框架源码目录（如 flask/django/spring/express 等）已移除
+    # 这些名称会导致业务代码被误过滤（如 com.app.spring 包、echo 目录等）
+    # 框架源码应通过 vendor/ 依赖目录过滤，而非框架名称
+]
 IGNORE_LIST = []
 
 VUL_LEVEL = ['low', 'low', 'low', 'low', 'medium', 'medium', 'medium', 'medium', 'high', 'high', 'critical']
@@ -173,7 +207,10 @@ class VulnerabilityResult:
         """
         mr = cls()
         try:
-            mr.line_number = single_match[1]
+            try:
+                mr.line_number = int(single_match[1])
+            except (ValueError, TypeError):
+                mr.line_number = int(float(single_match[1])) if single_match[1] else 0
             mr.code_content = single_match[2]
             mr.file_path = single_match[0]
             # 间接调用：第 4 个元素是 indirect_map
@@ -216,7 +253,7 @@ class VulnerabilityResult:
 
         trigger = '{}:{}'.format(
             self.file_path.replace(target_directory, '') if target_directory and self.file_path else (self.file_path or ''),
-            self.line_number or 0
+            self.line_number if self.line_number and not isinstance(self.line_number, str) else int(float(self.line_number or 0))
         )
 
         return {

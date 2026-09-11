@@ -36,6 +36,6 @@ EXTRA_SINKS = [
     ("Connection::executeQuery(", [1004]),
     ("->render(", [1000]),
     ("->renderView(", [1000]),
-    ("->redirect(", [1009]),
-    ("->redirectToRoute(", [1009]),
+    ("->redirect(", [1013]),
+    ("->redirectToRoute(", [1013]),
 ]

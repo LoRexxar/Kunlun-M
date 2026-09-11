@@ -27,12 +27,25 @@ class CVI_1015(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"is_a|unserialize"
+        self.match = r"unserialize"
 
-    def main(self, regex_string):
+    def main(self, regex_string, sink_args=None):
         """
-        regex string input
-        :regex_string: regex match string
-        :return:
+        Graph-based: unserialize with allowed_classes option is safe.
+        unserialize($data, ['allowed_classes' => false]) prevents
+        object instantiation.
         """
-        pass
+        # Check regex_string (source line) first — applies to all paths
+        if isinstance(regex_string, str) and 'allowed_classes' in regex_string.lower():
+            return False
+        if sink_args:
+            # 2+ args means options array is passed
+            if len(sink_args) >= 2:
+                for a in sink_args[1:]:
+                    rv = a.get('resolved_value', '') or ''
+                    if not rv and (a.get('label') == 'const' or a.get('type') in ('string', 'constant')):
+                        rv = a.get('name', '')
+                    if 'allowed_classes' in str(rv).lower():
+                        return False
+            return None
+        return None

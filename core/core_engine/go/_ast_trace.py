@@ -58,15 +58,18 @@ def _is_controlled_source_node(node, controlled_params):
     """检查节点是否是可控输入源"""
     text = _get_node_text(node)
     
-    # 检查 controlled_params
+    # 检查 controlled_params（Fix 21g: standalone-token matching — see
+    # parser._is_controllable_source for the receiver-mention FP rationale）
     for cp in controlled_params:
-        if cp in text:
+        if re.search(r"\b" + re.escape(cp) + r"\b(?!\s*\.)", text):
             return True
     
-    # 检查内置可控源
-    from core.core_engine.go.parser import GO_CONTROLLED_SOURCES
+    # 检查内置可控源（Fix 21g: position-aware matching via parser helper —
+    # substring containment matched comments/declarations/suffixes and
+    # mis-attributed receiver mentions as taint sources）
+    from core.core_engine.go.parser import GO_CONTROLLED_SOURCES, _source_hit
     for src in GO_CONTROLLED_SOURCES:
-        if src in text:
+        if _source_hit(text, src):
             return True
     
     # 检查 selector_expression 结构
