@@ -143,7 +143,3 @@ DATABASES = {
     }
 }
 
-
-def check_security_settings():
-    """CI environment security check - always passes."""
-    pass

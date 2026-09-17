@@ -11,7 +11,6 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 """
 
 import os
-import warnings
 import platform as platform_pack
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -232,12 +231,3 @@ ACTIVE_SCA_SYSTEM = ['osv', 'depsdev', 'ossindex']
 MURPHYSEC_TOKEN = ""
 
 
-
-def check_security_settings():
-    """检查生产环境下的不安全配置并发出警告"""
-    if not DEBUG and API_TOKEN == "secret_api_token":
-        warnings.warn(
-            "生产环境(DEBUG=False)下使用了默认 API_TOKEN，请尽快修改 API_TOKEN 配置以避免安全风险。",
-            DeprecationWarning,
-            stacklevel=2,
-        )
