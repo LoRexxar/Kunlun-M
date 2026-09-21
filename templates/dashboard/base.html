@@ -76,26 +76,15 @@
             </a>
             <ul class="treeview-menu nav nav-pills nav-vertical">
               <li class="nav-item" id="projects_list"><a class="nav-link" href="{% url 'dashboard:projects_list' %}"><i class="fa fa-circle-o"></i>项目列表</a></li>
+              <li class="nav-item" id="task_new"><a class="nav-link" href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
+              <li class="nav-item" id="task_list"><a class="nav-link" href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>扫描记录</a></li>
             </ul>
           </li>
-          <li class="nav-item treeview" id="tasks">
-            <a class="nav-link" href="#">
-              <span class="nav-link-icon"><i class="ti ti-list-check fa ion-ios-analytics-outline"></i></span>
-              <span class="nav-link-title">扫描任务</span>
-              <span class="float-end">
-                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
-              </span>
-            </a>
-            <ul class="treeview-menu nav nav-pills nav-vertical">
-              <li class="nav-item" id="task_new"><a class="nav-link" href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
           <li class="nav-item" id="vuls">
             <a class="nav-link" href="{% url 'dashboard:vuls_list' %}">
               <span class="nav-link-icon"><i class="ti ti-alert-triangle fa fa-bug"></i></span>
               <span class="nav-link-title">漏洞列表</span>
             </a>
-          </li>
-              <li class="nav-item" id="task_list"><a class="nav-link" href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>任务列表</a></li>
-            </ul>
           </li>
           <li class="nav-item treeview" id="vendors">
             <a class="nav-link" href="#">
@@ -281,13 +270,13 @@ $(function(){
     if(e.key === 'Enter'){
       var val = $(this).val().trim();
       if(!val) return;
-      // 纯数字 → 任务详情
+      // 纯数字 → 项目详情
       if(/^\d+$/.test(val)){
-        window.location.href = '{% url "dashboard:task_detail" 0 %}'.replace('/0', '/' + val);
+        window.location.href = '{% url "dashboard:project_detail" 0 %}'.replace('/0', '/' + val);
         return;
       }
-      // 其他 → 任务列表搜索
-      window.location.href = '{% url "dashboard:tasks_list" %}?search=' + encodeURIComponent(val);
+      // 其他 → 项目列表搜索
+      window.location.href = '{% url "dashboard:projects_list" %}?project_name=' + encodeURIComponent('*' + val + '*');
     }
   });
 });

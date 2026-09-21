@@ -113,7 +113,7 @@
 
         <div class="card-footer">
           <button type="submit" class="btn btn-primary">开始扫描</button>
-          <a href="{% url 'dashboard:task_detail' task.id %}" class="btn btn-default">返回任务详情</a>
+          <a href="{% url 'dashboard:project_detail' project.id %}" class="btn btn-default">返回项目</a>
         </div>
       </form>
     </div>
@@ -126,9 +126,9 @@
 $(document).ready(function () {
   $("#dashboard").removeClass("active menu-open");
   $("#dashboard").find("ul li").removeClass("active");
-  $("#tasks").addClass("menu-open");
-  $("#tasks").find("ul").find("li#task_new").addClass("active");
-  $("#tasks").find("ul").css("display","block");
+  $("#projects").addClass("menu-open");
+  $("#projects").find("ul").find("li#task_new").addClass("active");
+  $("#projects").find("ul").css("display","block");
 
   var btn = document.getElementById('toggleAdvanced');
   var panel = document.getElementById('advancedPanel');

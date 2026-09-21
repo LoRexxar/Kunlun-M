@@ -1,8 +1,8 @@
 {% extends "dashboard/base.html" %}
 {% load tz %}
-{% block title %}任务列表{% endblock %}
+{% block title %}扫描记录{% endblock %}
 {% block body_header %}
-<h1>任务列表 <small>KunLun-MA</small></h1>
+<h1>扫描记录 <small>KunLun-MA</small></h1>
 {% endblock %}
 
 
@@ -11,7 +11,7 @@
         <div class="col-12">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">任务列表</h3>
+              <h3 class="card-title">扫描记录 <small>每次扫描的执行情况，结果请到对应项目或漏洞列表查看</small></h3>
               <div class="card-tools km-box-tools">
                 <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_new' %}">新建扫描</a>
                 <input id="allTaskFilterInput" class="form-control form-control-sm" style="width: 240px;" placeholder="搜索任务...">
@@ -72,7 +72,7 @@
                       </td>
                       <td class="km-td-actions">
                         <div class="km-actions">
-                          <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_detail' task.id %}">查看日志</a>
+                          <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_detail' task.id %}">日志</a>
                         </div>
                       </td>
                     </tr>
@@ -103,9 +103,9 @@
       $(document).ready(function () {
           $("#dashboard").removeClass("active menu-open");
           $("#dashboard").find("ul li").removeClass("active");
-          $("#tasks").addClass("menu-open");
-          $("#tasks").find("ul").find("li#task_list").addClass("active");
-          $("#tasks").find("ul").css("display","block");
+          $("#projects").addClass("menu-open");
+          $("#projects").find("ul").find("li#task_list").addClass("active");
+          $("#projects").find("ul").css("display","block");
 
           $("#allTaskFilterInput").on("input", function () {
               var text = $(this).val().toLowerCase();

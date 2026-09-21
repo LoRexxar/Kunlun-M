@@ -38,56 +38,39 @@
 
 <div class="card">
 <div class="box-header with-border">
-  <h3 class="card-title">任务列表</h3>
+  <h3 class="card-title">扫描记录</h3>
 </div>
 <!-- /.box-header -->
-<div class="card">
-
-<!-- /.box-header -->
 <div class="box-body table-responsive">
-  <table class="table table-hover km-table km-table-wide">
+  <table class="table table-hover km-table">
     <thead>
       <tr>
-        <th class="km-col-id">ID</th>
-        <th>名称</th>
-        <th>路径</th>
-        <th class="km-col-time">时间</th>
+        <th class="km-col-time">扫描时间</th>
         <th class="km-col-status">状态</th>
-        <th class="km-col-config">参数</th>
+        <th class="km-td-nowrap">新增结果</th>
       </tr>
     </thead>
     <tbody>
-      {% for task in tasks %}
+      {% for rec in scan_records %}
       <tr>
-        <td class="km-td-nowrap"><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }}</a></td>
-        <td>
-          <div class="km-cell-title">
-            <a class="km-link-strong" href="{% url 'dashboard:task_detail' task.id %}" title="{{ task.task_name|default:task.target_path|escape }}">{{ task.task_name|default:task.target_path }}</a>
-          </div>
-        </td>
-        <td><div class="km-cell-sub" title="{{ task.target_path|escape }}">{{ task.target_path }}</div></td>
-        <td class="km-td-time" data-time="{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
+        <td class="km-td-time" data-time="{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
         <td class="km-td-nowrap">
-          {% if task.is_finished == 0 %}
+          {% if rec.status == 0 or rec.status == -1 %}
           <span class="badge bg-danger status-label">失败</span>
-          {% elif task.is_finished == -1 %}
-          <span class="badge bg-danger status-label">失败</span>
-          {% elif task.is_finished == 2 %}
+          {% elif rec.status == 2 %}
           <span class="badge bg-warning status-label">运行中</span>
-          {% elif task.is_finished == 1 %}
-          <span class="badge bg-success status-label">成功</span>
+          {% elif rec.status == 1 %}
+          <span class="badge bg-success status-label">完成</span>
           {% else %}
-          <span class="badge bg-success status-label">{{ task.is_finished }}</span>
+          <span class="badge bg-secondary status-label">队列中</span>
           {% endif %}
         </td>
-        <td><div class="km-cell-config" title="{{ task.parameter_config|escape }}">{{ task.parameter_config }}</div></td>
+        <td class="km-td-nowrap">{{ rec.results_count }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-</div>
-<!-- /.box-body -->
 </div>
 
 <div class="card">

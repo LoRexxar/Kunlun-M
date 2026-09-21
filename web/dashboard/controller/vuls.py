@@ -49,7 +49,7 @@ class VulListView(TemplateView):
         level = params.get('level', '').strip()
         confirm = params.get('confirm', '').strip()
         search = params.get('q', '').strip()
-        task_id = params.get('task_id', '').strip()
+        project_id = params.get('project_id', '').strip()
 
         if lang:
             qs = qs.filter(language=lang)
@@ -61,8 +61,8 @@ class VulListView(TemplateView):
             qs = qs.filter(verification_status='fp')
         elif confirm == 'unconfirmed':
             qs = qs.filter(Q(verification_status='') | Q(verification_status='pending') | Q(verification_status='unknown'))
-        if task_id:
-            qs = qs.filter(scan_task_id=int(task_id))
+        if project_id:
+            qs = qs.filter(scan_project_id=int(project_id))
         if search:
             qs = qs.filter(
                 Q(vulfile_path__icontains=search)
@@ -155,10 +155,12 @@ class VulListView(TemplateView):
             project_name = get_project_name(task_info.project_id) if task_info else '-'
             task_name = task_info.task_name if task_info else '-'
 
+            project_id_val = task_info.project_id if task_info else 0
             results.append({
                 'id': r.id,
                 'scan_task_id': r.scan_task_id,
                 'task_name': task_name,
+                'project_id': project_id_val,
                 'project_name': project_name,
                 'cvi_id': r.cvi_id,
                 'language': r.language,
@@ -197,6 +199,6 @@ class VulListView(TemplateView):
         ctx['f_level'] = level
         ctx['f_confirm'] = confirm
         ctx['f_q'] = search
-        ctx['f_task_id'] = task_id
+        ctx['f_project_id'] = project_id
 
         return ctx

@@ -240,6 +240,7 @@ class TaskConfigView(View):
             "task": task,
             "options": options,
             "archive_name": archive_name,
+            "project": project,
             "project_des": project_des,
             "vendor_globally_off": vendor_globally_off,
             "tamper_names": tamper_names,

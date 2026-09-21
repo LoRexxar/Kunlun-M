@@ -25,32 +25,15 @@
     <div class="card km-stat-card">
       <div class="card-body">
         <div class="d-flex align-items-center">
-          <div class="subheader-icon me-3"><i class="fa fa-list text-blue"></i></div>
-          <div>
-            <div class="subheader text-muted">任务</div>
-            <h3 class="card-title mb-0">{% if request.session.tasks_count %}{{ request.session.tasks_count }}{% else %}0{% endif %}</h3>
-          </div>
-        </div>
-      </div>
-      <div class="card-footer">
-        <a href="{% url 'dashboard:tasks_list' %}" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-lg-2 col-6">
-    <div class="card km-stat-card">
-      <div class="card-body">
-        <div class="d-flex align-items-center">
           <div class="subheader-icon me-3"><i class="fa fa-folder-open text-green"></i></div>
           <div>
             <div class="subheader text-muted">项目</div>
-            <h3 class="card-title mb-0">{% if request.session.project_count %}{{ request.session.project_count }}{% else %}0{% endif %}</h3>
+            <h3 class="card-title mb-0">{{ project_total }}</h3>
           </div>
         </div>
       </div>
       <div class="card-footer">
-        <a href="{% url 'dashboard:tasks_list' %}" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
+        <a href="{% url 'dashboard:projects_list' %}" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
       </div>
     </div>
   </div>
@@ -62,12 +45,46 @@
           <div class="subheader-icon me-3"><i class="fa fa-bug text-red"></i></div>
           <div>
             <div class="subheader text-muted">漏洞</div>
-            <h3 class="card-title mb-0">{% if request.session.vul_count %}{{ request.session.vul_count }}{% else %}0{% endif %}</h3>
+            <h3 class="card-title mb-0">{{ vul_total }}</h3>
           </div>
         </div>
       </div>
       <div class="card-footer">
-        <a href="{% url 'dashboard:tasks_list' %}" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
+        <a href="{% url 'dashboard:vuls_list' %}" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-2 col-6">
+    <div class="card km-stat-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center">
+          <div class="subheader-icon me-3"><i class="fa fa-check-circle text-success"></i></div>
+          <div>
+            <div class="subheader text-muted">已确认</div>
+            <h3 class="card-title mb-0">{{ tp_total }}</h3>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <a href="{% url 'dashboard:vuls_list' %}?confirm=tp" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-2 col-6">
+    <div class="card km-stat-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center">
+          <div class="subheader-icon me-3"><i class="fa fa-times-circle text-secondary"></i></div>
+          <div>
+            <div class="subheader text-muted">误报</div>
+            <h3 class="card-title mb-0">{{ fp_total }}</h3>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <a href="{% url 'dashboard:vuls_list' %}?confirm=fp" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
       </div>
     </div>
   </div>
@@ -105,28 +122,11 @@
       </div>
     </div>
   </div>
-
-  <div class="col-lg-2 col-6">
-    <div class="card km-stat-card">
-      <div class="card-body">
-        <div class="d-flex align-items-center">
-          <div class="subheader-icon me-3"><i class="fa fa-puzzle-piece text-purple"></i></div>
-          <div>
-            <div class="subheader text-muted">拓展插件</div>
-            <h3 class="card-title mb-0">{% if request.session.tampers_count %}{{ request.session.tampers_count }}{% else %}0{% endif %}</h3>
-          </div>
-        </div>
-      </div>
-      <div class="card-footer">
-        <a href="{% url 'dashboard:tampers_list' %}" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div class="card" id="overviewPanel">
   <div class="card-header">
-    <h3 class="card-title">最新任务</h3>
+    <h3 class="card-title">最近扫描的项目</h3>
     <div class="card-tools d-flex">
       <button type="button" class="btn btn-sm btn-ghost-secondary" data-bs-toggle="collapse" data-bs-target="#overviewPanelBody" aria-expanded="true"><i class="fa fa-minus"></i></button>
       <button type="button" class="btn btn-sm btn-ghost-secondary" id="overviewPanelClose"><i class="fa fa-times"></i></button>
@@ -135,62 +135,52 @@
   <div class="card-body collapse show" id="overviewPanelBody">
     <div class="dashboard-toolbar">
       <div>
-        <span class="status-pill">成功 <span class="num">{{ status_count.success }}</span></span>
-        <span class="status-pill">运行中 <span class="num">{{ status_count.running }}</span></span>
-        <span class="status-pill">失败 <span class="num">{{ status_count.failed }}</span></span>
-        <span class="status-pill">其他 <span class="num">{{ status_count.other }}</span></span>
-      </div>
-      <div>
-        <span class="text-muted">最近扫描：<strong>{{ last_task.created_at|date:"Y-m-d H:i" }}</strong></span>&nbsp;
-        <span class="text-muted">任务：<strong>{{ last_task.task_name }}</strong></span>&nbsp;
+        <span class="status-pill">运行中 <span class="num">{{ running }}</span></span>
+        <span class="text-muted">最近扫描：<strong>{% if projects %}{{ projects.0.last_scan_time|localtime|date:"Y-m-d H:i" }}{% endif %}</strong></span>&nbsp;
         <button id="refreshOverview" class="btn btn-sm btn-info"><i class="fa fa-refresh"></i> 刷新</button>
       </div>
     </div>
     <div class="form-group">
-      <input id="taskFilterInput" class="form-control task-filter-input" placeholder="按关键词过滤最新任务...">
+      <input id="taskFilterInput" class="form-control task-filter-input" placeholder="按关键词过滤项目...">
     </div>
     <div class="table-responsive">
       <table id="latestTaskTable" class="table no-margin table-hover km-table km-table-wide">
         <thead>
         <tr>
           <th class="km-col-project">项目</th>
-          <th>任务</th>
-          <th>路径</th>
-          <th class="km-col-time">时间</th>
+          <th class="km-col-time">最近扫描</th>
           <th class="km-col-status">状态</th>
-          <th class="km-col-config">参数</th>
+          <th class="km-col-results">漏洞数</th>
+          <th class="km-td-nowrap">确认</th>
+          <th class="km-td-nowrap">误报</th>
         </tr>
         </thead>
         <tbody>
-        {% for task in tasks %}
+        {% for project in projects %}
         <tr>
           <td>
-            <a class="km-link-strong" href="{% url 'dashboard:project_detail' task.project_id %}">
-              <span class="km-td-nowrap">#{{ task.project_id }}</span>
-              <span class="km-muted">{{ task.project_name }}</span>
-            </a>
-          </td>
-          <td>
             <div class="km-cell-title">
-              <a class="km-link-strong" href="{% url 'dashboard:task_detail' task.id %}" title="{{ task.task_name|default:task.target_path|escape }}">{{ task.task_name|default:task.target_path }}</a>
+              <a class="km-link-strong" href="{% url 'dashboard:project_detail' project.id %}">
+                <span class="km-td-nowrap">#{{ project.id }}</span>
+                <span class="km-muted">{{ project.project_name }}</span>
+              </a>
             </div>
           </td>
-          <td><div class="km-cell-sub" title="{{ task.target_path|escape }}">{{ task.target_path }}</div></td>
-          <td class="km-td-time" data-time="{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ task.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
+          <td class="km-td-time" data-time="{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
           <td class="km-td-nowrap">
-          {% if task.is_finished == 0 %}
+          {% if project.last_scan_status == 0 or project.last_scan_status == -1 %}
           <span class="badge bg-danger status-label">失败</span>
-          {% elif task.is_finished == -1 %}
-          <span class="badge bg-danger status-label">失败</span>
-          {% elif task.is_finished == 2 %}
+          {% elif project.last_scan_status == 2 %}
           <span class="badge bg-warning status-label">运行中</span>
-          {% elif task.is_finished == 1 %}
-          <span class="badge bg-success status-label">成功</span>
+          {% elif project.last_scan_status == 1 %}
+          <span class="badge bg-success status-label">完成</span>
           {% else %}
-          <span class="badge bg-success status-label">{{ task.is_finished }}</span>
+          <span class="badge bg-secondary status-label">队列中</span>
           {% endif %}
           </td>
-          <td><div class="km-cell-config" title="{{ task.parameter_config|escape }}">{{ task.parameter_config }}</div></td>
+          <td class="km-td-nowrap">{{ project.results_count }}</td>
+          <td class="km-td-nowrap">{{ project.tp_count }}</td>
+          <td class="km-td-nowrap">{{ project.fp_count }}</td>
         </tr>
         {% endfor %}
         </tbody>
@@ -198,7 +188,7 @@
     </div>
   </div>
   <div class="card-footer">
-    <a href="{% url 'dashboard:tasks_list' %}" class="btn btn-sm btn-ghost-secondary float-end">查看全部任务</a>
+    <a href="{% url 'dashboard:projects_list' %}" class="btn btn-sm btn-ghost-secondary float-end">查看全部项目</a>
   </div>
 </div>
 
@@ -279,7 +269,7 @@ $(function(){
       data: {
         labels: dailyLabels,
         datasets: [{
-          label: '扫描任务数',
+          label: '扫描次数',
           data: dailyData,
           borderColor: '#2ecc71',
           backgroundColor: 'rgba(46,204,113,0.1)',

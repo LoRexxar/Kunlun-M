@@ -125,9 +125,16 @@ class ProjectDetailView(View):
         newevilfuncs = NewEvilFunc.objects.filter(project_id=project.id).all()
         pvs = ProjectVendors.objects.filter(project_id=project.id)
 
+        # 扫描记录摘要（只读，不链接到任务结果页）
+        scan_records = []
         for task in tasks:
-            task.is_finished = int(task.is_finished)
-            task.parameter_config = del_sensitive_for_config(task.parameter_config)
+            scan_records.append({
+                'id': task.id,
+                'task_name': task.task_name,
+                'last_scan_time': task.last_scan_time,
+                'status': int(task.is_finished),
+                'results_count': ScanResultTask.objects.filter(scan_task_id=task.id, is_active=1).count(),
+            })
 
         # 加载漏洞链数据
         chain_map = {}
@@ -197,7 +204,7 @@ class ProjectDetailView(View):
             chain_json = _json.dumps(chain_json_map, ensure_ascii=False)
 
             data = {
-                'tasks': tasks,
+                'scan_records': scan_records,
                 'taskresults': taskresults,
                 'newevilfuncs': newevilfuncs,
                 'project': project,

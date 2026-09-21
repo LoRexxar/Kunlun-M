@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}漏洞列表{% endblock %}
 {% block body_header %}
-<h1>漏洞列表 <small>全部任务</small></h1>
+<h1>漏洞列表 <small>全部项目</small></h1>
 {% endblock %}
 
 {% block body %}
@@ -229,7 +229,7 @@
         <option value="fp" {% if f_confirm == 'fp' %}selected{% endif %}>已标记 FP</option>
         <option value="unconfirmed" {% if f_confirm == 'unconfirmed' %}selected{% endif %}>未确认</option>
       </select>
-      <input type="text" name="task_id" class="form-control form-control-sm" style="width:100px;" placeholder="任务ID" value="{{ f_task_id }}">
+      <input type="text" name="project_id" class="form-control form-control-sm" style="width:100px;" placeholder="项目ID" value="{{ f_project_id }}">
       <button type="submit" class="btn btn-sm btn-primary">筛选</button>
       <a href="?" class="btn btn-sm btn-default">重置</a>
     </div>
@@ -254,7 +254,7 @@
           <th>ID</th>
           <th>CVI</th>
           <th>语言</th>
-          <th>任务</th>
+          <th>项目</th>
           <th>文件</th>
           <th class="vc-chain-cell">传播链</th>
           <th>等级</th>
@@ -269,8 +269,8 @@
           <td>{{ r.id }}</td>
           <td>{{ r.cvi_id }}</td>
           <td>{{ r.language }}</td>
-          <td title="{{ r.task_name|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.task_name|truncatechars:12 }}</a></td>
-          <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:task_detail' r.scan_task_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></td>
+          <td title="{{ r.project_name|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.project_name|truncatechars:12 }}</a></td>
+          <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></td>
           <td class="vc-chain-cell" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
           <td>
             {% if r.level_lower == 'critical' %}<span class="badge" style="background:#a00!important;color:#fff!important;">严重</span>
@@ -290,7 +290,7 @@
             <div class="dropdown">
               <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation();" style="padding:2px 8px;">...</button>
               <ul class="dropdown-menu">
-                <li><a class="dropdown-item" href="{% url 'dashboard:task_detail' r.scan_task_id %}">查看任务</a></li>
+                <li><a class="dropdown-item" href="{% url 'dashboard:project_detail' r.project_id %}">查看项目</a></li>
                 <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'tp')">标记 TP</a></li>
                 <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'fp')">标记 FP</a></li>
                 <li><hr class="dropdown-divider"></li>
@@ -322,18 +322,18 @@
   {% if max_page > 1 %}
   <nav style="margin-top:16px;">
     <ul class="pagination pagination-sm justify-content-center">
-      {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">&laquo;</a></li>{% endif %}
+      {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&project_id={{ f_project_id }}">&laquo;</a></li>{% endif %}
       {% for p in page_range %}
         {% if p == page %}
           <li class="page-item active"><span class="page-link">{{ p }}</span></li>
         {% elif p <= 3 or p >= max_page|add:'-2' or p|add:'-1' == page or p|add:'1' == page %}
-          <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">{{ p }}</a></li>
+          <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&project_id={{ f_project_id }}">{{ p }}</a></li>
         {% elif p|add:'-1' == page or p|add:'1' == page %}
         {% else %}
           {% if forloop.counter == 1 or p == max_page or forloop.counter == page_range|length %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
         {% endif %}
       {% endfor %}
-      {% if page < max_page %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&task_id={{ f_task_id }}">&raquo;</a></li>{% endif %}
+      {% if page < max_page %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&project_id={{ f_project_id }}">&raquo;</a></li>{% endif %}
     </ul>
   </nav>
   {% endif %}
