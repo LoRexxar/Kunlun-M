@@ -201,7 +201,8 @@ class ProjectDetailView(View):
                 if tr.has_chain:
                     chain_json_map[str(tr.id)] = tr.chain_nodes
             import json as _json
-            chain_json = _json.dumps(chain_json_map, ensure_ascii=False)
+            # '\/' escape: 防 source_code 里的 '</script>' 提前终止 inline script 块
+            chain_json = _json.dumps(chain_json_map, ensure_ascii=False).replace('/', '\\/')
 
             data = {
                 'scan_records': scan_records,
