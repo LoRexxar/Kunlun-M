@@ -126,6 +126,32 @@ function renderChain(vulId) {
     selectChainNode(nodes.length - 1);
 }
 
+/* ── 整文件源码缓存（链-码对照模式） ── */
+var chainFileCache = {};   // path -> {pid, lines}
+function chainProjectId() {
+    // 从 URL 推断项目 id：/dashboard/projects/<id>
+    var m = location.pathname.match(/\/dashboard\/projects\/(\d+)/);
+    return m ? m[1] : (window.chainProjectIdOverride || null);
+}
+function loadFullFile(node, codeArea, cb) {
+    var pid = chainProjectId();
+    if (!pid || !node.path) { cb(null); return; }
+    var cached = chainFileCache[node.path];
+    if (cached) { cb(cached.lines); return; }
+    codeArea.innerHTML = '<div class="km-code-header"><i class="fa fa-spinner fa-spin"></i> 加载整文件源码...</div>';
+    var url = '/dashboard/projects/' + pid + '/files/content?file=' + encodeURIComponent(node.path)
+        + '&lineno=' + (node.lineno || 0);
+    fetch(url, {credentials:'same-origin'}).then(function(r){ return r.json(); }).then(function(d){
+        var lines = d && d.lines;
+        if (lines && lines.length && typeof lines[0] === 'object') {
+            lines = lines.map(function(l){ return l.code; });
+        }
+        if (!lines || !lines.length) { cb(null); return; }
+        chainFileCache[node.path] = { lines: lines };
+        cb(lines);
+    }).catch(function(){ cb(null); });
+}
+
 /* ── 节点选中 → 下方代码区（深色主题） ── */
 function selectChainNode(idx) {
     var nodes = chainDataMap[chainPanelVulId];
@@ -139,12 +165,77 @@ function selectChainNode(idx) {
     });
     var activeNode = document.querySelector('.km-flow-node[data-idx="' + idx + '"]');
     if (activeNode) activeNode.classList.add('km-flow-node-active');
+    // 同步滚动节点进视野
+    if (activeNode && activeNode.scrollIntoView) activeNode.scrollIntoView({block:'nearest', inline:'nearest'});
 
     var codeArea = document.getElementById('chainCode');
     if (!codeArea) return;
 
     var style = getNodeStyle(node.type);
+    var targetLineno = parseInt(node.lineno) || 0;
 
+    // 优先整文件模式（链-码对照：能看到漏洞位置在文件中的空间关系）
+    if (node.path && targetLineno > 0) {
+        var header = '<div class="km-code-header">'
+            + '<span style="color:' + style.color + '"><i class="fa ' + style.icon + '"></i> ' + (style.label || node.type) + '</span>'
+            + '<span class="km-code-path">' + escapeHtml(node.path) + ':' + node.lineno + '</span>'
+            + '<button class="btn btn-default btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px;" '
+            + 'onclick="openChainFileBrowser(' + idx + ')" title="在源码浏览器中打开（可搜索/滚动全文）"><i class="fa fa-external-link"></i> 源码浏览器</button>'
+            + '</div>';
+        loadFullFile(node, codeArea, function(lines){
+            if (lines) {
+                renderFullFile(codeArea, node, style, lines, targetLineno, header);
+            } else {
+                renderSnippetFallback(node, style);
+            }
+        });
+        return;
+    }
+    renderSnippetFallback(node, style);
+}
+
+function openChainFileBrowser(idx) {
+    var nodes = chainDataMap[chainPanelVulId];
+    if (!nodes || !nodes[idx]) return;
+    var node = nodes[idx];
+    var pid = chainProjectId();
+    if (!pid) { alert('未找到项目 ID'); return; }
+    window.open('/dashboard/projects/' + pid + '/files?file=' + encodeURIComponent(node.path)
+        + '&lineno=' + (node.lineno || 0), '_blank');
+}
+
+function renderFullFile(codeArea, node, style, lines, targetLineno, header) {
+    var lang = inferLang(node.path);
+    var fullText = lines.join('\n');
+    var highlightedText = fullText;
+    try {
+        if (window.Prism && Prism.languages[lang]) {
+            highlightedText = Prism.highlight(fullText, Prism.languages[lang], lang);
+            highlightedText = sanitizeHighlightedCode(highlightedText);
+        }
+    } catch (e) {}
+    var hl = highlightedText.split('\n');
+    var html = header;
+    html += '<div class="km-code-body" id="kmFullFileBody"><table class="km-code-table"><tbody>';
+    for (var i = 0; i < hl.length; i++) {
+        var lineno = i + 1;
+        var isTarget = (lineno === targetLineno);
+        var near = Math.abs(lineno - targetLineno) <= 5;
+        html += '<tr class="' + (isTarget ? 'km-code-line-highlight' : (near ? 'km-code-line-near' : '')) + '" id="kmFileLine' + lineno + '">';
+        html += '<td class="km-code-lineno">' + lineno + '</td>';
+        html += '<td class="km-code-line">' + (hl[i] || ' ') + '</td>';
+        html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    codeArea.innerHTML = html;
+    // 滚动到目标行
+    var el = document.getElementById('kmFileLine' + targetLineno);
+    if (el) el.scrollIntoView({block:'center'});
+}
+
+function renderSnippetFallback(node, style) {
+    var codeArea = document.getElementById('chainCode');
+    if (!codeArea) return;
     if (node.source) {
         var sourceLines = node.source.split('\n');
         var targetLineno = parseInt(node.lineno) || 0;
@@ -171,8 +262,6 @@ function selectChainNode(idx) {
         try {
             if (window.Prism && Prism.languages[lang]) {
                 highlightedText = Prism.highlight(fullText, Prism.languages[lang], lang);
-                // Prism 对 PHP/HTML 混合代码片段会错误解析 <h2> 等标签
-                // 后处理：将源码中的裸 HTML 标签 escape，保留 Prism 的 <span> tokens
                 highlightedText = sanitizeHighlightedCode(highlightedText);
             }
         } catch (e) {}
@@ -199,21 +288,4 @@ function selectChainNode(idx) {
         codeArea.innerHTML = '<div class="km-code-header"><span style="color:' + style.color + '"><i class="fa ' + style.icon + '"></i> ' + (style.label || node.type) + '</span></div>'
             + '<div class="km-code-body"><pre style="margin:0;padding:16px;font-size:13px;font-family:\'Fira Code\',Consolas,monospace;color:#c9d1d9;background:#0d1117;">' + escapeHtml(node.content || '(无代码)') + '</pre></div>';
     }
-}
-
-/* 清理 Prism 高亮结果中的裸 HTML 标签
- * 保留 Prism 的 <span> tokens，将源码中的 <tag> 转义为 &lt;tag&gt; */
-function sanitizeHighlightedCode(html) {
-    // 替换所有非 Prism token 的 < 和 >
-    // Prism token: <span class="...">, </span>, <br>, <br/>
-    return html.replace(/<(?!\/?span[ >]|span\b|br\s*\/?>)([^>]+)>/gi, function(match, content) {
-        return '&lt;' + content + '&gt;';
-    });
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    var div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }

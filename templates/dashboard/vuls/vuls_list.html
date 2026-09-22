@@ -314,7 +314,7 @@
         </tr>
         <tr class="km-vul-detail-row" style="display:none;">
           <td colspan="10" style="padding:0!important;border:none!important;">
-            <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}">
+            <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}" data-project-id="{{ r.project_id }}">
               <div class="km-vul-chain-meta">
                 <div class="meta-row"><span class="meta-label">CVI</span><span class="meta-value">{{ r.cvi_id }}</span></div>
                 <div class="meta-row"><span class="meta-label">文件路径</span><span class="meta-value" title="{{ r.vulfile_path|escape }}">{{ r.vulfile_path }}</span></div>
@@ -462,12 +462,25 @@ function selectChainNode(vulId, idx) {
   if (!codeArea) return;
   var targetLineno = n.lineno || 0;
 
+  var panel = document.getElementById('chainPanel_' + vulId);
+  var pid = panel ? panel.getAttribute('data-project-id') : null;
+
   var headerHtml = '<div class="code-header">';
   headerHtml += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
   headerHtml += '<strong>' + escapeHtml(n.type) + '</strong> &mdash; ' + escapeHtml(n.content || '');
   if (n.path) headerHtml += ' <span style="margin-left:12px;color:#9ca3af;">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
   if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span style="margin-left:8px;color:#9ca3af;">vid=' + n.vid + '</span>';
+  if (pid && n.path && targetLineno > 0) {
+    headerHtml += ' <button class="btn btn-default btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px;" '
+      + 'onclick="openChainBrowser(\'' + vulId + '\',' + idx + ')" title="在源码浏览器中打开全文"><i class="fa fa-external-link"></i> 源码浏览器</button>';
+  }
   headerHtml += '</div>';
+
+  // 整文件对照模式：项目内 + 有行号 → 拉全文滚动到目标行
+  if (pid && n.path && targetLineno > 0) {
+    loadFullFileVul(vulId, n, codeArea, headerHtml, targetLineno);
+    return;
+  }
 
   var sourceLines = n.source_code || '';
   var codeLines = [];
@@ -488,6 +501,80 @@ function selectChainNode(vulId, idx) {
     return;
   }
 
+  var bodyHtml = '<div class="code-body"><table class="code-table">';
+  for (var j = 0; j < codeLines.length; j++) {
+    var isTarget = (lineNums[j] === targetLineno);
+    bodyHtml += '<tr' + (isTarget ? ' class="hl-line"' : '') + '>';
+    bodyHtml += '<td class="td-line">' + (lineNums[j] || '') + '</td>';
+    bodyHtml += '<td class="td-code">' + escapeHtml(codeLines[j]) + '</td>';
+    bodyHtml += '</tr>';
+  }
+  bodyHtml += '</table></div>';
+  codeArea.innerHTML = headerHtml + bodyHtml;
+}
+
+var vulFullFileCache = {};
+function openChainBrowser(vulId, idx) {
+  var nodes = chainDataMap[vulId];
+  if (!nodes || !nodes[idx]) return;
+  var panel = document.getElementById('chainPanel_' + vulId);
+  var pid = panel ? panel.getAttribute('data-project-id') : null;
+  if (!pid) { alert('未找到项目 ID'); return; }
+  var n = nodes[idx];
+  window.open('/dashboard/projects/' + pid + '/files?file=' + encodeURIComponent(n.path || '')
+    + '&lineno=' + (n.lineno || 0), '_blank');
+}
+function loadFullFileVul(vulId, n, codeArea, headerHtml, targetLineno) {
+  var key = (n.path || '');
+  var cached = vulFullFileCache[key];
+  var apply = function(lines) {
+    if (!lines) { // 回退片段模式
+      renderSnippetVul(vulId, n, codeArea, headerHtml, targetLineno);
+      return;
+    }
+    var html = headerHtml;
+    html += '<div class="code-body" style="max-height:420px;overflow-y:auto;"><table class="code-table">';
+    for (var i = 0; i < lines.length; i++) {
+      var lineno = i + 1;
+      var isTarget = (lineno === targetLineno);
+      var near = Math.abs(lineno - targetLineno) <= 5;
+      html += '<tr' + (isTarget ? ' class="hl-line"' : (near ? ' class="near-line"' : '')) + ' id="kmVL' + vulId + '_' + lineno + '">';
+      html += '<td class="td-line">' + lineno + '</td>';
+      html += '<td class="td-code">' + escapeHtml(lines[i]) + '</td>';
+      html += '</tr>';
+    }
+    html += '</table></div>';
+    codeArea.innerHTML = html;
+    var el = document.getElementById('kmVL' + vulId + '_' + targetLineno);
+    if (el) el.scrollIntoView({block: 'center'});
+  };
+  if (cached) { apply(cached); return; }
+  codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;"><i class="fa fa-spinner fa-spin"></i> 加载整文件源码...</div>';
+  var pid = (document.getElementById('chainPanel_' + vulId) || {}).getAttribute && document.getElementById('chainPanel_' + vulId).getAttribute('data-project-id');
+  var url = '/dashboard/projects/' + pid + '/files/content?file=' + encodeURIComponent(n.path) + '&lineno=' + targetLineno;
+  fetch(url, {credentials:'same-origin'}).then(function(r){ return r.json(); }).then(function(d){
+    var lines = d && d.lines;
+    if (lines && lines.length && typeof lines[0] === 'object') lines = lines.map(function(l){ return l.code; });
+    if (!lines || !lines.length) { apply(null); return; }
+    vulFullFileCache[key] = lines;
+    apply(lines);
+  }).catch(function(){ apply(null); });
+}
+function renderSnippetVul(vulId, n, codeArea, headerHtml, targetLineno) {
+  var sourceLines = n.source_code || '';
+  var codeLines = [];
+  var lineNums = [];
+  if (sourceLines) {
+    var rawLines = sourceLines.split('\n');
+    for (var i = 0; i < rawLines.length; i++) {
+      var m = rawLines[i].match(/^(\s*)(\d+):\s?(.*)/);
+      if (m) { lineNums.push(parseInt(m[2])); codeLines.push(m[3]); }
+    }
+  }
+  if (codeLines.length === 0) {
+    codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
+    return;
+  }
   var bodyHtml = '<div class="code-body"><table class="code-table">';
   for (var j = 0; j < codeLines.length; j++) {
     var isTarget = (lineNums[j] === targetLineno);
