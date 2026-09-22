@@ -28,6 +28,9 @@ def _get_executor():
 
 
 def vul_prompt(vul, chain_text, rule_desc):
+    # 长链是推理模型截断的主因：收紧输入
+    chain_lines = [l for l in (chain_text or "").split("\n") if l][:25]
+    chain_short = "\n".join(l[:100] for l in chain_lines) or "（无链数据）"
     return (
         "漏洞信息：\n"
         "- 规则: %s (%s) — %s\n"
@@ -35,11 +38,11 @@ def vul_prompt(vul, chain_text, rule_desc):
         "- 文件: %s\n"
         "- 触发代码: %s\n\n"
         "传播链（入口→sink）:\n%s\n\n"
-        "请给出 JSON 判定。" % (
-            vul.cvi_id, vul.result_type, rule_desc or "",
+        "请给出 JSON 判定。reasoning 控制在 150 字以内。" % (
+            vul.cvi_id, vul.result_type, (rule_desc or "")[:150],
             vul.language, vul.vulfile_path,
-            (vul.source_code or "")[:300],
-            chain_text[:4000] or "（无链数据）")
+            (vul.source_code or "")[:200],
+            chain_short)
     )
 
 
@@ -97,12 +100,18 @@ def _triage_project_inner(project_id, cap=60):
                                   (tc.source_code or "")[:120]))
 
     ok_count = 0
+    consecutive_failures = 0
     for v in vuls:
+        if consecutive_failures >= 3:
+            logger.warning("AI triage circuit-break: %d consecutive failures", consecutive_failures)
+            break
         chain_text = "\n".join(chain_map.get(v.id, []))
         try:
             _, _ = analyze_vul_object(v, chain_text, rule_map.get(v.cvi_id, ""))
             ok_count += 1
+            consecutive_failures = 0
         except Exception as e:
+            consecutive_failures += 1
             logger.warning("AI triage failed for vul %s: %s", v.id, e)
     return ok_count
 
