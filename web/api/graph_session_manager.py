@@ -49,7 +49,10 @@ def load_session(scan_id: int) -> tuple[Any | None, str | None]:
     from core.graph.sqlite_index import ScanRecord
 
     graph_dir = get_scan_dir(scan_id)
-    graph_path = os.path.join(graph_dir, "graph.graphmlz")
+    graph_path = os.path.join(graph_dir, "graph.pkz")
+    if not os.path.exists(graph_path):
+        # 兼容旧格式（graphmlz）
+        graph_path = os.path.join(graph_dir, "graph.graphmlz")
     if not os.path.exists(graph_path):
         return None, f"Graph not found for scan {scan_id}"
 

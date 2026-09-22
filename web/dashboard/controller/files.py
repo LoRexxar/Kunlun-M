@@ -104,9 +104,15 @@ class ProjectFileContentApiView(View):
             return JsonResponse({"error": "no source"}, status=404)
 
         # 安全校验：safe_join 解析 symlink + 规范化路径
-        abs_path = safe_join(root, req_file.replace('/', os.sep))
-        if abs_path is None or not is_path_under(abs_path, root):
-            return JsonResponse({"error": "forbidden"}, status=403)
+        # 兼容绝对路径（图分析节点携带完整 file_path）：仍强制限制在 root 之下
+        if os.path.isabs(req_file):
+            abs_path = os.path.realpath(req_file)
+            if not is_path_under(abs_path, os.path.realpath(root)):
+                return JsonResponse({"error": "forbidden"}, status=403)
+        else:
+            abs_path = safe_join(root, req_file.replace('/', os.sep))
+            if abs_path is None or not is_path_under(abs_path, root):
+                return JsonResponse({"error": "forbidden"}, status=403)
         if not os.path.isfile(abs_path):
             return JsonResponse({"error": "not found"}, status=404)
 
