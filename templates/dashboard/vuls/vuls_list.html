@@ -223,6 +223,12 @@
         <option value="medium" {% if f_level == 'medium' %}selected{% endif %}>中危</option>
         <option value="low" {% if f_level == 'low' %}selected{% endif %}>低危</option>
       </select>
+      <select name="type" class="form-select form-select-sm" style="width:auto;">
+        <option value="" {% if not f_type %}selected{% endif %}>所有类型</option>
+        {% for t, tlabel in type_options %}
+        <option value="{{ t }}" {% if f_type == t %}selected{% endif %}>{{ tlabel }}</option>
+        {% endfor %}
+      </select>
       <select name="confirm" class="form-select form-select-sm" style="width:auto;">
         <option value="" {% if not f_confirm %}selected{% endif %}>所有状态</option>
         <option value="tp" {% if f_confirm == 'tp' %}selected{% endif %}>已确认 TP</option>
@@ -333,18 +339,18 @@
   {% if max_page > 1 %}
   <nav style="margin-top:16px;">
     <ul class="pagination pagination-sm justify-content-center">
-      {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&project_id={{ f_project_id }}">&laquo;</a></li>{% endif %}
+      {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&type={{ f_type }}&q={{ f_q }}&project_id={{ f_project_id }}">&laquo;</a></li>{% endif %}
       {% for p in page_range %}
         {% if p == page %}
           <li class="page-item active"><span class="page-link">{{ p }}</span></li>
         {% elif p <= 3 or p >= max_page|add:'-2' or p|add:'-1' == page or p|add:'1' == page %}
-          <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&project_id={{ f_project_id }}">{{ p }}</a></li>
+          <li class="page-item"><a class="page-link" href="?p={{ p }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&type={{ f_type }}&q={{ f_q }}&project_id={{ f_project_id }}">{{ p }}</a></li>
         {% elif p|add:'-1' == page or p|add:'1' == page %}
         {% else %}
           {% if forloop.counter == 1 or p == max_page or forloop.counter == page_range|length %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
         {% endif %}
       {% endfor %}
-      {% if page < max_page %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&q={{ f_q }}&project_id={{ f_project_id }}">&raquo;</a></li>{% endif %}
+      {% if page < max_page %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&type={{ f_type }}&q={{ f_q }}&project_id={{ f_project_id }}">&raquo;</a></li>{% endif %}
     </ul>
   </nav>
   {% endif %}

@@ -49,6 +49,7 @@ class VulListView(TemplateView):
         level = params.get('level', '').strip()
         confirm = params.get('confirm', '').strip()
         search = params.get('q', '').strip()
+        result_type = params.get('type', '').strip()
         project_id = params.get('project_id', '').strip()
 
         if lang:
@@ -61,6 +62,8 @@ class VulListView(TemplateView):
             qs = qs.filter(verification_status='fp')
         elif confirm == 'unconfirmed':
             qs = qs.filter(Q(verification_status='') | Q(verification_status='pending') | Q(verification_status='unknown'))
+        if result_type:
+            qs = qs.filter(result_type__icontains=result_type)
         if project_id:
             qs = qs.filter(scan_project_id=int(project_id))
         if search:
@@ -198,6 +201,12 @@ class VulListView(TemplateView):
         ctx['f_cvi'] = cvi
         ctx['f_level'] = level
         ctx['f_confirm'] = confirm
+        ctx['f_type'] = result_type
+        ctx['type_options'] = [
+            ('sql', 'SQL 注入'), ('xss', 'XSS'), ('command', '命令注入'),
+            ('file', '文件操作'), ('ssrf', 'SSRF'), ('unserialize', '反序列化'),
+            ('include', '文件包含'), ('upload', '上传'), ('eval', '代码执行'),
+        ]
         ctx['f_q'] = search
         ctx['f_project_id'] = project_id
 
