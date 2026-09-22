@@ -319,15 +319,18 @@ class AiSettingsView(View):
         row.base_url = (request.POST.get("base_url") or "").strip()
         row.model = (request.POST.get("model") or "").strip()
         row.save()
-        # 测试连通性
+        saved_msg = "配置已保存（%s / %s）" % (
+            get_ai_config()["base_url"], get_ai_config()["model"])
+        # 测试连通性（推理模型 thinking 消耗大，max_tokens 给足）
         try:
-            reply = chat([{"role": "user", "content": "回复: OK"}],
-                         max_tokens=200, timeout=30)
+            reply = chat([{"role": "user", "content": "回复两个字: OK"}],
+                         max_tokens=2048, timeout=90)
             ok = bool(reply)
-            msg = "AI 连通正常（模型 %s）" % get_ai_config()["model"]
+            msg = saved_msg + "，连通正常"
         except Exception as e:
+            # 保存本身成功，连通失败单独说明（不代表配置没存上）
             ok = False
-            msg = str(e)
+            msg = saved_msg + "；连通测试失败：" + str(e)
         from django.shortcuts import redirect
         from django.contrib import messages
         if ok:
