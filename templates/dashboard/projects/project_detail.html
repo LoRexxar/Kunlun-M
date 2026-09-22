@@ -322,18 +322,28 @@ var chainDataMap = {{ chain_json|safe }};
 
 <script>
 
+function kmCsrf(){
+  var el = document.querySelector('[name=csrfmiddlewaretoken]');
+  if (el && el.value) return el.value;
+  var m = document.cookie.match(/(?:^|; )csrftoken=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
 function verifyVul(vulid, action){
+  var tok = kmCsrf();
+  if (!tok){ alert('页面缺少 CSRF 令牌，请刷新页面后重试'); return; }
   $.post(
     "{% url 'dashboard:vul_verify' 654321 %}".replace('654321', vulid),
-    {action: action, csrfmiddlewaretoken: $('[name=csrfmiddlewaretoken]').val() || $("meta[name='csrf-token']").attr('content')},
+    {action: action, csrfmiddlewaretoken: tok},
     function(data){
       if(data.code == 200){
           location.reload();
       }else{
-          alert(data.message)
+          alert(data.message || '操作失败')
       }
     }
-  )
+  ).fail(function(xhr){
+    alert('标记失败 (HTTP ' + xhr.status + ')，请刷新页面重试');
+  });
 }
 
 function delVul(vulid){
