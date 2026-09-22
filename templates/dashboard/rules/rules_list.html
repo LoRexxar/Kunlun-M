@@ -1,6 +1,34 @@
 {% extends "dashboard/base.html" %}
 {% load static %}
-{% block title %}规则列表{% endblock %}
+{% block title %}规则列表
+<!-- AI 规则生成面板 -->
+<div id="aiRuleModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1070;overflow-y:auto;padding:40px 16px;">
+  <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:10px;padding:24px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;"><i class="fa fa-magic"></i> AI 规则生成</h3>
+      <button class="btn btn-sm btn-default" onclick="document.getElementById('aiRuleModal').style.display='none'">关闭</button>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">语言</label>
+      <select id="aiRuleLang" class="form-select form-select-sm" style="width:160px;">
+        <option value="php">PHP</option><option value="javascript">JavaScript</option>
+        <option value="python">Python</option><option value="java">Java</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">sink 函数（如 eval / assert / system($cmd) 等）<span class="text-danger">*</span></label>
+      <input type="text" id="aiRuleSink" class="form-control" placeholder="例: eval">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">补充要求（可选）</label>
+      <input type="text" id="aiRuleExtra" class="form-control" placeholder="例: 排除测试目录调用">
+    </div>
+    <button class="btn btn-primary" id="aiRuleGo">生成规则</button>
+    <div id="aiRuleOut" style="margin-top:16px;font-size:14px;line-height:1.7;"></div>
+  </div>
+</div>
+
+{% endblock %}
 {% block body_header %}
 <h1>规则列表 <small>KunLun-MA</small></h1>
 {% endblock %}
@@ -15,9 +43,11 @@
           <h3 class="card-title">规则列表</h3>
           <div class="card-tools d-flex ms-auto">
             <input type="text" id="ruleSearch" class="form-control form-control-sm" style="width:200px;" placeholder="搜索规则名/CVI/描述...">
+            <button class="btn btn-primary btn-sm ms-2" onclick="document.getElementById('aiRuleModal').style.display='block'"><i class="fa fa-magic"></i> AI 生成规则</button>
           </div>
         </div>
         <div class="card-body">
+          {% csrf_token %}
           <div class="km-tamper-split">
             <div class="km-tamper-list">
               <div class="km-tamper-list-header">
@@ -191,3 +221,32 @@
 
 
 {% endblock %}
+
+<script>
+$('#aiRuleGo').on('click', function(){
+  var out = document.getElementById('aiRuleOut');
+  var sink = $('#aiRuleSink').val().trim();
+  if(!sink){ out.innerHTML='<div class="alert alert-warning">请填写 sink</div>'; return; }
+  out.innerHTML = '<div class="text-muted"><i class="fa fa-spinner fa-spin"></i> AI 正在生成规则...</div>';
+  var body = 'language=' + encodeURIComponent($('#aiRuleLang').val()) + '&sink=' + encodeURIComponent(sink) + '&extra=' + encodeURIComponent($('#aiRuleExtra').val()) + '&csrfmiddlewaretoken=' + ($('[name=csrfmiddlewaretoken]').val() || '');
+  fetch('{% url "dashboard:ai_rule_generate" %}', {method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':body.match(/csrfmiddlewaretoken=([^&]*)/)[1]},
+    body: body, credentials:'same-origin'})
+  .then(r=>r.json()).then(function(res){
+    if(res.code!==200){ out.innerHTML='<div class="alert alert-danger">'+(res.message||'生成失败')+'</div>'; return; }
+    var d=res.data;
+    out.innerHTML =
+      '<table class="table table-sm"><tbody>'+
+      '<tr><th style="width:120px;">规则名</th><td>'+esc(d.rule_name)+'</td></tr>'+
+      '<tr><th>mode</th><td>'+esc(d.match_mode)+'</td></tr>'+
+      '<tr><th>match</th><td><code>'+esc(d.match)+'</code> '+(d.match_valid?'<span style="color:#16a34a;">✓ 可编译</span>':'<span style="color:#dc2626;">✗ '+esc(d.match_error||'')+'</span>')+'</td></tr>'+
+      '<tr><th>unmatch</th><td><code>'+esc(d.unmatch||'-')+'</code></td></tr>'+
+      '<tr><th>等级</th><td>'+esc(d.level)+'</td></tr>'+
+      '<tr><th>说明</th><td>'+esc(d.description||'')+'</td></tr>'+
+      '<tr><th>设计理由</th><td>'+esc(d.reason||'')+'</td></tr>'+
+      '</tbody></table>'+
+      '<div class="text-muted" style="font-size:12px;">预览结果。落库请走 CLI：<code>python kunlun.py generate rule --sync ...</code>（后续版本将支持一键入库）</div>';
+  }).catch(e=>{ out.innerHTML='<div class="alert alert-danger">请求失败: '+e+'</div>'; });
+});
+function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>

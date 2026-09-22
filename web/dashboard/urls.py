@@ -9,6 +9,7 @@ from django.urls import path
 from django.contrib.auth.decorators import login_required
 
 from web.dashboard import views
+from web.dashboard.controller import ai
 from web.dashboard.controller import tasks, rules, tampers, project, vendor, files, graph_analysis, vuls
 from web.dashboard.interface import scanresult
 
@@ -70,4 +71,10 @@ urlpatterns = [
 
     path('vuls/list', login_required(vuls.VulListView.as_view()), name='vuls_list'),
     path('graph', login_required(graph_analysis.GraphAnalysisView.as_view()), name='graph_analysis'),
+
+    # AI 能力
+    path('ai/vul/<int:vul_id>/analyze', login_required(ai.AiVulAnalyzeView.as_view()), name='ai_vul_analyze'),
+    path('ai/project/<int:project_id>/report', login_required(ai.AiProjectReportView.as_view()), name='ai_project_report'),
+    path('ai/rule/generate', login_required(ai.AiRuleGenerateView.as_view()), name='ai_rule_generate'),
+    path('ai/settings', login_required(ai.AiSettingsView.as_view()), name='ai_settings'),
 ]

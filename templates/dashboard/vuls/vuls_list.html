@@ -267,7 +267,7 @@
         {% for r in results %}
         <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
           <td>{{ r.id }}</td>
-          <td>{{ r.cvi_id }}</td>
+          <td><code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">CVI-{{ r.cvi_id }}</code></td>
           <td>{{ r.language }}</td>
           <td title="{{ r.project_name|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.project_name|truncatechars:12 }}</a></td>
           <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path }}</a></td>
@@ -291,6 +291,7 @@
               <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation();" style="padding:2px 8px;">...</button>
               <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="{% url 'dashboard:project_detail' r.project_id %}">查看项目</a></li>
+                <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); aiAnalyzeVul({{ r.id }}, this)">AI 分析</a></li>
                 <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'tp')">标记 TP</a></li>
                 <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); verifyVul({{ r.id }}, 'fp')">标记 FP</a></li>
                 <li><hr class="dropdown-divider"></li>
@@ -317,6 +318,16 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  
+  <!-- AI 分析抽屉 -->
+  <div id="aiDrawer" style="display:none;position:fixed;top:0;right:0;width:460px;max-width:95vw;height:100vh;background:#fff;box-shadow:-6px 0 24px rgba(0,0,0,.15);z-index:1060;overflow-y:auto;padding:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h4 style="margin:0;" id="aiDrawerTitle"><i class="fa fa-magic"></i> AI 分析</h4>
+      <button class="btn btn-sm btn-default" onclick="document.getElementById('aiDrawer').style.display='none'">关闭</button>
+    </div>
+    <div id="aiDrawerBody" style="font-size:14px;line-height:1.7;"></div>
   </div>
 
   {% if max_page > 1 %}
@@ -514,3 +525,32 @@ $(document).ready(function() {
 });
 </script>
 {% endblock %}
+
+<script>
+function aiAnalyzeVul(vulId, el){
+  var d = document.getElementById('aiDrawer');
+  var body = document.getElementById('aiDrawerBody');
+  document.getElementById('aiDrawerTitle').innerHTML = '<i class="fa fa-magic"></i> AI 分析 · 漏洞 #' + vulId;
+  body.innerHTML = '<div class="text-muted"><i class="fa fa-spinner fa-spin"></i> AI 正在分析传播链与上下文...</div>';
+  d.style.display = 'block';
+  fetch('/dashboard/ai/vul/' + vulId + '/analyze', {
+    method: 'POST',
+    headers: {'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val() || document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''},
+    credentials: 'same-origin'
+  }).then(r => r.json()).then(function(res){
+    if(res.code !== 200){ body.innerHTML = '<div class="alert alert-danger">' + (res.message||'分析失败') + '</div>'; return; }
+    var d2 = res.data;
+    var badge = d2.verdict === 'tp' ? '<span style="color:#16a34a;font-weight:700;">真实漏洞倾向 (TP)</span>'
+              : d2.verdict === 'fp' ? '<span style="color:#dc2626;font-weight:700;">误报倾向 (FP)</span>'
+              : '<span style="color:#d97706;font-weight:700;">不确定</span>';
+    var sev = d2.severity_adjust === 'up' ? '建议升级等级' : d2.severity_adjust === 'down' ? '建议降级' : '维持等级';
+    body.innerHTML =
+      '<div style="margin-bottom:12px;">' + badge + ' · 置信度 ' + (d2.confidence||'-') + ' · ' + sev + '</div>' +
+      '<div style="font-weight:600;margin-bottom:4px;">判定理由</div><div style="color:#374151;margin-bottom:12px;">' + (d2.reasoning||'') + '</div>' +
+      '<div style="font-weight:600;margin-bottom:4px;">修复建议</div><div style="color:#374151;">' + (d2.fix||'') + '</div>' +
+      '<div style="margin-top:16px;color:#9ca3af;font-size:12px;">AI 判定仅供参考，最终以人工审计为准。</div>';
+  }).catch(function(e){
+    body.innerHTML = '<div class="alert alert-danger">请求失败: ' + e + '</div>';
+  });
+}
+</script>

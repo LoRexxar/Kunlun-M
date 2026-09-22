@@ -584,3 +584,18 @@ class ApiToken(models.Model):
 
     def __str__(self):
         return '{} - {}'.format(self.user.username, self.name or self.token[:12])
+
+
+class AiConfig(models.Model):
+    """AI 分析配置（单行表）"""
+    api_key = models.CharField(max_length=200, default='', blank=True)
+    base_url = models.CharField(max_length=200, default='', blank=True)
+    model = models.CharField(max_length=100, default='', blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI配置'
+
+    def save(self, *args, **kwargs):
+        self.id = 1
+        super().save(*args, **kwargs)
