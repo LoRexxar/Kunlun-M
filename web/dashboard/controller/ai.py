@@ -215,6 +215,58 @@ class AiRuleGenerateView(View):
             data["match_error"] = str(e)
         return JsonResponse({"code": 200, "data": data})
 
+    def put(self, request):
+        """一键落库：把预览的规则写入规则文件并同步 DB（等价 CLI generate rule --sync）"""
+        import json as _json
+        try:
+            body = _json.loads(request.body or b"{}")
+        except Exception:
+            return JsonResponse({"code": 400, "message": "请求体不是合法 JSON"})
+
+        lang = (body.get("language") or "php").strip().lower()
+        rule_name = (body.get("rule_name") or "").strip()
+        match_mode = (body.get("match_mode") or "function-param-regex").strip()
+        match = (body.get("match") or "").strip()
+        unmatch = (body.get("unmatch") or "").strip() or None
+        description = (body.get("description") or "").strip() or rule_name
+        try:
+            level = int(body.get("level") or 1)
+        except Exception:
+            level = 1
+        if level not in (1, 2, 3):
+            level = 1
+        if not rule_name or not match:
+            return JsonResponse({"code": 400, "message": "rule_name 与 match 必填"})
+
+        import re as _re
+        try:
+            _re.compile(match)
+        except Exception as e:
+            return JsonResponse({"code": 400, "message": "match 正则不可编译: %s" % e})
+
+        from core.scaffold import write_rule_file
+        from core.rule import RuleCheck
+        try:
+            rid, rule_path = write_rule_file(
+                language=lang, rule_name=rule_name, author="web-ai",
+                description=description, level=level, status=True,
+                match_mode=match_mode, match=match, unmatch=unmatch,
+                force=False)
+        except FileExistsError:
+            return JsonResponse({"code": 409, "message": "同名规则文件已存在（CVI 冲突），请修改名称后重试"})
+        except Exception as e:
+            return JsonResponse({"code": 500, "message": "规则文件生成失败: %s" % e})
+
+        sync_err = ""
+        try:
+            RuleCheck().load()
+        except Exception as e:
+            sync_err = str(e)
+
+        return JsonResponse({"code": 200, "data": {
+            "svid": rid, "rule_path": rule_path,
+            "synced": not sync_err, "sync_error": sync_err}})
+
 
 class AiSettingsView(View):
     """AI 设置页（查看 + 保存）"""

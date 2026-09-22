@@ -245,8 +245,29 @@ $('#aiRuleGo').on('click', function(){
       '<tr><th>说明</th><td>'+esc(d.description||'')+'</td></tr>'+
       '<tr><th>设计理由</th><td>'+esc(d.reason||'')+'</td></tr>'+
       '</tbody></table>'+
-      '<div class="text-muted" style="font-size:12px;">预览结果。落库请走 CLI：<code>python kunlun.py generate rule --sync ...</code>（后续版本将支持一键入库）</div>';
+      '<div style="margin-top:10px;"><button class="btn btn-success btn-sm" id="aiRuleSave" '+(d.match_valid?'':'disabled')+'><i class="fa fa-save"></i> 落库并同步</button> '+
+      '<span class="text-muted" style="font-size:12px;">写入 rules/ 目录并同步数据库（等价 CLI generate rule --sync）</span></div>'+
+      '<div id="aiRuleSaveOut" style="margin-top:8px;"></div>';
+    var payload = {language: $('#aiRuleLang').val(), rule_name: d.rule_name, match_mode: d.match_mode,
+                   match: d.match, unmatch: d.unmatch, description: d.description, level: d.level};
+    $('#aiRuleSave').on('click', function(){
+      var so = document.getElementById('aiRuleSaveOut');
+      so.innerHTML = '<div class="text-muted"><i class="fa fa-spinner fa-spin"></i> 正在写入规则文件并同步数据库...</div>';
+      fetch('{% url "dashboard:ai_rule_generate" %}', {method:'PUT',
+        headers:{'Content-Type':'application/json','X-CSRFToken': getCookie('csrftoken') || '{{ csrf_token }}'},
+        body: JSON.stringify(payload), credentials:'same-origin'})
+      .then(r=>r.json()).then(function(res){
+        if(res.code===200 && res.data.synced){
+          so.innerHTML = '<div class="alert alert-success" style="margin-bottom:0;">已落库：CVI-'+res.data.svid+'（'+esc(res.data.rule_path)+'），数据库已同步。刷新规则列表可见。</div>';
+        } else if(res.code===200){
+          so.innerHTML = '<div class="alert alert-warning" style="margin-bottom:0;">文件已写入 CVI-'+res.data.svid+'，但 DB 同步失败：'+esc(res.data.sync_error||'')+'</div>';
+        } else {
+          so.innerHTML = '<div class="alert alert-danger" style="margin-bottom:0;">'+esc(res.message||'落库失败')+'</div>';
+        }
+      }).catch(e=>{ so.innerHTML='<div class="alert alert-danger">请求失败: '+e+'</div>'; });
+    });
   }).catch(e=>{ out.innerHTML='<div class="alert alert-danger">请求失败: '+e+'</div>'; });
 });
 function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function getCookie(n){ var m = document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
 </script>
