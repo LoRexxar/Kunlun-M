@@ -28,6 +28,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# Django 4 CSRF Origin 验证：Nginx TLS 终止后转发，浏览器 Origin 为 https 域名
+CSRF_TRUSTED_ORIGINS = ["https://km.shengnong.club", "http://km.shengnong.club"]
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
