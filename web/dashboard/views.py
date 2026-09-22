@@ -58,6 +58,29 @@ def index(req):
 
     running = sum(1 for p in projects if p.last_scan_status == 2)
 
+    # AI 分诊全局摘要（深度接入：结论来自 ai_pipeline 落库数据）
+    ai_total = ScanResultTask.objects.filter(is_active=1).exclude(ai_verdict='').count()
+    ai_pending = vul_total - ai_total
+    ai_tp = ScanResultTask.objects.filter(is_active=1, ai_verdict='tp').count()
+    ai_fp = ScanResultTask.objects.filter(is_active=1, ai_verdict='fp').count()
+    ai_uncertain = ScanResultTask.objects.filter(is_active=1, ai_verdict='uncertain').count()
+
+    # AI 建议工作队列：高置信 FP 待人工确认（误报清理），高置信 TP 待修复
+    _unresolved = Q(verification_status__in=['', 'pending', 'unknown']) | Q(verification_status='stale')
+    ai_suggest_fp = list(ScanResultTask.objects.filter(
+        is_active=1, ai_verdict='fp', ai_confidence='high'
+    ).filter(_unresolved).order_by('-id')[:5])
+    ai_suggest_tp = list(ScanResultTask.objects.filter(
+        is_active=1, ai_verdict='tp', ai_confidence='high'
+    ).filter(_unresolved).order_by('-id')[:5])
+
+    def _pname(pid):
+        p = Project.objects.filter(id=pid).first()
+        return p.project_name if p else '-'
+
+    for v in ai_suggest_fp + ai_suggest_tp:
+        v.project_name = _pname(v.scan_project_id)
+
     data = {
         'projects': projects,
         'project_total': project_total,
@@ -65,6 +88,13 @@ def index(req):
         'tp_total': tp_total,
         'fp_total': fp_total,
         'running': running,
+        'ai_total': ai_total,
+        'ai_pending': ai_pending,
+        'ai_tp': ai_tp,
+        'ai_fp': ai_fp,
+        'ai_uncertain': ai_uncertain,
+        'ai_suggest_fp': ai_suggest_fp,
+        'ai_suggest_tp': ai_suggest_tp,
     }
 
     return render(req, 'dashboard/index.html', data)

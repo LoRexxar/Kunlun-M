@@ -124,6 +124,107 @@
   </div>
 </div>
 
+<div class="row metric-grid">
+  <div class="col-lg-2 col-6">
+    <div class="card km-stat-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center">
+          <div class="subheader-icon me-3"><i class="fa fa-magic text-azure"></i></div>
+          <div>
+            <div class="subheader text-muted">AI 已分诊</div>
+            <h3 class="card-title mb-0">{{ ai_total }}<span style="font-size:0.9rem;color:#94a3b8;">/{{ vul_total }}</span></h3>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <a href="{% url 'dashboard:vuls_list' %}?confirm=ai-unanalyzed" class="text-muted">待分析 {{ ai_pending }} <i class="fa fa-arrow-circle-right"></i></a>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-6">
+    <div class="card km-stat-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center">
+          <div class="subheader-icon me-3"><i class="fa fa-check text-green"></i></div>
+          <div>
+            <div class="subheader text-muted">AI 判 TP</div>
+            <h3 class="card-title mb-0">{{ ai_tp }}</h3>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <a href="{% url 'dashboard:vuls_list' %}?confirm=ai-tp" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-6">
+    <div class="card km-stat-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center">
+          <div class="subheader-icon me-3"><i class="fa fa-ban text-red"></i></div>
+          <div>
+            <div class="subheader text-muted">AI 判 FP</div>
+            <h3 class="card-title mb-0">{{ ai_fp }}</h3>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <a href="{% url 'dashboard:vuls_list' %}?confirm=ai-fp" class="text-muted">查看 <i class="fa fa-arrow-circle-right"></i></a>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-2 col-6">
+    <div class="card km-stat-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center">
+          <div class="subheader-icon me-3"><i class="fa fa-question text-yellow"></i></div>
+          <div>
+            <div class="subheader text-muted">AI 存疑</div>
+            <h3 class="card-title mb-0">{{ ai_uncertain }}</h3>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <span class="text-muted">需人工复核</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if ai_suggest_fp or ai_suggest_tp %}
+<div class="card" style="margin-top:1rem;">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa fa-lightbulb" style="color:#f59e0b;"></i> AI 建议下一步（高置信，待人工确认）</h3>
+  </div>
+  <div class="card-body" style="padding-top:0.5rem;">
+    {% if ai_suggest_tp %}
+    <div style="font-size:13px;color:#64748b;margin-bottom:6px;"><b style="color:#16a34a;">优先修复</b>（AI 高置信判定为真实漏洞）</div>
+    <ul style="margin:0 0 12px;padding-left:0;list-style:none;">
+      {% for v in ai_suggest_tp %}
+      <li style="padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:13px;">
+        <a href="{% url 'dashboard:project_detail' v.scan_project_id %}">#{{ v.id }} {{ v.result_type }}</a>
+        <span style="color:#94a3b8;">{{ v.vulfile_path|truncatechars:50 }} · {{ v.project_name }}</span>
+        {% if v.ai_reasoning %}<div style="color:#b6c2d4;font-size:12px;margin-left:8px;" title="{{ v.ai_reasoning }}">AI: {{ v.ai_reasoning|truncatechars:90 }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if ai_suggest_fp %}
+    <div style="font-size:13px;color:#64748b;margin-bottom:6px;"><b style="color:#dc2626;">建议批量标 FP</b>（AI 高置信判定为误报，确认后降噪）</div>
+    <ul style="margin:0;padding-left:0;list-style:none;">
+      {% for v in ai_suggest_fp %}
+      <li style="padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:13px;">
+        <a href="{% url 'dashboard:project_detail' v.scan_project_id %}">#{{ v.id }} {{ v.result_type }}</a>
+        <span style="color:#94a3b8;">{{ v.vulfile_path|truncatechars:50 }} · {{ v.project_name }}</span>
+        {% if v.ai_reasoning %}<div style="color:#b6c2d4;font-size:12px;margin-left:8px;" title="{{ v.ai_reasoning }}">AI: {{ v.ai_reasoning|truncatechars:90 }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="card" id="overviewPanel">
   <div class="card-header">
     <h3 class="card-title">最近扫描的项目</h3>
