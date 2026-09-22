@@ -362,6 +362,18 @@ class TaskDetailView(View):
                 taskresult.level = VUL_LEVEL[r.level]
                 taskresult.rule_name = r.rule_name if r else taskresult.cvi_id
 
+        # AI 分诊统计（任务维度，来自 ai_pipeline 落库数据）
+        _vlist = list(taskresults)
+        ai_stats = {
+            'total': len(_vlist),
+            'analyzed': sum(1 for v in _vlist if v.ai_verdict),
+            'tp': sum(1 for v in _vlist if v.ai_verdict == 'tp'),
+            'fp': sum(1 for v in _vlist if v.ai_verdict == 'fp'),
+            'uncertain': sum(1 for v in _vlist if v.ai_verdict == 'uncertain'),
+        }
+        ai_stats['pct'] = int(ai_stats['analyzed'] * 100 / ai_stats['total']) if ai_stats['total'] else 0
+        ai_stats['pending'] = ai_stats['total'] - ai_stats['analyzed']
+
         # 构建 chain JSON 供前端使用
         chain_json_map = {}
         for tr in taskresults:
@@ -382,6 +394,7 @@ class TaskDetailView(View):
                 'project': project,
                 'source_root': source_root,
                 'chain_json': chain_json,
+                'ai_stats': ai_stats,
             }
             return render(request, 'dashboard/tasks/task_detail.html', data)
 

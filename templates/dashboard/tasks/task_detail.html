@@ -105,6 +105,16 @@
 </div>
 <div class="card-body">
   <p class="mb-2">扫描结果已合并到项目结果中统一展示与管理（去重聚合，确认状态跨扫描保留）。</p>
+  {% if ai_stats.total %}
+  <div style="display:flex;align-items:center;gap:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;margin-bottom:10px;font-size:13px;">
+    <span style="font-weight:600;color:#334155;"><i class="fa fa-magic"></i> AI 分诊</span>
+    <span style="color:#64748b;">{{ ai_stats.analyzed }}/{{ ai_stats.total }}</span>
+    <span style="color:#16a34a;">TP {{ ai_stats.tp }}</span>
+    <span style="color:#dc2626;">FP {{ ai_stats.fp }}</span>
+    <span style="color:#b45309;">存疑 {{ ai_stats.uncertain }}</span>
+    <a href="{% url 'dashboard:vuls_list' %}?project_id={{ project.id }}&confirm=ai-unanalyzed" style="margin-left:auto;">{% if ai_stats.pending %}{{ ai_stats.pending }} 条待分析{% else %}全部已分析{% endif %}</a>
+  </div>
+  {% endif %}
   <a class="btn btn-primary btn-sm" href="{% url 'dashboard:project_detail' project.id %}"><i class="fa fa-folder-open"></i> 查看项目结果</a>
   <a class="btn btn-default btn-sm" href="{% url 'dashboard:vuls_list' %}?project_id={{ project.id }}"><i class="fa fa-bug"></i> 在漏洞列表中筛选本项目</a>
 </div>
