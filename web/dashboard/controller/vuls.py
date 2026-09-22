@@ -40,7 +40,7 @@ class VulListView(TemplateView):
         qs = ScanResultTask.objects.filter(is_active=True).only(
             'id', 'scan_task_id', 'cvi_id', 'language', 'vulfile_path',
             'source_code', 'result_type', 'is_unconfirm',
-            'verification_status',
+            'verification_status', 'ai_verdict', 'ai_confidence',
         )
 
         # 筛选
@@ -62,6 +62,12 @@ class VulListView(TemplateView):
             qs = qs.filter(verification_status='fp')
         elif confirm == 'unconfirmed':
             qs = qs.filter(Q(verification_status='') | Q(verification_status='pending') | Q(verification_status='unknown'))
+        elif confirm == 'ai-tp':
+            qs = qs.filter(ai_verdict='tp')
+        elif confirm == 'ai-fp':
+            qs = qs.filter(ai_verdict='fp')
+        elif confirm == 'ai-unanalyzed':
+            qs = qs.filter(ai_verdict='')
         if result_type:
             qs = qs.filter(result_type__icontains=result_type)
         if project_id:
@@ -175,6 +181,8 @@ class VulListView(TemplateView):
                 'level_lower': level_str.lower(),
                 'is_unconfirm': r.is_unconfirm,
                 'verification_status': r.verification_status,
+                'ai_verdict': r.ai_verdict,
+                'ai_confidence': r.ai_confidence,
                 'chain_summary': chain_summary,
                 'chain_nodes_json': json.dumps(chains, ensure_ascii=False),
                 'has_chain': len(chains) > 0,
@@ -201,6 +209,7 @@ class VulListView(TemplateView):
         ctx['f_cvi'] = cvi
         ctx['f_level'] = level
         ctx['f_confirm'] = confirm
+        ctx['ai_pending_count'] = ScanResultTask.objects.filter(is_active=1, ai_verdict='').count()
         ctx['f_type'] = result_type
         ctx['type_options'] = [
             ('sql', 'SQL 注入'), ('xss', 'XSS'), ('command', '命令注入'),

@@ -82,15 +82,64 @@ class AiVulAnalyzeView(View):
         )
 
         def call():
-            return chat_json(
-                [{"role": "system", "content": VUL_SYSTEM_PROMPT},
-                 {"role": "user", "content": user_msg}],
-                temperature=0.2, max_tokens=8192, timeout=240)
+            from web.ai_pipeline import analyze_vul_object
+            from web.index.models import TaintChain
+            rows = TaintChain.objects.filter(
+                vul_result=vul_id).order_by("chain_index", "step_order")[:40]
+            chain_text = "\n".join(
+                "#%s %s %s:%s  %s" % (r.chain_index, r.node_label, r.file_path,
+                                       r.lineno, (r.source_code or "")[:120])
+                for r in rows)
+            analyze_vul_object(vul, chain_text, rule_desc)
+            return {"verdict": vul.ai_verdict, "confidence": vul.ai_confidence,
+                    "reasoning": vul.ai_reasoning, "fix": vul.ai_fix,
+                    "severity_adjust": vul.ai_severity_adjust}
 
         ok, data = _ai_or_error(call)
         if not ok:
             return JsonResponse({"code": 500, "message": data})
         return JsonResponse({"code": 200, "data": data})
+
+
+def _build_project_user_msg(project_id):
+    """组装项目报告的用户消息（统计聚合好再喂 AI）。无活跃漏洞返回 None。"""
+    project = Project.objects.filter(id=project_id).first()
+    if not project:
+        return None
+    vuls = list(ScanResultTask.objects.filter(
+        scan_project_id=project_id, is_active=1)[:150])
+    if not vuls:
+        return None
+
+    by_type = {}
+    by_file = {}
+    for v in vuls:
+        by_type[v.result_type] = by_type.get(v.result_type, 0) + 1
+        by_file.setdefault(v.vulfile_path, []).append(v.cvi_id)
+    top_types = sorted(by_type.items(), key=lambda x: -x[1])[:8]
+    top_files = sorted(by_file.items(), key=lambda x: -len(x[1]))[:8]
+
+    rule_levels = dict(Rules.objects.values_list("svid", "level"))
+    confirmed_tp = sum(1 for v in vuls if v.verification_status == "tp")
+    confirmed_fp = sum(1 for v in vuls if v.verification_status == "fp")
+    ai_tp = sum(1 for v in vuls if v.ai_verdict == "tp")
+    ai_fp = sum(1 for v in vuls if v.ai_verdict == "fp")
+
+    listing = "\n".join(
+        "- %s | %s | %s | AI:%s" % (v.cvi_id, v.result_type, v.vulfile_path,
+                                     v.ai_verdict or "n/a")
+        for v in vuls[:80])
+
+    return (
+        "项目: %s (id=%s)\n语言: PHP\n活跃漏洞: %d 条（人工TP %d / 人工FP %d；AI判TP %d / AI判FP %d）\n\n"
+        "漏洞类型分布: %s\n\n热点文件: %s\n\n漏洞清单（前80条）:\n%s\n\n"
+        "请输出 JSON 报告。" % (
+            project.project_name, project.id, len(vuls),
+            confirmed_tp, confirmed_fp, ai_tp, ai_fp,
+            ", ".join("%s×%d" % t for t in top_types),
+            "; ".join("%s(%d处: %s)" % (f, len(ids), ",".join(ids[:5]))
+                      for f, ids in top_files),
+            listing))
 
 
 PROJECT_SYSTEM_PROMPT = (
@@ -107,36 +156,27 @@ class AiProjectReportView(View):
     """项目级 AI 报告：风险概览 + Top 风险 + 修复路线"""
 
     def post(self, request, project_id):
-        project = Project.objects.filter(id=project_id).first()
-        if not project:
-            return JsonResponse({"code": 404, "message": "项目不存在"})
-
-        vuls = list(ScanResultTask.objects.filter(
-            scan_project_id=project_id, is_active=1)[:150])
-        if not vuls:
+        user_msg = _build_project_user_msg(project_id)
+        if user_msg is None:
+            project = Project.objects.filter(id=project_id).first()
+            if not project:
+                return JsonResponse({"code": 404, "message": "项目不存在"})
             return JsonResponse({"code": 400, "message": "项目无活跃漏洞，无需报告"})
 
-        # 统计聚合（不让 AI 数数，喂结构化摘要）
-        by_type = {}
-        by_file = {}
-        for v in vuls:
-            by_type[v.result_type] = by_type.get(v.result_type, 0) + 1
-            by_file.setdefault(v.vulfile_path, []).append(v.cvi_id)
-        top_types = sorted(by_type.items(), key=lambda x: -x[1])[:8]
-        top_files = sorted(by_file.items(), key=lambda x: -len(x[1]))[:8]
+        # 报告缓存（指纹相同直接命中）
+        from web.ai_pipeline import build_project_report
+        report, from_cache = build_project_report(project_id)
+        if report is None:
+            return JsonResponse({"code": 400, "message": "项目无活跃漏洞，无需报告"})
 
-        rule_levels = dict(Rules.objects.values_list("svid", "level"))
-        sev_rank = {1: [], 2: [], 3: []}
-        for v in vuls:
-            lv = rule_levels.get(str(v.cvi_id), 3)
-            if lv in sev_rank:
-                sev_rank[lv].append(v)
-        confirmed_tp = sum(1 for v in vuls if v.verification_status == "tp")
-        confirmed_fp = sum(1 for v in vuls if v.verification_status == "fp")
+        def call():
+            return report
 
-        listing = "\n".join(
-            "- %s | %s | %s" % (v.cvi_id, v.result_type, v.vulfile_path)
-            for v in vuls[:80])
+        ok, data = _ai_or_error(call)
+        if not ok:
+            return JsonResponse({"code": 500, "message": data})
+        data["from_cache"] = from_cache
+        return JsonResponse({"code": 200, "data": data})
 
         user_msg = (
             "项目: %s (id=%s)\n语言: PHP\n活跃漏洞: %d 条（已确认TP %d / FP %d）\n\n"
@@ -150,16 +190,7 @@ class AiProjectReportView(View):
                 listing)
         )
 
-        def call():
-            return chat_json(
-                [{"role": "system", "content": PROJECT_SYSTEM_PROMPT},
-                 {"role": "user", "content": user_msg}],
-                temperature=0.3, max_tokens=8192, timeout=240)
 
-        ok, data = _ai_or_error(call)
-        if not ok:
-            return JsonResponse({"code": 500, "message": data})
-        return JsonResponse({"code": 200, "data": data})
 
 
 RULE_SYSTEM_PROMPT = (

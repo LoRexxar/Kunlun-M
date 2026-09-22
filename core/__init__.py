@@ -666,6 +666,16 @@ def main():
         s.finished_at = timezone.now()
         s.exit_code = 0
         s.save()
+
+        # AI 自动分诊入队（web 界面深度接入；任何异常不得影响扫描结果）
+        try:
+            if getattr(s, "project_id", None):
+                import django
+                from web.ai_pipeline import enqueue_project_triage
+                enqueue_project_triage(int(s.project_id))
+        except Exception as _ai_e:
+            logger.warning("[AI] enqueue_project_triage failed: %s" % _ai_e)
+
         t2 = time.time()
 
         # 如果开启了上传日志到远程，则上传

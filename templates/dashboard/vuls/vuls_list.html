@@ -234,6 +234,9 @@
         <option value="tp" {% if f_confirm == 'tp' %}selected{% endif %}>已确认 TP</option>
         <option value="fp" {% if f_confirm == 'fp' %}selected{% endif %}>已标记 FP</option>
         <option value="unconfirmed" {% if f_confirm == 'unconfirmed' %}selected{% endif %}>未确认</option>
+        <option value="ai-tp" {% if f_confirm == 'ai-tp' %}selected{% endif %}>AI 判 TP</option>
+        <option value="ai-fp" {% if f_confirm == 'ai-fp' %}selected{% endif %}>AI 判 FP</option>
+        <option value="ai-unanalyzed" {% if f_confirm == 'ai-unanalyzed' %}selected{% endif %}>未 AI 分析</option>
       </select>
       <input type="text" name="project_id" class="form-control form-control-sm" style="width:100px;" placeholder="项目ID" value="{{ f_project_id }}">
       <button type="submit" class="btn btn-sm btn-primary">筛选</button>
@@ -291,6 +294,9 @@
             {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;font-weight:600;">FP</span>
             {% elif r.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
             {% else %}<span style="color:#6b7280;">-</span>{% endif %}
+            {% if r.ai_verdict == 'tp' %}<span title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#dcfce7;color:#15803d;font-size:11px;">AI:TP</span>
+            {% elif r.ai_verdict == 'fp' %}<span title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;">AI:FP</span>
+            {% elif r.ai_verdict == 'uncertain' %}<span title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;">AI:?</span>{% endif %}
           </td>
           <td>
             <div class="dropdown">

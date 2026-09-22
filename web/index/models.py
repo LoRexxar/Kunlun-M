@@ -291,6 +291,13 @@ class ScanResultTask(models.Model):
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     # 验证状态字段
+    # AI 自动分诊结论（扫描后由 AI 管线写入）
+    ai_verdict = models.CharField(max_length=20, default='', blank=True)      # tp/fp/uncertain
+    ai_confidence = models.CharField(max_length=10, default='', blank=True)   # high/medium/low
+    ai_reasoning = models.TextField(default='', blank=True)
+    ai_fix = models.TextField(default='', blank=True)
+    ai_severity_adjust = models.CharField(max_length=10, default='', blank=True)  # up/keep/down
+    ai_analyzed_at = models.DateTimeField(null=True, blank=True)
     verification_status = models.CharField(
         max_length=10,
         choices=VERIFICATION_CHOICES,
@@ -584,6 +591,23 @@ class ApiToken(models.Model):
 
     def __str__(self):
         return '{} - {}'.format(self.user.username, self.name or self.token[:12])
+
+
+class ProjectAiReport(models.Model):
+    """项目 AI 报告缓存（每项目一份，按漏洞指纹失效）"""
+    project_id = models.IntegerField(db_index=True)
+    report_json = models.TextField(default='')
+    vuls_fingerprint = models.CharField(max_length=64, default='')
+    created_at = models.DateTimeField(auto_now=True)
+
+
+class AiTriageQueue(models.Model):
+    """AI 分诊后台队列（每项目一行，幂等）"""
+    project_id = models.IntegerField(db_index=True)
+    status = models.CharField(max_length=10, default='pending')  # pending/running/done/error
+    processed = models.IntegerField(default=0)
+    error = models.TextField(default='', blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class AiConfig(models.Model):

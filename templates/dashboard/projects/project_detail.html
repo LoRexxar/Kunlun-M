@@ -18,6 +18,22 @@
     <a class="btn btn-sm btn-default" href="{% url 'dashboard:graph_analysis' %}"><i class="fa fa-project-diagram"></i> 图分析</a>
   </div>
 </div>
+<div class="card-body" style="padding-top:10px;padding-bottom:0;">
+  <div id="aiTriageBar" style="display:flex;align-items:center;gap:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;margin-bottom:10px;font-size:13px;">
+    <span style="font-weight:600;color:#334155;"><i class="fa fa-magic"></i> AI 分诊</span>
+    {% if ai_stats.queue_status == 'running' or ai_stats.queue_status == 'pending' %}
+    <span style="color:#d97706;"><i class="fa fa-spinner fa-spin"></i> 后台分析中…（{{ ai_stats.analyzed }}/{{ ai_stats.total }}）</span>
+    {% endif %}
+    <span style="color:#64748b;">已分析 <b>{{ ai_stats.analyzed }}</b>/{{ ai_stats.total }}</span>
+    <span style="color:#16a34a;">TP <b>{{ ai_stats.tp }}</b></span>
+    <span style="color:#dc2626;">FP <b>{{ ai_stats.fp }}</b></span>
+    <span style="color:#b45309;">存疑 <b>{{ ai_stats.uncertain }}</b></span>
+    <div style="flex:1;max-width:180px;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
+      <div style="width:{{ ai_stats.pct }}%;height:100%;background:linear-gradient(90deg,#38bdf8,#6366f1);"></div>
+    </div>
+    <span style="color:#94a3b8;">{{ ai_stats.pct }}%</span>
+  </div>
+</div>
 <div class="card-body">
   <div class="row mb-3">
     <div class="col-md-6">
@@ -137,6 +153,10 @@
                       {% elif taskresult.verification_status == 'fp' %}误报
                       {% elif taskresult.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
                       {% else %}未确认
+                      {% endif %}
+                      {% if taskresult.ai_verdict == 'tp' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" style="display:inline-block;padding:0 5px;border-radius:8px;background:#dcfce7;color:#15803d;font-size:11px;">AI:TP</span>
+                      {% elif taskresult.ai_verdict == 'fp' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" style="display:inline-block;padding:0 5px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;">AI:FP</span>
+                      {% elif taskresult.ai_verdict == 'uncertain' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" style="display:inline-block;padding:0 5px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;">AI:?</span>
                       {% endif %}
                     </td>
                     <td class="km-col-actions">
