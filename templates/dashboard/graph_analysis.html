@@ -9,7 +9,65 @@
 </h1>
 {% endblock %}
 
+
+{% block page_style %}
+<style>
+/* ===== 图分析页布局兼容层（tabler v1.4 下修正 BS3/AdminLTE 遗留结构） ===== */
+
+/* 1. input-group + input-group-btn（BS3 语法）在 tabler 下的对齐 */
+.graph-page .input-group { display: flex; flex-wrap: nowrap; align-items: stretch; width: 100%; }
+.graph-page .input-group > .form-control { flex: 1 1 auto; width: 1%; min-width: 0; border-radius: 4px 0 0 4px !important; }
+.graph-page .input-group .input-group-btn { display: flex; }
+.graph-page .input-group .input-group-btn > .btn { border-radius: 0 4px 4px 0 !important; white-space: nowrap; }
+.graph-page .input-group .input-group-btn + .input-group-btn > .btn { border-radius: 0 !important; }
+.graph-page .input-group > select.form-control { appearance: auto; padding-right: 28px; }
+
+/* 2. AdminLTE .box-body 在 tabler 下无定义 → 补 padding */
+.graph-page .box-body { padding: 0.8rem 1rem; }
+.graph-page .box-body.table-responsive { padding: 0; }
+
+/* 3. 统计卡片数字 */
+.graph-page .stat-num { font-size: 28px; font-weight: 700; line-height: 1.2; }
+
+/* 4. 表格：紧凑、对齐、避免缩进漂移 */
+.graph-page .table { margin-bottom: 0; font-size: 13px; }
+.graph-page .table th, .graph-page .table td { vertical-align: middle; padding: 0.45rem 0.6rem; }
+.graph-page .table th { font-weight: 600; color: #6c757d; white-space: nowrap; border-bottom-width: 1px; }
+.graph-page .table td code { white-space: nowrap; }
+.graph-page .card > .table { border-top: 0; }
+.graph-page .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* 5. 卡片间距统一，去除 row 间不一致 */
+.graph-page .row { align-items: stretch; }
+.graph-page .card { margin-bottom: 1rem; height: 100%; }
+.graph-page .card-header { padding: 0.6rem 1rem; }
+.graph-page .card-body { padding: 0.8rem 1rem; }
+
+/* 6. tabs 条：横向滚动防溢出 */
+.graph-page .nav-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.graph-page .nav-tabs .nav-link { white-space: nowrap; }
+
+/* 7. 表单控件统一高度 */
+.graph-page .form-control, .graph-page .form-select { height: 2.2rem; font-size: 13px; }
+.graph-page label.form-label, .graph-page .control-label { font-size: 12px; color: #6c757d; margin-bottom: 2px; }
+
+/* 8. 图容器与工具栏 */
+.graph-page #cyGraphContainer { border: 1px solid #e6e8eb; border-radius: 6px; background: #1a1a2e; min-height: 480px; }
+.graph-page .graph-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.graph-page .graph-toolbar .form-control, .graph-page .graph-toolbar select { width: auto; min-width: 120px; }
+
+/* 9. 链/节点详情面板内的小表格 */
+.graph-page .km-code-table td, .graph-page .table.km-table td.km-muted { white-space: normal; word-break: break-all; }
+
+/* 10. 边距细节 */
+.graph-page .mb-0-last { margin-bottom: 0 !important; }
+.graph-page h3.card-title { font-size: 14px; font-weight: 600; margin: 0; }
+.graph-page .btn-sm { font-size: 12px; }
+</style>
+{% endblock %}
+
 {% block body %}
+<div class="graph-page">
 
 <!-- Scan 选择区 -->
 <div class="row">
@@ -527,6 +585,8 @@
 </div>
 
 {% endblock %}
+
+</div><!-- /.graph-page -->
 
 {% block script %}
 <!-- Chain panel + graph styles -->
