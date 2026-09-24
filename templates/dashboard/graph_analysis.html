@@ -149,6 +149,33 @@
 .graph-page .gp-mb0 { margin-bottom: 0; }
 .graph-page .gp-fs8 { font-size: 8px; }
 .graph-page .gp-color-muted { color: #999; }
+
+.graph-page .gp-kb-num { font-weight:600; }
+.graph-page .gp-lbl12 { font-size:12px; margin-left:10px; }
+.graph-page .gp-cell-w70r { width:70px; text-align:right; }
+.graph-page .gp-pad10-15 { padding:10px 15px; }
+.graph-page .gp-row-center { align-items:center; gap:10px; }
+.graph-page .gp-err-state { text-align:center; padding:20px; color:#f44; }
+.graph-page .gp-quote-block { border-left:3px solid #3c8dbc; padding-left:15px; margin-left:10px; }
+.graph-page .gp-card-mb { margin-bottom:10px; padding:8px; background:#f9f9f9; border-radius:3px; }
+.graph-page .gp-kb-title { font-size:12px; font-weight:bold; margin-bottom:6px; }
+.graph-page .gp-kb-title-red { font-size:12px; font-weight:bold; margin-bottom:6px; color:#e74c3c; }
+.graph-page .gp-kb-sub { font-size:11px; margin-bottom:4px; }
+.graph-page .gp-kb-sub-end { font-size:11px; margin-bottom:0; }
+.graph-page .gp-kb-normal { font-weight:normal; color:#999; }
+.graph-page .gp-code-wrap { background:#1e1e2e; border-radius:4px; padding:0; overflow-x:auto; font-size:12px; }
+.graph-page .gp-code-line-num { padding:1px 8px; text-align:right; user-select:none; border:none; vertical-align:top; white-space:nowrap; }
+.graph-page .gp-code-line { padding:1px 10px; border:none; white-space:pre; font-family:Consolas,Monaco,monospace; color:#cdd6f4; }
+.graph-page .gp-toast { position:fixed; top:18px; right:18px; z-index:2000; padding:10px 16px; border-radius:8px; color:#fff; font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,0.18); }
+.graph-page .gp-pad0 { padding: 0; }
+.graph-page .gp-mb6 { margin-bottom: 6px; }
+
+.graph-page .gp-flex-start { display:flex; align-items:flex-start; }
+.graph-page .gp-self-start { width:100%; align-self:flex-start; }
+.graph-page .gp-break-all { word-break:break-all; }
+.graph-page .gp-w40 { width:40%; }
+.graph-page .gp-w30 { width:30%; }
+.graph-page .gp-code-table { width:100%; border-collapse:collapse; margin:0; }
 </style>
 {% endblock %}
 
@@ -157,8 +184,8 @@
 
 <!-- Scan 选择区 -->
 <div class="row">
-  <div class="col-6 col-md-4" style="display:flex;align-items:flex-start;">
-    <div class="card" style="width:100%;align-self:flex-start;">
+  <div class="col-6 col-md-4 gp-flex-start">
+    <div class="card gp-self-start">
       <div class="card-body">
         <div class="input-group">
           <select id="scanSelect" class="form-control">
@@ -197,7 +224,7 @@
             <span class="km-muted">节点: <strong id="gsNodes">-</strong></span>
             <span class="km-muted">边: <strong id="gsEdges">-</strong></span>
             <span id="gsIdleWrap" class="km-muted">
-              空闲 <span id="gsIdleSec" style="font-weight:600;">0</span>s /
+              空闲 <span id="gsIdleSec" class="gp-kb-num">0</span>s /
               <span id="gsIdleMax">30</span>min
               <div style="display:inline-block; vertical-align:middle; width:80px; height:6px; background:#ecf0f1; border-radius:3px; margin-left:4px; position:relative;">
                 <div id="gsIdleBar" class="gp-bar-fill gp-bar-fill-anim" style="width:0%; background:#2ecc71;"></div>
@@ -283,7 +310,7 @@
         <div class="card-body">
           <div id="labelChart"></div>
           <table class="table table-striped km-table gp-mt10">
-            <thead><tr><th>Label</th><th class="gp-ta-r">数量</th><th style="width:40%;"></th></tr></thead>
+            <thead><tr><th>Label</th><th class="gp-ta-r">数量</th><th class="gp-w40"></th></tr></thead>
             <tbody id="labelSummaryBody">
               <tr><td colspan="3" class="text-center km-muted gp-pad15"><i class="fa fa-bar-chart gp-big-icon"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
@@ -299,7 +326,7 @@
         </div>
         <div class="box-body table-responsive km-file-scroll">
           <table class="table table-hover km-table">
-            <thead><tr><th>路径</th><th>语言</th><th class="gp-ta-r">节点数</th><th style="text-align:right;width:70px;">图</th></tr></thead>
+            <thead><tr><th>路径</th><th>语言</th><th class="gp-ta-r">节点数</th><th class="gp-cell-w70r">图</th></tr></thead>
             <tbody id="fileListBody">
               <tr><td colspan="3" class="text-center km-muted gp-pad15"><i class="fa fa-folder-open gp-big-icon"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
@@ -319,7 +346,7 @@
         <div class="card-body">
           <div id="edgeTypeChart"></div>
           <table class="table table-striped km-table gp-mt10">
-            <thead><tr><th>类型</th><th class="gp-ta-r">数量</th><th>含义</th><th style="width:30%;"></th></tr></thead>
+            <thead><tr><th>类型</th><th class="gp-ta-r">数量</th><th>含义</th><th class="gp-w30"></th></tr></thead>
             <tbody id="edgeTypeBody">
               <tr><td colspan="4" class="text-center km-muted gp-pad15"><i class="fa fa-arrows-alt gp-big-icon"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
@@ -569,8 +596,8 @@
   <div class="row">
     <div class="col-12">
       <div class="card">
-        <div class="card-body" style="padding:10px 15px;">
-          <div class="row" style="align-items:center; gap:10px;">
+        <div class="card-body gp-pad10-15">
+          <div class="row gp-row-center">
             <div class="col-12 col-sm-4">
               <div class="input-group">
                 <span class="input-group-addon">节点 VID</span>
@@ -638,7 +665,7 @@
         <div class="card-header d-flex align-items-center justify-content-between">
           <h3 class="card-title">
             <i class="fa fa-project-diagram"></i> AST 图
-            <span id="graphStats" class="km-muted" style="font-size:12px; margin-left:10px;"></span>
+            <span id="graphStats" class="km-muted gp-lbl12"></span>
           </h3>
           <div class="card-tools d-flex ms-auto">
             <button id="btnFitGraph" class="btn btn-default btn-sm" title="适应视图">
@@ -649,7 +676,7 @@
             </button>
           </div>
         </div>
-        <div class="card-body" style="padding:0;">
+        <div class="card-body gp-pad0">
           <div id="cyGraphContainer" class="gp-main-canvas"></div>
         </div>
       </div>
@@ -1050,9 +1077,9 @@ $(document).ready(function () {
                     var $hint = $('#fileListHint');
                     if ($hint.length === 0) {
                         $('#fileListBody').closest('table').before(
-                            '<div class="input-group input-group-sm" style="margin-bottom:6px;">' +
+                            '<div class="input-group input-group-sm gp-mb6">' +
                             '<input id="fileListFilter" class="form-control form-control-sm" placeholder="过滤文件名... (共 ' + d.files.length + ' 个文件)">' +
-                            '</div><div id="fileListHint" class="km-muted" style="font-size:11px;margin-bottom:4px;">显示前 80 / ' + d.files.length + ' 个</div>');
+                            '</div><div id="fileListHint" class="km-muted gp-kb-sub">显示前 80 / ' + d.files.length + ' 个</div>');
                         $('#fileListFilter').on('input', function () {
                             var kw = $(this).val().toLowerCase();
                             var flt = (window._overviewFiles || []).filter(function (f) {
@@ -1123,7 +1150,7 @@ $(document).ready(function () {
             rows.push('<tr><td><a href="#" class="file-link" data-path="' + escHtml(fp) + '">' + escHtml(fp || '-') + '</a></td>'
                 + '<td>' + escHtml(f.language || '-') + '</td>'
                 + '<td class="gp-ta-r">' + (f.node_count || 0) + '</td>'
-                + '<td style="width:70px;text-align:right;"><button type="button" class="btn btn-default btn-sm file-graph-btn" data-path="' + escHtml(fp) + '" title="在图可视化中打开该文件的子图"><i class="fa fa-project-diagram"></i> 图</button></td></tr>');
+                + '<td class="gp-cell-w70r"><button type="button" class="btn btn-default btn-sm file-graph-btn" data-path="' + escHtml(fp) + '" title="在图可视化中打开该文件的子图"><i class="fa fa-project-diagram"></i> 图</button></td></tr>');
         }
         $fl.append(rows.join(''));
     }
@@ -1371,7 +1398,7 @@ $(document).ready(function () {
                 }
                 renderCallGraph($container[0], resp.data);
             },
-            error: function () { $container.html('<div style="text-align:center;padding:20px;color:#f44;">请求失败</div>'); }
+            error: function () { $container.html('<div class="gp-err-state">请求失败</div>'); }
         });
     }
 
@@ -1480,9 +1507,9 @@ $(document).ready(function () {
             if (chain.length > 0) {
                 html += '<h4>追踪链</h4>';
                 html += '<div class="row"><div class="col-12 col-md-6">';
-                html += '<div style="border-left:3px solid #3c8dbc;padding-left:15px;margin-left:10px;">';
+                html += '<div class="gp-quote-block">';
                 $.each(chain, function (ci, step) {
-                    html += '<div style="margin-bottom:10px;padding:8px;background:#f9f9f9;border-radius:3px;">';
+                    html += '<div class="gp-card-mb">';
                     html += '<div><strong>Step ' + (ci + 1) + '</strong>';
                     if (step.type) html += ' <span class="badge bg-info">' + escHtml(step.type) + '</span>';
                     html += '</div>';
@@ -1852,7 +1879,7 @@ $(document).ready(function () {
         html += '<tr><td class="km-muted">Label</td><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:' + (nodeColorMap[data.label] || '#999') + ';vertical-align:middle;margin-right:5px;"></span>' + escHtml(data.label) + '</td></tr>';
         if (data.name) html += '<tr><td class="km-muted">Name</td><td><code>' + escHtml(data.name) + '</code></td></tr>';
         if (data.type) html += '<tr><td class="km-muted">Type</td><td><code>' + escHtml(data.type) + '</code></td></tr>';
-        if (data.file_path) html += '<tr><td class="km-muted">File</td><td style="word-break:break-all;">' + escHtml(data.file_path) + '</td></tr>';
+        if (data.file_path) html += '<tr><td class="km-muted">File</td><td class="gp-break-all">' + escHtml(data.file_path) + '</td></tr>';
         if (data.lineno) html += '<tr><td class="km-muted">Line</td><td>' + data.lineno + '</td></tr>';
         if (data.taint_type) html += '<tr><td class="km-muted">Taint</td><td><span class="badge bg-' + (data.taint_type === 'source' ? 'warning' : 'info') + '">' + escHtml(data.taint_type) + '</span></td></tr>';
         html += '</table>';
@@ -1891,8 +1918,8 @@ $(document).ready(function () {
                         $va.html('<div class="gp-muted-sm">无关联漏洞</div>');
                         return;
                     }
-                    var vulnHtml = '<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#e74c3c;"><i class="fa fa-bug"></i> 关联漏洞 (' + resp.data.length + ')</div>';
-                    vulnHtml += '<table class="table km-table" style="font-size:11px;margin-bottom:0;">';
+                    var vulnHtml = '<div class="gp-kb-title-red"><i class="fa fa-bug"></i> 关联漏洞 (' + resp.data.length + ')</div>';
+                    vulnHtml += '<table class="table km-table gp-kb-sub-end">';
                     $.each(resp.data, function (i, v) {
                         vulnHtml += '<tr><td><code>' + escHtml(v.node_content || '-') + '</code></td>';
                         vulnHtml += '<td>' + escHtml(v.node_type || '-') + '</td>';
@@ -1942,8 +1969,8 @@ $(document).ready(function () {
                 if (langMap[ext]) lang = langMap[ext];
 
                 // 构建代码表格
-                var html = '<div style="font-size:12px;font-weight:bold;margin-bottom:6px;"><i class="fa fa-code"></i> 源码 <span style="font-weight:normal;color:#999;">' + escHtml(d.file_path.split('/').pop()) + ':' + d.lineno + '</span></div>';
-                html += '<div style="background:#1e1e2e;border-radius:4px;padding:0;overflow-x:auto;font-size:12px;"><table style="width:100%;border-collapse:collapse;margin:0;">';
+                var html = '<div class="gp-kb-title"><i class="fa fa-code"></i> 源码 <span class="gp-kb-normal">' + escHtml(d.file_path.split('/').pop()) + ':' + d.lineno + '</span></div>';
+                html += '<div class="gp-code-wrap"><table class="gp-code-table">';
                 for (var i = 0; i < lines.length; i++) {
                     var line = lines[i];
                     var isTarget = (line.lineno === targetLine);
