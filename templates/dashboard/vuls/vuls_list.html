@@ -192,6 +192,9 @@
     line-height: 1.5;
     max-height: 60px;
 }
+
+.km-kb-focus > td { background: #fff8e1 !important; box-shadow: inset 3px 0 0 #f59e0b; }
+.vul-sel { cursor: pointer; }
 </style>
 <div class="card">
 <div class="card-header">
@@ -202,6 +205,27 @@
   </div>
 </div>
 <div class="card-body">
+  <!-- 过滤器预设（一键组合） -->
+  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+    <span style="font-size:12px;color:#6c757d;"><i class="fa fa-filter"></i> 快速视图:</span>
+    <a class="btn btn-sm {% if f_confirm == 'unconfirmed' and not f_level %}btn-primary{% else %}btn-default{% endif %}" href="?confirm=unconfirmed">未确认</a>
+    <a class="btn btn-sm {% if f_confirm == 'ai-fp' and f_confirm != 'unconfirmed' %}btn-primary{% else %}btn-default{% endif %}" href="?confirm=ai-fp" title="AI 判为误报，待人工复核">AI判FP待复核 {% if ai_fp_count %}<span class="badge bg-danger ms-1">{{ ai_fp_count }}</span>{% endif %}</a>
+    <a class="btn btn-sm btn-default" href="?confirm=ai-tp">AI判TP</a>
+    <a class="btn btn-sm btn-default" href="?confirm=unconfirmed&level=critical">未确认+严重</a>
+    <a class="btn btn-sm btn-default" href="?confirm=unconfirmed&level=high">未确认+高危</a>
+    <a class="btn btn-sm btn-default" href="?confirm=ai-unanalyzed">AI未分析 {% if ai_pending_count %}<span class="badge bg-secondary ms-1">{{ ai_pending_count }}</span>{% endif %}</a>
+    <a class="btn btn-sm btn-default" href="?confirm=tp">已确认TP</a>
+    <a class="btn btn-sm btn-default" href="?confirm=fp">已标记FP</a>
+  </div>
+  <!-- 批量操作条 -->
+  <div id="bulkBar" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; margin-bottom:8px; background:#eef4ff; border:1px solid #c7dbff; border-radius:6px;">
+    <strong style="font-size:13px;">已选 <span id="bulkCount">0</span> 条</strong>
+    <button type="button" class="btn btn-sm btn-success" onclick="bulkVerify('tp')"><i class="fa fa-check"></i> 批量确认 TP</button>
+    <button type="button" class="btn btn-sm btn-danger" onclick="bulkVerify('fp')"><i class="fa fa-times"></i> 批量标记 FP</button>
+    <button type="button" class="btn btn-sm btn-secondary" onclick="bulkVerify('stale')"><i class="fa fa-hourglass-end"></i> 批量过期</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bulkVerify('unconfirm')"><i class="fa fa-undo"></i> 撤销标记</button>
+    <span style="font-size:11px;color:#8a94a6;margin-left:auto;">快捷键: j/k 移动 · t=TP f=FP x=过期 u=撤销 · Enter 展开 · 1-9 选行</span>
+  </div>
   <form method="get" id="filterForm" style="margin-bottom:12px;">
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
       <select name="lang" class="form-select form-select-sm" style="width:auto;">
@@ -260,6 +284,7 @@
       </colgroup>
       <thead>
         <tr>
+          <th style="width:26px;"><input type="checkbox" id="vulSelAll" title="全选/取消本页"></th>
           <th>ID</th>
           <th>CVI</th>
           <th>语言</th>
@@ -274,7 +299,8 @@
       </thead>
       <tbody>
         {% for r in results %}
-        <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)">
+        <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)" tabindex="-1">
+          <td onclick="event.stopPropagation();"><input type="checkbox" class="vul-sel" value="{{ r.id }}"></td>
           <td>{{ r.id }}</td>
           <td><code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">CVI-{{ r.cvi_id }}</code></td>
           <td>{{ r.language }}</td>
@@ -313,7 +339,7 @@
           </td>
         </tr>
         <tr class="km-vul-detail-row" style="display:none;">
-          <td colspan="10" style="padding:0!important;border:none!important;">
+          <td colspan="11" style="padding:0!important;border:none!important;">
             <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}" data-project-id="{{ r.project_id }}">
               <div class="km-vul-chain-meta">
                 <div class="meta-row"><span class="meta-label">CVI</span><span class="meta-value">{{ r.cvi_id }}</span></div>
@@ -591,6 +617,87 @@ function escapeHtml(s) {
   if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+/* ===== 批量审计 + 键盘导航 ===== */
+function getSelIds() {
+  return [...document.querySelectorAll('.vul-sel:checked')].map(cb => parseInt(cb.value));
+}
+function refreshBulkBar() {
+  var n = getSelIds().length;
+  var bar = document.getElementById('bulkBar');
+  bar.style.display = 'flex';
+  document.getElementById('bulkCount').textContent = n;
+}
+function bulkVerify(action) {
+  var ids = getSelIds();
+  if (ids.length === 0) { alert('请先勾选漏洞行'); return; }
+  var labels = {tp: '确认 TP', fp: '标记 FP', stale: '标记过期', unconfirm: '撤销标记'};
+  if (!confirm('对 ' + ids.length + ' 条漏洞执行「' + (labels[action] || action) + '」？')) return;
+  fetch('{% url "dashboard:vul_verify_bulk" %}', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+    },
+    body: JSON.stringify({ids: ids, action: action})
+  }).then(r => r.json()).then(function(d) {
+    if (d.code === 200) { location.reload(); }
+    else { alert('批量操作失败: ' + (d.message || d.error || '')); }
+  }).catch(e => alert('请求失败: ' + e));
+}
+document.addEventListener('change', function(e) {
+  if (e.target.id === 'vulSelAll') {
+    document.querySelectorAll('.vul-sel').forEach(cb => cb.checked = e.target.checked);
+  }
+  if (e.target.classList && e.target.classList.contains('vul-sel')) refreshBulkBar();
+});
+
+/* 键盘导航 */
+(function() {
+  var cur = -1;
+  function rows() { return [...document.querySelectorAll('tr.km-vul-row')]; }
+  function focusRow(idx) {
+    var rs = rows();
+    if (idx < 0 || idx >= rs.length) return;
+    rs.forEach(r => r.classList.remove('km-kb-focus'));
+    cur = idx;
+    rs[cur].classList.add('km-kb-focus');
+    rs[cur].scrollIntoView({block: 'nearest'});
+  }
+  function markCur(action) {
+    if (cur < 0) return;
+    var row = rows()[cur];
+    var id = row.getAttribute('data-vul-id');
+    fetch('{% url "dashboard:vul_verify_bulk" %}', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+      body: JSON.stringify({ids: [parseInt(id)], action: action})
+    }).then(r => r.json()).then(function(d) {
+      if (d.code !== 200) return;
+      var td = row.children[9];
+      var labels = {tp: ['TP', '#16a34a'], fp: ['FP', '#dc2626'], stale: ['过期', '#adb5bd']};
+      if (action === 'unconfirm') { td.innerHTML = '<span style="color:#6b7280;">-</span>'; return; }
+      var m = labels[action];
+      if (m) td.innerHTML = '<span style="color:' + m[1] + ';font-weight:600;">' + m[0] + '</span>';
+    });
+  }
+  document.addEventListener('keydown', function(e) {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    var k = e.key.toLowerCase();
+    if (k === 'j') { focusRow(cur < 0 ? 0 : Math.min(cur + 1, rows().length - 1)); e.preventDefault(); }
+    else if (k === 'k') { focusRow(cur < 0 ? 0 : Math.max(cur - 1, 0)); e.preventDefault(); }
+    else if (k === 't' && cur >= 0) markCur('tp');
+    else if (k === 'f' && cur >= 0) markCur('fp');
+    else if (k === 'x' && cur >= 0) markCur('stale');
+    else if (k === 'u' && cur >= 0) markCur('unconfirm');
+    else if (k === '1' && cur >= 0) { var cb = rows()[cur].querySelector('.vul-sel'); cb.checked = !cb.checked; refreshBulkBar(); }
+    else if (e.key === 'Enter' && cur >= 0) { rows()[cur].click(); }
+  });
+})();
+
 
 function kmCsrf(){
   var el = document.querySelector('[name=csrfmiddlewaretoken]');

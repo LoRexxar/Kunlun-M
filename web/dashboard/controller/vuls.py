@@ -210,6 +210,9 @@ class VulListView(TemplateView):
         ctx['f_level'] = level
         ctx['f_confirm'] = confirm
         ctx['ai_pending_count'] = ScanResultTask.objects.filter(is_active=1, ai_verdict='').count()
+        ctx['ai_fp_count'] = ScanResultTask.objects.filter(
+            is_active=1, ai_verdict='fp'
+        ).exclude(verification_status__in=['tp', 'fp']).count()
         ctx['f_type'] = result_type
         ctx['type_options'] = [
             ('sql', 'SQL 注入'), ('xss', 'XSS'), ('command', '命令注入'),
