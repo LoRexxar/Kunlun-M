@@ -123,6 +123,32 @@
 .graph-page .gp-pad20 { padding: 20px; }
 .graph-page .gp-m0 { margin: 0; }
 .graph-page .gp-fs11 { font-size: 11px; }
+
+.graph-page .gp-stat-num { font-size: 28px; font-weight: 700; }
+.graph-page .gp-stat-blue { color: #3c8dbc; }
+.graph-page .gp-stat-green { color: #00a65a; }
+.graph-page .gp-stat-orange { color: #f39c12; }
+.graph-page .gp-stat-red { color: #dd4b39; }
+.graph-page .gp-legend-bar { display: flex; height: 16px; border-radius: 3px; overflow: hidden; }
+.graph-page .gp-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.graph-page .gp-bar-track { height: 8px; background: #ecf0f1; border-radius: 2px; }
+.graph-page .gp-bar-track-wide { display: inline-block; vertical-align: middle; width: 80px; height: 6px; background: #ecf0f1; border-radius: 3px; }
+.graph-page .gp-bar-fill { height: 100%; border-radius: 2px; }
+.graph-page .gp-bar-fill-anim { transition: width 1s linear; }
+.graph-page .gp-chip { padding: 1px 8px; font-size: 11px; }
+.graph-page .gp-toolbar { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; font-size: 12px; }
+.graph-page .gp-panel-note { margin-top: 8px; padding: 8px 12px; background: rgba(52,152,219,0.08); border-radius: 4px; }
+.graph-page .gp-main-canvas { width: 100%; height: 550px; background: #1a1a2e; }
+.graph-page .gp-note-sm { padding: 6px 10px; font-size: 12px; margin-top: 6px; }
+.graph-page .gp-mb15 { margin-bottom: 15px; }
+
+.graph-page .gp-ml5 { margin-left: 5px; }
+.graph-page .gp-ml10 { margin-left: 10px; }
+.graph-page .gp-ml15 { margin-left: 15px; }
+.graph-page .gp-mt8 { margin-top: 8px; }
+.graph-page .gp-mb0 { margin-bottom: 0; }
+.graph-page .gp-fs8 { font-size: 8px; }
+.graph-page .gp-color-muted { color: #999; }
 </style>
 {% endblock %}
 
@@ -155,7 +181,7 @@
         <span class="km-muted">目标:</span> <span id="scanInfoTarget">-</span>
         &nbsp;&nbsp;
         <span id="graphLoadStatus"></span>
-        <button id="btnLoadGraph" class="btn btn-success btn-sm" style="margin-left:10px;">
+        <button id="btnLoadGraph" class="btn btn-success btn-sm gp-ml10">
           <i class="fa fa-download"></i> 加载图数据
         </button>
         <button id="btnReleaseGraph" class="btn btn-outline-danger btn-sm" style="margin-left:5px; display:none;">
@@ -163,9 +189,9 @@
         </button>
         <!-- 图 session 状态面板 -->
         <div id="graphSessionPanel" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(52,152,219,0.08); border-radius:4px; border:1px solid rgba(52,152,219,0.2);">
-          <div style="display:flex; align-items:center; gap:15px; flex-wrap:wrap; font-size:12px;">
+          <div class="gp-toolbar">
             <span id="gsState">
-              <i class="fa fa-circle text-success" style="font-size:8px;"></i>
+              <i class="fa fa-circle text-success gp-fs8"></i>
               <span class="text-success gp-strong">已加载</span>
             </span>
             <span class="km-muted">节点: <strong id="gsNodes">-</strong></span>
@@ -174,10 +200,10 @@
               空闲 <span id="gsIdleSec" style="font-weight:600;">0</span>s /
               <span id="gsIdleMax">30</span>min
               <div style="display:inline-block; vertical-align:middle; width:80px; height:6px; background:#ecf0f1; border-radius:3px; margin-left:4px; position:relative;">
-                <div id="gsIdleBar" style="height:100%; background:#2ecc71; border-radius:3px; width:0%; transition:width 1s linear;"></div>
+                <div id="gsIdleBar" class="gp-bar-fill gp-bar-fill-anim" style="width:0%; background:#2ecc71;"></div>
               </div>
             </span>
-            <button id="btnReleaseGraph2" class="btn btn-outline-danger btn-xs" style="padding:1px 8px; font-size:11px;">
+            <button id="btnReleaseGraph2" class="btn btn-outline-danger btn-xs gp-chip">
               <i class="fa fa-eject"></i> 释放
             </button>
           </div>
@@ -190,7 +216,7 @@
 <!-- Tab 导航 -->
 <div class="row">
   <div class="col-12">
-    <div class="btn-group" style="margin-bottom: 15px;">
+    <div class="btn-group gp-mb15">
       <button class="btn btn-primary btn-sm tab-btn" data-tab="tab-overview">概览</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-file">文件查询</button>
       <button class="btn btn-default btn-sm tab-btn" data-tab="tab-function">函数查询</button>
@@ -205,7 +231,7 @@
 <div class="tab-pane" id="tab-overview">
   <div class="row">
     <div class="col-12">
-      <button id="btnLoadOverview" class="btn btn-primary btn-sm" style="margin-bottom:15px;">
+      <button id="btnLoadOverview" class="btn btn-primary btn-sm gp-mb15">
         <i class="fa fa-refresh"></i> 加载概览
       </button>
     </div>
@@ -216,7 +242,7 @@
     <div class="col-6 col-md-3">
       <div class="card">
         <div class="box-body text-center">
-          <div style="font-size:28px;font-weight:700;color:#3c8dbc;" id="statNodeCount">-</div>
+          <div class="gp-stat-num gp-stat-blue" id="statNodeCount">-</div>
           <div class="km-muted">节点总数</div>
         </div>
       </div>
@@ -224,7 +250,7 @@
     <div class="col-6 col-md-3">
       <div class="card">
         <div class="box-body text-center">
-          <div style="font-size:28px;font-weight:700;color:#00a65a;" id="statEdgeCount">-</div>
+          <div class="gp-stat-num gp-stat-green" id="statEdgeCount">-</div>
           <div class="km-muted">边总数</div>
         </div>
       </div>
@@ -232,7 +258,7 @@
     <div class="col-6 col-md-3">
       <div class="card">
         <div class="box-body text-center">
-          <div style="font-size:28px;font-weight:700;color:#f39c12;" id="statFuncCount">-</div>
+          <div class="gp-stat-num gp-stat-orange" id="statFuncCount">-</div>
           <div class="km-muted">函数数</div>
         </div>
       </div>
@@ -240,7 +266,7 @@
     <div class="col-6 col-md-3">
       <div class="card">
         <div class="box-body text-center">
-          <div style="font-size:28px;font-weight:700;color:#dd4b39;" id="statSinkCount">-</div>
+          <div class="gp-stat-num gp-stat-red" id="statSinkCount">-</div>
           <div class="km-muted">Sink 数</div>
         </div>
       </div>
@@ -402,7 +428,7 @@
       <div class="card">
         <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">函数信息</h3></div>
         <div class="card-body">
-          <table class="table km-table" style="margin-bottom:0;">
+          <table class="table km-table gp-mb0">
             <tr><td class="km-muted gp-w80">名称</td><td id="funcName">-</td></tr>
             <tr><td class="km-muted">全名</td><td id="funcFullname">-</td></tr>
             <tr><td class="km-muted">行号</td><td id="funcLineno">-</td></tr>
@@ -466,7 +492,7 @@
           </div>
         </div>
         <div class="card-body">
-          <div id="funcCallGraphContainer" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark"></div>
+          <div id="funcCallGraphContainer" class="gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark gp-canvas-dark"></div>
         </div>
       </div>
     </div>
@@ -569,13 +595,13 @@
               <button id="btnLoadSubgraph" class="btn btn-primary btn-sm">
                 <i class="fa fa-project-diagram"></i> 加载子图
               </button>
-              <button id="btnLoadFileGraph" class="btn btn-default btn-sm" style="margin-left:5px;" title="加载当前选中文件的完整子图">
+              <button id="btnLoadFileGraph" class="btn btn-default btn-sm gp-ml5" title="加载当前选中文件的完整子图">
                 <i class="fa fa-file-code-o"></i> 加载文件图
               </button>
             </div>
           </div>
           <!-- 过滤栏 -->
-          <div class="row" style="margin-top:8px;">
+          <div class="row gp-mt8">
             <div class="col-12">
               <label class="km-muted gp-filter-label-wide">节点类型:</label>
               <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="file" checked> file</label>
@@ -588,7 +614,7 @@
               <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="import" checked> import</label>
               <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="const" checked> const</label>
               <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="return" checked> return</label>
-              <span style="margin-left:15px;"></span>
+              <span class="gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15 gp-ml15"></span>
               <label class="km-muted gp-filter-label-wide">边类型:</label>
               <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="own" checked> own</label>
               <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="cg" checked> cg</label>
@@ -624,7 +650,7 @@
           </div>
         </div>
         <div class="card-body" style="padding:0;">
-          <div id="cyGraphContainer" style="width:100%; height:550px; background:#1a1a2e;"></div>
+          <div id="cyGraphContainer" class="gp-main-canvas"></div>
         </div>
       </div>
     </div>
@@ -685,7 +711,7 @@ $(document).ready(function () {
                         var missing = (s.graph_exists === false);
                         if (missing) lostCount++;
                         var opt = '<option value="' + s.id + '"'
-                            + (missing ? ' disabled style="color:#999;"' : '') + '>'
+                            + (missing ? ' disabled class="gp-color-muted" ' : '') + '>'
                             + 'ID:' + s.id + ' | ' + (s.language || '?') + ' | '
                             + (s.target || '-') + ' (节点:' + (s.node_count || 0) + ' 边:' + (s.edge_count || 0) + ')'
                             + (missing ? ' [图已清理]' : '')
@@ -693,7 +719,7 @@ $(document).ready(function () {
                         $sel.append(opt);
                     });
                     if (lostCount > 0) {
-                        $sel.after('<div class="alert alert-warning" style="padding:6px 10px;font-size:12px;margin-top:6px;"><i class="fa fa-info-circle"></i> 有 ' + lostCount + ' 条历史扫描的图数据已被清理（重扫时 workspace 被重置）。当前扫描的图会持续保留。</div>');
+                        $sel.after('<div class="alert alert-warning gp-note-sm"><i class="fa fa-info-circle"></i> 有 ' + lostCount + ' 条历史扫描的图数据已被清理（重扫时 workspace 被重置）。当前扫描的图会持续保留。</div>');
                     }
                     // 自动选择最新的（第一个）
                     $sel.val(resp.scans[0].id);
@@ -995,11 +1021,11 @@ $(document).ready(function () {
                         'string_literal': '#ffeaa7', 'numeric_literal': '#fab1a0', 'comment': '#636e72',
                         'dependency': '#ff9800', 'annotation': '#e91e63'
                     };
-                    var chartHtml = '<div style="display:flex;height:16px;border-radius:3px;overflow:hidden;">';
+                    var chartHtml = '<div class="gp-legend-bar">';
                     $.each(d.label_summary, function (label, count) {
                         var pct = maxCount > 0 ? (count / maxCount * 100) : 0;
                         var color = labelColors[label] || '#999';
-                        chartHtml += '<div style="width:' + pct + '%;background:' + color + ';" title="' + escHtml(label) + ': ' + count + '"></div>';
+                        chartHtml += '<div class="gp-bar-fill" style="width:' + pct + '%;background:' + color + ';" title="' + escHtml(label) + ': ' + count + '"></div>';
                     });
                     chartHtml += '</div>';
                     $chart.html(chartHtml);
@@ -1008,7 +1034,7 @@ $(document).ready(function () {
                     $.each(d.label_summary, function (label, count) {
                         var pct = maxCount > 0 ? (count / maxCount * 100) : 0;
                         var color = labelColors[label] || '#999';
-                        $lb.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(label) + '</code></td><td class="gp-ta-r">' + count + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
+                        $lb.append('<tr><td><span class="gp-legend-dot" style="background:' + color + ';"></span><code>' + escHtml(label) + '</code></td><td class="gp-ta-r">' + count + '</td><td><div class="gp-bar-track"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
                     });
                 } else {
                     $chart.html('');
@@ -1056,7 +1082,7 @@ $(document).ready(function () {
                 if (d.edge_type_summary) {
                     var maxEdge = 0;
                     $.each(d.edge_type_summary, function(t, c) { if (c > maxEdge) maxEdge = c; });
-                    var etChartHtml = '<div style="display:flex;height:16px;border-radius:3px;overflow:hidden;">';
+                    var etChartHtml = '<div class="gp-legend-bar">';
                     $.each(d.edge_type_summary, function(t, c) {
                         var pct = maxEdge > 0 ? (c / maxEdge * 100) : 0;
                         etChartHtml += '<div style="width:' + pct + '%;background:' + (edgeTypeColors[t] || '#999') + ';" title="' + escHtml(t) + ': ' + c + '"></div>';
@@ -1067,7 +1093,7 @@ $(document).ready(function () {
                     $.each(d.edge_type_summary, function(t, c) {
                         var pct = maxEdge > 0 ? (c / maxEdge * 100) : 0;
                         var color = edgeTypeColors[t] || '#999';
-                        $et.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(t) + '</code></td><td class="gp-ta-r">' + c + '</td><td class="km-muted">' + escHtml(edgeTypeNames[t] || t) + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
+                        $et.append('<tr><td><span class="gp-legend-dot" style="background:' + color + ';"></span><code>' + escHtml(t) + '</code></td><td class="gp-ta-r">' + c + '</td><td class="km-muted">' + escHtml(edgeTypeNames[t] || t) + '</td><td><div class="gp-bar-track"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
                     });
                 } else {
                     $etChart.html('');
@@ -1435,7 +1461,7 @@ $(document).ready(function () {
             html += '<div class="card-body">';
 
             // Sink 信息
-            html += '<table class="table km-table" style="margin-bottom:10px;">';
+            html += '<table class="table km-table gp-mb10">';
             html += '<tr><td class="km-muted gp-w80">名称</td><td>' + escHtml(sink.name || '-') + '</td></tr>';
             html += '<tr><td class="km-muted">行号</td><td>' + (sink.lineno || '-') + '</td></tr>';
             html += '<tr><td class="km-muted">类型</td><td>' + escHtml(sink.type || '-') + '</td></tr>';
@@ -1443,7 +1469,7 @@ $(document).ready(function () {
             html += '</table>';
 
             // Result
-            html += '<div style="margin-bottom:10px;">';
+            html += '<div class="gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10 gp-mb10">';
             html += '<span class="label ' + statusClass + '">' + statusText + '</span> ';
             html += '<strong>code:</strong> ' + (resultCode != null ? resultCode : '-') + '&nbsp;&nbsp;';
             if (result.reason) html += '<strong>原因:</strong> ' + escHtml(result.reason);
@@ -1851,7 +1877,7 @@ $(document).ready(function () {
         if (sid && !isNaN(vid)) {
             // 异步加载源码上下文
             if (data.file_path && data.lineno) {
-                $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted gp-fs11">加载源码...</span></div>');
+                $('#nodeDetailContent').append('<div id="nodeSourceArea" class="gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10 gp-mt10"><span class="km-muted gp-fs11">加载源码...</span></div>');
                 loadNodeSource(sid, vid);
             }
             $('#nodeDetailContent').append('<div id="nodeVulnsArea" style="margin-top:10px;"><span class="km-muted gp-fs11">加载关联漏洞...</span></div>');
