@@ -90,8 +90,15 @@
 </div>
 
 <div class="card">
-<div class="box-header with-border">
+<div class="box-header with-border" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
   <h3 class="card-title">结果</h3>
+  <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+    <span style="font-size:12px;color:#6c757d;">视图:</span>
+    <button type="button" class="btn btn-sm btn-primary grp-btn" data-grp="none" onclick="setVulGrouping('none')">平铺</button>
+    <button type="button" class="btn btn-sm btn-default grp-btn" data-grp="file" onclick="setVulGrouping('file')">按文件</button>
+    <button type="button" class="btn btn-sm btn-default grp-btn" data-grp="rule" onclick="setVulGrouping('rule')">按规则</button>
+    <span style="font-size:11px;color:#9ca3af;" id="vulGroupHint"></span>
+  </div>
 </div>
 <!-- /.box-header -->
 <div class="card-body">
@@ -328,6 +335,71 @@ function kmCsrf(){
   var m = document.cookie.match(/(?:^|; )csrftoken=([^;]*)/);
   return m ? decodeURIComponent(m[1]) : '';
 }
+/* ===== 漏洞分组视图（按文件/按规则聚合 + 组头折叠） ===== */
+var vulGroupMode = 'none';
+function setVulGrouping(mode) {
+  vulGroupMode = mode;
+  document.querySelectorAll('.grp-btn').forEach(function(b) {
+    var on = b.getAttribute('data-grp') === mode;
+    b.classList.toggle('btn-primary', on);
+    b.classList.toggle('btn-default', !on);
+  });
+  rebuildVulGroups();
+}
+function rebuildVulGroups() {
+  var tbody = document.querySelector('#resultTable tbody');
+  if (!tbody) return;
+  // 还原：先把行按 DOM 顺序收回（组头行移除）
+  var rows = [...tbody.querySelectorAll('tr.km-chain-row')];
+  tbody.querySelectorAll('tr.grp-header-row').forEach(function(h) { h.remove(); });
+  rows.forEach(function(r) { r.style.display = ''; tbody.appendChild(r); });
+  if (vulGroupMode === 'none') { document.getElementById('vulGroupHint').textContent = ''; return; }
+
+  var groups = {};   // key -> {rows: [], label}
+  var order = [];
+  rows.forEach(function(r) {
+    var key, label;
+    if (vulGroupMode === 'file') {
+      var link = r.querySelector('td:nth-child(4) a');
+      label = link ? link.getAttribute('title') || link.textContent.trim() : '(未知文件)';
+      label = label.replace(/:[0-9]+$/, '');
+      label = label.split('/').slice(-2).join('/');
+      key = label.toLowerCase();
+    } else {
+      var cvi = r.querySelector('td:nth-child(2) code');
+      label = cvi ? cvi.textContent.trim() : '(未知规则)';
+      key = label;
+    }
+    if (!groups[key]) { groups[key] = {label: label, rows: []}; order.push(key); }
+    groups[key].rows.push(r);
+  });
+  order.sort(function(a, b) { return groups[b].rows.length - groups[a].rows.length; });
+  order.forEach(function(key) {
+    var g = groups[key];
+    var hid = 'grp_' + key.replace(/[^a-z0-9]/gi, '_');
+    var head = document.createElement('tr');
+    head.className = 'grp-header-row';
+    head.setAttribute('data-grp-target', hid);
+    head.style.cssText = 'background:#f8fafc;cursor:pointer;';
+    head.innerHTML = '<td colspan="9" style="padding:8px 12px;font-size:13px;font-weight:600;color:#334155;">' +
+      '<i class="fa fa-chevron-down grp-caret"></i> ' + esc(g.label) +
+      ' <span class="badge bg-secondary" style="margin-left:6px;">' + g.rows.length + '</span></td>';
+    head.addEventListener('click', function() {
+      var collapsed = head.getAttribute('data-collapsed') === '1';
+      head.setAttribute('data-collapsed', collapsed ? '0' : '1');
+      head.querySelector('.grp-caret').className = collapsed ? 'fa fa-chevron-down grp-caret' : 'fa fa-chevron-right grp-caret';
+      g.rows.forEach(function(r) { r.style.display = collapsed ? '' : 'none'; });
+    });
+    tbody.appendChild(head);
+    var wrap = document.createElement('tbody-tr-holder');
+    g.rows.forEach(function(r) { tbody.appendChild(r); });
+  });
+  document.getElementById('vulGroupHint').textContent = order.length + ' 组';
+}
+if (typeof esc !== 'function') {
+  function esc(x) { return String(x || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+}
+
 function verifyVul(vulid, action){
   var tok = kmCsrf();
   if (!tok){ alert('页面缺少 CSRF 令牌，请刷新页面后重试'); return; }

@@ -686,11 +686,14 @@ function showAiDetail(vulId) {
       html += '</div>';
       if (d.reasoning) html += '<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-brain"></i> AI 判定理由</div><div style="font-size:13px;color:#4b5563;line-height:1.6;background:#fafbfc;border-left:3px solid #c7d2fe;padding:8px 12px;border-radius:0 6px 6px 0;">' + escapeHtml(d.reasoning) + '</div></div>';
       if (d.fix) html += '<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-wrench"></i> 修复建议</div><div style="font-size:13px;color:#4b5563;line-height:1.6;background:#f0fdf4;border-left:3px solid #86efac;padding:8px 12px;border-radius:0 6px 6px 0;">' + escapeHtml(d.fix) + '</div></div>';
-      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:14px;">';
+      html += '<div style="margin-top:14px;">';
+      html += '<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-comment-dots"></i> 复核备注' + (d.disagreed ? ' <span style="color:#f59e0b;font-weight:400;">（与 AI 分歧，建议写明原因）</span>' : '') + '</div>';
+      html += '<textarea id="aiDetailNotes" rows="2" placeholder="可留空。例：链路实际可达，AI 漏算了 X 来源 / 确认 AI 判断，sink 参数固定" style="width:100%;font-size:13px;padding:8px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;"></textarea>';
+      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">';
       html += '<button class="btn btn-sm btn-success" onclick="aiDetailMark(' + vulId + ',\"tp\")"><i class="fa fa-check"></i> 确认 TP</button>';
       html += '<button class="btn btn-sm btn-danger" onclick="aiDetailMark(' + vulId + ',\"fp\")"><i class="fa fa-times"></i> 标记 FP</button>';
       html += '<span style="margin-left:auto;font-size:11px;color:#9ca3af;">分析时间: ' + (d.analyzed_at || '-') + '</span>';
-      html += '</div>';
+      html += '</div></div>';
       body.innerHTML = html;
     })
     .catch(e => { body.innerHTML = '<div style="padding:20px;color:#dc2626;">请求失败: ' + e + '</div>'; });
@@ -698,9 +701,12 @@ function showAiDetail(vulId) {
 function aiDetailMark(vulId, action) {
   var m = document.cookie.match(/csrftoken=([^;]+)/);
   var token = m ? decodeURIComponent(m[1]) : '';
+  var notesEl = document.getElementById('aiDetailNotes');
+  var notes = notesEl ? notesEl.value.trim() : '';
+  if (action && notes === '' && !confirm('未填备注，直接标记？')) return;
   fetch('/dashboard/vuls/verify/bulk', {method: 'POST', credentials: 'same-origin',
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': token},
-    body: JSON.stringify({ids: [vulId], action: action})})
+    body: JSON.stringify({ids: [vulId], action: action, notes: notes})})
     .then(r => r.json())
     .then(function(d) {
       if (d.code === 200) { document.getElementById('aiDetailModal').style.display = 'none'; location.reload(); }
