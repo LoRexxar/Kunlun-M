@@ -103,6 +103,26 @@
 
 .km-file-scroll { max-height: 46vh; overflow-y: auto; }
 .km-file-scroll thead th { position: sticky; top: 0; z-index: 5; background: #fff; box-shadow: 0 1px 0 #e5e7eb; }
+
+/* ===== 内联样式收编（extracted from inline styles） ===== */
+.graph-page label.gp-filter-label { font-size: 12px; margin-right: 8px; }
+.graph-page label.gp-filter-label-wide { font-size: 12px; margin-right: 10px; }
+.graph-page .gp-ta-r { text-align: right; }
+.graph-page .gp-muted-sm { font-size: 11px; color: #999; }
+.graph-page .gp-empty { text-align: center; padding: 20px; color: #999; }
+.graph-page .gp-big-icon { font-size: 20px; color: #ddd; }
+.graph-page .gp-maxw600 { max-width: 600px; }
+.graph-page .gp-pad15 { padding: 15px; }
+.graph-page .gp-pad10 { padding: 10px; }
+.graph-page .gp-strong { font-weight: 600; }
+.graph-page .gp-w80 { width: 80px; }
+.graph-page .gp-w60 { width: 60px; }
+.graph-page .gp-canvas-dark { height: 400px; background: rgb(26,26,46); border-radius: 4px; }
+
+.graph-page .gp-mt10 { margin-top: 10px; }
+.graph-page .gp-pad20 { padding: 20px; }
+.graph-page .gp-m0 { margin: 0; }
+.graph-page .gp-fs11 { font-size: 11px; }
 </style>
 {% endblock %}
 
@@ -146,7 +166,7 @@
           <div style="display:flex; align-items:center; gap:15px; flex-wrap:wrap; font-size:12px;">
             <span id="gsState">
               <i class="fa fa-circle text-success" style="font-size:8px;"></i>
-              <span class="text-success" style="font-weight:600;">已加载</span>
+              <span class="text-success gp-strong">已加载</span>
             </span>
             <span class="km-muted">节点: <strong id="gsNodes">-</strong></span>
             <span class="km-muted">边: <strong id="gsEdges">-</strong></span>
@@ -236,10 +256,10 @@
         </div>
         <div class="card-body">
           <div id="labelChart"></div>
-          <table class="table table-striped km-table" style="margin-top:10px;">
-            <thead><tr><th>Label</th><th style="text-align:right;">数量</th><th style="width:40%;"></th></tr></thead>
+          <table class="table table-striped km-table gp-mt10">
+            <thead><tr><th>Label</th><th class="gp-ta-r">数量</th><th style="width:40%;"></th></tr></thead>
             <tbody id="labelSummaryBody">
-              <tr><td colspan="3" class="text-center km-muted" style="padding:15px;"><i class="fa fa-bar-chart" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
+              <tr><td colspan="3" class="text-center km-muted gp-pad15"><i class="fa fa-bar-chart gp-big-icon"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
           </table>
         </div>
@@ -253,9 +273,9 @@
         </div>
         <div class="box-body table-responsive km-file-scroll">
           <table class="table table-hover km-table">
-            <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th><th style="text-align:right;width:70px;">图</th></tr></thead>
+            <thead><tr><th>路径</th><th>语言</th><th class="gp-ta-r">节点数</th><th style="text-align:right;width:70px;">图</th></tr></thead>
             <tbody id="fileListBody">
-              <tr><td colspan="3" class="text-center km-muted" style="padding:15px;"><i class="fa fa-folder-open" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
+              <tr><td colspan="3" class="text-center km-muted gp-pad15"><i class="fa fa-folder-open gp-big-icon"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
           </table>
         </div>
@@ -264,7 +284,7 @@
   </div>
 
   <!-- 边类型分布 -->
-  <div class="row" style="margin-top:10px;" id="edgeTypeRow">
+  <div class="row gp-mt10" id="edgeTypeRow">
     <div class="col-12">
       <div class="card">
         <div class="card-header d-flex align-items-center justify-content-between">
@@ -272,10 +292,10 @@
         </div>
         <div class="card-body">
           <div id="edgeTypeChart"></div>
-          <table class="table table-striped km-table" style="margin-top:10px;">
-            <thead><tr><th>类型</th><th style="text-align:right;">数量</th><th>含义</th><th style="width:30%;"></th></tr></thead>
+          <table class="table table-striped km-table gp-mt10">
+            <thead><tr><th>类型</th><th class="gp-ta-r">数量</th><th>含义</th><th style="width:30%;"></th></tr></thead>
             <tbody id="edgeTypeBody">
-              <tr><td colspan="4" class="text-center km-muted" style="padding:15px;"><i class="fa fa-arrows-alt" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
+              <tr><td colspan="4" class="text-center km-muted gp-pad15"><i class="fa fa-arrows-alt gp-big-icon"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
           </table>
         </div>
@@ -290,7 +310,7 @@
     <div class="col-12">
       <div class="card">
         <div class="card-body">
-          <div class="input-group" style="max-width:600px;">
+          <div class="input-group gp-maxw600">
             <input type="text" id="fileQueryInput" class="form-control" placeholder="输入文件路径，如 src/app.php">
             <span class="input-group-btn">
               <button id="btnQueryFile" class="btn btn-primary" type="button">查询</button>
@@ -365,7 +385,7 @@
     <div class="col-12">
       <div class="card">
         <div class="card-body">
-          <div class="input-group" style="max-width:600px;">
+          <div class="input-group gp-maxw600">
             <input type="text" id="funcQueryInput" class="form-control" placeholder="输入函数名称，如 exec">
             <span class="input-group-btn">
               <button id="btnQueryFunc" class="btn btn-primary" type="button">查询</button>
@@ -383,7 +403,7 @@
         <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">函数信息</h3></div>
         <div class="card-body">
           <table class="table km-table" style="margin-bottom:0;">
-            <tr><td class="km-muted" style="width:80px;">名称</td><td id="funcName">-</td></tr>
+            <tr><td class="km-muted gp-w80">名称</td><td id="funcName">-</td></tr>
             <tr><td class="km-muted">全名</td><td id="funcFullname">-</td></tr>
             <tr><td class="km-muted">行号</td><td id="funcLineno">-</td></tr>
             <tr><td class="km-muted">文件</td><td id="funcFilepath">-</td></tr>
@@ -395,14 +415,14 @@
       <div class="card" id="funcParamsBox" style="display:none;">
         <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">参数列表</h3></div>
         <div class="card-body">
-          <ul id="funcParamsList" class="list-unstyled" style="margin:0;"></ul>
+          <ul id="funcParamsList" class="list-unstyled gp-m0"></ul>
         </div>
       </div>
       <!-- Return Nodes -->
       <div class="card" id="funcReturnBox" style="display:none;">
         <div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">Return Nodes</h3></div>
         <div class="card-body">
-          <ul id="funcReturnList" class="list-unstyled" style="margin:0;"></ul>
+          <ul id="funcReturnList" class="list-unstyled gp-m0"></ul>
         </div>
       </div>
     </div>
@@ -446,7 +466,7 @@
           </div>
         </div>
         <div class="card-body">
-          <div id="funcCallGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div>
+          <div id="funcCallGraphContainer" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark" class="gp-canvas-dark"></div>
         </div>
       </div>
     </div>
@@ -469,7 +489,7 @@
     <div class="col-12">
       <div class="card">
         <div class="card-body">
-          <div class="input-group" style="max-width:600px;">
+          <div class="input-group gp-maxw600">
             <input type="text" id="traceInput" class="form-control" placeholder="file:line，如 src/app.php:42">
             <span class="input-group-btn">
               <button id="btnTrace" class="btn btn-primary" type="button">追踪</button>
@@ -501,7 +521,7 @@
     <div class="col-12">
       <div class="card">
         <div class="card-body">
-          <div class="input-group" style="max-width:600px;">
+          <div class="input-group gp-maxw600">
             <input type="text" id="varTraceInput" class="form-control" placeholder="输入变量名，如 $cmd 或 $_GET">
             <span class="input-group-btn">
               <button id="btnTraceVar" class="btn btn-primary" type="button">追踪</button>
@@ -513,7 +533,7 @@
   </div>
 
   <div id="varTraceResult">
-    <div class="text-center km-muted" style="padding:20px;">输入变量名后点击"追踪"，查看数据流传播路径</div>
+    <div class="text-center km-muted gp-pad20">输入变量名后点击"追踪"，查看数据流传播路径</div>
   </div>
 </div>
 
@@ -557,27 +577,27 @@
           <!-- 过滤栏 -->
           <div class="row" style="margin-top:8px;">
             <div class="col-12">
-              <label class="km-muted" style="font-size:12px; margin-right:10px;">节点类型:</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="file" checked> file</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="class" checked> class</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="function" checked> function</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="operator" checked> operator</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="parameter" checked> parameter</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="identifier" checked> identifier</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="branch" checked> branch</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="import" checked> import</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="const" checked> const</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-node-filter" value="return" checked> return</label>
+              <label class="km-muted gp-filter-label-wide">节点类型:</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="file" checked> file</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="class" checked> class</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="function" checked> function</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="operator" checked> operator</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="parameter" checked> parameter</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="identifier" checked> identifier</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="branch" checked> branch</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="import" checked> import</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="const" checked> const</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-node-filter" value="return" checked> return</label>
               <span style="margin-left:15px;"></span>
-              <label class="km-muted" style="font-size:12px; margin-right:10px;">边类型:</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="own" checked> own</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="cg" checked> cg</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="dfg" checked> dfg</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="use" checked> use</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="ast" checked> ast</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="frg" checked> frg</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="crg" checked> crg</label>
-              <label style="font-size:12px; margin-right:8px;"><input type="checkbox" class="graph-edge-filter" value="member" checked> member</label>
+              <label class="km-muted gp-filter-label-wide">边类型:</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="own" checked> own</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="cg" checked> cg</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="dfg" checked> dfg</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="use" checked> use</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="ast" checked> ast</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="frg" checked> frg</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="crg" checked> crg</label>
+              <label class="gp-filter-label"><input type="checkbox" class="graph-edge-filter" value="member" checked> member</label>
             </div>
           </div>
         </div>
@@ -615,7 +635,7 @@
           <h3 class="card-title">节点详情</h3>
         </div>
         <div class="card-body">
-          <div id="nodeDetailContent" class="km-muted text-center" style="padding:20px;">
+          <div id="nodeDetailContent" class="km-muted text-center gp-pad20">
             点击图中的节点查看详情
           </div>
         </div>
@@ -933,10 +953,10 @@ $(document).ready(function () {
         var $btn = $('#btnLoadOverview');
         $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> 加载中...');
         // 显示 loading 占位
-        var loadingHtml = '<tr><td colspan="3" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>';
+        var loadingHtml = '<tr><td colspan="3" class="text-center gp-pad10"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>';
         $('#labelSummaryBody').html(loadingHtml);
-        $('#fileListBody').html('<tr><td colspan="4" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
-        $('#edgeTypeBody').html('<tr><td colspan="4" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
+        $('#fileListBody').html('<tr><td colspan="4" class="text-center gp-pad10"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
+        $('#edgeTypeBody').html('<tr><td colspan="4" class="text-center gp-pad10"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
 
         $.ajax({
             url: '/api/graph/query',
@@ -988,7 +1008,7 @@ $(document).ready(function () {
                     $.each(d.label_summary, function (label, count) {
                         var pct = maxCount > 0 ? (count / maxCount * 100) : 0;
                         var color = labelColors[label] || '#999';
-                        $lb.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(label) + '</code></td><td style="text-align:right;">' + count + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
+                        $lb.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(label) + '</code></td><td class="gp-ta-r">' + count + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
                     });
                 } else {
                     $chart.html('');
@@ -1047,7 +1067,7 @@ $(document).ready(function () {
                     $.each(d.edge_type_summary, function(t, c) {
                         var pct = maxEdge > 0 ? (c / maxEdge * 100) : 0;
                         var color = edgeTypeColors[t] || '#999';
-                        $et.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(t) + '</code></td><td style="text-align:right;">' + c + '</td><td class="km-muted">' + escHtml(edgeTypeNames[t] || t) + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
+                        $et.append('<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + ';margin-right:6px;"></span><code>' + escHtml(t) + '</code></td><td class="gp-ta-r">' + c + '</td><td class="km-muted">' + escHtml(edgeTypeNames[t] || t) + '</td><td><div style="height:8px;background:#ecf0f1;border-radius:2px;"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:2px;"></div></div></td></tr>');
                     });
                 } else {
                     $etChart.html('');
@@ -1076,7 +1096,7 @@ $(document).ready(function () {
             var fp = f.path || f.name || '';
             rows.push('<tr><td><a href="#" class="file-link" data-path="' + escHtml(fp) + '">' + escHtml(fp || '-') + '</a></td>'
                 + '<td>' + escHtml(f.language || '-') + '</td>'
-                + '<td style="text-align:right;">' + (f.node_count || 0) + '</td>'
+                + '<td class="gp-ta-r">' + (f.node_count || 0) + '</td>'
                 + '<td style="width:70px;text-align:right;"><button type="button" class="btn btn-default btn-sm file-graph-btn" data-path="' + escHtml(fp) + '" title="在图可视化中打开该文件的子图"><i class="fa fa-project-diagram"></i> 图</button></td></tr>');
         }
         $fl.append(rows.join(''));
@@ -1313,14 +1333,14 @@ $(document).ready(function () {
         var $row = $('#funcCallGraphRow');
         $row.show();
         var $container = $('#funcCallGraphContainer');
-        $container.html('<div style="text-align:center;padding:20px;color:#999;">加载调用图...</div>');
+        $container.html('<div class="gp-empty">加载调用图...</div>');
         $.ajax({
             url: '/api/graph/query',
             data: { scan_id: scanId, query_type: 'call_graph', query_arg: funcName, direction: direction || 'both', depth: 2 },
             dataType: 'json',
             success: function (resp) {
                 if (resp.code !== 200 || !resp.data || resp.data.error) {
-                    $container.html('<div style="text-align:center;padding:20px;color:#999;">' + escHtml(resp.data ? resp.data.error : '无数据') + '</div>');
+                    $container.html('<div class="gp-empty">' + escHtml(resp.data ? resp.data.error : '无数据') + '</div>');
                     return;
                 }
                 renderCallGraph($container[0], resp.data);
@@ -1333,7 +1353,7 @@ $(document).ready(function () {
         var nodes = data.nodes || [];
         var edges = data.edges || [];
         if (nodes.length === 0) {
-            container.innerHTML = '<div style="text-align:center;padding:20px;color:#999;">无节点数据</div>';
+            container.innerHTML = '<div class="gp-empty">无节点数据</div>';
             return;
         }
         var cyNodes = [];
@@ -1368,7 +1388,7 @@ $(document).ready(function () {
         requireGraph(function() { _doTraceLine(scanId, fileLine); });
     }
     function _doTraceLine(scanId, fileLine) {
-        $('#traceResultArea').html('<div class="text-center km-muted" style="padding:20px;"><i class="fa fa-spinner fa-spin"></i> 加载中...</div>');
+        $('#traceResultArea').html('<div class="text-center km-muted gp-pad20"><i class="fa fa-spinner fa-spin"></i> 加载中...</div>');
         $('#traceErrorArea').hide();
 
         $.ajax({
@@ -1416,7 +1436,7 @@ $(document).ready(function () {
 
             // Sink 信息
             html += '<table class="table km-table" style="margin-bottom:10px;">';
-            html += '<tr><td class="km-muted" style="width:80px;">名称</td><td>' + escHtml(sink.name || '-') + '</td></tr>';
+            html += '<tr><td class="km-muted gp-w80">名称</td><td>' + escHtml(sink.name || '-') + '</td></tr>';
             html += '<tr><td class="km-muted">行号</td><td>' + (sink.lineno || '-') + '</td></tr>';
             html += '<tr><td class="km-muted">类型</td><td>' + escHtml(sink.type || '-') + '</td></tr>';
             html += '<tr><td class="km-muted">参数索引</td><td>' + (item.arg_index != null ? item.arg_index : '-') + '</td></tr>';
@@ -1581,19 +1601,19 @@ $(document).ready(function () {
     }
     function _doTraceVariable(scanId, varName) {
         var $r = $('#varTraceResult');
-        $r.html('<div class="text-center km-muted" style="padding:20px;">追踪中...</div>');
+        $r.html('<div class="text-center km-muted gp-pad20">追踪中...</div>');
         $.ajax({
             url: '/api/graph/query',
             data: { scan_id: scanId, query_type: 'trace_variable', query_arg: varName },
             dataType: 'json',
             success: function (resp) {
                 if (resp.code !== 200 || !resp.data) {
-                    $r.html('<div class="text-center text-danger" style="padding:20px;">追踪失败</div>');
+                    $r.html('<div class="text-center text-danger gp-pad20">追踪失败</div>');
                     return;
                 }
                 var d = resp.data;
                 if (d.total_seeds === 0) {
-                    $r.html('<div class="text-center km-muted" style="padding:20px;">未找到匹配的变量节点</div>');
+                    $r.html('<div class="text-center km-muted gp-pad20">未找到匹配的变量节点</div>');
                     return;
                 }
                 var html = '<div class="row"><div class="col-12"><div class="card"><div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">找到 ' + d.total_seeds + ' 个匹配节点</h3></div><div class="box-body table-responsive"><table class="table table-hover km-table"><thead><tr><th>变量名</th><th>文件</th><th>行号</th><th></th></tr></thead><tbody>';
@@ -1603,7 +1623,7 @@ $(document).ready(function () {
                 });
                 html += '</tbody></table></div></div></div></div>';
                 if (d.subgraph && d.subgraph.nodes && d.subgraph.nodes.length > 0) {
-                    html += '<div class="row" style="margin-top:10px;"><div class="col-12"><div class="card"><div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">数据流传播图（' + d.subgraph.total_nodes + ' 节点, ' + d.subgraph.total_edges + ' 边）</h3></div><div class="card-body"><div id="varTraceGraphContainer" style="height:400px;background:rgb(26,26,46);border-radius:4px;"></div></div></div></div></div>';
+                    html += '<div class="row gp-mt10"><div class="col-12"><div class="card"><div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title">数据流传播图（' + d.subgraph.total_nodes + ' 节点, ' + d.subgraph.total_edges + ' 边）</h3></div><div class="card-body"><div id="varTraceGraphContainer" class="gp-canvas-dark"></div></div></div></div></div>';
                 }
                 $r.html(html);
                 if (d.subgraph && d.subgraph.nodes && d.subgraph.nodes.length > 0) {
@@ -1613,7 +1633,7 @@ $(document).ready(function () {
                     }, 100);
                 }
             },
-            error: function () { $r.html('<div class="text-center text-danger" style="padding:20px;">请求失败</div>'); }
+            error: function () { $r.html('<div class="text-center text-danger gp-pad20">请求失败</div>'); }
         });
     }
 
@@ -1802,7 +1822,7 @@ $(document).ready(function () {
 
     function showNodeDetail(data) {
         var html = '<table class="table km-table" style="margin-bottom:0; font-size:12px;">';
-        html += '<tr><td class="km-muted" style="width:60px;">VID</td><td><code>' + escHtml(data.id) + '</code></td></tr>';
+        html += '<tr><td class="km-muted gp-w60">VID</td><td><code>' + escHtml(data.id) + '</code></td></tr>';
         html += '<tr><td class="km-muted">Label</td><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:' + (nodeColorMap[data.label] || '#999') + ';vertical-align:middle;margin-right:5px;"></span>' + escHtml(data.label) + '</td></tr>';
         if (data.name) html += '<tr><td class="km-muted">Name</td><td><code>' + escHtml(data.name) + '</code></td></tr>';
         if (data.type) html += '<tr><td class="km-muted">Type</td><td><code>' + escHtml(data.type) + '</code></td></tr>';
@@ -1812,7 +1832,7 @@ $(document).ready(function () {
         html += '</table>';
 
         // Action buttons
-        html += '<div style="margin-top:10px;">';
+        html += '<div class="gp-mt10">';
         html += '<button class="btn btn-primary btn-sm" onclick="loadSubgraph(currentScanId(), ' + data.id + ')"><i class="fa fa-expand"></i> 展开此节点</button> ';
         if (data.file_path) {
             html += '<button class="btn btn-default btn-sm" onclick="loadFileGraph(currentScanId(), \'' + escHtml(data.file_path).replace(/'/g, "\\'") + '\')"><i class="fa fa-file-code-o"></i> 查看文件</button>';
@@ -1831,10 +1851,10 @@ $(document).ready(function () {
         if (sid && !isNaN(vid)) {
             // 异步加载源码上下文
             if (data.file_path && data.lineno) {
-                $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载源码...</span></div>');
+                $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted gp-fs11">加载源码...</span></div>');
                 loadNodeSource(sid, vid);
             }
-            $('#nodeDetailContent').append('<div id="nodeVulnsArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载关联漏洞...</span></div>');
+            $('#nodeDetailContent').append('<div id="nodeVulnsArea" style="margin-top:10px;"><span class="km-muted gp-fs11">加载关联漏洞...</span></div>');
             $.ajax({
                 url: '/api/graph/node_vulns',
                 data: { scan_id: sid, vid: vid },
@@ -1842,7 +1862,7 @@ $(document).ready(function () {
                 success: function (resp) {
                     var $va = $('#nodeVulnsArea');
                     if (!resp.data || resp.data.length === 0) {
-                        $va.html('<div style="font-size:11px;color:#999;">无关联漏洞</div>');
+                        $va.html('<div class="gp-muted-sm">无关联漏洞</div>');
                         return;
                     }
                     var vulnHtml = '<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#e74c3c;"><i class="fa fa-bug"></i> 关联漏洞 (' + resp.data.length + ')</div>';
@@ -1859,7 +1879,7 @@ $(document).ready(function () {
                     $va.html(vulnHtml);
                 },
                 error: function () {
-                    $('#nodeVulnsArea').html('<div style="font-size:11px;color:#999;">加载失败</div>');
+                    $('#nodeVulnsArea').html('<div class="gp-muted-sm">加载失败</div>');
                 }
             });
         }
@@ -1869,24 +1889,24 @@ $(document).ready(function () {
         var $sa = $('#nodeSourceArea');
         if (!$sa.length) {
             // 如果源码区域不存在，追加到节点详情面板末尾
-            $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted" style="font-size:11px;">加载源码...</span></div>');
+            $('#nodeDetailContent').append('<div id="nodeSourceArea" style="margin-top:10px;"><span class="km-muted gp-fs11">加载源码...</span></div>');
             $sa = $('#nodeSourceArea');
         }
-        $sa.html('<span class="km-muted" style="font-size:11px;">加载源码...</span>');
+        $sa.html('<span class="km-muted gp-fs11">加载源码...</span>');
         $.ajax({
             url: '/api/graph/node_source',
             data: { scan_id: scanId, vid: vid, context_lines: 8 },
             dataType: 'json',
             success: function(resp) {
                 if (resp.code !== 200 || resp.data.error) {
-                    $sa.html('<div style="font-size:11px;color:#999;">' + escHtml(resp.data.error || '加载失败') + '</div>');
+                    $sa.html('<div class="gp-muted-sm">' + escHtml(resp.data.error || '加载失败') + '</div>');
                     return;
                 }
                 var d = resp.data;
                 var targetLine = d.lineno;
                 var lines = d.lines || [];
                 if (lines.length === 0) {
-                    $sa.html('<div style="font-size:11px;color:#999;">无源码数据</div>');
+                    $sa.html('<div class="gp-muted-sm">无源码数据</div>');
                     return;
                 }
                 // 推断语言
@@ -1919,7 +1939,7 @@ $(document).ready(function () {
                 $sa.html(html);
             },
             error: function() {
-                $sa.html('<div style="font-size:11px;color:#999;">加载失败</div>');
+                $sa.html('<div class="gp-muted-sm">加载失败</div>');
             }
         });
     }
@@ -2042,7 +2062,7 @@ $(document).ready(function () {
         if (cy) { cy.elements().remove(); }
         graphElements = null;
         $('#graphStats').text('');
-        $('#nodeDetailContent').html('<div class="km-muted text-center" style="padding:20px;">点击图中的节点查看详情</div>');
+        $('#nodeDetailContent').html('<div class="km-muted text-center gp-pad20">点击图中的节点查看详情</div>');
     });
 
     // Layout change
