@@ -250,7 +250,7 @@
         </div>
         <div class="box-body table-responsive">
           <table class="table table-hover km-table">
-            <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th></tr></thead>
+            <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th><th style="text-align:right;width:70px;">图</th></tr></thead>
             <tbody id="fileListBody">
               <tr><td colspan="3" class="text-center km-muted" style="padding:15px;"><i class="fa fa-folder-open" style="font-size:20px;color:#ddd;"></i><br>加载图数据后自动显示</td></tr>
             </tbody>
@@ -640,6 +640,7 @@ $(document).ready(function () {
     $("#graph_analysis").addClass("active");
 
     var currentScanId = null;
+    var selectedFilePath = null;
     var scanProjectMap = {};  // scan_id → project_id 缓存
     var graphLoaded = false;  // 当前 scan 的图是否已加载到后端
     var graphIdleTimer = null;  // 定时轮询后端 idle 状态
@@ -931,7 +932,7 @@ $(document).ready(function () {
         // 显示 loading 占位
         var loadingHtml = '<tr><td colspan="3" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>';
         $('#labelSummaryBody').html(loadingHtml);
-        $('#fileListBody').html('<tr><td colspan="3" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
+        $('#fileListBody').html('<tr><td colspan="4" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
         $('#edgeTypeBody').html('<tr><td colspan="4" class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin text-primary"></i> 正在加载...</td></tr>');
 
         $.ajax({
@@ -1062,24 +1063,39 @@ $(document).ready(function () {
     function renderFileList($fl, files, cap) {
         $fl.empty();
         if (!files || files.length === 0) {
-            $fl.append('<tr><td colspan="3" class="text-center km-muted">无匹配</td></tr>');
+            $fl.append('<tr><td colspan="4" class="text-center km-muted">无匹配</td></tr>');
             return;
         }
         var rows = [];
         var n = Math.min(files.length, cap || 80);
         for (var i = 0; i < n; i++) {
             var f = files[i];
-            rows.push('<tr><td><a href="#" class="file-link" data-path="' + escHtml(f.path || f.name || '') + '">' + escHtml(f.path || f.name || '-') + '</a></td>'
+            var fp = f.path || f.name || '';
+            rows.push('<tr><td><a href="#" class="file-link" data-path="' + escHtml(fp) + '">' + escHtml(fp || '-') + '</a></td>'
                 + '<td>' + escHtml(f.language || '-') + '</td>'
-                + '<td style="text-align:right;">' + (f.node_count || 0) + '</td></tr>');
+                + '<td style="text-align:right;">' + (f.node_count || 0) + '</td>'
+                + '<td style="width:70px;text-align:right;"><button type="button" class="btn btn-default btn-sm file-graph-btn" data-path="' + escHtml(fp) + '" title="在图可视化中打开该文件的子图"><i class="fa fa-project-diagram"></i> 图</button></td></tr>');
         }
         $fl.append(rows.join(''));
     }
+
+    $(document).on('click', '.file-graph-btn', function (e) {
+        e.preventDefault();
+        var path = $(this).data('path');
+        selectedFilePath = path;
+        // 切到图可视化 tab 并直接加载该文件子图
+        $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
+        $('.tab-btn[data-tab="tab-graph"]').removeClass('btn-default').addClass('btn-primary');
+        $('.tab-pane').hide();
+        $('#tab-graph').show();
+        loadFileGraph(currentScanId, path);
+    });
 
     $(document).on('click', '.file-link', function (e) {
         e.preventDefault();
         var path = $(this).data('path');
         $('#fileQueryInput').val(path);
+        selectedFilePath = path;
         // 切换到文件 Tab
         $('.tab-btn').removeClass('btn-primary').addClass('btn-default');
         $('.tab-btn[data-tab="tab-file"]').removeClass('btn-default').addClass('btn-primary');
@@ -1908,8 +1924,9 @@ $(document).ready(function () {
     function loadSubgraph(scanId, vid, depth) {
         requireGraph(function() {
             ensureCytoscape(function() {
-                if (!scanId || vid === undefined || vid === null) { alert('请先选择 Scan 并输入节点 VID'); return; }
+                if (!scanId || vid === undefined || vid === null) { kmToast('请先选择 Scan 并输入节点 VID', 'error'); return; }
                 depth = depth || parseInt($('#graphDepthInput').val()) || 2;
+                $('#btnLoadSubgraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> ...');
 
                 var edgeLabels = [];
                 $('.graph-edge-filter:checked').each(function() { edgeLabels.push($(this).val()); });
@@ -1927,28 +1944,35 @@ $(document).ready(function () {
                         $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
                         if (resp.code === 200 && resp.data) {
                             if (resp.data.error) {
-                                alert(resp.data.error); return;
+                                kmToast(resp.data.error, 'error'); return;
                             }
                             renderGraph(resp.data);
                             // Highlight center node
                             cy.$('#' + String(vid)).addClass('highlighted');
                         } else {
-                            alert(resp.error || '加载失败');
+                            kmToast(resp.error || '加载失败', 'error');
                         }
                     },
                     error: function() {
                         $('#btnLoadSubgraph').prop('disabled', false).html('<i class="fa fa-project-diagram"></i> 加载子图');
-                        alert('请求失败');
+                        kmToast('请求失败', 'error');
                     }
                 });
             }); // ensureCytoscape
         }); // requireGraph
     }
 
+    function kmToast(msg, type) {
+        var colors = {error: '#dc2626', success: '#16a34a', info: '#2563eb'};
+        var $t = $('<div style="position:fixed;top:18px;right:18px;z-index:2000;padding:10px 16px;border-radius:8px;color:#fff;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,0.18);background:' + (colors[type] || colors.info) + ';">' + msg + '</div>');
+        $('body').append($t);
+        setTimeout(function() { $t.fadeOut(300, function() { $t.remove(); }); }, 3500);
+    }
+
     function loadFileGraph(scanId, filePath) {
         requireGraph(function() {
             ensureCytoscape(function() {
-                if (!scanId || !filePath) { alert('请先选择 Scan 并输入文件路径'); return; }
+                if (!scanId || !filePath) { kmToast('请先选择 Scan 并输入文件路径', 'error'); return; }
                 var params = { scan_id: scanId, file_path: filePath, max_nodes: 1000 };
 
             $('#btnLoadFileGraph').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> ...');
@@ -1958,15 +1982,16 @@ $(document).ready(function () {
                 success: function(resp) {
                     $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
                     if (resp.code === 200 && resp.data) {
-                        if (resp.data.error) { alert(resp.data.error); return; }
+                        if (resp.data.error) { kmToast(resp.data.error, 'error'); return; }
                         renderGraph(resp.data);
+                        kmToast('文件图已加载', 'success');
                     } else {
-                        alert(resp.error || '加载失败');
+                        kmToast(resp.error || '加载失败', 'error');
                     }
                 },
                 error: function() {
                     $('#btnLoadFileGraph').prop('disabled', false).html('<i class="fa fa-file-code-o"></i> 加载文件图');
-                    alert('请求失败');
+                    kmToast('请求失败', 'error');
                 }
             }); // ajax
             }); // ensureCytoscape
@@ -2001,8 +2026,7 @@ $(document).ready(function () {
     });
 
     $('#btnLoadFileGraph').on('click', function() {
-        // Pop up to ask file path
-        var filePath = prompt('输入文件路径:', '');
+        var filePath = selectedFilePath || prompt('输入文件路径:', '');
         if (!filePath) return;
         loadFileGraph(currentScanId, filePath);
     });
