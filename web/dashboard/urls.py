@@ -75,6 +75,7 @@ urlpatterns = [
 
     # AI 能力
     path('ai/vul/<int:vul_id>/analyze', login_required(ai.AiVulAnalyzeView.as_view()), name='ai_vul_analyze'),
+    path('ai/vul/<int:vul_id>/detail', login_required(ai.AiVulDetailView.as_view()), name='ai_vul_detail'),
     path('ai/project/<int:project_id>/report', login_required(ai.AiProjectReportView.as_view()), name='ai_project_report'),
     path('ai/rule/generate', login_required(ai.AiRuleGenerateView.as_view()), name='ai_rule_generate'),
     path('ai/settings', login_required(ai.AiSettingsView.as_view()), name='ai_settings'),

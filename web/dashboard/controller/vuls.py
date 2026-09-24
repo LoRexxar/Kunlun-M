@@ -183,8 +183,16 @@ class VulListView(TemplateView):
                 'verification_status': r.verification_status,
                 'ai_verdict': r.ai_verdict,
                 'ai_confidence': r.ai_confidence,
+                'ai_reasoning': (r.ai_reasoning or '')[:300],
+                'ai_fix': (r.ai_fix or '')[:200],
+                'ai_disagreed': bool(
+                    r.ai_verdict in ('tp', 'fp')
+                    and r.verification_status in ('tp', 'fp')
+                    and r.ai_verdict != r.verification_status
+                ),
                 'chain_summary': chain_summary,
-                'chain_nodes_json': json.dumps(chains, ensure_ascii=False),
+                # '</script>' 会提前终止宿主 <script> 块 → 拆开斜杠（JSON/JS 均合法）
+                'chain_nodes_json': json.dumps(chains, ensure_ascii=False).replace('</script>', '<\\/script>').replace('</Script>', '<\\/Script>').replace('</SCRIPT>', '<\\/SCRIPT>'),
                 'has_chain': len(chains) > 0,
             })
 

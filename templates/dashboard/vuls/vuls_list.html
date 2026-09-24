@@ -320,9 +320,9 @@
             {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;font-weight:600;">FP</span>
             {% elif r.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
             {% else %}<span style="color:#6b7280;">-</span>{% endif %}
-            {% if r.ai_verdict == 'tp' %}<span title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#dcfce7;color:#15803d;font-size:11px;">AI:TP</span>
-            {% elif r.ai_verdict == 'fp' %}<span title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;">AI:FP</span>
-            {% elif r.ai_verdict == 'uncertain' %}<span title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;">AI:?</span>{% endif %}
+            {% if r.ai_verdict == 'tp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#dcfce7;color:#15803d;font-size:11px;cursor:pointer;{% if r.ai_disagreed %}box-shadow:0 0 0 2px #f59e0b;{% endif %}">AI:TP{% if r.ai_disagreed %}≠{% endif %}</span>
+            {% elif r.ai_verdict == 'fp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;cursor:pointer;{% if r.ai_disagreed %}box-shadow:0 0 0 2px #f59e0b;{% endif %}">AI:FP{% if r.ai_disagreed %}≠{% endif %}</span>
+            {% elif r.ai_verdict == 'uncertain' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;cursor:pointer;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;">AI:?</span>{% endif %}
           </td>
           <td>
             <div class="dropdown">
@@ -359,6 +359,17 @@
   </div>
 
   
+  <!-- AI 分诊详情对照弹窗 -->
+  <div id="aiDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:1070;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;width:640px;max-width:92vw;max-height:82vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,0.18);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #eef0f3;">
+        <strong style="font-size:15px;"><i class="fa fa-robot" style="color:#6366f1;"></i> AI 分诊详情 · 对照</strong>
+        <button class="btn btn-sm btn-default" onclick="document.getElementById('aiDetailModal').style.display='none'">✕</button>
+      </div>
+      <div id="aiDetailBody"></div>
+    </div>
+  </div>
+
   <!-- AI 分析抽屉 -->
   <div id="aiDrawer" style="display:none;position:fixed;top:0;right:0;width:460px;max-width:95vw;height:100vh;background:#fff;box-shadow:-6px 0 24px rgba(0,0,0,.15);z-index:1060;overflow-y:auto;padding:20px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -651,6 +662,54 @@ document.addEventListener('change', function(e) {
     document.querySelectorAll('.vul-sel').forEach(cb => cb.checked = e.target.checked);
   }
   if (e.target.classList && e.target.classList.contains('vul-sel')) refreshBulkBar();
+});
+
+/* AI 分诊详情对照弹窗 */
+function showAiDetail(vulId) {
+  var modal = document.getElementById('aiDetailModal');
+  var body = document.getElementById('aiDetailBody');
+  modal.style.display = 'flex';
+  body.innerHTML = '<div style="padding:20px;color:#9ca3af;"><i class="fa fa-spinner fa-spin"></i> 加载 AI 分析...</div>';
+  var m = document.cookie.match(/csrftoken=([^;]+)/);
+  var token = m ? decodeURIComponent(m[1]) : '';
+  fetch('/dashboard/ai/vul/' + vulId + '/detail', {credentials:'same-origin'})
+    .then(r => r.json())
+    .then(function(res) {
+      if (res.code !== 200) { body.innerHTML = '<div style="padding:20px;color:#dc2626;">' + (res.message || '加载失败') + '</div>'; return; }
+      var d = res.data;
+      if (!d.verdict) { body.innerHTML = '<div style="padding:20px;color:#9ca3af;">该漏洞尚未 AI 分析。可在"操作"菜单点"AI 分析"。</div>'; return; }
+      var vLabel = d.verdict === 'tp' ? ['真实漏洞 (TP)', '#16a34a'] : d.verdict === 'fp' ? ['误报 (FP)', '#dc2626'] : ['不确定', '#d97706'];
+      var hLabel = d.human_status === 'tp' ? ['人工已确认 TP', '#16a34a'] : d.human_status === 'fp' ? ['人工已判 FP', '#dc2626'] : d.human_status === 'stale' ? ['人工标记过期', '#adb5bd'] : ['未人工复核', '#6b7280'];
+      var html = '<div style="display:flex;gap:10px;margin-bottom:14px;">';
+      html += '<div style="flex:1;padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;"><div style="font-size:11px;color:#6c757d;margin-bottom:4px;">AI 判定</div><strong style="color:' + vLabel[1] + ';font-size:15px;">' + vLabel[0] + '</strong><div style="font-size:11px;color:#9ca3af;margin-top:2px;">置信度 ' + (d.confidence || '-') + (d.severity_adjust ? ' · 建议' + (d.severity_adjust === 'up' ? '升级' : d.severity_adjust === 'down' ? '降级' : '维持') : '') + '</div></div>';
+      html += '<div style="flex:1;padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;"><div style="font-size:11px;color:#6c757d;margin-bottom:4px;">人工判定</div><strong style="color:' + hLabel[1] + ';font-size:15px;">' + hLabel[0] + '</strong>' + (d.disagreed ? '<div style="font-size:11px;color:#f59e0b;margin-top:2px;"><i class="fa fa-exclamation-triangle"></i> 与 AI 分歧</div>' : '') + '</div>';
+      html += '</div>';
+      if (d.reasoning) html += '<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-brain"></i> AI 判定理由</div><div style="font-size:13px;color:#4b5563;line-height:1.6;background:#fafbfc;border-left:3px solid #c7d2fe;padding:8px 12px;border-radius:0 6px 6px 0;">' + escapeHtml(d.reasoning) + '</div></div>';
+      if (d.fix) html += '<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-wrench"></i> 修复建议</div><div style="font-size:13px;color:#4b5563;line-height:1.6;background:#f0fdf4;border-left:3px solid #86efac;padding:8px 12px;border-radius:0 6px 6px 0;">' + escapeHtml(d.fix) + '</div></div>';
+      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:14px;">';
+      html += '<button class="btn btn-sm btn-success" onclick="aiDetailMark(' + vulId + ',\"tp\")"><i class="fa fa-check"></i> 确认 TP</button>';
+      html += '<button class="btn btn-sm btn-danger" onclick="aiDetailMark(' + vulId + ',\"fp\")"><i class="fa fa-times"></i> 标记 FP</button>';
+      html += '<span style="margin-left:auto;font-size:11px;color:#9ca3af;">分析时间: ' + (d.analyzed_at || '-') + '</span>';
+      html += '</div>';
+      body.innerHTML = html;
+    })
+    .catch(e => { body.innerHTML = '<div style="padding:20px;color:#dc2626;">请求失败: ' + e + '</div>'; });
+}
+function aiDetailMark(vulId, action) {
+  var m = document.cookie.match(/csrftoken=([^;]+)/);
+  var token = m ? decodeURIComponent(m[1]) : '';
+  fetch('/dashboard/vuls/verify/bulk', {method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': token},
+    body: JSON.stringify({ids: [vulId], action: action})})
+    .then(r => r.json())
+    .then(function(d) {
+      if (d.code === 200) { document.getElementById('aiDetailModal').style.display = 'none'; location.reload(); }
+      else alert('操作失败: ' + (d.message || ''));
+    });
+}
+document.addEventListener('click', function(e) {
+  var modal = document.getElementById('aiDetailModal');
+  if (modal && modal.style.display === 'flex' && e.target === modal) modal.style.display = 'none';
 });
 
 /* 键盘导航 */

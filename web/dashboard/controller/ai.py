@@ -338,3 +338,33 @@ class AiSettingsView(View):
         else:
             messages.error(request, msg)
         return redirect("dashboard:ai_settings")
+
+class AiVulDetailView(View):
+    """读取漏洞的已存 AI 分诊结果（不触发新分析）"""
+
+    @staticmethod
+    def get(request, vul_id):
+        from django.contrib.auth.decorators import login_required
+        from web.index.models import ScanResultTask
+
+        srt = ScanResultTask.objects.filter(id=vul_id, is_active=True).only(
+            'ai_verdict', 'ai_confidence', 'ai_reasoning', 'ai_fix',
+            'ai_severity_adjust', 'ai_analyzed_at', 'verification_status',
+        ).first()
+        if not srt:
+            return JsonResponse({"code": 404, "message": "结果不存在"})
+
+        return JsonResponse({"code": 200, "data": {
+            "verdict": srt.ai_verdict,
+            "confidence": srt.ai_confidence,
+            "reasoning": srt.ai_reasoning or '',
+            "fix": srt.ai_fix or '',
+            "severity_adjust": srt.ai_severity_adjust or '',
+            "analyzed_at": srt.ai_analyzed_at.strftime('%Y-%m-%d %H:%M') if srt.ai_analyzed_at else '',
+            "human_status": srt.verification_status or '',
+            "disagreed": bool(
+                srt.ai_verdict in ('tp', 'fp')
+                and srt.verification_status in ('tp', 'fp')
+                and srt.ai_verdict != srt.verification_status
+            ),
+        }})
