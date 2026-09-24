@@ -69,6 +69,14 @@ class TaskListView(TemplateView):
             .values_list('scan_task_id', 'cnt')
         )
 
+        # 状态计数（快速过滤 chips 用）
+        from django.db.models import Value, IntegerField
+        all_ids = ScanTask.objects.all()
+        context['st_running'] = all_ids.filter(is_finished=2).count()
+        context['st_queued'] = all_ids.filter(is_finished=3).count()
+        context['st_done'] = all_ids.filter(is_finished=1).count()
+        context['st_failed'] = all_ids.filter(is_finished__in=[0, -1]).count()
+
         context['tasks'] = rows
 
         context['page'] = page
@@ -86,6 +94,13 @@ class TaskListView(TemplateView):
             project = Project.objects.filter(id=project_id).first()
 
             task.project_name = project.project_name if project else '-'
+
+            # 预计算耗时（秒）与是否运行中（模板无减法）
+            task.is_running = (task.is_finished == 2)
+            task.elapsed_sec = ''
+            if task.started_at:
+                end = task.finished_at if task.finished_at else timezone.now()
+                task.elapsed_sec = max(0, int((end - task.started_at).total_seconds()))
 
         return context
 
