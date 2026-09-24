@@ -409,6 +409,16 @@
 
 {% block script %}
 <script>
+function kmToast(msg, type) {
+  var colors = {error: '#dc2626', success: '#16a34a', info: '#2563eb'};
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;top:18px;right:18px;z-index:2000;padding:10px 16px;border-radius:8px;color:#fff;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,0.18);background:' + (colors[type] || colors.info) + ';';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(function(){ t.remove(); }, 320); }, 3500);
+}
+</script>
+<script>
 var chainDataMap = {};
 {% for r in results %}
   {% if r.has_chain %}
@@ -749,12 +759,14 @@ document.addEventListener('click', function(e) {
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
       body: JSON.stringify({ids: [parseInt(id)], action: action})
     }).then(r => r.json()).then(function(d) {
-      if (d.code !== 200) return;
+      if (d.code !== 200) { if (typeof kmToast === 'function') kmToast('标记失败: ' + (d.message || d.error || '未知错误'), 'error'); return; }
       var td = row.children[9];
       var labels = {tp: ['TP', '#16a34a'], fp: ['FP', '#dc2626'], stale: ['过期', '#adb5bd']};
       if (action === 'unconfirm') { td.innerHTML = '<span style="color:#6b7280;">-</span>'; return; }
       var m = labels[action];
       if (m) td.innerHTML = '<span style="color:' + m[1] + ';font-weight:600;">' + m[0] + '</span>';
+    }).catch(function(err) {
+      if (typeof kmToast === 'function') kmToast('网络错误，标记未保存', 'error');
     });
   }
   document.addEventListener('keydown', function(e) {
@@ -773,8 +785,12 @@ document.addEventListener('click', function(e) {
       fetch('{% url "dashboard:vul_verify_bulk" %}', {
         method: 'POST', credentials: 'same-origin',
         headers: {'Content-Type': 'application/json',
-                  'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+                  'X-CSRFToken': (typeof kmCsrf === 'function' ? kmCsrf() : document.querySelector('[name=csrfmiddlewaretoken]').value)},
         body: JSON.stringify({ids: [last.id], action: 'unconfirm'})
+      }).then(r => r.json()).then(function(d) {
+        if (d.code !== 200 && typeof kmToast === 'function') kmToast('撤销失败: ' + (d.message || d.error || '未知错误'), 'error');
+      }).catch(function() {
+        if (typeof kmToast === 'function') kmToast('网络错误，撤销未保存', 'error');
       });
     }
     else if (k === '1' && cur >= 0) { var cb = rows()[cur].querySelector('.vul-sel'); cb.checked = !cb.checked; refreshBulkBar(); }
