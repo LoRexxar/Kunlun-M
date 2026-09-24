@@ -43,7 +43,7 @@
 
 /* 5. 卡片间距统一，去除 row 间不一致 */
 .graph-page .row { align-items: stretch; }
-.graph-page .card { margin-bottom: 1rem; height: 100%; }
+.graph-page .card { margin-bottom: 1rem; }
 .graph-page .card-header { padding: 0.6rem 1rem; }
 .graph-page .card-body { padding: 0.8rem 1rem; }
 
@@ -100,6 +100,9 @@
 .graph-page #nodeDetailContent, .graph-page .km-code-header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .graph-page #nodeDetailContent table { width: 100%; }
 .graph-page .km-code-path { font-size: 11px; color: #9ca3af; word-break: break-all; }
+
+.km-file-scroll { max-height: 46vh; overflow-y: auto; }
+.km-file-scroll thead th { position: sticky; top: 0; z-index: 5; background: #fff; box-shadow: 0 1px 0 #e5e7eb; }
 </style>
 {% endblock %}
 
@@ -108,8 +111,8 @@
 
 <!-- Scan 选择区 -->
 <div class="row">
-  <div class="col-6 col-md-4">
-    <div class="card">
+  <div class="col-6 col-md-4" style="display:flex;align-items:flex-start;">
+    <div class="card" style="width:100%;align-self:flex-start;">
       <div class="card-body">
         <div class="input-group">
           <select id="scanSelect" class="form-control">
@@ -248,7 +251,7 @@
         <div class="card-header d-flex align-items-center justify-content-between">
           <h3 class="card-title">文件列表</h3>
         </div>
-        <div class="box-body table-responsive">
+        <div class="box-body table-responsive km-file-scroll">
           <table class="table table-hover km-table">
             <thead><tr><th>路径</th><th>语言</th><th style="text-align:right;">节点数</th><th style="text-align:right;width:70px;">图</th></tr></thead>
             <tbody id="fileListBody">

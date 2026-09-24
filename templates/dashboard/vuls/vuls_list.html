@@ -195,6 +195,10 @@
 
 .km-kb-focus > td { background: #fff8e1 !important; box-shadow: inset 3px 0 0 #f59e0b; }
 .vul-sel { cursor: pointer; }
+
+/* 固定表头 */
+.table-responsive.km-vul-scroll { max-height: 72vh; overflow-y: auto; }
+.table-responsive.km-vul-scroll thead th { position: sticky; top: 0; z-index: 5; background: #f8fafc; box-shadow: 0 1px 0 #e5edf7; }
 </style>
 <div class="card">
 <div class="card-header">
@@ -268,7 +272,7 @@
     </div>
   </form>
 
-  <div class="table-responsive">
+  <div class="table-responsive km-vul-scroll">
     <table class="table table-hover vul-table" id="vulTable">
       <colgroup>
         <col class="vc-id">
@@ -721,6 +725,7 @@ document.addEventListener('click', function(e) {
 /* 键盘导航 */
 (function() {
   var cur = -1;
+  var markHistory = [];   // [{id, action, prevTdHtml}]
   function rows() { return [...document.querySelectorAll('tr.km-vul-row')]; }
   function focusRow(idx) {
     var rs = rows();
@@ -734,6 +739,9 @@ document.addEventListener('click', function(e) {
     if (cur < 0) return;
     var row = rows()[cur];
     var id = row.getAttribute('data-vul-id');
+    var prevTdHtml = row.children[9].innerHTML;
+    markHistory.push({id: parseInt(id), action: action, prevTdHtml: prevTdHtml});
+    if (markHistory.length > 50) markHistory.shift();
     fetch('{% url "dashboard:vul_verify_bulk" %}', {
       method: 'POST',
       credentials: 'same-origin',
@@ -758,6 +766,17 @@ document.addEventListener('click', function(e) {
     else if (k === 'f' && cur >= 0) markCur('fp');
     else if (k === 'x' && cur >= 0) markCur('stale');
     else if (k === 'u' && cur >= 0) markCur('unconfirm');
+    else if (k === 'z' && markHistory.length > 0) {
+      var last = markHistory.pop();
+      var rowEl = document.querySelector('tr.km-vul-row[data-vul-id="' + last.id + '"]');
+      if (rowEl) rowEl.children[9].innerHTML = last.prevTdHtml;
+      fetch('{% url "dashboard:vul_verify_bulk" %}', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+        body: JSON.stringify({ids: [last.id], action: 'unconfirm'})
+      });
+    }
     else if (k === '1' && cur >= 0) { var cb = rows()[cur].querySelector('.vul-sel'); cb.checked = !cb.checked; refreshBulkBar(); }
     else if (e.key === 'Enter' && cur >= 0) { rows()[cur].click(); }
   });

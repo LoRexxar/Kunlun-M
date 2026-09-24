@@ -6,6 +6,7 @@
 # @Contact : lorexxar@gmail.com
 
 from django.urls import path
+from django.views.generic import RedirectView
 from django.contrib.auth.decorators import login_required
 
 from web.dashboard import views
@@ -16,6 +17,10 @@ from web.dashboard.interface import scanresult
 app_name = "dashboard"
 urlpatterns = [
     path('', views.index, name='index'),
+
+    # 旧短链重定向（收藏夹/文档兼容）
+    path('tasks', RedirectView.as_view(pattern_name='dashboard:tasks_list', permanent=False)),
+    path('rules', RedirectView.as_view(pattern_name='dashboard:rules_list', permanent=False)),
 
     # task
     path('tasks/list', login_required(tasks.TaskListView.as_view()), name='tasks_list'),
