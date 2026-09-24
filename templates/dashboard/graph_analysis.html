@@ -30,6 +30,10 @@
 .graph-page .stat-num { font-size: 28px; font-weight: 700; line-height: 1.2; }
 
 /* 4. 表格：紧凑、对齐、避免缩进漂移 */
+/* 关键修复：.km-table 全局 min-width:980px 会在小卡片中溢出 —— 卡片内表格收回自适应宽 */
+.graph-page .card .km-table,
+.graph-page .card .table { min-width: 0 !important; width: 100% !important; table-layout: auto !important; }
+.graph-page .km-table { border-radius: 8px; }
 .graph-page .table { margin-bottom: 0; font-size: 13px; }
 .graph-page .table th, .graph-page .table td { vertical-align: middle; padding: 0.45rem 0.6rem; }
 .graph-page .table th { font-weight: 600; color: #6c757d; white-space: nowrap; border-bottom-width: 1px; }
@@ -63,6 +67,39 @@
 .graph-page .mb-0-last { margin-bottom: 0 !important; }
 .graph-page h3.card-title { font-size: 14px; font-weight: 600; margin: 0; }
 .graph-page .btn-sm { font-size: 12px; }
+
+/* 11. BS3 input-group-addon（前缀标签）在 tabler 下还原为紧凑前置块 */
+.graph-page .input-group .input-group-addon {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 0.6rem; font-size: 12px; color: #6c757d;
+  background: #f1f3f5; border: 1px solid #d0d7de; border-right: 0;
+  border-radius: 4px 0 0 4px; white-space: nowrap;
+}
+.graph-page .input-group .input-group-addon + .form-control { border-radius: 0 4px 4px 0 !important; width: auto; }
+.graph-page .input-group > .form-control[style*="width:60px"] { flex: 0 0 60px; width: 60px; }
+
+/* 12. BS3 text-right → 右对齐 */
+.graph-page .text-right { text-align: right; }
+@media (max-width: 768px) { .graph-page .text-right { text-align: left; } }
+
+/* 13. tab 按钮组：贴齐、不折行、滚动 */
+.graph-page .btn-group.tab-btn, .graph-page .btn-group { display: inline-flex; flex-wrap: wrap; gap: 0; }
+.graph-page .btn-group > .btn + .btn { margin-left: -1px; }
+.graph-page .btn-group > .btn { border-radius: 0; }
+.graph-page .btn-group > .btn:first-child { border-radius: 4px 0 0 4px; }
+.graph-page .btn-group > .btn:last-child { border-radius: 0 4px 4px 0; }
+
+/* 14. 过滤 checkbox 行：flex 换行、紧凑 */
+.graph-page label input[type="checkbox"] { vertical-align: -2px; margin: 0 3px 0 0; }
+.graph-page .card-body label { display: inline-flex; align-items: center; margin-bottom: 0; }
+
+/* 15. 概览统计数字 */
+.graph-page .box-body .num, .graph-page [id^="stat"] { font-variant-numeric: tabular-nums; }
+
+/* 16. 节点详情/源码面板：文字不溢出 */
+.graph-page #nodeDetailContent, .graph-page .km-code-header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.graph-page #nodeDetailContent table { width: 100%; }
+.graph-page .km-code-path { font-size: 11px; color: #9ca3af; word-break: break-all; }
 </style>
 {% endblock %}
 
