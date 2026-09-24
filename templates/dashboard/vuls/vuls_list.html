@@ -199,19 +199,99 @@
 /* 固定表头 */
 .table-responsive.km-vul-scroll { max-height: 72vh; overflow-y: auto; }
 .table-responsive.km-vul-scroll thead th { position: sticky; top: 0; z-index: 5; background: #f8fafc; box-shadow: 0 1px 0 #e5edf7; }
+
+/* ===== vuls 页内联样式收编 ===== */
+.vuls-page .vp-auto { width: auto; }
+.vuls-page .vp-mb12 { margin-bottom: 12px; }
+.vuls-page .vp-empty { padding: 16px; color: #9ca3af; }
+.vuls-page .vp-empty-lg { padding: 20px; color: #9ca3af; }
+.vuls-page .vp-empty-err { padding: 20px; color: #dc2626; }
+.vuls-page .vp-field-label { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+.vuls-page .vp-stat-card { flex: 1; padding: 10px; border-radius: 8px; background: #f8fafc; border: 1px solid #e5e7eb; }
+.vuls-page .vp-sub { font-size: 11px; color: #6c757d; margin-bottom: 4px; }
+.vuls-page .vp-code-chip { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+.vuls-page .vp-pill { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 11px; cursor: pointer; }
+.vuls-page .vp-pill-green { background: #dcfce7; color: #15803d; }
+.vuls-page .vp-pill-red { background: #fee2e2; color: #b91c1c; }
+.vuls-page .vp-pill-amber { background: #fef3c7; color: #b45309; }
+.vuls-page .vp-modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 1070; align-items: center; justify-content: center; }
+.vuls-page .vp-modal-box { background: #fff; border-radius: 10px; width: 640px; max-width: 92vw; max-height: 82vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(15,23,42,0.22); }
+.vuls-page .vp-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #eef0f3; }
+.vuls-page .vp-panel { position: fixed; top: 0; right: 0; width: 460px; max-width: 95vw; height: 100vh; background: #fff; box-shadow: -6px 0 24px rgba(15,23,42,0.18); }
+.vuls-page .vp-head-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.vuls-page .vp-note { font-size: 13px; color: #4b5563; line-height: 1.6; padding: 8px 12px; border-radius: 4px; }
+.vuls-page .vp-note-ai { background: #fafbfc; border-left: 3px solid #c7d2fe; }
+.vuls-page .vp-note-fix { background: #f0fdf4; border-left: 3px solid #86efac; }
+.vuls-page .vp-notes-input { width: 100%; font-size: 13px; padding: 8px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; }
+.vuls-page .vp-mt16 { margin-top: 16px; }
+.vuls-page .vp-muted { color: #9ca3af; }
+.vuls-page .vp-ta-ok { color: #16a34a; font-weight: 600; }
+.vuls-page .vp-ta-no { color: #dc2626; font-weight: 600; }
+.vuls-page .vp-ta-old { color: #adb5bd; }
+.vuls-page .vp-flex-gap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.vuls-page .vp-compare { display: flex; gap: 10px; margin-bottom: 14px; }
+.vuls-page .vp-scroll420 { max-height: 420px; overflow-y: auto; }
+.vuls-page .vp-chip { display: inline-block; padding: 2px 8px; font-size: 11px; border-radius: 4px; }
+
+.vuls-page .vp-no-deco { text-decoration: none; }
+.vuls-page .vp-mid { color: #6b7280; }
+.vuls-page .vp-lbl-b { font-weight: 600; margin-bottom: 4px; }
+.vuls-page .vp-gap8 { gap: 8px; }
+.vuls-page .vp-w220 { width: 220px; }
+.vuls-page .vp-toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.vuls-page .vp-fs12-muted { font-size: 12px; color: #6c757d; }
+.vuls-page .vp-fs13 { font-size: 13px; }
+.vuls-page .vp-w100 { width: 100px; }
+.vuls-page .vp-w26 { width: 26px; }
+.vuls-page .vp-click { cursor: pointer; }
+.vuls-page .vp-mb0 { margin: 0; }
+.vuls-page .vp-sev-red-deep { background: #a00 !important; color: #fff !important; }
+.vuls-page .vp-gap10mt { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+
+.vuls-page .vp-ai-hint { font-size: 11px; color: #8a94a6; margin-left: auto; }
+.vuls-page .vp-flex8 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.vuls-page .vp-pad2-8 { padding: 2px 8px; }
+.vuls-page .vp-reset-cell { padding: 0 !important; border: none !important; }
+.vuls-page .vp-fs15 { font-size: 15px; }
+.vuls-page .vp-link-ai { color: #6366f1; }
+.vuls-page .vp-fs14 { font-size: 14px; line-height: 1.7; }
+.vuls-page .vp-mt16b { margin-top: 16px; }
+.vuls-page .vp-ml12 { margin-left: 12px; }
+.vuls-page .vp-ml8 { margin-left: 8px; }
+.vuls-page .vp-ml-auto-chip { margin-left: auto; padding: 2px 8px; font-size: 11px; }
+
+.vuls-page .vp-pill-cond { box-shadow: 0 0 0 2px #f59e0b; }
+.vuls-page .vp-modal-box2 { background: #fff; border-radius: 10px; width: 640px; max-width: 92vw; max-height: 82vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
+
+.vuls-page .vp-cmp-num { font-size: 15px; }
+.vuls-page .vp-cmp-sub { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.vuls-page .vp-cmp-sub-warn { font-size: 11px; color: #f59e0b; margin-top: 2px; }
+.vuls-page .vp-sec-title { color: #374151; margin-bottom: 12px; }
+.vuls-page .vp-txt { color: #374151; }
+.vuls-page .vp-foot-hint { margin-top: 16px; color: #9ca3af; font-size: 12px; }
+.vuls-page .vp-mt14 { margin-top: 14px; }
+.vuls-page .vp-warn-tag { color: #f59e0b; font-weight: 400; }
+.vuls-page .vp-ta-ok-b { color: #16a34a; font-weight: 700; }
+.vuls-page .vp-ta-no-b { color: #dc2626; font-weight: 700; }
+.vuls-page .vp-ta-old-b { color: #d97706; font-weight: 700; }
+.vuls-page .vp-mini-hint { margin-left: auto; font-size: 11px; color: #9ca3af; }
+.vuls-page .vp-kb-mark { font-weight: 600; }
+
+.vuls-page .vp-note-ai-2 { font-size: 13px; color: #4b5563; line-height: 1.6; background: #fafbfc; border-left: 3px solid #c7d2fe; padding: 8px 12px; border-radius: 0 6px 6px 0; }
+.vuls-page .vp-note-fix-2 { font-size: 13px; color: #4b5563; line-height: 1.6; background: #f0fdf4; border-left: 3px solid #86efac; padding: 8px 12px; border-radius: 0 6px 6px 0; }
 </style>
 <div class="card">
 <div class="card-header">
   <h3 class="card-title">漏洞列表 <span class="badge bg-yellow">{{ total }}</span></h3>
-  <div class="card-tools d-flex ms-auto" style="gap:8px;">
-    <input type="text" id="searchBox" class="form-control form-control-sm" style="width:220px;" placeholder="搜索文件/代码/CVI..." value="{{ f_q }}">
+  <div class="card-tools d-flex ms-auto vp-gap8">
+    <input type="text" id="searchBox" class="form-control form-control-sm vp-w220" placeholder="搜索文件/代码/CVI..." value="{{ f_q }}">
     <button type="button" class="btn btn-sm btn-primary" id="btnSearch"><i class="fa fa-search"></i></button>
   </div>
 </div>
 <div class="card-body">
   <!-- 过滤器预设（一键组合） -->
-  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-    <span style="font-size:12px;color:#6c757d;"><i class="fa fa-filter"></i> 快速视图:</span>
+  <div class="vp-toolbar">
+    <span class="vp-fs12-muted"><i class="fa fa-filter"></i> 快速视图:</span>
     <a class="btn btn-sm {% if f_confirm == 'unconfirmed' and not f_level %}btn-primary{% else %}btn-default{% endif %}" href="?confirm=unconfirmed">未确认</a>
     <a class="btn btn-sm {% if f_confirm == 'ai-fp' and f_confirm != 'unconfirmed' %}btn-primary{% else %}btn-default{% endif %}" href="?confirm=ai-fp" title="AI 判为误报，待人工复核">AI判FP待复核 {% if ai_fp_count %}<span class="badge bg-danger ms-1">{{ ai_fp_count }}</span>{% endif %}</a>
     <a class="btn btn-sm btn-default" href="?confirm=ai-tp">AI判TP</a>
@@ -223,41 +303,41 @@
   </div>
   <!-- 批量操作条 -->
   <div id="bulkBar" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 12px; margin-bottom:8px; background:#eef4ff; border:1px solid #c7dbff; border-radius:6px;">
-    <strong style="font-size:13px;">已选 <span id="bulkCount">0</span> 条</strong>
+    <strong class="vp-fs13">已选 <span id="bulkCount">0</span> 条</strong>
     <button type="button" class="btn btn-sm btn-success" onclick="bulkVerify('tp')"><i class="fa fa-check"></i> 批量确认 TP</button>
     <button type="button" class="btn btn-sm btn-danger" onclick="bulkVerify('fp')"><i class="fa fa-times"></i> 批量标记 FP</button>
     <button type="button" class="btn btn-sm btn-secondary" onclick="bulkVerify('stale')"><i class="fa fa-hourglass-end"></i> 批量过期</button>
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="bulkVerify('unconfirm')"><i class="fa fa-undo"></i> 撤销标记</button>
-    <span style="font-size:11px;color:#8a94a6;margin-left:auto;">快捷键: j/k 移动 · t=TP f=FP x=过期 u=撤销 · Enter 展开 · 1-9 选行</span>
+    <span class="vp-ai-hint">快捷键: j/k 移动 · t=TP f=FP x=过期 u=撤销 · Enter 展开 · 1-9 选行</span>
   </div>
-  <form method="get" id="filterForm" style="margin-bottom:12px;">
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <select name="lang" class="form-select form-select-sm" style="width:auto;">
+  <form method="get" id="filterForm" class="vp-mb12">
+    <div class="vp-flex8">
+      <select name="lang" class="form-seleclass="vp-auto">
         <option value="">所有语言</option>
         {% for l in languages %}
         <option value="{{ l }}" {% if l == f_lang %}selected{% endif %}>{{ l }}</option>
         {% endfor %}
       </select>
-      <select name="cvi" class="form-select form-select-sm" style="width:auto;">
+      <select name="cvi" class="form-select form-select-sm vp-auto">
         <option value="">所有 CVI</option>
         {% for c in cvi_ids %}
         <option value="{{ c }}" {% if c == f_cvi %}selected{% endif %}>{{ c }}</option>
         {% endfor %}
       </select>
-      <select name="level" class="form-select form-select-sm" style="width:auto;">
+      <select name="level" class="form-select form-select-sm vp-auto">
         <option value="">所有等级</option>
         <option value="critical" {% if f_level == 'critical' %}selected{% endif %}>严重</option>
         <option value="high" {% if f_level == 'high' %}selected{% endif %}>高危</option>
         <option value="medium" {% if f_level == 'medium' %}selected{% endif %}>中危</option>
         <option value="low" {% if f_level == 'low' %}selected{% endif %}>低危</option>
       </select>
-      <select name="type" class="form-select form-select-sm" style="width:auto;">
+      <select name="type" class="form-select form-select-sm vp-auto">
         <option value="" {% if not f_type %}selected{% endif %}>所有类型</option>
         {% for t, tlabel in type_options %}
         <option value="{{ t }}" {% if f_type == t %}selected{% endif %}>{{ tlabel }}</option>
         {% endfor %}
       </select>
-      <select name="confirm" class="form-select form-select-sm" style="width:auto;">
+      <select name="confirm" class="form-select form-select-sm vp-auto">
         <option value="" {% if not f_confirm %}selected{% endif %}>所有状态</option>
         <option value="tp" {% if f_confirm == 'tp' %}selected{% endif %}>已确认 TP</option>
         <option value="fp" {% if f_confirm == 'fp' %}selected{% endif %}>已标记 FP</option>
@@ -266,7 +346,7 @@
         <option value="ai-fp" {% if f_confirm == 'ai-fp' %}selected{% endif %}>AI 判 FP</option>
         <option value="ai-unanalyzed" {% if f_confirm == 'ai-unanalyzed' %}selected{% endif %}>未 AI 分析</option>
       </select>
-      <input type="text" name="project_id" class="form-control form-control-sm" style="width:100px;" placeholder="项目ID" value="{{ f_project_id }}">
+      <input type="text" name="project_id" class="form-control form-control-sm vp-w100" placeholder="项目ID" value="{{ f_project_id }}">
       <button type="submit" class="btn btn-sm btn-primary">筛选</button>
       <a href="?" class="btn btn-sm btn-default">重置</a>
     </div>
@@ -288,7 +368,7 @@
       </colgroup>
       <thead>
         <tr>
-          <th style="width:26px;"><input type="checkbox" id="vulSelAll" title="全选/取消本页"></th>
+          <th class="vp-w26"><input type="checkbox" id="vulSelAll" title="全选/取消本页"></th>
           <th>ID</th>
           <th>CVI</th>
           <th>语言</th>
@@ -303,16 +383,16 @@
       </thead>
       <tbody>
         {% for r in results %}
-        <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row" style="cursor:pointer;" onclick="toggleVulDetail(this)" tabindex="-1">
+        <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row vp-click" onclick="toggleVulDetail(this)" tabindex="-1">
           <td onclick="event.stopPropagation();"><input type="checkbox" class="vul-sel" value="{{ r.id }}"></td>
           <td>{{ r.id }}</td>
-          <td><code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">CVI-{{ r.cvi_id }}</code></td>
+          <td><code class="vp-code-chip">CVI-{{ r.cvi_id }}</code></td>
           <td>{{ r.language }}</td>
-          <td title="{{ r.project_name|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.project_name|truncatechars:12 }}</a></td>
-          <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" style="text-decoration:none;">{{ r.vulfile_path|truncatechars:46 }}</a></td>
+          <td title="{{ r.project_name|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.project_name|truncatechars:12 }}</a></td>
+          <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.vulfile_path|truncatechars:46 }}</a></td>
           <td class="vc-chain-cell" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
           <td>
-            {% if r.level_lower == 'critical' %}<span class="badge" style="background:#a00!important;color:#fff!important;">严重</span>
+            {% if r.level_lower == 'critical' %}<span class="badge vp-sev-red-deep">严重</span>
             {% elif r.level_lower == 'high' %}<span class="badge bg-danger">高危</span>
             {% elif r.level_lower == 'medium' %}<span class="badge bg-warning">中危</span>
             {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
@@ -320,17 +400,17 @@
           </td>
           <td title="{{ r.result_type|escape }} · 规则: {{ r.rule_name|escape }}">{{ r.rule_name|truncatechars:16 }}</td>
           <td>
-            {% if r.verification_status == 'tp' %}<span style="color:#16a34a;font-weight:600;">TP</span>
-            {% elif r.verification_status == 'fp' %}<span style="color:#dc2626;font-weight:600;">FP</span>
-            {% elif r.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
-            {% else %}<span style="color:#6b7280;">-</span>{% endif %}
-            {% if r.ai_verdict == 'tp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#dcfce7;color:#15803d;font-size:11px;cursor:pointer;{% if r.ai_disagreed %}box-shadow:0 0 0 2px #f59e0b;{% endif %}">AI:TP{% if r.ai_disagreed %}≠{% endif %}</span>
-            {% elif r.ai_verdict == 'fp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;cursor:pointer;{% if r.ai_disagreed %}box-shadow:0 0 0 2px #f59e0b;{% endif %}">AI:FP{% if r.ai_disagreed %}≠{% endif %}</span>
-            {% elif r.ai_verdict == 'uncertain' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="AI 置信度: {{ r.ai_confidence }}" style="display:inline-block;margin-left:4px;padding:0 5px;cursor:pointer;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;">AI:?</span>{% endif %}
+            {% if r.verification_status == 'tp' %}<span class="vp-ta-ok">TP</span>
+            {% elif r.verification_status == 'fp' %}<span class="vp-ta-no">FP</span>
+            {% elif r.verification_status == 'stale' %}<span class="vp-ta-old">过期</span>
+            {% else %}<span class="vp-mid">-</span>{% endif %}
+            {% if r.ai_verdict == 'tp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-green{% if r.ai_disagreed %} vp-pill-cond{% endif %}">AI:TP{% if r.ai_disagreed %}≠{% endif %}</span>
+            {% elif r.ai_verdict == 'fp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-red{% if r.ai_disagreed %} vp-pill-cond{% endif %}">AI:FP{% if r.ai_disagreed %}≠{% endif %}</span>
+            {% elif r.ai_verdict == 'uncertain' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="AI 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-amber">AI:?</span>{% endif %}
           </td>
           <td>
             <div class="dropdown">
-              <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation();" style="padding:2px 8px;">...</button>
+              <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-bs-toggle="dropdown" onclick="event.stopPropagation();" class="vp-pad2-8">...</button>
               <ul class="dropdown-menu">
                 <li><a class="dropdown-item" href="{% url 'dashboard:project_detail' r.project_id %}">查看项目</a></li>
                 <li><a class="dropdown-item" href="javascript:;" onclick="event.stopPropagation(); aiAnalyzeVul({{ r.id }}, this)">AI 分析</a></li>
@@ -343,7 +423,7 @@
           </td>
         </tr>
         <tr class="km-vul-detail-row" style="display:none;">
-          <td colspan="11" style="padding:0!important;border:none!important;">
+          <td colspan="11" class="vp-reset-cell">
             <div class="km-vul-chain-panel" id="chainPanel_{{ r.id }}" data-project-id="{{ r.project_id }}">
               <div class="km-vul-chain-meta">
                 <div class="meta-row"><span class="meta-label">CVI</span><span class="meta-value">{{ r.cvi_id }}</span></div>
@@ -365,9 +445,9 @@
   
   <!-- AI 分诊详情对照弹窗 -->
   <div id="aiDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:1070;align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:10px;width:640px;max-width:92vw;max-height:82vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,0.18);">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #eef0f3;">
-        <strong style="font-size:15px;"><i class="fa fa-robot" style="color:#6366f1;"></i> AI 分诊详情 · 对照</strong>
+    <div class="vp-modal-box2">
+      <div class="vp-modal-head">
+        <strong class="vp-fs15"><i class="fa fa-robot vp-link-ai"></i> AI 分诊详情 · 对照</strong>
         <button class="btn btn-sm btn-default" onclick="document.getElementById('aiDetailModal').style.display='none'">✕</button>
       </div>
       <div id="aiDetailBody"></div>
@@ -376,15 +456,15 @@
 
   <!-- AI 分析抽屉 -->
   <div id="aiDrawer" style="display:none;position:fixed;top:0;right:0;width:460px;max-width:95vw;height:100vh;background:#fff;box-shadow:-6px 0 24px rgba(0,0,0,.15);z-index:1060;overflow-y:auto;padding:20px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h4 style="margin:0;" id="aiDrawerTitle"><i class="fa fa-magic"></i> AI 分析</h4>
+    <div class="vp-head-row">
+      <h4 class="vp-mb0" id="aiDrawerTitle"><i class="fa fa-magic"></i> AI 分析</h4>
       <button class="btn btn-sm btn-default" onclick="document.getElementById('aiDrawer').style.display='none'">关闭</button>
     </div>
-    <div id="aiDrawerBody" style="font-size:14px;line-height:1.7;"></div>
+    <div id="aiDrawerBody" class="vp-fs14"></div>
   </div>
 
   {% if max_page > 1 %}
-  <nav style="margin-top:16px;">
+  <nav class="vp-mt16b">
     <ul class="pagination pagination-sm justify-content-center">
       {% if page > 1 %}<li class="page-item"><a class="page-link" href="?p={{ page|add:'-1' }}&lang={{ f_lang }}&cvi={{ f_cvi }}&level={{ f_level }}&confirm={{ f_confirm }}&type={{ f_type }}&q={{ f_q }}&project_id={{ f_project_id }}">&laquo;</a></li>{% endif %}
       {% for p in page_range %}
@@ -519,10 +599,10 @@ function selectChainNode(vulId, idx) {
   var headerHtml = '<div class="code-header">';
   headerHtml += '<span class="role-badge ' + getRoleClass(role) + '">' + getRoleLabel(role) + '</span> ';
   headerHtml += '<strong>' + escapeHtml(n.type) + '</strong> &mdash; ' + escapeHtml(n.content || '');
-  if (n.path) headerHtml += ' <span style="margin-left:12px;color:#9ca3af;">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
-  if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span style="margin-left:8px;color:#9ca3af;">vid=' + n.vid + '</span>';
+  if (n.path) headerHtml += ' <span class="vp-ml12 vp-muted">' + escapeHtml(n.path.split('/').pop()) + ':' + n.lineno + '</span>';
+  if (n.vid !== null && n.vid !== undefined) headerHtml += ' <span class="vp-ml8 vp-muted">vid=' + n.vid + '</span>';
   if (pid && n.path && targetLineno > 0) {
-    headerHtml += ' <button class="btn btn-default btn-sm" style="margin-left:auto;padding:2px 8px;font-size:11px;" '
+    headerHtml += ' <button class="btn btn-default btn-sm vp-ml-auto-chip" '
       + 'onclick="openChainBrowser(\'' + vulId + '\',' + idx + ')" title="在源码浏览器中打开全文"><i class="fa fa-external-link"></i> 源码浏览器</button>';
   }
   headerHtml += '</div>';
@@ -548,7 +628,7 @@ function selectChainNode(vulId, idx) {
   }
 
   if (codeLines.length === 0) {
-    codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
+    codeArea.innerHTML = headerHtml + '<div class="code-body vp-empty">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
     return;
   }
 
@@ -583,8 +663,7 @@ function loadFullFileVul(vulId, n, codeArea, headerHtml, targetLineno) {
       renderSnippetVul(vulId, n, codeArea, headerHtml, targetLineno);
       return;
     }
-    var html = headerHtml;
-    html += '<div class="code-body" style="max-height:420px;overflow-y:auto;"><table class="code-table">';
+    var html = headerHtml + '<div class="code-body vp-scroll420"><table class="code-table">';
     for (var i = 0; i < lines.length; i++) {
       var lineno = i + 1;
       var isTarget = (lineno === targetLineno);
@@ -600,7 +679,7 @@ function loadFullFileVul(vulId, n, codeArea, headerHtml, targetLineno) {
     if (el) el.scrollIntoView({block: 'center'});
   };
   if (cached) { apply(cached); return; }
-  codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;"><i class="fa fa-spinner fa-spin"></i> 加载整文件源码...</div>';
+  codeArea.innerHTML = headerHtml + '<div class="code-body vp-empty"><i class="fa fa-spinner fa-spin"></i> 加载整文件源码...</div>';
   var pid = (document.getElementById('chainPanel_' + vulId) || {}).getAttribute && document.getElementById('chainPanel_' + vulId).getAttribute('data-project-id');
   var url = '/dashboard/projects/' + pid + '/files/content?file=' + encodeURIComponent(n.path) + '&lineno=' + targetLineno;
   fetch(url, {credentials:'same-origin'}).then(function(r){ return r.json(); }).then(function(d){
@@ -623,7 +702,7 @@ function renderSnippetVul(vulId, n, codeArea, headerHtml, targetLineno) {
     }
   }
   if (codeLines.length === 0) {
-    codeArea.innerHTML = headerHtml + '<div class="code-body" style="padding:16px;color:#9ca3af;">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
+    codeArea.innerHTML = headerHtml + '<div class="code-body vp-empty">' + escapeHtml(n.content || '(无代码上下文)') + '</div>';
     return;
   }
   var bodyHtml = '<div class="code-body"><table class="code-table">';
@@ -683,34 +762,34 @@ function showAiDetail(vulId) {
   var modal = document.getElementById('aiDetailModal');
   var body = document.getElementById('aiDetailBody');
   modal.style.display = 'flex';
-  body.innerHTML = '<div style="padding:20px;color:#9ca3af;"><i class="fa fa-spinner fa-spin"></i> 加载 AI 分析...</div>';
+  body.innerHTML = '<div class="vp-empty-lg"><i class="fa fa-spinner fa-spin"></i> 加载 AI 分析...</div>';
   var m = document.cookie.match(/csrftoken=([^;]+)/);
   var token = m ? decodeURIComponent(m[1]) : '';
   fetch('/dashboard/ai/vul/' + vulId + '/detail', {credentials:'same-origin'})
     .then(r => r.json())
     .then(function(res) {
-      if (res.code !== 200) { body.innerHTML = '<div style="padding:20px;color:#dc2626;">' + (res.message || '加载失败') + '</div>'; return; }
+      if (res.code !== 200) { body.innerHTML = '<div class="vp-empty-err">' + (res.message || '加载失败') + '</div>'; return; }
       var d = res.data;
-      if (!d.verdict) { body.innerHTML = '<div style="padding:20px;color:#9ca3af;">该漏洞尚未 AI 分析。可在"操作"菜单点"AI 分析"。</div>'; return; }
+      if (!d.verdict) { body.innerHTML = '<div class="vp-empty-lg">该漏洞尚未 AI 分析。可在"操作"菜单点"AI 分析"。</div>'; return; }
       var vLabel = d.verdict === 'tp' ? ['真实漏洞 (TP)', '#16a34a'] : d.verdict === 'fp' ? ['误报 (FP)', '#dc2626'] : ['不确定', '#d97706'];
       var hLabel = d.human_status === 'tp' ? ['人工已确认 TP', '#16a34a'] : d.human_status === 'fp' ? ['人工已判 FP', '#dc2626'] : d.human_status === 'stale' ? ['人工标记过期', '#adb5bd'] : ['未人工复核', '#6b7280'];
-      var html = '<div style="display:flex;gap:10px;margin-bottom:14px;">';
-      html += '<div style="flex:1;padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;"><div style="font-size:11px;color:#6c757d;margin-bottom:4px;">AI 判定</div><strong style="color:' + vLabel[1] + ';font-size:15px;">' + vLabel[0] + '</strong><div style="font-size:11px;color:#9ca3af;margin-top:2px;">置信度 ' + (d.confidence || '-') + (d.severity_adjust ? ' · 建议' + (d.severity_adjust === 'up' ? '升级' : d.severity_adjust === 'down' ? '降级' : '维持') : '') + '</div></div>';
-      html += '<div style="flex:1;padding:10px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;"><div style="font-size:11px;color:#6c757d;margin-bottom:4px;">人工判定</div><strong style="color:' + hLabel[1] + ';font-size:15px;">' + hLabel[0] + '</strong>' + (d.disagreed ? '<div style="font-size:11px;color:#f59e0b;margin-top:2px;"><i class="fa fa-exclamation-triangle"></i> 与 AI 分歧</div>' : '') + '</div>';
+      var html = '<div class="vp-compare">';
+      html += '<div class="vp-stat-card"><div class="vp-sub">AI 判定</div><strong style="color:' + vLabel[1] + ';font-size:15px;">' + vLabel[0] + '</strong><div class="vp-cmp-sub">置信度 ' + (d.confidence || '-') + (d.severity_adjust ? ' · 建议' + (d.severity_adjust === 'up' ? '升级' : d.severity_adjust === 'down' ? '降级' : '维持') : '') + '</div></div>';
+      html += '<div class="vp-stat-card"><div class="vp-sub">人工判定</div><strong style="color:' + hLabel[1] + ';font-size:15px;">' + hLabel[0] + '</strong>' + (d.disagreed ? '<div class="vp-cmp-sub-warn"><i class="fa fa-exclamation-triangle"></i> 与 AI 分歧</div>' : '') + '</div>';
       html += '</div>';
-      if (d.reasoning) html += '<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-brain"></i> AI 判定理由</div><div style="font-size:13px;color:#4b5563;line-height:1.6;background:#fafbfc;border-left:3px solid #c7d2fe;padding:8px 12px;border-radius:0 6px 6px 0;">' + escapeHtml(d.reasoning) + '</div></div>';
-      if (d.fix) html += '<div style="margin-bottom:12px;"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-wrench"></i> 修复建议</div><div style="font-size:13px;color:#4b5563;line-height:1.6;background:#f0fdf4;border-left:3px solid #86efac;padding:8px 12px;border-radius:0 6px 6px 0;">' + escapeHtml(d.fix) + '</div></div>';
-      html += '<div style="margin-top:14px;">';
-      html += '<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;"><i class="fa fa-comment-dots"></i> 复核备注' + (d.disagreed ? ' <span style="color:#f59e0b;font-weight:400;">（与 AI 分歧，建议写明原因）</span>' : '') + '</div>';
-      html += '<textarea id="aiDetailNotes" rows="2" placeholder="可留空。例：链路实际可达，AI 漏算了 X 来源 / 确认 AI 判断，sink 参数固定" style="width:100%;font-size:13px;padding:8px;border:1px solid #d0d7de;border-radius:6px;box-sizing:border-box;"></textarea>';
-      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">';
+      if (d.reasoning) html += '<div class="vp-mb12"><div class="vp-field-label"><i class="fa fa-brain"></i> AI 判定理由</div><div class="vp-note-ai-2">' + escapeHtml(d.reasoning) + '</div></div>';
+      if (d.fix) html += '<div class="vp-mb12"><div class="vp-field-label"><i class="fa fa-wrench"></i> 修复建议</div><div class="vp-note-fix-2">' + escapeHtml(d.fix) + '</div></div>';
+      html += '<div class="vp-mt14">';
+      html += '<div class="vp-field-label"><i class="fa fa-comment-dots"></i> 复核备注' + (d.disagreed ? ' <span class="vp-warn-tag">（与 AI 分歧，建议写明原因）</span>' : '') + '</div>';
+      html += '<textarea id="aiDetailNotes" rows="2" placeholder="可留空。例：链路实际可达，AI 漏算了 X 来源 / 确认 AI 判断，sink 参数固定" class="vp-notes-input"></textarea>';
+      html += '<div class="vp-gap10mt">';
       html += '<button class="btn btn-sm btn-success" onclick="aiDetailMark(' + vulId + ',\"tp\")"><i class="fa fa-check"></i> 确认 TP</button>';
       html += '<button class="btn btn-sm btn-danger" onclick="aiDetailMark(' + vulId + ',\"fp\")"><i class="fa fa-times"></i> 标记 FP</button>';
-      html += '<span style="margin-left:auto;font-size:11px;color:#9ca3af;">分析时间: ' + (d.analyzed_at || '-') + '</span>';
+      html += '<span class="vp-mini-hint">分析时间: ' + (d.analyzed_at || '-') + '</span>';
       html += '</div></div>';
       body.innerHTML = html;
     })
-    .catch(e => { body.innerHTML = '<div style="padding:20px;color:#dc2626;">请求失败: ' + e + '</div>'; });
+    .catch(e => { body.innerHTML = '<div class="vp-empty-err">请求失败: ' + e + '</div>'; });
 }
 function aiDetailMark(vulId, action) {
   var m = document.cookie.match(/csrftoken=([^;]+)/);
@@ -762,9 +841,9 @@ document.addEventListener('click', function(e) {
       if (d.code !== 200) { if (typeof kmToast === 'function') kmToast('标记失败: ' + (d.message || d.error || '未知错误'), 'error'); return; }
       var td = row.children[9];
       var labels = {tp: ['TP', '#16a34a'], fp: ['FP', '#dc2626'], stale: ['过期', '#adb5bd']};
-      if (action === 'unconfirm') { td.innerHTML = '<span style="color:#6b7280;">-</span>'; return; }
+      if (action === 'unconfirm') { td.innerHTML = '<span class="vp-mid">-</span>'; return; }
       var m = labels[action];
-      if (m) td.innerHTML = '<span style="color:' + m[1] + ';font-weight:600;">' + m[0] + '</span>';
+      if (m) td.innerHTML = '<span class="vp-kb-mark" style="color:' + m[1] + ';">' + m[0] + '</span>';
     }).catch(function(err) {
       if (typeof kmToast === 'function') kmToast('网络错误，标记未保存', 'error');
     });
@@ -856,15 +935,15 @@ function aiAnalyzeVul(vulId, el){
   }).then(r => r.json()).then(function(res){
     if(res.code !== 200){ body.innerHTML = '<div class="alert alert-danger">' + (res.message||'分析失败') + '</div>'; return; }
     var d2 = res.data;
-    var badge = d2.verdict === 'tp' ? '<span style="color:#16a34a;font-weight:700;">真实漏洞倾向 (TP)</span>'
-              : d2.verdict === 'fp' ? '<span style="color:#dc2626;font-weight:700;">误报倾向 (FP)</span>'
-              : '<span style="color:#d97706;font-weight:700;">不确定</span>';
+    var badge = d2.verdict === 'tp' ? '<span class="vp-ta-ok-b">真实漏洞倾向 (TP)</span>'
+              : d2.verdict === 'fp' ? '<span class="vp-ta-no-b">误报倾向 (FP)</span>'
+              : '<span class="vp-ta-old-b">不确定</span>';
     var sev = d2.severity_adjust === 'up' ? '建议升级等级' : d2.severity_adjust === 'down' ? '建议降级' : '维持等级';
     body.innerHTML =
-      '<div style="margin-bottom:12px;">' + badge + ' · 置信度 ' + (d2.confidence||'-') + ' · ' + sev + '</div>' +
-      '<div style="font-weight:600;margin-bottom:4px;">判定理由</div><div style="color:#374151;margin-bottom:12px;">' + (d2.reasoning||'') + '</div>' +
-      '<div style="font-weight:600;margin-bottom:4px;">修复建议</div><div style="color:#374151;">' + (d2.fix||'') + '</div>' +
-      '<div style="margin-top:16px;color:#9ca3af;font-size:12px;">AI 判定仅供参考，最终以人工审计为准。</div>';
+      '<div class="vp-mb12">' + badge + ' · 置信度 ' + (d2.confidence||'-') + ' · ' + sev + '</div>' +
+      '<div class="vp-lbl-b">判定理由</div><div class="vp-sec-title">' + (d2.reasoning||'') + '</div>' +
+      '<div class="vp-lbl-b">修复建议</div><div class="vp-txt">' + (d2.fix||'') + '</div>' +
+      '<div class="vp-foot-hint">AI 判定仅供参考，最终以人工审计为准。</div>';
   }).catch(function(e){
     body.innerHTML = '<div class="alert alert-danger">请求失败: ' + e + '</div>';
   });
