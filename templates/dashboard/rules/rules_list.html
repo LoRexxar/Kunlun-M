@@ -1,34 +1,6 @@
 {% extends "dashboard/base.html" %}
 {% load static %}
-{% block title %}规则列表
-<!-- AI 规则生成面板 -->
-<div id="aiRuleModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1070;overflow-y:auto;padding:40px 16px;">
-  <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:10px;padding:24px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-      <h3 style="margin:0;"><i class="fa fa-magic"></i> AI 规则生成</h3>
-      <button class="btn btn-sm btn-default" onclick="document.getElementById('aiRuleModal').style.display='none'">关闭</button>
-    </div>
-    <div class="mb-3">
-      <label class="form-label">语言</label>
-      <select id="aiRuleLang" class="form-select form-select-sm" style="width:160px;">
-        <option value="php">PHP</option><option value="javascript">JavaScript</option>
-        <option value="python">Python</option><option value="java">Java</option>
-      </select>
-    </div>
-    <div class="mb-3">
-      <label class="form-label">sink 函数（如 eval / assert / system($cmd) 等）<span class="text-danger">*</span></label>
-      <input type="text" id="aiRuleSink" class="form-control" placeholder="例: eval">
-    </div>
-    <div class="mb-3">
-      <label class="form-label">补充要求（可选）</label>
-      <input type="text" id="aiRuleExtra" class="form-control" placeholder="例: 排除测试目录调用">
-    </div>
-    <button class="btn btn-primary" id="aiRuleGo">生成规则</button>
-    <div id="aiRuleOut" style="margin-top:16px;font-size:14px;line-height:1.7;"></div>
-  </div>
-</div>
-
-{% endblock %}
+{% block title %}规则列表{% endblock %}
 {% block body_header %}
 <h1>规则列表 <small>KunLun-MA</small></h1>
 {% endblock %}
@@ -220,6 +192,34 @@
 </script>
 
 
+
+<!-- AI 规则生成面板 -->
+<!-- AI 规则生成面板 -->
+<div id="aiRuleModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1070;overflow-y:auto;padding:40px 16px;">
+  <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:10px;padding:24px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;"><i class="fa fa-magic"></i> AI 规则生成</h3>
+      <button class="btn btn-sm btn-default" onclick="document.getElementById('aiRuleModal').style.display='none'">关闭</button>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">语言</label>
+      <select id="aiRuleLang" class="form-select form-select-sm" style="width:160px;">
+        <option value="php">PHP</option><option value="javascript">JavaScript</option>
+        <option value="python">Python</option><option value="java">Java</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">sink 函数（如 eval / assert / system($cmd) 等）<span class="text-danger">*</span></label>
+      <input type="text" id="aiRuleSink" class="form-control" placeholder="例: eval">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">补充要求（可选）</label>
+      <input type="text" id="aiRuleExtra" class="form-control" placeholder="例: 排除测试目录调用">
+    </div>
+    <button class="btn btn-primary" id="aiRuleGo">生成规则</button>
+    <div id="aiRuleOut" style="margin-top:16px;font-size:14px;line-height:1.7;"></div>
+  </div>
+</div>
 {% endblock %}
 
 <script>
@@ -233,6 +233,7 @@ $('#aiRuleGo').on('click', function(){
     headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':body.match(/csrfmiddlewaretoken=([^&]*)/)[1]},
     body: body, credentials:'same-origin'})
   .then(r=>r.json()).then(function(res){
+    if(res.not_configured){ out.innerHTML='<div class="alert alert-warning"><i class="fa fa-magic"></i> AI 功能未配置。<a href="/dashboard/ai/settings">去配置 AI</a> 后可使用规则生成。</div>'; return; }
     if(res.code!==200){ out.innerHTML='<div class="alert alert-danger">'+(res.message||'生成失败')+'</div>'; return; }
     var d=res.data;
     out.innerHTML =

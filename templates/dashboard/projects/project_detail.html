@@ -479,6 +479,7 @@ function aiProjectReport(){
     headers:{'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val() || document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''},
     credentials:'same-origin'})
   .then(r=>r.json()).then(function(res){
+    if(res.not_configured){ body.innerHTML='<div class="alert alert-warning"><i class="fa fa-magic"></i> AI 功能未配置。扫描与人工审计不受影响；<a href="/dashboard/ai/settings">去配置 AI</a> 后可生成项目风险报告。</div>'; return; }
     if(res.code!==200){ body.innerHTML='<div class="alert alert-danger">'+(res.message||'报告失败')+'</div>'; return; }
     var d=res.data;
     var html = '<h5 style="margin:0 0 8px;">风险概览</h5><div style="color:#374151;">'+(d.overview||'')+'</div>';

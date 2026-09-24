@@ -919,7 +919,6 @@ $(document).ready(function() {
   $("#vuls").addClass("active");
 });
 </script>
-{% endblock %}
 
 <script>
 function aiAnalyzeVul(vulId, el){
@@ -933,6 +932,7 @@ function aiAnalyzeVul(vulId, el){
     headers: {'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val() || document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''},
     credentials: 'same-origin'
   }).then(r => r.json()).then(function(res){
+    if(res.not_configured){ body.innerHTML = '<div class="alert alert-warning"><i class="fa fa-magic"></i> AI 功能未配置。扫描与人工审计不受影响；<a href="/dashboard/ai/settings">去配置 AI</a> 后可使用自动分诊与判定建议。</div>'; return; }
     if(res.code !== 200){ body.innerHTML = '<div class="alert alert-danger">' + (res.message||'分析失败') + '</div>'; return; }
     var d2 = res.data;
     var badge = d2.verdict === 'tp' ? '<span class="vp-ta-ok-b">真实漏洞倾向 (TP)</span>'
@@ -949,3 +949,4 @@ function aiAnalyzeVul(vulId, el){
   });
 }
 </script>
+{% endblock %}

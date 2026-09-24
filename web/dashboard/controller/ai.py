@@ -17,15 +17,15 @@ from web.utils_ai import (AICallFailed, AINotConfigured, ai_configured,
 
 
 def _ai_or_error(fn):
-    """统一包装：返回 (ok, data_or_message)"""
+    """统一包装：返回 (ok, data_or_message, not_configured)"""
     try:
-        return True, fn()
+        return True, fn(), False
     except AINotConfigured as e:
-        return False, str(e)
+        return False, str(e), True
     except AICallFailed as e:
-        return False, str(e)
+        return False, str(e), False
     except Exception as e:
-        return False, "AI 分析异常: %s" % e
+        return False, "AI 分析异常: %s" % e, False
 
 
 def _chain_summary(vul_id):
@@ -95,9 +95,11 @@ class AiVulAnalyzeView(View):
                     "reasoning": vul.ai_reasoning, "fix": vul.ai_fix,
                     "severity_adjust": vul.ai_severity_adjust}
 
-        ok, data = _ai_or_error(call)
+        ok, data, not_cfg = _ai_or_error(call)
         if not ok:
-            return JsonResponse({"code": 500, "message": data})
+            return JsonResponse({"code": 501 if not_cfg else 500,
+                                 "message": data,
+                                 "not_configured": not_cfg})
         return JsonResponse({"code": 200, "data": data})
 
 
@@ -172,9 +174,11 @@ class AiProjectReportView(View):
         def call():
             return report
 
-        ok, data = _ai_or_error(call)
+        ok, data, not_cfg = _ai_or_error(call)
         if not ok:
-            return JsonResponse({"code": 500, "message": data})
+            return JsonResponse({"code": 501 if not_cfg else 500,
+                                 "message": data,
+                                 "not_configured": not_cfg})
         data["from_cache"] = from_cache
         return JsonResponse({"code": 200, "data": data})
 
@@ -233,9 +237,11 @@ class AiRuleGenerateView(View):
                       lang, sink, extra or "无", exists_note)}],
                 temperature=0.2, max_tokens=8192, timeout=240)
 
-        ok, data = _ai_or_error(call)
+        ok, data, not_cfg = _ai_or_error(call)
         if not ok:
-            return JsonResponse({"code": 500, "message": data})
+            return JsonResponse({"code": 501 if not_cfg else 500,
+                                 "message": data,
+                                 "not_configured": not_cfg})
         # 附带引擎侧校验：正则可编译
         import re as _re
         try:
