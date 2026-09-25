@@ -124,6 +124,10 @@ class VulListView(TemplateView):
         # 批量获取项目名
         task_ids = list(set(r.scan_task_id for r in rows))
         task_project_map = {}
+        # P3: 模式判例建议索引（一次构建，页内逐行查询）
+        from web.pattern_suggest import build_suggestion_index, suggest_for
+        _sugg_index = build_suggestion_index()
+
         for t in ScanTask.objects.filter(id__in=task_ids).only('id', 'project_id', 'task_name'):
             task_project_map[t.id] = t
 
@@ -194,6 +198,7 @@ class VulListView(TemplateView):
                 # '</script>' 会提前终止宿主 <script> 块 → 拆开斜杠（JSON/JS 均合法）
                 'chain_nodes_json': json.dumps(chains, ensure_ascii=False).replace('</script>', '<\\/script>').replace('</Script>', '<\\/Script>').replace('</SCRIPT>', '<\\/SCRIPT>'),
                 'has_chain': len(chains) > 0,
+                'suggest': suggest_for(r, _sugg_index) if not r.verification_status else None,
             })
 
         ctx['results'] = results
