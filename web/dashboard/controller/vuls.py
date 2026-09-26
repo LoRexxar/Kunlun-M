@@ -5,7 +5,7 @@ import json
 
 from django.contrib.auth.decorators import login_required
 from django.views.generic import TemplateView
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 
 from web.index.models import ScanResultTask, ScanTask, Rules, TaintChain, Project
 from web.index.models import get_and_check_scantask_project_id
@@ -68,6 +68,14 @@ class VulListView(TemplateView):
             qs = qs.filter(ai_verdict='fp')
         elif confirm == 'ai-unanalyzed':
             qs = qs.filter(ai_verdict='')
+        elif confirm == 'ai-skip':
+            # P3 判例已覆盖、待人工两击确认的队列
+            qs = qs.filter(ai_verdict='skip')
+        elif confirm == 'ai-disagree':
+            # AI 与人工标注打架：需要人裁决的分歧清单
+            qs = qs.filter(ai_verdict__in=('tp', 'fp'),
+                           verification_status__in=('tp', 'fp')
+                           ).exclude(ai_verdict=F('verification_status'))
         if result_type:
             qs = qs.filter(result_type__icontains=result_type)
         if project_id:
@@ -199,6 +207,8 @@ class VulListView(TemplateView):
                 'chain_nodes_json': json.dumps(chains, ensure_ascii=False).replace('</script>', '<\\/script>').replace('</Script>', '<\\/Script>').replace('</SCRIPT>', '<\\/SCRIPT>'),
                 'has_chain': len(chains) > 0,
                 'suggest': suggest_for(r, _sugg_index) if not r.verification_status else None,
+                'is_skip': r.ai_verdict == 'skip',
+                'skip_reason': (r.ai_reasoning or '') if r.ai_verdict == 'skip' else '',
             })
 
         ctx['results'] = results
@@ -223,6 +233,11 @@ class VulListView(TemplateView):
         ctx['f_level'] = level
         ctx['f_confirm'] = confirm
         ctx['ai_pending_count'] = ScanResultTask.objects.filter(is_active=1, ai_verdict='').count()
+        ctx['ai_skip_count'] = ScanResultTask.objects.filter(is_active=1, ai_verdict='skip').count()
+        ctx['ai_disagree_count'] = ScanResultTask.objects.filter(
+            is_active=1, ai_verdict__in=('tp', 'fp'),
+            verification_status__in=('tp', 'fp')
+        ).exclude(ai_verdict=F('verification_status')).count()
         ctx['ai_fp_count'] = ScanResultTask.objects.filter(
             is_active=1, ai_verdict='fp'
         ).exclude(verification_status__in=['tp', 'fp']).count()

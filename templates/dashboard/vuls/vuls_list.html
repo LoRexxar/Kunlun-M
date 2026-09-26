@@ -298,6 +298,8 @@
     <a class="btn btn-sm btn-default" href="?confirm=unconfirmed&level=critical">未确认+严重</a>
     <a class="btn btn-sm btn-default" href="?confirm=unconfirmed&level=high">未确认+高危</a>
     <a class="btn btn-sm btn-default" href="?confirm=ai-unanalyzed">AI未分析 {% if ai_pending_count %}<span class="badge bg-secondary ms-1">{{ ai_pending_count }}</span>{% endif %}</a>
+    <a class="btn btn-sm {% if f_confirm == 'ai-disagree' %}btn-warning{% else %}btn-default{% endif %}" href="?confirm=ai-disagree" title="AI 与人工标注不一致，需要人裁决的分歧清单">AI分歧 {% if ai_disagree_count %}<span class="badge bg-warning text-dark ms-1">{{ ai_disagree_count }}</span>{% endif %}</a>
+    <a class="btn btn-sm {% if f_confirm == 'ai-skip' %}btn-primary{% else %}btn-default{% endif %}" href="?confirm=ai-skip" title="已有同模式人工判例覆盖，点击确认即完成复核">判例待确认 {% if ai_skip_count %}<span class="badge bg-info ms-1">{{ ai_skip_count }}</span>{% endif %}</a>
     <a class="btn btn-sm btn-default" href="?confirm=tp">已确认TP</a>
     <a class="btn btn-sm btn-default" href="?confirm=fp">已标记FP</a>
   </div>
@@ -345,6 +347,8 @@
         <option value="ai-tp" {% if f_confirm == 'ai-tp' %}selected{% endif %}>AI 判 TP</option>
         <option value="ai-fp" {% if f_confirm == 'ai-fp' %}selected{% endif %}>AI 判 FP</option>
         <option value="ai-unanalyzed" {% if f_confirm == 'ai-unanalyzed' %}selected{% endif %}>未 AI 分析</option>
+        <option value="ai-disagree" {% if f_confirm == 'ai-disagree' %}selected{% endif %}>AI 与人工分歧</option>
+        <option value="ai-skip" {% if f_confirm == 'ai-skip' %}selected{% endif %}>判例待确认</option>
       </select>
       <input type="text" name="project_id" class="form-control form-control-sm vp-w100" placeholder="项目ID" value="{{ f_project_id }}">
       <button type="submit" class="btn btn-sm btn-primary">筛选</button>
@@ -407,7 +411,10 @@
             {% if r.ai_verdict == 'tp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-green{% if r.ai_disagreed %} vp-pill-cond{% endif %}">AI:TP{% if r.ai_disagreed %}≠{% endif %}</span>
             {% elif r.ai_verdict == 'fp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-red{% if r.ai_disagreed %} vp-pill-cond{% endif %}">AI:FP{% if r.ai_disagreed %}≠{% endif %}</span>
             {% elif r.ai_verdict == 'uncertain' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="AI 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-amber">AI:?</span>{% endif %}
-            {% if r.suggest %}<span onclick="event.stopPropagation(); applySuggest({{ r.id }}, '{{ r.suggest.verdict }}', '{{ r.suggest.n }}', this)"
+            {% if r.is_skip %}<span title="{{ r.skip_reason }}" class="vp-pill vp-pill-amber" style="opacity:.8">判例✓</span>
+            <span onclick="event.stopPropagation(); applySuggestSkip({{ r.id }}, this)" title="按判例结论标记 FP，完成复核"
+               class="vp-pill vp-pill-red" style="opacity:.75">采纳判例</span>
+            {% elif r.suggest %}<span onclick="event.stopPropagation(); applySuggest({{ r.id }}, '{{ r.suggest.verdict }}', '{{ r.suggest.n }}', this)"
                title="{{ r.suggest.reason }} · 点击采纳并标记"
                class="vp-pill {% if r.suggest.verdict == 'fp' %}vp-pill-red{% else %}vp-pill-green{% endif %}"
                style="opacity:.75">判例:{{ r.suggest.verdict|upper }}×{{ r.suggest.n }}</span>{% endif %}
@@ -913,6 +920,27 @@ function applySuggest(vulid, verdict, n, el) {
         el.innerText = '已采纳';
         setTimeout(function(){ location.reload(); }, 400);
       } else { alert(data.message || '操作失败'); el.dataset.confirmed = ''; el.innerText = '判例:' + verdict.toUpperCase() + '×' + n; }
+    }
+  ).fail(function(xhr){
+    alert('采纳失败 (HTTP ' + xhr.status + ')，请刷新页面重试');
+    el.dataset.confirmed = '';
+  });
+}
+function applySuggestSkip(vulid, el) {
+  var tok = kmCsrf();
+  if (!tok){ alert('页面缺少 CSRF 令牌，请刷新页面后重试'); return; }
+  if (!el.dataset.confirmed) {
+    el.dataset.confirmed = '1';
+    el.innerText = '确认按判例标FP?';
+    return;
+  }
+  $.post('/dashboard/vuls/' + vulid + '/verify',
+    {action: 'fp', notes: '判例队列采纳: 同模式人工判例一致判 FP', csrfmiddlewaretoken: tok},
+    function(data) {
+      if (data.code == 200) {
+        el.innerText = '已采纳';
+        setTimeout(function(){ location.reload(); }, 400);
+      } else { alert(data.message || '操作失败'); el.dataset.confirmed = ''; el.innerText = '采纳判例'; }
     }
   ).fail(function(xhr){
     alert('采纳失败 (HTTP ' + xhr.status + ')，请刷新页面重试');
