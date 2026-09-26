@@ -166,9 +166,13 @@ def chat_json(messages, temperature=0.2, max_tokens=8192, timeout=AI_TIMEOUT):
             return obj
     except Exception:
         pass
-    m = re.search(r"\{[\s\S]*\}", text)
-    if m:
-        obj = json.loads(m.group(0))
-        if isinstance(obj, dict):
-            return obj
+    # 内容里嵌 JSON（前后有杂讯）或半截：先做括号配平提取再解析
+    seg = _balanced_json(text)
+    if seg:
+        try:
+            obj = json.loads(seg)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
     raise AICallFailed("AI 未返回 JSON: %s" % text[:150])
