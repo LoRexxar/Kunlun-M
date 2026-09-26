@@ -46,6 +46,35 @@ def ai_configured():
     return bool(get_ai_config()["api_key"])
 
 
+def _balanced_json(text):
+    """从文本中提取第一段括号配平的 {...}（处理被截断的半截 JSON）。"""
+    start = text.find('{')
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def chat(messages, temperature=0.3, max_tokens=4096, json_mode=False, timeout=AI_TIMEOUT):
     """调用 OpenAI 兼容 chat/completions。失败抛 AINotConfigured / AICallFailed。"""
     cfg = get_ai_config()
@@ -80,9 +109,13 @@ def chat(messages, temperature=0.3, max_tokens=4096, json_mode=False, timeout=AI
         msg_obj = data["choices"][0].get("message") or {}
         content = msg_obj.get("content") or ""
         finish = data["choices"][0].get("finish_reason")
-        # 推理模型（glm-5.3-flash 等）可能把输出写进 reasoning_content 或被截断
+        # 推理模型（glm-5.3-flash 等）可能把输出写进 reasoning_content 或被截断。
+        # finish=length 且 content 为空时先别判死：reasoning_content 里常已有完整/半截 JSON，
+        # 交给下方 json_mode 解析链兜底；彻底捞不出再报截断。
         if not content and finish == "length":
-            raise AICallFailed("AI 输出被截断，请减小输入或提高 max_tokens")
+            rc0 = (msg_obj.get("reasoning_content") or "")
+            if not re.search(r"\{[\s\S]*\}", rc0):
+                raise AICallFailed("AI 输出被截断，请减小输入或提高 max_tokens")
     except AICallFailed:
         raise
     except Exception:
@@ -111,6 +144,12 @@ def chat(messages, temperature=0.3, max_tokens=4096, json_mode=False, timeout=AI
             except Exception:
                 continue
         raise AICallFailed("AI JSON 解析失败: %s" % (content or rc)[:150])
+    if not content.strip():
+        # length 截断且 content 空：把 reasoning 里可能存在的完整 JSON 段交回去（括号配平，防半截）
+        rc2 = (msg_obj.get("reasoning_content") or "")
+        seg = _balanced_json(rc2)
+        if seg:
+            return seg
     return content.strip()
 
 
