@@ -108,7 +108,20 @@ class VulListView(TemplateView):
         if page > max_page:
             page = max_page
 
-        rows = qs.order_by('-id')[(page - 1) * self.per_page : page * self.per_page]
+        # 结论回馈呈现：按规则可信度分层排序（tp-heavy 规则置顶 / fp-heavy 沉底），同层内新者优先。
+        # 引擎照常全量产出（可复现性不破坏），只在呈现层重排。
+        from web.pattern_suggest import rule_credibility
+        _cred = rule_credibility()
+
+        def _sort_key(r):
+            tier = _cred.get(r.cvi_id, (1, None, 0))[0]
+            return (tier, -r.id)
+
+        all_ids = list(qs.values_list('id', 'cvi_id'))
+        all_ids.sort(key=lambda x: (_cred.get(x[1], (1, None, 0))[0], -x[0]))
+        page_ids = [i for i, _ in all_ids[(page - 1) * self.per_page: page * self.per_page]]
+        rows = list(ScanResultTask.objects.filter(id__in=page_ids))
+        rows.sort(key=lambda r: page_ids.index(r.id))
 
         # 批量获取规则信息
         cvi_set = set(r.cvi_id for r in rows if r.cvi_id != '9999')
@@ -209,6 +222,8 @@ class VulListView(TemplateView):
                 'suggest': suggest_for(r, _sugg_index) if not r.verification_status else None,
                 'is_skip': r.ai_verdict == 'skip',
                 'skip_reason': (r.ai_reasoning or '') if r.ai_verdict == 'skip' else '',
+                'cred': _cred.get(r.cvi_id),
+                'cred': _cred.get(r.cvi_id),
             })
 
         ctx['results'] = results

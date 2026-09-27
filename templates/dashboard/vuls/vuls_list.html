@@ -402,7 +402,11 @@
             {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
             {% else %}<span class="badge bg-light text-dark border">{{ r.level }}</span>{% endif %}
           </td>
-          <td title="{{ r.result_type|escape }} · 规则: {{ r.rule_name|escape }}">{{ r.rule_name|truncatechars:16 }}</td>
+          <td title="{{ r.result_type|escape }} · 规则: {{ r.rule_name|escape }}">
+            {{ r.rule_name|truncatechars:16 }}
+            {% if r.cred and r.cred.0 == 2 %}<span class="badge bg-light text-muted border" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 {{ r.cred.1|floatformat:0 }}% 为FP——历史结论回馈，优先级已沉底">FP热</span>
+            {% elif r.cred and r.cred.0 == 0 %}<span class="badge bg-danger" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
+          </td>
           <td>
             {% if r.verification_status == 'tp' %}<span class="vp-ta-ok">TP</span>
             {% elif r.verification_status == 'fp' %}<span class="vp-ta-no">FP</span>

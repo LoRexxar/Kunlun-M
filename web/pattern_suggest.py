@@ -93,3 +93,35 @@ def suggest_for(v, index):
                 'reason': '该规则历史 %d 例人工判定 %s 占绝对多数' % (
                     d['n'], 'FP' if d['verdict'] == 'fp' else 'TP')}
     return None
+
+
+def rule_credibility():
+    """规则级可信度（结论回馈扫描呈现侧）：
+    - fp-heavy: 历史 ≥10 例且 ≥90% 人工判 FP → 该规则新结果大概率误报，优先级沉底
+    - tp-heavy: 历史 ≥10 例且 ≥90% 人工判 TP → 高价值规则，优先级置顶
+    - 否则 neutral
+    返回 {svid: (tier, fp_ratio, n)}；tier: 0=tp-heavy 1=neutral 2=fp-heavy
+    """
+    stat = defaultdict(Counter)
+    qs = (ScanResultTask.objects.filter(is_active=1)
+          .exclude(verification_status='')
+          .exclude(verification_status__in=_STALE)
+          .values_list('cvi_id', 'verification_status'))
+    for svid, vs in qs:
+        v = vs.lower()
+        if v in ('tp', 'fp'):
+            stat[svid][v] += 1
+    out = {}
+    for svid, c in stat.items():
+        total = sum(c.values())
+        if total < 10:
+            out[svid] = (1, None, total)
+            continue
+        fp_ratio = c['fp'] / total
+        if fp_ratio >= 0.9:
+            out[svid] = (2, fp_ratio, total)
+        elif fp_ratio <= 0.1:
+            out[svid] = (0, fp_ratio, total)
+        else:
+            out[svid] = (1, fp_ratio, total)
+    return out
