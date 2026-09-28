@@ -409,6 +409,8 @@
             {% elif r.cred and r.cred.0 == 0 %}<span class="badge bg-danger" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
           </td>
           <td>
+            {% if r.row_contested %}<span class="vp-pill vp-pill-amber" style="opacity:.8;font-size:.62em"
+               title="模式分歧：本条判 {{ r.verification_status|upper }}，但同模式历史 {{ r.row_contested.major_n }} 例判 {{ r.row_contested.major|upper }} / {{ r.row_contested.minor_n }} 例反方{% for m in r.row_contested.recent_minor %}&#10;反方 #{{ m.vul_id }} {{ m.actor }}: {{ m.notes }}{% endfor %}">分歧</span>{% endif %}
             {% if r.verification_status == 'tp' %}<span class="vp-ta-ok" onclick="event.stopPropagation(); showHistory({{ r.id }})" style="cursor:pointer" title="点击查看判定史（账本回放）">TP⃛</span>
             {% elif r.verification_status == 'fp' %}<span class="vp-ta-no" onclick="event.stopPropagation(); showHistory({{ r.id }})" style="cursor:pointer" title="点击查看判定史（账本回放）">FP⃛</span>
             {% elif r.verification_status == 'stale' %}<span class="vp-ta-old">过期</span>

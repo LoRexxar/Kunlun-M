@@ -18,6 +18,16 @@ _SINK_LABELS = frozenset({'sink', 'Sink', 'SINK'})
 _CALLER_LABELS = frozenset({'Function', 'Call', 'Caller', 'Return', 'Identifier', 'Statement', 'Expression'})
 
 
+def _row_contested(r, index):
+    """已判定行的模式争议检测：当前行的判定与同模式历史存在 >=20% 分歧时返回信息。"""
+    from web.pattern_suggest import _norm_pattern
+    d = index['exact'].get((r.cvi_id, _norm_pattern(r.source_code)))
+    if d and d.get('status') == 'contested' and d.get('verdict') != r.verification_status:
+        return {'major': d['verdict'], 'major_n': d['n'], 'minor_n': d.get('minor_n', 0),
+                'recent_minor': d.get('recent_minor') or []}
+    return None
+
+
 def _chain_role(idx, total, label):
     """推断链节点的角色: source / sink / propagation"""
     if idx == 0:
@@ -221,6 +231,7 @@ class VulListView(TemplateView):
                 'has_chain': len(chains) > 0,
                 'suggest': suggest_for(r, _sugg_index) if not r.verification_status else None,
                 'is_skip': r.ai_verdict == 'skip',
+                'row_contested': _row_contested(r, _sugg_index),
                 'skip_reason': (r.ai_reasoning or '') if r.ai_verdict == 'skip' else '',
                 'cred': _cred.get(r.cvi_id),
                 'cred': _cred.get(r.cvi_id),
