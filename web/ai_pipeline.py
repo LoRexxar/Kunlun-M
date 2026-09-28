@@ -37,10 +37,29 @@ def _rule_desc(rule_desc, limit=600):
     return d[:limit] if d else "（规则库无描述）"
 
 
-def few_shot_examples(cvi_id, exclude_id=None, project_id=None, limit=4):
-    """P2: 检索人工已判定案例作为强先验。同项目判例优先（项目级审计口径最重要），
-    其次同规则。只取 TP/FP（stale 不当判例）。返回空串表示无判例。"""
+def few_shot_examples(cvi_id, exclude_id=None, project_id=None, limit=4,
+                      source_code=''):
+    """P2(账本版): 判例先验从 VerdictEvent 账本取（多轮判定每轮都是经验）。
+    同项目判例优先；若当前模式在账本中是 contested（少数派>=20%），
+    同时注入争议提示与双方理由，禁止 AI 把有争议模式当作一致口径照搬。
+    """
     from web.index.models import ScanResultTask
+    from web.verdict_ledger import pattern_verdict_mix
+    from web.pattern_suggest import _norm_pattern
+
+    # 争议感知：当前源码模式若已知且有争议，先给出提示段
+    pat = _norm_pattern(source_code) if source_code else ''
+    contested_note = ''
+    if pat:
+        mix = pattern_verdict_mix(pat, cvi_id)
+        if mix.get('status') == 'contested':
+            minor_lines = ''.join(
+                '\n    - 反方 #%s %s: %s' % (m['vul_id'], m['actor'], (m['notes'] or '')[:100])
+                for m in (mix.get('recent_minor_events') or []))
+            contested_note = (
+                "【模式争议警告】当前代码模式在历史上存在分歧：%d 例判 %s，%d 例判反方。"
+                "两方理由都在下方判例中，请依据本项目上下文独立判断，不要默认跟随多数。%s" % (
+                    mix['major_n'], mix['major'].upper(), mix['minor_n'], minor_lines))
 
     def _fetch(base_qs, n):
         qs = (base_qs.exclude(verification_status='')
@@ -62,9 +81,11 @@ def few_shot_examples(cvi_id, exclude_id=None, project_id=None, limit=4):
         rows += [(r, False) for r in
                  _fetch(ScanResultTask.objects.filter(is_active=1, cvi_id=cvi_id), need + 2)
                  if r['id'] not in got_ids][:need]
-    if not rows:
+    if not rows and not contested_note:
         return ""
     lines = ["历史人工判例（你方审计团队的真实结论）："]
+    if contested_note:
+        lines.append(contested_note)
     if any(sp for _, sp in rows):
         lines.append("【同项目判例】反映该项目自身的审计口径，为最高优先级依据，判定必须与其一致。")
     if any(not sp for _, sp in rows):
@@ -111,7 +132,8 @@ def analyze_vul_object(vul, chain_text, rule_desc):
     from web.utils_ai import chat_json
 
     precedents = few_shot_examples(vul.cvi_id, exclude_id=vul.id,
-                                   project_id=getattr(vul, "scan_project_id", None))
+                                   project_id=getattr(vul, "scan_project_id", None),
+                                   source_code=vul.source_code or '')
     data = chat_json(
         [{"role": "system", "content": VUL_SYSTEM_PROMPT},
          {"role": "user", "content": vul_prompt(vul, chain_text, rule_desc, precedents)}],
@@ -160,7 +182,8 @@ def _cluster_vuls(vuls):
 
 
 def _cluster_representative_prompt(vul, chain_text, rule_desc, member_count):
-    precedents = few_shot_examples(vul.cvi_id, exclude_id=vul.id)
+    precedents = few_shot_examples(vul.cvi_id, exclude_id=vul.id,
+                                   source_code=vul.source_code or '')
     base = vul_prompt(vul, chain_text, rule_desc, precedents)
     ctx = ("\n\n【簇信息】同文件同规则还有 %d 条结构相同的发现（相同 vul_hash 模式）。"
            "请对这一簇统一判定，输出同上 JSON；reasoning 需说明该模式的共性依据。"
@@ -253,7 +276,8 @@ def _analyze_cluster(vul, chain_text, rule_desc, member_count):
     from web.utils_ai import chat_json
 
     precedents = few_shot_examples(vul.cvi_id, exclude_id=vul.id,
-                                   project_id=getattr(vul, "scan_project_id", None))
+                                   project_id=getattr(vul, "scan_project_id", None),
+                                   source_code=vul.source_code or '')
     prompt = _cluster_representative_prompt(vul, chain_text, rule_desc, member_count)
     data = chat_json(
         [{"role": "system", "content": VUL_SYSTEM_PROMPT},

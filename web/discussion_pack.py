@@ -146,13 +146,47 @@ def build_engine(labeled, rule_name):
 
 
 def build_log():
+    from web.verdict_ledger import ledger_stats, pattern_verdict_mix
+    from web.index.models import VerdictEvent
     ai_rej = list(ScanResultTask.objects.filter(verified_by='ai-adjudication'))
     keeps = [v for v in ScanResultTask.objects.filter(is_active=1)
              if (v.ai_reasoning or '').startswith('保留人工判定')]
     adopted_n = ScanResultTask.objects.filter(verified_by='precedent-adoption').count()
 
-    out = ['# 裁决台账', '', '> 本批所有非常规裁决的完整证据链。每条可独立复核。', '',
-           '## A. 采信 AI 的改判（%d 条）' % len(ai_rej), '']
+    out = ['# 裁决台账', '', '> 本批所有非常规裁决的完整证据链。每条可独立复核。', '']
+
+    st = ledger_stats()
+    out += ['## ⓪ 判定账本全景', '',
+            '- 事件总数：%d' % st['total_events'],
+            '- 来源分布：%s' % st['by_source'],
+            '- 经历多轮判定的漏洞：%d 条（每一条都值得复盘：是什么让人改变了判断）' % st['vuls_with_multiple_rounds'],
+            '']
+
+    from collections import Counter as _C
+    pat_c = _C()
+    for e in VerdictEvent.objects.filter(new_status__in=('tp', 'fp')).values('pattern_hash', 'cvi_id', 'new_status'):
+        pat_c[(e['cvi_id'], e['pattern_hash'], e['new_status'])] += 1
+    contested_list = []
+    seen = set()
+    for (cvi, pat, _v), _n in pat_c.most_common():
+        if (cvi, pat) in seen or not pat:
+            continue
+        seen.add((cvi, pat))
+        mix = pattern_verdict_mix(pat, cvi)
+        if mix.get('status') == 'contested':
+            contested_list.append((cvi, pat, mix))
+    out += ['## ⓪-b 争议模式清单（少数派≥20%，互斥经验共存待裁决）', '']
+    if contested_list:
+        out += ['| 规则 | 模式 | 多数 | 少数 | 最近反方依据 |', '|---|---|---|---|---|']
+        for cvi, pat, mix in contested_list[:10]:
+            recent = (mix.get('recent_minor_events') or [{}])[0].get('notes', '')[:60]
+            out.append('| CVI-%s | %s… | %s×%d | ×%d | %s |' % (
+                cvi, pat[:10], (mix['major'] or '').upper(), mix['major_n'], mix['minor_n'], recent))
+    else:
+        out.append('- 当前无争议模式')
+    out += ['']
+
+    out += ['## A. 采信 AI 的改判（%d 条）' % len(ai_rej), '']
     for v in ai_rej:
         mm = _chain_mismatch(v)
         out.append('- **#%d** CVI-%s `%s`' % (v.id, v.cvi_id, (v.vulfile_path or '')[:70]))

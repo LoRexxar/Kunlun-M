@@ -409,8 +409,8 @@
             {% elif r.cred and r.cred.0 == 0 %}<span class="badge bg-danger" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
           </td>
           <td>
-            {% if r.verification_status == 'tp' %}<span class="vp-ta-ok">TP</span>
-            {% elif r.verification_status == 'fp' %}<span class="vp-ta-no">FP</span>
+            {% if r.verification_status == 'tp' %}<span class="vp-ta-ok" onclick="event.stopPropagation(); showHistory({{ r.id }})" style="cursor:pointer" title="点击查看判定史（账本回放）">TP⃛</span>
+            {% elif r.verification_status == 'fp' %}<span class="vp-ta-no" onclick="event.stopPropagation(); showHistory({{ r.id }})" style="cursor:pointer" title="点击查看判定史（账本回放）">FP⃛</span>
             {% elif r.verification_status == 'stale' %}<span class="vp-ta-old">过期</span>
             {% else %}<span class="vp-mid">-</span>{% endif %}
             {% if r.ai_verdict == 'tp' %}<span onclick="event.stopPropagation(); showAiDetail({{ r.id }})" title="点击查看 AI 分析详情 · 置信度: {{ r.ai_confidence }}" class="vp-pill vp-pill-green{% if r.ai_disagreed %} vp-pill-cond{% endif %}">AI:TP{% if r.ai_disagreed %}≠{% endif %}</span>
@@ -776,6 +776,32 @@ document.addEventListener('change', function(e) {
 });
 
 /* AI 分诊详情对照弹窗 */
+function showHistory(vulId) {
+  var modal = document.getElementById('aiDetailModal');
+  var body = document.getElementById('aiDetailBody');
+  modal.style.display = 'flex';
+  body.innerHTML = '<div class="vp-empty-lg"><i class="fa fa-spinner fa-spin"></i> 加载判定史...</div>';
+  fetch('/dashboard/vuls/' + vulId + '/history', {credentials:'same-origin'})
+    .then(r => r.json())
+    .then(function(res) {
+      if (res.code !== 200) { body.innerHTML = '<div class="vp-empty-err">加载失败</div>'; return; }
+      var evs = res.events || [];
+      if (!evs.length) { body.innerHTML = '<div class="vp-empty-lg">该漏洞暂无判定事件（未人工复核过）</div>'; return; }
+      var h = '<div style="padding:14px 18px;max-height:70vh;overflow:auto;">' +
+        '<div style="font-weight:700;margin-bottom:8px;">判定史 · 漏洞 #' + vulId + '（' + evs.length + ' 条事件，账本不可篡改）</div>';
+      evs.forEach(function(e, i) {
+        var color = e.new === 'tp' ? '#16a34a' : e.new === 'fp' ? '#dc2626' : '#6b7280';
+        h += '<div style="border-left:3px solid ' + color + ';padding:4px 10px;margin:6px 0;">' +
+          '<div style="font-size:13px;"><b>' + (i+1) + '. ' + e.old + ' → ' + e.new + '</b>' +
+          ' <span style="color:#888;font-size:11px;">' + e.source_cn + ' · ' + e.actor + ' · ' + e.at + '</span></div>' +
+          (e.notes ? '<div style="font-size:12px;color:#555;margin-top:2px;">依据: ' + e.notes.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>' : '') +
+          '</div>';
+      });
+      h += '</div>';
+      body.innerHTML = h;
+    })
+    .catch(function(){ body.innerHTML = '<div class="vp-empty-err">网络错误</div>'; });
+}
 function openDiscussions() {
   var modal = document.getElementById('aiDetailModal');
   var body = document.getElementById('aiDetailBody');

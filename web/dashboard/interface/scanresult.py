@@ -131,3 +131,27 @@ class ScanResultBulkVerifyView(View):
                 updated += 1
 
         return JsonResponse({"code": 200, "status": True, "updated": updated})
+
+
+
+class ScanResultHistoryView(View):
+    """判定史（账本回放）：该漏洞的全部判定事件，谁/何时/依据。"""
+
+    @staticmethod
+    @login_required
+    def get(request, vul_id):
+        from web.index.models import VerdictEvent
+        src_cn = {'human': '人工标记', 'ai-adjudication': 'AI改判采信',
+                  'precedent-adoption': '判例采纳', 'undo': '撤销',
+                  'genesis': '建账回填', 'bulk': '批量操作'}
+        evs = VerdictEvent.objects.filter(vul_id=vul_id).order_by('created_at')
+        return JsonResponse({"code": 200, "events": [{
+            "id": e.id,
+            "old": e.old_status or '∅',
+            "new": e.new_status or '∅',
+            "source": e.source,
+            "source_cn": src_cn.get(e.source, e.source),
+            "actor": e.actor,
+            "notes": e.notes or '',
+            "at": e.created_at.strftime('%Y-%m-%d %H:%M'),
+        } for e in evs]})

@@ -71,6 +71,7 @@ urlpatterns = [
     # scan result
     path('vuls/<int:vul_id>/del', scanresult.ScanResultDelInterfaceView.as_view(), name="vul_del"),
     path('vuls/<int:vul_id>/verify', scanresult.ScanResultVerifyView.as_view(), name="vul_verify"),
+    path('vuls/<int:vul_id>/history', login_required(scanresult.ScanResultHistoryView.as_view()), name="vul_history"),
     path('vuls/verify/bulk', scanresult.ScanResultBulkVerifyView.as_view(), name="vul_verify_bulk"),
 
     # graph analysis
