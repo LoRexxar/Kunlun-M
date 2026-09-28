@@ -84,4 +84,6 @@ urlpatterns = [
     path('ai/project/<int:project_id>/report', login_required(ai.AiProjectReportView.as_view()), name='ai_project_report'),
     path('ai/rule/generate', login_required(ai.AiRuleGenerateView.as_view()), name='ai_rule_generate'),
     path('ai/settings', login_required(ai.AiSettingsView.as_view()), name='ai_settings'),
+    path('ai/discussions', login_required(ai.DiscussionListView.as_view()), name='ai_discussions'),
+    path('ai/discussions/<int:doc_id>', login_required(ai.DiscussionDetailView.as_view()), name='ai_discussion_detail'),
 ]

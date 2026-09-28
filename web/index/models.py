@@ -601,6 +601,23 @@ class ProjectAiReport(models.Model):
     created_at = models.DateTimeField(auto_now=True)
 
 
+class DiscussionDoc(models.Model):
+    """复盘讨论件（经验产出的显式文档，全量存 DB，不落 git/磁盘）"""
+    DOC_TYPES = (('lessons', '判定经验教训'), ('engine', '引擎缺陷清单'), ('log', '裁决台账'))
+    doc_type = models.CharField(max_length=20, choices=DOC_TYPES, db_index=True)
+    title = models.CharField(max_length=200)
+    content_md = models.TextField()
+    data_baseline = models.CharField(max_length=200, default='', help_text='生成时的数据规模描述')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'discussion_doc'
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return '%s %s' % (self.get_doc_type_display(), self.created_at.strftime('%Y-%m-%d %H:%M'))
+
+
 class AiTriageQueue(models.Model):
     """AI 分诊后台队列（每项目一行，幂等）"""
     project_id = models.IntegerField(db_index=True)

@@ -300,6 +300,7 @@
     <a class="btn btn-sm btn-default" href="?confirm=ai-unanalyzed">AI未分析 {% if ai_pending_count %}<span class="badge bg-secondary ms-1">{{ ai_pending_count }}</span>{% endif %}</a>
     <a class="btn btn-sm {% if f_confirm == 'ai-disagree' %}btn-warning{% else %}btn-default{% endif %}" href="?confirm=ai-disagree" title="AI 与人工标注不一致，需要人裁决的分歧清单">AI分歧 {% if ai_disagree_count %}<span class="badge bg-warning text-dark ms-1">{{ ai_disagree_count }}</span>{% endif %}</a>
     <a class="btn btn-sm {% if f_confirm == 'ai-skip' %}btn-primary{% else %}btn-default{% endif %}" href="?confirm=ai-skip" title="已有同模式人工判例覆盖，点击确认即完成复核">判例待确认 {% if ai_skip_count %}<span class="badge bg-info ms-1">{{ ai_skip_count }}</span>{% endif %}</a>
+    <a class="btn btn-sm btn-default" href="javascript:;" onclick="openDiscussions()" title="经验产出：判定教训/引擎缺陷/裁决台账（存DB）">复盘讨论件</a>
     <a class="btn btn-sm btn-default" href="?confirm=tp">已确认TP</a>
     <a class="btn btn-sm btn-default" href="?confirm=fp">已标记FP</a>
   </div>
@@ -773,6 +774,63 @@ document.addEventListener('change', function(e) {
 });
 
 /* AI 分诊详情对照弹窗 */
+function openDiscussions() {
+  var modal = document.getElementById('aiDetailModal');
+  var body = document.getElementById('aiDetailBody');
+  modal.style.display = 'flex';
+  body.innerHTML = '<div class="vp-empty-lg"><i class="fa fa-spinner fa-spin"></i> 加载讨论件...</div>';
+  fetch('/dashboard/ai/discussions', {credentials:'same-origin'})
+    .then(r => r.json())
+    .then(function(res) {
+      if (res.code !== 200) { body.innerHTML = '<div class="vp-empty-err">加载失败</div>'; return; }
+      var docs = res.docs || [];
+      var byType = {};
+      docs.forEach(function(d){ (byType[d.doc_type] = byType[d.doc_type] || []).push(d); });
+      var labels = {lessons:'判定经验教训', engine:'引擎缺陷清单', log:'裁决台账'};
+      var h = '<div style="padding:14px 18px;">';
+      h += '<div style="margin-bottom:10px;"><button class="btn btn-sm btn-primary" onclick="genDiscussions(this)">生成新版本</button>';
+      h += '<span style="font-size:12px;color:#888;margin-left:8px;">经验沉淀为可讨论文档 · 全量存 DB</span></div>';
+      ['lessons','engine','log'].forEach(function(tp){
+        h += '<div style="margin:10px 0 4px;font-weight:600;">' + labels[tp] + '</div>';
+        var list = byType[tp] || [];
+        if (!list.length) { h += '<div style="font-size:12px;color:#aaa;">暂无版本，点上方生成</div>'; return; }
+        list.slice(0,5).forEach(function(d){
+          h += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">' +
+               '<a href="javascript:;" onclick="showDiscussion(' + d.id + ')" style="color:#0366d6;">' + d.title + '</a>' +
+               '<span style="font-size:11px;color:#999;">' + (d.baseline||'') + '</span></div>';
+        });
+      });
+      h += '</div>';
+      body.innerHTML = h;
+    })
+    .catch(function(){ body.innerHTML = '<div class="vp-empty-err">网络错误</div>'; });
+}
+function genDiscussions(btn) {
+  btn.disabled = true; btn.innerText = '生成中...';
+  var m = document.cookie.match(/csrftoken=([^;]+)/);
+  var token = m ? decodeURIComponent(m[1]) : '';
+  fetch('/dashboard/ai/discussions', {method:'POST', credentials:'same-origin',
+    headers:{'X-CSRFToken': token, 'Content-Type':'application/json'}})
+    .then(r => r.json())
+    .then(function(res){ if (res.code === 200) openDiscussions(); else { alert(res.message || '生成失败'); btn.disabled = false; btn.innerText = '生成新版本'; } })
+    .catch(function(){ alert('网络错误'); btn.disabled = false; btn.innerText = '生成新版本'; });
+}
+function showDiscussion(id) {
+  var body = document.getElementById('aiDetailBody');
+  body.innerHTML = '<div class="vp-empty-lg"><i class="fa fa-spinner fa-spin"></i> 加载文档...</div>';
+  fetch('/dashboard/ai/discussions/' + id, {credentials:'same-origin'})
+    .then(r => r.json())
+    .then(function(res){
+      if (res.code !== 200) { body.innerHTML = '<div class="vp-empty-err">加载失败</div>'; return; }
+      var d = res.doc;
+      var html = '<div style="padding:14px 18px;max-height:70vh;overflow:auto;">' +
+        '<div style="font-weight:700;font-size:15px;margin-bottom:4px;">' + d.title + '</div>' +
+        '<div style="font-size:11px;color:#999;margin-bottom:10px;">' + d.type_label + ' · ' + d.baseline + '</div>' +
+        '<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.6;">' +
+        d.content_md.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre></div>';
+      body.innerHTML = html;
+    });
+}
 function showAiDetail(vulId) {
   var modal = document.getElementById('aiDetailModal');
   var body = document.getElementById('aiDetailBody');

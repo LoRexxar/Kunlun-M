@@ -374,3 +374,43 @@ class AiVulDetailView(View):
                 and srt.ai_verdict != srt.verification_status
             ),
         }})
+
+class DiscussionListView(View):
+    """复盘讨论件：列表 + 一键生成（内容全量存 DB，不落文件/git）"""
+
+    @staticmethod
+    def get(request):
+        from web.index.models import DiscussionDoc
+        docs = DiscussionDoc.objects.all()[:60]
+        rows = [{
+            'id': d.id, 'doc_type': d.doc_type,
+            'type_label': d.get_doc_type_display(),
+            'title': d.title, 'baseline': d.data_baseline,
+            'created_at': d.created_at.strftime('%Y-%m-%d %H:%M'),
+        } for d in docs]
+        return JsonResponse({"code": 200, "docs": rows})
+
+    @staticmethod
+    def post(request):
+        from web.discussion_pack import generate_all
+        made = generate_all()
+        return JsonResponse({"code": 200, "created": [
+            {"id": did, "doc_type": t, "title": title} for t, title, did in made]})
+
+
+class DiscussionDetailView(View):
+    """单篇讨论件原文（markdown）"""
+
+    @staticmethod
+    def get(request, doc_id):
+        from web.index.models import DiscussionDoc
+        d = DiscussionDoc.objects.filter(id=doc_id).first()
+        if not d:
+            return JsonResponse({"code": 404, "message": "文档不存在"})
+        return JsonResponse({"code": 200, "doc": {
+            "id": d.id, "doc_type": d.doc_type,
+            "type_label": d.get_doc_type_display(),
+            "title": d.title, "baseline": d.data_baseline,
+            "created_at": d.created_at.strftime('%Y-%m-%d %H:%M'),
+            "content_md": d.content_md,
+        }})
