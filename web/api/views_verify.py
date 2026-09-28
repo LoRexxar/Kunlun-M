@@ -41,11 +41,16 @@ class TaskResultVerifyApiView(View):
         except ScanResultTask.DoesNotExist:
             return JsonResponse({"code": 404, "error": "Result not found"})
 
+        old_status = result.verification_status
         result.verification_status = status
         result.verified_by = verified_by
         result.verified_at = timezone.now()
         result.verification_notes = notes
         result.save()
+        if status in ('tp', 'fp'):
+            from web.verdict_ledger import record_event
+            record_event(result.id, old_status, status, 'human',
+                         actor=verified_by, notes=notes, vul=result)
 
         return JsonResponse({
             "code": 200,
@@ -78,11 +83,19 @@ class TaskVerifyBatchApiView(View):
         if status not in valid_statuses:
             return JsonResponse({"code": 400, "error": f"Invalid status. Must be one of: {valid_statuses}"})
 
+        to_log = list(ScanResultTask.objects.filter(scan_task_id=task_id, is_active=1)
+                      .values_list('id', 'verification_status'))
         count = ScanResultTask.objects.filter(scan_task_id=task_id).update(
             verification_status=status,
             verified_by=verified_by,
             verified_at=timezone.now()
         )
+        if status in ('tp', 'fp'):
+            from web.verdict_ledger import record_event
+            for vid, old_st in to_log:
+                if old_st != status:
+                    record_event(vid, old_st, status, 'bulk', actor=verified_by,
+                                 notes='batch verify task %s' % task_id)
 
         return JsonResponse({
             "code": 200,

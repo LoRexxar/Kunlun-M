@@ -12,7 +12,7 @@ import hashlib
 import re
 from collections import Counter, defaultdict
 
-from web.index.models import ScanResultTask
+from web.index.models import ScanResultTask, VerdictEvent
 
 _STALE = ('TP', 'tp', 'stale')
 
@@ -32,23 +32,31 @@ def _module_of(path):
 
 
 def build_suggestion_index():
-    """一次扫描人工判定库，返回 {key: {verdict, n}} 两级索引 + 规则级倾向。"""
+    """判定经验索引（账本驱动）。
+
+    经验单位 = VerdictEvent（判定事件），不是状态快照：同一漏洞多轮判定
+    每轮都贡献一次经验；互斥结论共存，exact 级带 contested 标记（少数派
+    占比 >=20% 时提示争议，而非被多数吞掉）。
+    """
+    from web.verdict_ledger import pattern_verdict_mix
     exact = {}
     module = {}
     rule_stat = defaultdict(Counter)
-    qs = (ScanResultTask.objects.filter(is_active=1)
-          .exclude(verification_status='')
-          .exclude(verification_status__in=_STALE)
-          .values('cvi_id', 'source_code', 'vulfile_path', 'verification_status'))
-    for v in qs:
-        verdict = v['verification_status'].lower()
-        if verdict not in ('tp', 'fp'):
-            continue
-        rule_stat[v['cvi_id']][verdict] += 1
-        pat = _norm_pattern(v['source_code'])
-        k1 = (v['cvi_id'], pat)
+    # 事件源：每条有效判定事件 = 一次经验
+    ev_qs = (VerdictEvent.objects.filter(new_status__in=('tp', 'fp'))
+             .values('vul_id', 'cvi_id', 'pattern_hash', 'new_status'))
+    vul_meta = {}
+    vul_ids = set(e['vul_id'] for e in ev_qs)
+    for v in ScanResultTask.objects.filter(id__in=vul_ids).only('id', 'vulfile_path', 'source_code'):
+        vul_meta[v.id] = v
+    for e in ev_qs:
+        verdict = e['new_status']
+        v = vul_meta.get(e['vul_id'])
+        rule_stat[e['cvi_id']][verdict] += 1
+        pat = e['pattern_hash'] or _norm_pattern(v.source_code if v else '')
+        k1 = (e['cvi_id'], pat)
         exact.setdefault(k1, Counter())[verdict] += 1
-        k2 = (v['cvi_id'], pat, _module_of(v['vulfile_path']))
+        k2 = (e['cvi_id'], pat, _module_of(v.vulfile_path if v else ''))
         module.setdefault(k2, Counter())[verdict] += 1
 
     def _consistent(store, min_n=2):
@@ -56,7 +64,15 @@ def build_suggestion_index():
         for k, c in store.items():
             verdict, n = c.most_common(1)[0]
             if n >= min_n:
-                out[k] = {'verdict': verdict, 'n': n}
+                item = {'verdict': verdict, 'n': n}
+                minor_n = sum(c.values()) - n
+                if minor_n * 5 >= n + minor_n:  # 少数派 >=20% → 争议态
+                    mix = pattern_verdict_mix(k[1], k[0])
+                    item.update(status='contested', minor_n=minor_n,
+                                recent_minor=mix.get('recent_minor_events') or [])
+                else:
+                    item['status'] = 'solid'
+                out[k] = item
         return out
 
     rule_tilt = {}
@@ -80,6 +96,12 @@ def suggest_for(v, index):
     k1 = (v.cvi_id, pat)
     if k1 in index['exact']:
         d = index['exact'][k1]
+        if d.get('status') == 'contested':
+            return {'level': 'exact', 'verdict': d['verdict'], 'n': d['n'],
+                    'contested': True, 'minor_n': d.get('minor_n', 0),
+                    'recent_minor': d.get('recent_minor') or [],
+                    'reason': '同模式判定有争议：%d 例 %s vs %d 例反方——请按本项目上下文复核' % (
+                        d['n'], d['verdict'].upper(), d.get('minor_n', 0))}
         return {'level': 'exact', 'verdict': d['verdict'], 'n': d['n'],
                 'reason': '同规则同代码模式已有 %d 例人工判定' % d['n']}
     k2 = (v.cvi_id, pat, _module_of(v.vulfile_path))

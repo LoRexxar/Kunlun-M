@@ -601,6 +601,39 @@ class ProjectAiReport(models.Model):
     created_at = models.DateTimeField(auto_now=True)
 
 
+class VerdictEvent(models.Model):
+    """判定事件账本（append-only）：经验的本体，永不删改。
+
+    状态（verification_status 等）只是账本的投影；互斥结论以事件形式共存，
+    任何判定史、口径演进、依据链都可从账本完整回放。
+    """
+    SOURCES = (
+        ('human', '人工标记'),
+        ('ai-adjudication', 'AI 改判采信'),
+        ('precedent-adoption', '判例采纳'),
+        ('undo', '撤销'),
+        ('genesis', '建账回填'),
+        ('bulk', '批量操作'),
+    )
+    vul_id = models.IntegerField(db_index=True)
+    old_status = models.CharField(max_length=20, default='')
+    new_status = models.CharField(max_length=20)
+    source = models.CharField(max_length=30, choices=SOURCES)
+    actor = models.CharField(max_length=80, default='')
+    notes = models.TextField(blank=True, default='')
+    cvi_id = models.CharField(max_length=20, default='')
+    scan_project_id = models.IntegerField(default=0)
+    pattern_hash = models.CharField(max_length=64, default='', help_text='判定时的源码模式指纹')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'verdict_event'
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return '#%d %s->%s (%s)' % (self.vul_id, self.old_status or '∅', self.new_status, self.source)
+
+
 class DiscussionDoc(models.Model):
     """复盘讨论件（经验产出的显式文档，全量存 DB，不落 git/磁盘）"""
     DOC_TYPES = (('lessons', '判定经验教训'), ('engine', '引擎缺陷清单'), ('log', '裁决台账'))

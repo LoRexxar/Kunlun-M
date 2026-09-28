@@ -419,6 +419,8 @@
             {% if r.is_skip %}<span title="{{ r.skip_reason }}" class="vp-pill vp-pill-amber" style="opacity:.8">判例✓</span>
             <span onclick="event.stopPropagation(); applySuggestSkip({{ r.id }}, this)" title="按判例结论标记 FP，完成复核"
                class="vp-pill vp-pill-red" style="opacity:.75">采纳判例</span>
+            {% elif r.suggest and r.suggest.contested %}<span title="{{ r.suggest.reason }}"
+               class="vp-pill vp-pill-amber" style="opacity:.85">争议:{{ r.suggest.verdict|upper }}{{ r.suggest.n }}/反{{ r.suggest.minor_n }}</span>
             {% elif r.suggest %}<span onclick="event.stopPropagation(); applySuggest({{ r.id }}, '{{ r.suggest.verdict }}', '{{ r.suggest.n }}', this)"
                title="{{ r.suggest.reason }} · 点击采纳并标记"
                class="vp-pill {% if r.suggest.verdict == 'fp' %}vp-pill-red{% else %}vp-pill-green{% endif %}"

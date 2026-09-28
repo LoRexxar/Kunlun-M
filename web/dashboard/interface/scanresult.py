@@ -50,6 +50,8 @@ class ScanResultVerifyView(View):
         if action not in ("tp", "fp", "unconfirm"):
             return JsonResponse({"code": 400, "status": False, "message": "无效操作，可选: tp, fp, unconfirm"})
 
+        old_status = srt.verification_status
+
         if action == "unconfirm":
             srt.verification_status = ''
             srt.verified_by = ''
@@ -67,6 +69,14 @@ class ScanResultVerifyView(View):
             'verification_status', 'verified_by', 'verified_at',
             'verification_notes', 'is_unconfirm'
         ])
+
+        # 账本：撤销也是事件（undo），不改写历史
+        from web.verdict_ledger import record_event
+        record_event(srt.id, old_status,
+                     '' if action == 'unconfirm' else action,
+                     'undo' if action == 'unconfirm' else 'human',
+                     actor=request.user.username,
+                     notes=srt.verification_notes, vul=srt)
 
         return JsonResponse({"code": 200, "status": True})
 
