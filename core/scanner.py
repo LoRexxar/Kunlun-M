@@ -1292,6 +1292,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # vendor 目录
                         if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
                             continue
+                        # 第三方/捆绑代码目录（高特异性命名）
+                        if any(seg + '/' in vuln_file_norm.replace(os.sep, '/')
+                               for seg in ('a3rd', '3rdparty', 'third_party', 'thirdparty',
+                                           'external_plugins', 'bower_components')):
+                            continue
                         # site-packages (Python stdlib / third-party)
                         if '/site-packages/' in vuln_file_norm:
                             continue
