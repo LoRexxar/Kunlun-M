@@ -200,6 +200,11 @@
 .table-responsive.km-vul-scroll { max-height: 72vh; overflow-y: auto; }
 .table-responsive.km-vul-scroll thead th { position: sticky; top: 0; z-index: 5; background: #f8fafc; box-shadow: 0 1px 0 #e5edf7; }
 
+/* 行内操作下拉：滚动容器 overflow 会裁剪 absolute 定位的菜单。Tabler(BS5) 的 Popper 把
+   position:absolute 写进 inline style，特异性打不过——用 !important 直接强制 fixed，
+   并让 Popper 的 transform 摆位继续生效（fixed 坐标系下不再被 overflow 裁剪） */
+.km-vul-scroll .dropdown-menu.show { position: fixed !important; }
+
 /* ===== vuls 页内联样式收编 ===== */
 .vuls-page .vp-auto { width: auto; }
 .vuls-page .vp-mb12 { margin-bottom: 12px; }
