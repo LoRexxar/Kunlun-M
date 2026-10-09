@@ -95,6 +95,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
+    # CMS Made Simple — framework sanitizer (full HTML entity encode)
+    "cleanValue",
     # Python
     "shlex.quote", "shlex.quote_plus",
     "html.escape", "html.unescape",
