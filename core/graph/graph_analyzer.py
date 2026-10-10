@@ -963,6 +963,22 @@ class GraphAnalyzer:
             self._f21a_guard_cache = {}
         _f21a_guard_cache = getattr(self, "_f21a_guard_cache", None)
 
+        # Fix 23: fixed-host URL guard for curl_setopt(CURLOPT_URL, ...).
+        # When the URL argument traces back to a concat whose leftmost leaf
+        # is a string literal containing a complete scheme://host prefix,
+        # attacker-controlled taint can only reach the query component —
+        # the request destination host is pinned by the literal, so this is
+        # not server-side request forgery.  (xoops protector stopforumspam
+        # client: "http://www.stopforumspam.com/api?" . $query.)
+        # A literal of just "http://" does NOT qualify — the host chars must
+        # appear inside the same literal, otherwise the host itself is the
+        # tainted part (true SSRF stays reported).
+        try:
+            _f23 = self._fixed_host_url_guard(start_vid)
+        except Exception:
+            _f23 = False
+        self._f23_guard_cache = _f23
+
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
                                         max_depth=max_depth)
         pinned_seen = getattr(self, "_redirect_pin_vids", set())
@@ -971,6 +987,17 @@ class GraphAnalyzer:
         # guarded by a terminating !pred() branch earlier in the same
         # function, so reaching the sink proves pred()==true —
         # whitelist-constrained, not attacker-controlled.
+        # Fix 23: fixed-host CURLOPT_URL — pin verdict before BFS verdict.
+        if self.language == "php" and r1.code == 1 and getattr(
+                self, "_f23_guard_cache", False):
+            return AnalysisResult(
+                code=-1,
+                reason="fixed host URL: taint reaches only the query "
+                       "component of a literal scheme://host target",
+                chain=[{"step": "fixed_host_url_guard",
+                        "vid": start_vid, "code": -1}],
+                path=list(r1.path), expr_lineno=_vattr(
+                    self.graph.vs[start_vid], "lineno", 0))
         _sv = self.graph.vs[start_vid]
         if self.language == "php" and r1.code == 1:
             _guard_reason = self._negated_whitelist_guard_for_result(
@@ -4661,6 +4688,106 @@ class GraphAnalyzer:
                             return True
                 for ce in self.graph.es.select(_source=w, label="ast"):
                     stack.append(ce.target)
+        return False
+
+    def _fixed_host_url_guard(self, sink_vid: int) -> bool:
+        """Fix 23 helper: sink is curl_setopt($ch, CURLOPT_URL, $url) and
+        $url's defining assign is a concat whose leftmost ast child is a
+        const scalar matching  scheme://host  (host chars inside the same
+        literal).  Verified graph shape (probe /tmp/t_curl):
+        call curl_setopt --ast/arg--> const 'CURLOPT_URL', var '$url';
+        assign('$url') --ast--> binary_op '.' --> [const 'http://...', var].
+        """
+        sv = self.graph.vs[sink_vid]
+        setopt_vid = sink_vid
+        if (_vattr(sv, "type", "") != "call"
+                or _vattr(sv, "name", "") != "curl_setopt"):
+            # scanner may enter pb at a sensitive-call ARGUMENT: the $url of
+            # CURLOPT_URL (ast parent is the curl_setopt call) or the $ch
+            # handle of curl_exec (the curl_setopt reaches $ch via dfg).
+            # Search: ast parent first, then dfg-feeder variables' ast
+            # parents, depth 2.
+            def _owning_setopt(vid):
+                for e in self.graph.es.select(_target=vid, label="ast"):
+                    pv = self.graph.vs[e.source]
+                    if (_vattr(pv, "type", "") == "call"
+                            and _vattr(pv, "name", "") == "curl_setopt"):
+                        return e.source
+                return None
+            parent = _owning_setopt(sink_vid)
+            if parent is None:
+                seen = {sink_vid}
+                frontier = [sink_vid]
+                for _depth in range(2):
+                    nxt = []
+                    for u in frontier:
+                        for e in self.graph.es.select(
+                                _target=u, label="dfg"):
+                            src = e.source
+                            if src in seen:
+                                continue
+                            seen.add(src)
+                            parent = _owning_setopt(src)
+                            if parent is not None:
+                                break
+                            nxt.append(src)
+                        if parent is not None:
+                            break
+                    if parent is not None:
+                        break
+                    frontier = nxt
+            if parent is None:
+                return False
+            setopt_vid = parent
+        args = [e.target for e in self.graph.es.select(
+            _source=setopt_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if len(args) < 3:
+            return False
+        opt = self.graph.vs[args[1]]
+        # phply renders class constants as type 'constant' (not 'const')
+        if (_vattr(opt, "type", "") not in ("const", "constant")
+                or _vattr(opt, "name", "") != "CURLOPT_URL"):
+            return False
+        urlv = self.graph.vs[args[2]]
+        if _vattr(urlv, "label", "") != NodeLabel.IDENTIFIER.value:
+            return False
+        url_name = _vattr(urlv, "name", "")
+        if not url_name:
+            return False
+        # find the assign that defines $url
+        for v in self.graph.vs:
+            if (_vattr(v, "type", "") == "assign"
+                    and _vattr(v, "name", "") == url_name):
+                kids = [e.target for e in self.graph.es.select(
+                    _source=v.index, label="ast")]
+                rhs = None
+                for k in kids:
+                    if _vattr(self.graph.vs[k], "label", "") !=                             NodeLabel.IDENTIFIER.value:
+                        rhs = k
+                        break
+                if rhs is None:
+                    continue
+                rv = self.graph.vs[rhs]
+                if _vattr(rv, "type", "") != "binary_op":
+                    continue
+                # leftmost ast child of the concat (earliest ast edge =
+                # leftmost operand in phply insertion order)
+                subs = sorted(((e.index, e.target) for e in
+                               self.graph.es.select(
+                                   _source=rhs, label="ast")))
+                if not subs:
+                    continue
+                left = self.graph.vs[subs[0][1]]
+                if _vattr(left, "type", "") not in ("const", "constant",
+                                                    "string"):
+                    continue
+                # const node names carry their PHP quotes ('...' or "...")
+                lit = (_vattr(left, "name", "") or "").strip("'\u0022")
+                if re.match(
+                        r"^[a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s<>()"
+                        u"\u005c\u005c]+", lit):
+                    return True
         return False
 
     def _isset_dim_literal_whitelist(self, call_vid: int,
