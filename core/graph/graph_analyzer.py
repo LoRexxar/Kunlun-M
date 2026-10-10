@@ -4663,6 +4663,53 @@ class GraphAnalyzer:
                     stack.append(ce.target)
         return False
 
+    def _isset_dim_literal_whitelist(self, call_vid: int,
+                                     var_name: str) -> bool:
+        """Fix 22a helper: is this isset() call of the form
+        isset($some_array[$var]) where $some_array is assigned an array
+        literal somewhere in the graph?  Graph shape (verified on
+        phplist3 configure.php): isset call --ast/arg--> identifier
+        base ('$default_config') --member--> property dim ('$id').
+        The base's literal-ness is checked by finding an
+        operator/assign named '$base' whose ast rhs is a call to
+        'array' (phply renders array literals as array() calls)."""
+        args = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if not args:
+            return False
+        base_vid = args[0]
+        bv = self.graph.vs[base_vid]
+        if _vattr(bv, "label", "") != NodeLabel.IDENTIFIER.value:
+            return False
+        base_name = _vattr(bv, "name", "")
+        if not base_name:
+            return False
+        # dim must reference var_name (member edge from base)
+        dim_ok = False
+        for me in self.graph.es.select(_source=base_vid, label="member"):
+            dv = self.graph.vs[me.target]
+            dname = _vattr(dv, "name", "")
+            if dname in (var_name, var_name.lstrip("$"),
+                         "$" + var_name.lstrip("$")):
+                dim_ok = True
+                break
+        if not dim_ok:
+            return False
+        # base must be assigned an array literal somewhere
+        for v in self.graph.vs:
+            av = v.attributes()
+            if (_vattr(v, "type", "") == "assign"
+                    and _vattr(v, "name", "") == base_name):
+                for ae in self.graph.es.select(_source=v.index, label="ast"):
+                    if _vattr(ae, "role", "") != "rhs":
+                        continue
+                    rv = self.graph.vs[ae.target]
+                    if (_vattr(rv, "type", "") == "call"
+                            and _vattr(rv, "name", "") == "array"):
+                        return True
+        return False
+
     def _negated_whitelist_guard_before(self, sink_vid: int,
                                         var_name: str,
                                         sink_lineno: int | None = None) -> bool:
@@ -4775,6 +4822,18 @@ class GraphAnalyzer:
                 # isset/empty etc. only prove existence, not value
                 # constraint — excluding them here mirrors the 20a
                 # predicate-guard exclusion (@4738).
+                # Fix 22a: EXCEPT isset($LITERAL_ARRAY[$var]) — when the
+                # probed argument is an array-dim whose base variable is
+                # assigned an array literal, isset IS a key-whitelist
+                # constraint: reaching the sink proves $var is one of the
+                # array's keys, so taint through $var is bounded by the
+                # literal key set (phplist3 configure.php:9
+                # isset($default_config[$id]) guarding every later output).
+                if (callee == "isset"
+                        and self._isset_dim_literal_whitelist(
+                            call_vid, var_name)
+                        and self._branch_body_always_terminates(bvid)):
+                    return True
                 continue
             elif not (callee and self._is_safe_function_call(call_vid)):
                 continue
