@@ -4815,6 +4815,78 @@ class GraphAnalyzer:
                     return True
         return False
 
+    def _fixed_host_location_guard(self, header_vid: int) -> bool:
+        """Fix 23 extension: header('Location: http://host/...') where the
+        scheme://host lives inside the same string literal as the
+        'Location:' prefix — the redirect target host is pinned by the
+        literal, only the query/path can carry taint, so this is not an
+        open redirect.  Handles three arg0 shapes: const with full URL,
+        concat whose leftmost const child carries 'Location: scheme://host',
+        and an identifier whose defining assign's concat does the same."""
+        hv = self.graph.vs[header_vid]
+        if _vattr(hv, "type", "") != "call" or \
+                _vattr(hv, "name", "") != "header":
+            return False
+        args = [e.target for e in self.graph.es.select(
+            _source=header_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if not args:
+            return False
+        a0 = self.graph.vs[args[0]]
+
+        def _lit_pinned(lit: str) -> bool:
+            m = re.match(r"^[\s]*[Ll]ocation[\s]*:[\s]*"
+                         r"([a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s<>()"
+                         u"\u005c\u005c]+)", lit)
+            return bool(m)
+
+        if _vattr(a0, "label", "") == NodeLabel.CONST.value:
+            return _lit_pinned(_vattr(a0, "name", "") or "")
+        if _vattr(a0, "type", "") == "binary_op":
+            subs = sorted(((e.index, e.target) for e in
+                           self.graph.es.select(
+                               _source=args[0], label="ast")))
+            if subs:
+                left = self.graph.vs[subs[0][1]]
+                if _vattr(left, "label", "") == NodeLabel.CONST.value:
+                    return _lit_pinned(_vattr(left, "name", "") or "")
+        if _vattr(a0, "label", "") == NodeLabel.IDENTIFIER.value:
+            url_name = _vattr(a0, "name", "")
+            hfile = _vattr(hv, "file_path", "") or _vattr(hv, "path", "")
+            hline = int(_vattr(hv, "lineno", 0) or 0)
+            for v in self.graph.vs:
+                if (_vattr(v, "type", "") == "assign"
+                        and _vattr(v, "name", "") == url_name):
+                    vf = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+                    vln = int(_vattr(v, "lineno", 0) or 0)
+                    if hfile and vf != hfile:
+                        continue
+                    if hline and vln and vln > hline:
+                        continue
+                    kids = [e.target for e in self.graph.es.select(
+                        _source=v.index, label="ast")]
+                    rhs = None
+                    for k in kids:
+                        if _vattr(self.graph.vs[k], "label", "") != \
+                                NodeLabel.IDENTIFIER.value:
+                            rhs = k
+                            break
+                    if rhs is None:
+                        continue
+                    rv = self.graph.vs[rhs]
+                    if _vattr(rv, "type", "") != "binary_op":
+                        continue
+                    subs = sorted(((e.index, e.target) for e in
+                                   self.graph.es.select(
+                                       _source=rhs, label="ast")))
+                    if not subs:
+                        continue
+                    left = self.graph.vs[subs[0][1]]
+                    if _vattr(left, "label", "") == NodeLabel.CONST.value:
+                        if _lit_pinned(_vattr(left, "name", "") or ""):
+                            return True
+        return False
+
     def _isset_dim_literal_whitelist(self, call_vid: int,
                                      var_name: str) -> bool:
         """Fix 22a helper: is this isset() call of the form

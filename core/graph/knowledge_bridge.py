@@ -305,9 +305,14 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
             _mark_passthrough_params(graph, func_vid, param_indices)
         return True
 
-    # 有记录但 safe=False 且无 passthrough
-    graph.vs[func_vid]["taint_type"] = "safe"
-    return True
+    # 有记录但 safe=False 且无 passthrough — catalogued but neutral.
+    # Leave the node unannotated: writing taint_type="safe" here made
+    # _is_safe_function_call treat ordinary built-ins (header, setcookie,
+    # mail — sinks, not sanitizers) as safe calls, and
+    # _is_inside_safe_call_ast then suppressed every superglobal member
+    # inside their argument expressions, so all
+    # header('Location: '.$_GET[...]) open-redirects went unreported.
+    return False
 
 
 def _enrich_from_source_registry(

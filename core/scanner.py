@@ -747,6 +747,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     sink.get('vid'))):
                             any_arg_repaired = True
                             continue
+                        # Fix 23-ext: header('Location: scheme://host...')
+                        # with the host pinned inside the same literal is
+                        # not an open redirect (only query/path tainted).
+                        if (sink_name_lower == "header" and i == 0
+                                and analyzer._fixed_host_location_guard(
+                                    sink.get('vid'))):
+                            any_arg_repaired = True
+                            continue
                         # Format-string sinks: only check the format string argument.
                         # Value arguments (printf %s values) are not dangerous.
                         if fmt_only_idx >= 0 and i != fmt_only_idx:
