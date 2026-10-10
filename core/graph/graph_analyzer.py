@@ -4227,6 +4227,33 @@ class GraphAnalyzer:
             for ee in self.graph.es.select(_source=sv, label="ast"):
                 stack.append(ee.target)
         if not calls:
+            # Source-level goto fallback: the PHP graph builder drops
+            # `goto label;` statements entirely, so a guard body of the form
+            # `if (!pred($x) or !pred2($x)) { goto reject; }` looks empty
+            # here and would be rejected as non-terminating — yet a goto IS
+            # an unconditional control transfer out of the guard body
+            # (izend fileupload.php:58-59).  When the branch body holds no
+            # calls, check the source lines right after the branch for a
+            # goto statement.
+            bv = self.graph.vs[branch_vid]
+            b_file = _vattr(bv, "file_path", "") or _vattr(bv, "path", "")
+            b_lineno = int(_vattr(bv, "lineno", 0) or 0)
+            if b_file and b_lineno and os.path.isfile(b_file):
+                try:
+                    with open(b_file, "r", encoding="utf-8",
+                              errors="replace") as _fh:
+                        for _ in range(3):
+                            _line = _fh.readline()
+                            if not _line:
+                                break
+                            _stripped = _line.strip()
+                            if not _stripped or _stripped.startswith("<?php"):
+                                continue
+                            if re.match(r"goto \w\+\s*\;", _stripped):
+                                return True
+                            break
+                except OSError:
+                    pass
             return False
         for cv in calls:
             cname = _vattr(self.graph.vs[cv], "name", "")
@@ -4704,17 +4731,35 @@ class GraphAnalyzer:
             cond_vid = self._get_condition_root(bvid)
             if cond_vid is None:
                 continue
-            # expect unary '!' wrapping a call
+            # Expect unary '!' wrapping a call — OR a disjunction of
+            # negated predicates (`!pred($x) or !pred2($x)`, izend
+            # fileupload.php:58).  With `or`, reaching the sink proves
+            # EVERY operand predicate true (any false operand would have
+            # terminated), so each operand must independently qualify.
             cv = self.graph.vs[cond_vid]
-            if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
-                    or _vattr(cv, "type", "") != "unary_op"):
-                continue
-            call_vid = None
-            for ce in self.graph.es.select(_source=cond_vid, label="ast"):
-                if _vattr(ce, "role", "") == "operand":
-                    call_vid = ce.target
-                    break
-            if call_vid is None:
+            _pred_calls = []
+            if (_vattr(cv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(cv, "type", "") == "binary_op"
+                    and _vattr(cv, "name", "") in ("or", "||")):
+                for _oe in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(_oe, "role", "") == "operand":
+                        _ov = self.graph.vs[_oe.target]
+                        if (_vattr(_ov, "label") == NodeLabel.OPERATOR.value
+                                and _vattr(_ov, "type", "") == "unary_op"):
+                            for _ie in self.graph.es.select(
+                                    _source=_oe.target, label="ast"):
+                                if _vattr(_ie, "role", "") == "operand":
+                                    _pred_calls.append(_ie.target)
+                                    break
+            if not _pred_calls:
+                if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
+                        or _vattr(cv, "type", "") != "unary_op"):
+                    continue
+                for ce in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(ce, "role", "") == "operand":
+                        _pred_calls.append(ce.target)
+                        break
+            if not _pred_calls:
                 continue
             callee = _vattr(self.graph.vs[call_vid], "name", "")
             # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
