@@ -185,6 +185,14 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "get_next_path", "is_safe_url", "is_safe_redirect",
 })
 
+# Format-string sanitizers: sanitized ONLY when the format constant (arg0)
+# contains no string-passthrough conversion (%s/%f/%e/%g/%u).  Checked
+# per-call by _format_string_arg0 — never add these to _REPAIR_FUNCTIONS,
+# because sprintf('%s', $x) passes taint straight through.
+_FORMAT_STRING_SANITIZERS: frozenset[str] = frozenset({
+    "sprintf", "printf", "vsprintf", "fprintf",
+})
+
 # Fix 14: PHP type cast operators that sanitize taint.
 # (int), (float), (bool), (array) casts destroy string content,
 # making XSS/SQLi/injection impossible through the cast result.
@@ -1635,6 +1643,19 @@ class GraphAnalyzer:
                     code=2, reason=f"calls repair '{callee}'",
                     chain=[{"step": "repair", "vid": start_vid, "name": callee, "code": 2}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Format-string sanitizers: sprintf('%d', ...) with a constant
+            # numeric-only format destroys string payload — result is clean.
+            # %s/%f formats pass taint through — fall through to normal tracing.
+            if callee and callee in _FORMAT_STRING_SANITIZERS:
+                fmt_const = self._format_string_arg0(start_vid)
+                if fmt_const is not None and not re.search(
+                        r'''%s''' % (chr(39)) if False else r"%[-+ 0#]*[.]?\d*[sfeEgGu]", fmt_const):
+                    return self._cached(cache_key, AnalysisResult(
+                        code=2,
+                        reason=f"format-string sanitizer '{callee}({fmt_const!r})' — numeric-only format",
+                        chain=[{"step": "format_sanitizer", "vid": start_vid,
+                                "name": callee, "code": 2}],
+                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Start-node passthrough: when the starting arg itself is a call
         # operator annotated as passthrough (by enrich_taint), its arguments
@@ -1858,6 +1879,25 @@ class GraphAnalyzer:
                 # (int), (float), (bool) etc. destroy string content.
                 if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
                     continue
+                # Format-string sanitizer call node on the BFS path
+                # (e.g. echo sprintf('%d', $x)): prune like a sanitizer when
+                # the constant format is numeric-only.
+                if (_vattr(uv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(uv, "type", "") in _CALL_TYPES):
+                    _fc = self._resolve_callee_name(up_vid)
+                    if _fc and _fc in _FORMAT_STRING_SANITIZERS:
+                        _ff = self._format_string_arg0(up_vid)
+                        if _ff is not None and not re.search(
+                                r"%[-+ 0#]*[.]?\d*[sfeEgGu]", _ff):
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=2,
+                                    reason=f"format-string sanitizer '{_fc}({_ff!r})' — numeric-only format",
+                                    chain=[{"step": "format_sanitizer", "vid": up_vid,
+                                            "name": _fc, "code": 2}],
+                                    path=path + [up_vid],
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
@@ -3387,6 +3427,25 @@ class GraphAnalyzer:
                 # (int), (float), (bool) etc. destroy string content.
                 if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
                     continue
+                # Format-string sanitizer call node on the BFS path
+                # (e.g. echo sprintf('%d', $x)): prune like a sanitizer when
+                # the constant format is numeric-only.
+                if (_vattr(uv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(uv, "type", "") in _CALL_TYPES):
+                    _fc = self._resolve_callee_name(up_vid)
+                    if _fc and _fc in _FORMAT_STRING_SANITIZERS:
+                        _ff = self._format_string_arg0(up_vid)
+                        if _ff is not None and not re.search(
+                                r"%[-+ 0#]*[.]?\d*[sfeEgGu]", _ff):
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=2,
+                                    reason=f"format-string sanitizer '{_fc}({_ff!r})' — numeric-only format",
+                                    chain=[{"step": "format_sanitizer", "vid": up_vid,
+                                            "name": _fc, "code": 2}],
+                                    path=path + [up_vid],
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
@@ -4901,6 +4960,39 @@ class GraphAnalyzer:
             cur_vid = parent_vid
 
         return None
+
+    def _format_string_arg0(self, call_vid: int):
+        """Return the *constant* format-string value of call arg0, else None."""
+        fmt = None
+        arg_counter = 0
+        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(ae, "role") != "arg":
+                continue
+            idx = _vattr(ae, "index")
+            actual_idx = int(idx) if idx else arg_counter
+            arg_counter += 1
+            if actual_idx != 0:
+                break
+            av = self.graph.vs[ae.target]
+            label = _vattr(av, "label", "")
+            if label == "const":
+                fmt = _vattr(av, "name", "") or ""
+            elif label == "operator":
+                for ce in self.graph.es.select(_source=ae.target, label="ast"):
+                    cv = self.graph.vs[ce.target]
+                    if _vattr(cv, "label", "") == "const":
+                        fmt = _vattr(cv, "name", "") or ""
+                        break
+            if fmt is None:
+                for de in self.graph.es.select(_target=ae.target, label="dfg"):
+                    dv = self.graph.vs[de.source]
+                    if _vattr(dv, "label", "") == "const":
+                        fmt = _vattr(dv, "name", "") or ""
+                        break
+            break
+        if not fmt or len(fmt) > 128 or "%" not in fmt:
+            return None
+        return fmt.strip().strip("\'")
 
     def _is_repair_function(self, name: str) -> bool:
         if not name:

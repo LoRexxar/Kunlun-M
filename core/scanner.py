@@ -566,7 +566,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 
         # 对每种语言使用 GraphAnalyzer 扫描
-        from core.graph.graph_analyzer import GraphAnalyzer, AnalysisResult
+        from core.graph.graph_analyzer import GraphAnalyzer
+        from core.graph.graph_analyzer import _FORMAT_STRING_SANITIZERS, AnalysisResult
         from core.utils import parse_sink_names
         from Kunlun_M.const import VulnerabilityResult
         from utils.igraph_compat import _vattr
@@ -805,6 +806,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         chain=[{"step": "safe", "vid": op_vid,
                                                 "name": _cast_name, "code": 2}],
                                         path=[op_vid]), None
+                                # Format-string sanitizers: sprintf('%d', $x) with a
+                                # constant numeric-only format destroys string payload.
+                                # Do NOT descend into its sub-args — the result carries
+                                # only digits.  %s/%f formats still descend (taint passes).
+                                if _callee and _callee in _FORMAT_STRING_SANITIZERS:
+                                    _ffmt = analyzer._format_string_arg0(op_vid)
+                                    if _ffmt is not None and not re.search(
+                                            r"%[-+ 0#]*[.]?\d*[sfeEgGu]", _ffmt):
+                                        from core.graph.graph_analyzer import AnalysisResult as _AR
+                                        return _AR(
+                                            code=2,
+                                            reason=f"format-string sanitizer '{_callee}({_ffmt!r})' — numeric-only format",
+                                            chain=[{"step": "format_sanitizer", "vid": op_vid,
+                                                    "name": _callee, "code": 2}],
+                                            path=[op_vid]), None
                                 # If this method_call's function def is an
                                 # empty shell (unresolved external/framework
                                 # method), don't recurse into sub-args — the
