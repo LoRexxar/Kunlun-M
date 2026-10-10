@@ -8,6 +8,7 @@ to perform taint analysis.  Graph-native replacement for the legacy
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections import deque
 from dataclasses import dataclass, field
@@ -973,10 +974,7 @@ class GraphAnalyzer:
         # A literal of just "http://" does NOT qualify — the host chars must
         # appear inside the same literal, otherwise the host itself is the
         # tainted part (true SSRF stays reported).
-        try:
-            _f23 = self._fixed_host_url_guard(start_vid)
-        except Exception:
-            _f23 = False
+        _f23 = self._fixed_host_url_guard(start_vid)
         self._f23_guard_cache = _f23
 
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,

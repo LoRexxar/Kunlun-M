@@ -737,6 +737,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     result = None
                     unconfirmed_result = None
                     for i, arg_vid in enumerate(arg_vids):
+                        # Fix 23: curl_setopt(CURLOPT_URL, $url) — when the
+                        # owning call is identified and the URL's defining
+                        # concat has a literal scheme://host leftmost leaf,
+                        # taint can only reach the query component; skip the
+                        # SSRF verdict for this argument.
+                        if (sink_name_lower == "curl_setopt" and i == 2
+                                and analyzer._fixed_host_url_guard(
+                                    sink.get('vid'))):
+                            any_arg_repaired = True
+                            continue
                         # Format-string sinks: only check the format string argument.
                         # Value arguments (printf %s values) are not dangerous.
                         if fmt_only_idx >= 0 and i != fmt_only_idx:
