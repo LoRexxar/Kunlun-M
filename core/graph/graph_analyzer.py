@@ -5029,11 +5029,24 @@ class GraphAnalyzer:
                         fmt = _vattr(cv, "name", "") or ""
                         break
             if fmt is None:
+                # One DFG hop back (const → $fmt); if that hop lands on an
+                # identifier (the assignment LHS $fmt at its definition
+                # site), take a second hop to reach the const — handles
+                # `$fmt = '%d'; printf($fmt, $x);` where the call arg is a
+                # *use site* and the const connects to the *definition*.
                 for de in self.graph.es.select(_target=ae.target, label="dfg"):
                     dv = self.graph.vs[de.source]
                     if _vattr(dv, "label", "") == "const":
                         fmt = _vattr(dv, "name", "") or ""
                         break
+                    if _vattr(dv, "label", "") == "identifier":
+                        for de2 in self.graph.es.select(_target=dv.index, label="dfg"):
+                            dv2 = self.graph.vs[de2.source]
+                            if _vattr(dv2, "label", "") == "const":
+                                fmt = _vattr(dv2, "name", "") or ""
+                                break
+                        if fmt is not None:
+                            break
             break
         if not fmt or len(fmt) > 128 or "%" not in fmt:
             return None
