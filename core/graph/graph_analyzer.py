@@ -4707,12 +4707,22 @@ class GraphAnalyzer:
             # handle of curl_exec (the curl_setopt reaches $ch via dfg).
             # Search: ast parent first, then dfg-feeder variables' ast
             # parents, depth 2.
+            entry_file = _vattr(sv, "file_path", "") or _vattr(
+                sv, "path", "")
+
             def _owning_setopt(vid):
                 for e in self.graph.es.select(_target=vid, label="ast"):
                     pv = self.graph.vs[e.source]
                     if (_vattr(pv, "type", "") == "call"
                             and _vattr(pv, "name", "") == "curl_setopt"):
-                        return e.source
+                        # scope to the entry's file: cross-file same-name
+                        # dfg edges (global name matching) otherwise let
+                        # the walk land on unrelated curl_setopt calls in
+                        # other files whose $url has no pinned host.
+                        pf = _vattr(pv, "file_path", "") or _vattr(
+                            pv, "path", "")
+                        if not entry_file or pf == entry_file:
+                            return e.source
                 return None
             parent = _owning_setopt(sink_vid)
             if parent is None:
@@ -4760,10 +4770,22 @@ class GraphAnalyzer:
         url_name = _vattr(urlv, "name", "")
         if not url_name:
             return False
-        # find the assign that defines $url
+        # find the assign that defines $url (same file as the curl_setopt
+        # call, before it — global name matching otherwise picks same-name
+        # assigns from unrelated files)
+        setopt_file = _vattr(self.graph.vs[setopt_vid], "file_path", "") \
+            or _vattr(self.graph.vs[setopt_vid], "path", "")
+        setopt_line = int(_vattr(self.graph.vs[setopt_vid], "lineno", 0)
+                          or 0)
         for v in self.graph.vs:
             if (_vattr(v, "type", "") == "assign"
                     and _vattr(v, "name", "") == url_name):
+                vf = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+                vln = int(_vattr(v, "lineno", 0) or 0)
+                if setopt_file and vf != setopt_file:
+                    continue
+                if setopt_line and vln and vln > setopt_line:
+                    continue
                 kids = [e.target for e in self.graph.es.select(
                     _source=v.index, label="ast")]
                 rhs = None
