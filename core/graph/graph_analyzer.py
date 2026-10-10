@@ -4716,14 +4716,19 @@ class GraphAnalyzer:
                 return None
             parent = _owning_setopt(sink_vid)
             if parent is None:
+                # walk BOTH dfg directions from the entry: toward taint
+                # sources (dfg in-edges) and toward the sink (dfg out-edges,
+                # e.g. entry=$query feeding $url feeding curl_setopt).
                 seen = {sink_vid}
                 frontier = [sink_vid]
-                for _depth in range(2):
+                for _depth in range(5):
                     nxt = []
                     for u in frontier:
-                        for e in self.graph.es.select(
-                                _target=u, label="dfg"):
-                            src = e.source
+                        cand = [e.source for e in self.graph.es.select(
+                                    _target=u, label="dfg")]
+                        cand += [e.target for e in self.graph.es.select(
+                                     _source=u, label="dfg")]
+                        for src in cand:
                             if src in seen:
                                 continue
                             seen.add(src)
