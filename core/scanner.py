@@ -672,6 +672,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     _stype = sink.get('type', '')
                     if _stype and _stype not in ('call', 'method_call', 'static_call', 'new'):
                         continue
+                    # Fix 25: sinks inside a never-called function are dead
+                    # code — the function body only executes if something
+                    # invokes it, and the call graph says nothing does.
+                    # Previously this check ran only for no-arg sinks, so
+                    # taintable-arg sinks (curl_setopt, file_put_contents...)
+                    # inside dead helper functions were still reported with
+                    # the function parameters as hypothetical sources.
+                    _dead_func_vid = None
+                    for _doe in analyzer.graph.es.select(
+                            _target=sink.get('vid'), label="own"):
+                        if _vattr(analyzer.graph.vs[_doe.source],
+                                  "label") == "function":
+                            _dead_func_vid = _doe.source
+                            break
+                    if _dead_func_vid is not None and not any(
+                            True for _ in analyzer.graph.es.select(
+                                _target=_dead_func_vid, label="cg")):
+                        logger.debug(
+                            "sink '%s' skipped: owning function vid=%d "
+                            "has no callers (dead code)",
+                            _sn, _dead_func_vid)
+                        continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
