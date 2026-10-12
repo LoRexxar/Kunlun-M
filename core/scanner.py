@@ -679,21 +679,32 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # taintable-arg sinks (curl_setopt, file_put_contents...)
                     # inside dead helper functions were still reported with
                     # the function parameters as hypothetical sources.
-                    _dead_func_vid = None
-                    for _doe in analyzer.graph.es.select(
-                            _target=sink.get('vid'), label="own"):
-                        if _vattr(analyzer.graph.vs[_doe.source],
-                                  "label") == "function":
-                            _dead_func_vid = _doe.source
-                            break
-                    if _dead_func_vid is not None and not any(
-                            True for _ in analyzer.graph.es.select(
-                                _target=_dead_func_vid, label="cg")):
-                        logger.debug(
-                            "sink '%s' skipped: owning function vid=%d "
-                            "has no callers (dead code)",
-                            _sn, _dead_func_vid)
-                        continue
+                    # Fix 30: PHP-only.  Container-managed entry methods in
+                    # other languages legitimately have no call-graph
+                    # in-edges: Java servlet doGet()/doPost() are invoked
+                    # by the servlet container, JS express route callbacks
+                    # by the framework — skipping them as "dead" broke
+                    # every non-PHP case (cmd_inject.java CVI-6003,
+                    # cmd_inject_node.js CVI-3100).  PHP has no container
+                    # entry methods (each request enters a top-level
+                    # script), so the helper-function heuristic is sound
+                    # only there.
+                    if lang == "php":
+                        _dead_func_vid = None
+                        for _doe in analyzer.graph.es.select(
+                                _target=sink.get('vid'), label="own"):
+                            if _vattr(analyzer.graph.vs[_doe.source],
+                                      "label") == "function":
+                                _dead_func_vid = _doe.source
+                                break
+                        if _dead_func_vid is not None and not any(
+                                True for _ in analyzer.graph.es.select(
+                                    _target=_dead_func_vid, label="cg")):
+                            logger.debug(
+                                "sink '%s' skipped: owning function vid=%d "
+                                "has no callers (dead code)",
+                                _sn, _dead_func_vid)
+                            continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
