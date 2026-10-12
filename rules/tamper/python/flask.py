@@ -26,8 +26,12 @@ FILTER_FUNCTIONS = {
 
 EXTRA_SINKS = [
     ("render_template_string(", [7006]),
-    ("render_template(", [7006]),
     ("render_template_list(", [7006]),
+    # NOTE: render_template( removed — it loads a template FILE by name, never
+    # user-controlled template content (that's render_template_string). The
+    # template name is a static string in virtually all call sites, so listing
+    # it here turned every Flask view into a CVI-7006 FP (19 FPs in one app).
+    # SSTI risk lives in render_template_string / jinja2 Environment, covered above.
     # redirect() is HTTP redirect (CVI-7009), NOT LDAP (7010).
     ("redirect(", [7009]),
     ("send_file(", [7005]),

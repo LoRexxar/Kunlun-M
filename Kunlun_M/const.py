@@ -102,6 +102,9 @@ ext_comment_dict = {
 default_black_list = [
     # 依赖目录
     '.crx_files', 'vendor', 'node_modules', 'bower_components',
+    # 第三方/捆绑代码目录（高特异性命名，不会误杀业务代码；
+    # 注意：modules/plugins/libs 等通用名不可加入——CMS 业务逻辑常在这些目录）
+    'a3rd', '3rdparty', 'third_party', 'thirdparty', 'external_plugins', 'bower',
     # 压缩文件
     '.min.js', '.min.css',
     # 测试目录（减少测试文件误报）

@@ -6,15 +6,21 @@
 # @Contact : lorexxar@gmail.com
 
 from django.urls import path
+from django.views.generic import RedirectView
 from django.contrib.auth.decorators import login_required
 
 from web.dashboard import views
+from web.dashboard.controller import ai
 from web.dashboard.controller import tasks, rules, tampers, project, vendor, files, graph_analysis, vuls
 from web.dashboard.interface import scanresult
 
 app_name = "dashboard"
 urlpatterns = [
     path('', views.index, name='index'),
+
+    # 旧短链重定向（收藏夹/文档兼容）
+    path('tasks', RedirectView.as_view(pattern_name='dashboard:tasks_list', permanent=False)),
+    path('rules', RedirectView.as_view(pattern_name='dashboard:rules_list', permanent=False)),
 
     # task
     path('tasks/list', login_required(tasks.TaskListView.as_view()), name='tasks_list'),
@@ -65,9 +71,20 @@ urlpatterns = [
     # scan result
     path('vuls/<int:vul_id>/del', scanresult.ScanResultDelInterfaceView.as_view(), name="vul_del"),
     path('vuls/<int:vul_id>/verify', scanresult.ScanResultVerifyView.as_view(), name="vul_verify"),
+    path('vuls/<int:vul_id>/history', login_required(scanresult.ScanResultHistoryView.as_view()), name="vul_history"),
+    path('vuls/verify/bulk', scanresult.ScanResultBulkVerifyView.as_view(), name="vul_verify_bulk"),
 
     # graph analysis
 
     path('vuls/list', login_required(vuls.VulListView.as_view()), name='vuls_list'),
     path('graph', login_required(graph_analysis.GraphAnalysisView.as_view()), name='graph_analysis'),
+
+    # AI 能力
+    path('ai/vul/<int:vul_id>/analyze', login_required(ai.AiVulAnalyzeView.as_view()), name='ai_vul_analyze'),
+    path('ai/vul/<int:vul_id>/detail', login_required(ai.AiVulDetailView.as_view()), name='ai_vul_detail'),
+    path('ai/project/<int:project_id>/report', login_required(ai.AiProjectReportView.as_view()), name='ai_project_report'),
+    path('ai/rule/generate', login_required(ai.AiRuleGenerateView.as_view()), name='ai_rule_generate'),
+    path('ai/settings', login_required(ai.AiSettingsView.as_view()), name='ai_settings'),
+    path('ai/discussions', login_required(ai.DiscussionListView.as_view()), name='ai_discussions'),
+    path('ai/discussions/<int:doc_id>', login_required(ai.DiscussionDetailView.as_view()), name='ai_discussion_detail'),
 ]

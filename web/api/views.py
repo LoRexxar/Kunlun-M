@@ -679,6 +679,11 @@ class GraphScansApiView(View):
             scans = [dict(row) for row in cur.fetchall()]
             conn.close()
 
+            # 过滤掉图文件已被清理的历史行，并标记状态（历史行有 reference 价值：显示 target/时间但标注不可加载）
+            for s_ in scans:
+                gp = s_.get("graph_path") or ""
+                s_["graph_exists"] = bool(gp) and os.path.isfile(gp)
+
             # 反查 project_id（scan_id 即 ScanTask.id）
             scan_ids = [s["id"] for s in scans if s.get("id")]
             if scan_ids:

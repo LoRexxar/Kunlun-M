@@ -5,7 +5,7 @@ import json
 
 from django.contrib.auth.decorators import login_required
 from django.views.generic import TemplateView
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 
 from web.index.models import ScanResultTask, ScanTask, Rules, TaintChain, Project
 from web.index.models import get_and_check_scantask_project_id
@@ -16,6 +16,16 @@ from Kunlun_M.const import VUL_LEVEL
 _SOURCE_LABELS = frozenset({'source', 'Source', 'SOURCE', 'NewScan'})
 _SINK_LABELS = frozenset({'sink', 'Sink', 'SINK'})
 _CALLER_LABELS = frozenset({'Function', 'Call', 'Caller', 'Return', 'Identifier', 'Statement', 'Expression'})
+
+
+def _row_contested(r, index):
+    """已判定行的模式争议检测：当前行的判定与同模式历史存在 >=20% 分歧时返回信息。"""
+    from web.pattern_suggest import _norm_pattern
+    d = index['exact'].get((r.cvi_id, _norm_pattern(r.source_code)))
+    if d and d.get('status') == 'contested' and d.get('verdict') != r.verification_status:
+        return {'major': d['verdict'], 'major_n': d['n'], 'minor_n': d.get('minor_n', 0),
+                'recent_minor': d.get('recent_minor') or []}
+    return None
 
 
 def _chain_role(idx, total, label):
@@ -40,7 +50,7 @@ class VulListView(TemplateView):
         qs = ScanResultTask.objects.filter(is_active=True).only(
             'id', 'scan_task_id', 'cvi_id', 'language', 'vulfile_path',
             'source_code', 'result_type', 'is_unconfirm',
-            'verification_status',
+            'verification_status', 'ai_verdict', 'ai_confidence',
         )
 
         # 筛选
@@ -49,7 +59,8 @@ class VulListView(TemplateView):
         level = params.get('level', '').strip()
         confirm = params.get('confirm', '').strip()
         search = params.get('q', '').strip()
-        task_id = params.get('task_id', '').strip()
+        result_type = params.get('type', '').strip()
+        project_id = params.get('project_id', '').strip()
 
         if lang:
             qs = qs.filter(language=lang)
@@ -61,8 +72,24 @@ class VulListView(TemplateView):
             qs = qs.filter(verification_status='fp')
         elif confirm == 'unconfirmed':
             qs = qs.filter(Q(verification_status='') | Q(verification_status='pending') | Q(verification_status='unknown'))
-        if task_id:
-            qs = qs.filter(scan_task_id=int(task_id))
+        elif confirm == 'ai-tp':
+            qs = qs.filter(ai_verdict='tp')
+        elif confirm == 'ai-fp':
+            qs = qs.filter(ai_verdict='fp')
+        elif confirm == 'ai-unanalyzed':
+            qs = qs.filter(ai_verdict='')
+        elif confirm == 'ai-skip':
+            # P3 判例已覆盖、待人工两击确认的队列
+            qs = qs.filter(ai_verdict='skip')
+        elif confirm == 'ai-disagree':
+            # AI 与人工标注打架：需要人裁决的分歧清单
+            qs = qs.filter(ai_verdict__in=('tp', 'fp'),
+                           verification_status__in=('tp', 'fp')
+                           ).exclude(ai_verdict=F('verification_status'))
+        if result_type:
+            qs = qs.filter(result_type__icontains=result_type)
+        if project_id:
+            qs = qs.filter(scan_project_id=int(project_id))
         if search:
             qs = qs.filter(
                 Q(vulfile_path__icontains=search)
@@ -91,7 +118,20 @@ class VulListView(TemplateView):
         if page > max_page:
             page = max_page
 
-        rows = qs.order_by('-id')[(page - 1) * self.per_page : page * self.per_page]
+        # 结论回馈呈现：按规则可信度分层排序（tp-heavy 规则置顶 / fp-heavy 沉底），同层内新者优先。
+        # 引擎照常全量产出（可复现性不破坏），只在呈现层重排。
+        from web.pattern_suggest import rule_credibility
+        _cred = rule_credibility()
+
+        def _sort_key(r):
+            tier = _cred.get(r.cvi_id, (1, None, 0))[0]
+            return (tier, -r.id)
+
+        all_ids = list(qs.values_list('id', 'cvi_id'))
+        all_ids.sort(key=lambda x: (_cred.get(x[1], (1, None, 0))[0], -x[0]))
+        page_ids = [i for i, _ in all_ids[(page - 1) * self.per_page: page * self.per_page]]
+        rows = list(ScanResultTask.objects.filter(id__in=page_ids))
+        rows.sort(key=lambda r: page_ids.index(r.id))
 
         # 批量获取规则信息
         cvi_set = set(r.cvi_id for r in rows if r.cvi_id != '9999')
@@ -115,6 +155,10 @@ class VulListView(TemplateView):
         # 批量获取项目名
         task_ids = list(set(r.scan_task_id for r in rows))
         task_project_map = {}
+        # P3: 模式判例建议索引（一次构建，页内逐行查询）
+        from web.pattern_suggest import build_suggestion_index, suggest_for
+        _sugg_index = build_suggestion_index()
+
         for t in ScanTask.objects.filter(id__in=task_ids).only('id', 'project_id', 'task_name'):
             task_project_map[t.id] = t
 
@@ -155,10 +199,12 @@ class VulListView(TemplateView):
             project_name = get_project_name(task_info.project_id) if task_info else '-'
             task_name = task_info.task_name if task_info else '-'
 
+            project_id_val = task_info.project_id if task_info else 0
             results.append({
                 'id': r.id,
                 'scan_task_id': r.scan_task_id,
                 'task_name': task_name,
+                'project_id': project_id_val,
                 'project_name': project_name,
                 'cvi_id': r.cvi_id,
                 'language': r.language,
@@ -170,9 +216,25 @@ class VulListView(TemplateView):
                 'level_lower': level_str.lower(),
                 'is_unconfirm': r.is_unconfirm,
                 'verification_status': r.verification_status,
+                'ai_verdict': r.ai_verdict,
+                'ai_confidence': r.ai_confidence,
+                'ai_reasoning': (r.ai_reasoning or '')[:300],
+                'ai_fix': (r.ai_fix or '')[:200],
+                'ai_disagreed': bool(
+                    r.ai_verdict in ('tp', 'fp')
+                    and r.verification_status in ('tp', 'fp')
+                    and r.ai_verdict != r.verification_status
+                ),
                 'chain_summary': chain_summary,
-                'chain_nodes_json': json.dumps(chains, ensure_ascii=False),
+                # '</script>' 会提前终止宿主 <script> 块 → 拆开斜杠（JSON/JS 均合法）
+                'chain_nodes_json': json.dumps(chains, ensure_ascii=False).replace('</script>', '<\\/script>').replace('</Script>', '<\\/Script>').replace('</SCRIPT>', '<\\/SCRIPT>'),
                 'has_chain': len(chains) > 0,
+                'suggest': suggest_for(r, _sugg_index) if not r.verification_status else None,
+                'is_skip': r.ai_verdict == 'skip',
+                'row_contested': _row_contested(r, _sugg_index),
+                'skip_reason': (r.ai_reasoning or '') if r.ai_verdict == 'skip' else '',
+                'cred': _cred.get(r.cvi_id),
+                'cred': _cred.get(r.cvi_id),
             })
 
         ctx['results'] = results
@@ -196,7 +258,22 @@ class VulListView(TemplateView):
         ctx['f_cvi'] = cvi
         ctx['f_level'] = level
         ctx['f_confirm'] = confirm
+        ctx['ai_pending_count'] = ScanResultTask.objects.filter(is_active=1, ai_verdict='').count()
+        ctx['ai_skip_count'] = ScanResultTask.objects.filter(is_active=1, ai_verdict='skip').count()
+        ctx['ai_disagree_count'] = ScanResultTask.objects.filter(
+            is_active=1, ai_verdict__in=('tp', 'fp'),
+            verification_status__in=('tp', 'fp')
+        ).exclude(ai_verdict=F('verification_status')).count()
+        ctx['ai_fp_count'] = ScanResultTask.objects.filter(
+            is_active=1, ai_verdict='fp'
+        ).exclude(verification_status__in=['tp', 'fp']).count()
+        ctx['f_type'] = result_type
+        ctx['type_options'] = [
+            ('sql', 'SQL 注入'), ('xss', 'XSS'), ('command', '命令注入'),
+            ('file', '文件操作'), ('ssrf', 'SSRF'), ('unserialize', '反序列化'),
+            ('include', '文件包含'), ('upload', '上传'), ('eval', '代码执行'),
+        ]
         ctx['f_q'] = search
-        ctx['f_task_id'] = task_id
+        ctx['f_project_id'] = project_id
 
         return ctx

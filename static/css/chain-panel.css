@@ -258,3 +258,8 @@ tr.km-chain-clickable.km-chain-row-active {
 tr.km-chain-clickable:hover .km-chain-indicator {
     color: #3b82f6;
 }
+
+/* 链-码对照：目标行邻近行（弱高亮） */
+.km-code-line-near > td { background: rgba(59,130,246,0.08); }
+/* 整文件模式代码区更高、可滚动 */
+.km-chain-code-section .km-code-body { max-height: 420px; overflow-y: auto; }

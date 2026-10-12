@@ -25,34 +25,76 @@ from utils.path_safety import safe_join, is_path_under
 @login_required
 def index(req):
 
-    tasks = ScanTask.objects.all().order_by("-id")[:100]
-    for task in tasks:
-        task.is_finished = int(task.is_finished)
-        task.parameter_config = del_sensitive_for_config(task.parameter_config)
+    # 以项目为主视角：最近扫描的项目 + 聚合结果摘要
+    from django.db.models import Count, Q
 
-        project_id = get_and_check_scantask_project_id(task.id)
-        project = Project.objects.filter(id=project_id).first()
+    recent_tasks = ScanTask.objects.all().order_by("-id")[:200]
+    project_ids = []
+    project_meta = {}
+    for t in recent_tasks:
+        if t.project_id and t.project_id not in project_meta:
+            project_ids.append(t.project_id)
+            project_meta[t.project_id] = t
 
-        task.project_name = project.project_name if project else '-'
+    projects = []
+    for pid in project_ids[:20]:
+        project = Project.objects.filter(id=pid).first()
+        if not project:
+            continue
+        t = project_meta[pid]
+        results_qs = ScanResultTask.objects.filter(scan_project_id=pid, is_active=1)
+        project.last_scan_time = t.last_scan_time
+        project.last_scan_status = int(t.is_finished)
+        project.results_count = results_qs.count()
+        project.tp_count = results_qs.filter(verification_status='tp').count()
+        project.fp_count = results_qs.filter(verification_status='fp').count()
+        projects.append(project)
 
-    # 摘要统计
-    status_count = {'success': 0, 'running': 0, 'failed': 0, 'other': 0}
-    for task in tasks:
-        if task.is_finished == 1:
-            status_count['success'] += 1
-        elif task.is_finished == 2:
-            status_count['running'] += 1
-        elif task.is_finished in (-1, 0):
-            status_count['failed'] += 1
-        else:
-            status_count['other'] += 1
+    # 摘要统计（基于项目维度）
+    project_total = Project.objects.count()
+    vul_total = ScanResultTask.objects.filter(is_active=1).count()
+    tp_total = ScanResultTask.objects.filter(is_active=1, verification_status='tp').count()
+    fp_total = ScanResultTask.objects.filter(is_active=1, verification_status='fp').count()
 
-    first_task = tasks[0] if tasks else None
+    running = sum(1 for p in projects if p.last_scan_status == 2)
+
+    # AI 分诊全局摘要（深度接入：结论来自 ai_pipeline 落库数据）
+    ai_total = ScanResultTask.objects.filter(is_active=1).exclude(ai_verdict='').count()
+    ai_pending = vul_total - ai_total
+    ai_tp = ScanResultTask.objects.filter(is_active=1, ai_verdict='tp').count()
+    ai_fp = ScanResultTask.objects.filter(is_active=1, ai_verdict='fp').count()
+    ai_uncertain = ScanResultTask.objects.filter(is_active=1, ai_verdict='uncertain').count()
+
+    # AI 建议工作队列：高置信 FP 待人工确认（误报清理），高置信 TP 待修复
+    _unresolved = Q(verification_status__in=['', 'pending', 'unknown']) | Q(verification_status='stale')
+    ai_suggest_fp = list(ScanResultTask.objects.filter(
+        is_active=1, ai_verdict='fp', ai_confidence='high'
+    ).filter(_unresolved).order_by('-id')[:5])
+    ai_suggest_tp = list(ScanResultTask.objects.filter(
+        is_active=1, ai_verdict='tp', ai_confidence='high'
+    ).filter(_unresolved).order_by('-id')[:5])
+
+    def _pname(pid):
+        p = Project.objects.filter(id=pid).first()
+        return p.project_name if p else '-'
+
+    for v in ai_suggest_fp + ai_suggest_tp:
+        v.project_name = _pname(v.scan_project_id)
 
     data = {
-        'tasks': tasks,
-        'status_count': status_count,
-        'last_task': first_task,
+        'projects': projects,
+        'project_total': project_total,
+        'vul_total': vul_total,
+        'tp_total': tp_total,
+        'fp_total': fp_total,
+        'running': running,
+        'ai_total': ai_total,
+        'ai_pending': ai_pending,
+        'ai_tp': ai_tp,
+        'ai_fp': ai_fp,
+        'ai_uncertain': ai_uncertain,
+        'ai_suggest_fp': ai_suggest_fp,
+        'ai_suggest_tp': ai_suggest_tp,
     }
 
     return render(req, 'dashboard/index.html', data)
@@ -296,56 +338,51 @@ def _build_file_tree(root, max_depth=3, current_depth=0):
 @login_required
 def overview(req):
     try_dispatch()
-    tasks = ScanTask.objects.all().order_by("-id")[:200]
+    # 项目视角总览：最近扫描的项目 + 聚合结果摘要
+    from django.db.models import Count
 
-    status_count = {
-        "success": 0,
-        "running": 0,
-        "error": 0,
-        "other": 0,
-    }
+    recent_tasks = ScanTask.objects.all().order_by("-id")[:200]
+    project_ids = []
+    project_meta = {}
+    for t in recent_tasks:
+        if t.project_id and t.project_id not in project_meta:
+            project_ids.append(t.project_id)
+            project_meta[t.project_id] = t
 
-    for task in tasks:
-        task_status = int(task.is_finished)
-        if task_status == 1:
+    latest_projects_data = []
+    status_count = {"success": 0, "running": 0, "error": 0, "other": 0}
+    status_map = {0: '失败', 1: '完成', 2: '运行中', 3: '队列中'}
+    for pid in project_ids[:10]:
+        project = Project.objects.filter(id=pid).first()
+        if not project:
+            continue
+        t = project_meta[pid]
+        t_status = int(t.is_finished)
+        if t_status == 1:
             status_count["success"] += 1
-        elif task_status == 2:
+        elif t_status == 2:
             status_count["running"] += 1
-        elif task_status in [0, -1]:
+        elif t_status in [0, -1]:
             status_count["error"] += 1
         else:
             status_count["other"] += 1
 
-    # 最新10个任务，带结果数
-    latest_tasks = ScanTask.objects.all().order_by("-id")[:10]
-    lt_ids = [t.id for t in latest_tasks]
-    from django.db.models import Count
-    result_totals = dict(
-        ScanResultTask.objects.filter(scan_task_id__in=lt_ids)
-        .values('scan_task_id').annotate(cnt=Count('id'))
-        .values_list('scan_task_id', 'cnt')
-    )
-    verified_counts = dict(
-        ScanResultTask.objects.filter(scan_task_id__in=lt_ids, verification_status__in=['tp', 'fp'])
-        .values('scan_task_id').annotate(cnt=Count('id'))
-        .values_list('scan_task_id', 'cnt')
-    )
-    status_map = {0: '失败', 1: '成功', 2: '运行中', 3: '队列中'}
-    latest_tasks_data = []
-    for t in latest_tasks:
-        t_status = int(t.is_finished)
-        latest_tasks_data.append({
-            'id': t.id,
-            'task_name': t.task_name or os.path.basename(str(t.target_path)),
+        result_count = ScanResultTask.objects.filter(scan_project_id=pid, is_active=1).count()
+        verified_count = ScanResultTask.objects.filter(
+            scan_project_id=pid, is_active=1, verification_status__in=['tp', 'fp']).count()
+        latest_projects_data.append({
+            'id': pid,
+            'project_name': project.project_name,
             'status': status_map.get(t_status, str(t_status)),
-            'result_count': result_totals.get(t.id, 0),
-            'verified_count': verified_counts.get(t.id, 0),
+            'last_scan_time': t.last_scan_time,
+            'result_count': result_count,
+            'verified_count': verified_count,
         })
 
     context = {
-        "tasks": tasks,
+        "project_total": Project.objects.count(),
         "status_count": status_count,
-        "latest_tasks": latest_tasks_data,
+        "latest_projects": latest_projects_data,
     }
     return render(req, "dashboard/overview.html", context)
 

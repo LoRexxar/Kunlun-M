@@ -8,6 +8,7 @@ to perform taint analysis.  Graph-native replacement for the legacy
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections import deque
 from dataclasses import dataclass, field
@@ -95,6 +96,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
+    # CMS Made Simple — framework sanitizer (full HTML entity encode)
+    "cleanValue",
     # Python
     "shlex.quote", "shlex.quote_plus",
     "html.escape", "html.unescape",
@@ -165,6 +168,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # are now in builtin_knowledge (safe=True) and resolved automatically
     # by _is_repair_function via that knowledge base.
     # Framework-specific sanitizer aliases
+    "getParser.filter",  # e107 e107::getParser()->filter() -- official
+    "$tp.filter",  # e107 $tp->filter() input filter (file/text types)
     "hsc",  # DokuWiki htmlspecialchars alias
     "htmlchars",  # osTicket Format::htmlchars — array-recursive htmlspecialchars
     "Format.htmlchars",  # qualified static call (dotted fullname on the wire)
@@ -181,6 +186,14 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "canonicalize",  # Path canonicalization — prevents directory traversal
     # Python URL/path safety validators
     "get_next_path", "is_safe_url", "is_safe_redirect",
+})
+
+# Format-string sanitizers: sanitized ONLY when the format constant (arg0)
+# contains no string-passthrough conversion (%s/%f/%e/%g/%u).  Checked
+# per-call by _format_string_arg0 — never add these to _REPAIR_FUNCTIONS,
+# because sprintf('%s', $x) passes taint straight through.
+_FORMAT_STRING_SANITIZERS: frozenset[str] = frozenset({
+    "sprintf", "printf", "vsprintf", "fprintf",
 })
 
 # Fix 14: PHP type cast operators that sanitize taint.
@@ -920,19 +933,88 @@ class GraphAnalyzer:
 
     # --- Controllability backtracking (core) ------------------------------
 
+    def _arg_sanitized_inside_callee(self, arg_vid: int) -> bool:
+        """Fix 26: the argument's owning call invokes a user-defined function
+        whose body re-assigns a same-named variable with a repair function
+        (e.g. html::category($catid,$page) doing $page = intval($page)).
+        In that case the callee never uses the raw argument value, so the
+        call-site argument is sanitized regardless of where it came from.
+        Graph shape (probe /tmp/t_pc_probe): call --use--> function;
+        function --own--> assign(name=arg name) --ast--> [lhs var, rhs call
+        to an _is_repair_function callee]."""
+        sv = self.graph.vs[arg_vid]
+        a_name = _vattr(sv, "name", "")
+        if not a_name:
+            return False
+        # owning call: ast parent that is a call node
+        call_vid = None
+        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+            pv = self.graph.vs[pe.source]
+            if _vattr(pv, "type", "") in ("call", "method_call", "static_call"):
+                call_vid = pe.source
+                break
+        if call_vid is None:
+            return False
+        a_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        # callee function definition via use edge
+        fn_vids = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="use")
+            if _vattr(self.graph.vs[e.target], "label") == "function"]
+        # PHP normalizer often binds $obj->method() use edges to a
+        # same-NAMED function in the caller's own file (phpcms probe:
+        # $this->html->category(...) → create_html.php::category, while the
+        # sanitizing definition lives in html.class.php).  Widen to all
+        # same-name function nodes, mirroring the Rule 3a2 same-name lookup.
+        if fn_vids:
+            fname = _vattr(self.graph.vs[fn_vids[0]], "name", "")
+            if fname:
+                seen = set(fn_vids)
+                for sv2 in self.graph.vs.select(name=fname, label="function"):
+                    if sv2.index not in seen:
+                        seen.add(sv2.index)
+                        fn_vids.append(sv2.index)
+        for fvid in fn_vids:
+            # walk the callee's own subtree for a sanitizing re-assign
+            own_ids = [e.target for e in self.graph.es.select(
+                _source=fvid, label="own")]
+            for oid in own_ids:
+                ov = self.graph.vs[oid]
+                if _vattr(ov, "type", "") != "assign":
+                    continue
+                if (_vattr(ov, "name", "") or "") != a_name:
+                    continue
+                kids = [e.target for e in self.graph.es.select(
+                    _source=oid, label="ast")]
+                for k in kids:
+                    kv = self.graph.vs[k]
+                    if _vattr(kv, "type", "") in ("call", "method_call"):
+                        callee = self._resolve_callee_name(k) or ""
+                        base = callee.rsplit(".", 1)[-1]
+                        if base and self._is_repair_function(base):
+                            return True
+        return False
+
     def parameters_back(self, start_vid: int, context_vid: int | None = None,
                         max_depth: int = 50) -> AnalysisResult:
         """Public entry — runs the BFS impl, then applies Fix 20b two-pass
-        redirect resolution.
-
-        Why here: the BFS impl returns early the moment ANY controllable
-        source is found (FIFO order decides which caller's path wins).
-        For redirect sinks with a pinned concat ('./user.php?id=' . $_GET),
-        a code=1 may have travelled THROUGH the pinned node.  Re-run with
-        pinned nodes blocked: a surviving code=1 proves an independent
-        fully-controlled path (true TP); no survivor means the only taint
-        route was pinned → -1.  Order-independent, path-sensitive.
-        """
+        redirect resolution."""
+        # Fix 26: argument sanitized inside the callee (param re-assigned
+        # Fix 26: argument sanitized inside the callee (param re-assigned
+        # with a repair function in the function body) — no need to trace.
+        try:
+            if self._arg_sanitized_inside_callee(start_vid):
+                return self._cached(
+                    "pb_sanitized_callee:%s" % start_vid,
+                    AnalysisResult(
+                        code=2,
+                        reason="argument sanitized inside callee (repair re-assign)",
+                        chain=[{"step": "callee_sanitize", "vid": start_vid,
+                                "name": _vattr(self.graph.vs[start_vid], "name", ""),
+                                "code": 2}],
+                        path=[start_vid],
+                        expr_lineno=_vattr(self.graph.vs[start_vid], "lineno", 0)))
+        except Exception:
+            pass
         self._redirect_pin_ctx = bool(self._start_is_redirect_sink(start_vid))
         self._redirect_pin_vids = set()
         self._redirect_pin_blocked = set()
@@ -953,14 +1035,56 @@ class GraphAnalyzer:
             self._f21a_guard_cache = {}
         _f21a_guard_cache = getattr(self, "_f21a_guard_cache", None)
 
+        # Fix 23: fixed-host URL guard for curl_setopt(CURLOPT_URL, ...).
+        # When the URL argument traces back to a concat whose leftmost leaf
+        # is a string literal containing a complete scheme://host prefix,
+        # attacker-controlled taint can only reach the query component —
+        # the request destination host is pinned by the literal, so this is
+        # not server-side request forgery.  (xoops protector stopforumspam
+        # client: "http://www.stopforumspam.com/api?" . $query.)
+        # A literal of just "http://" does NOT qualify — the host chars must
+        # appear inside the same literal, otherwise the host itself is the
+        # tainted part (true SSRF stays reported).
+        _f23 = self._fixed_host_url_guard(start_vid)
+        self._f23_guard_cache = _f23
+
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
                                         max_depth=max_depth)
+        # Fix 28: urlencoded output guard (XSS echo context).  When the
+        # tainted variable's defining assign wraps EVERY tainted operand
+        # in urlencode()/rawurlencode() (output charset: alnum -_.~% —
+        # no quotes, angle brackets, spaces), the echoed value cannot
+        # escape an HTML attribute or inject markup (browsers do not
+        # URL-decode before protocol parsing, so `%6A%61va...` stays
+        # inert).  osticket dynamic-form.inc.php:7
+        # `?id=" . urlencode($_REQUEST['id'])` echoed into action=.
+        if self.language == "php" and r1.code == 1:
+            _ue_reason = self._urlencoded_output_guard(start_vid, r1)
+            if _ue_reason:
+                return AnalysisResult(
+                    code=-1,
+                    reason=_ue_reason,
+                    chain=[{"step": "urlencoded_output_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(
+                        self.graph.vs[start_vid], "lineno", 0))
         pinned_seen = getattr(self, "_redirect_pin_vids", set())
         # Fix 21a: negated safe-predicate predecessor guard (CouchCMS
         # whitelist form).  The superglobal member feeding this path is
         # guarded by a terminating !pred() branch earlier in the same
         # function, so reaching the sink proves pred()==true —
         # whitelist-constrained, not attacker-controlled.
+        # Fix 23: fixed-host CURLOPT_URL — pin verdict before BFS verdict.
+        if self.language == "php" and r1.code == 1 and getattr(
+                self, "_f23_guard_cache", False):
+            return AnalysisResult(
+                code=-1,
+                reason="fixed host URL: taint reaches only the query "
+                       "component of a literal scheme://host target",
+                chain=[{"step": "fixed_host_url_guard",
+                        "vid": start_vid, "code": -1}],
+                path=list(r1.path), expr_lineno=_vattr(
+                    self.graph.vs[start_vid], "lineno", 0))
         _sv = self.graph.vs[start_vid]
         if self.language == "php" and r1.code == 1:
             _guard_reason = self._negated_whitelist_guard_for_result(
@@ -1633,6 +1757,19 @@ class GraphAnalyzer:
                     code=2, reason=f"calls repair '{callee}'",
                     chain=[{"step": "repair", "vid": start_vid, "name": callee, "code": 2}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Format-string sanitizers: sprintf('%d', ...) with a constant
+            # numeric-only format destroys string payload — result is clean.
+            # %s/%f formats pass taint through — fall through to normal tracing.
+            if callee and callee in _FORMAT_STRING_SANITIZERS:
+                fmt_const = self._format_string_arg0(start_vid)
+                if fmt_const is not None and not re.search(
+                        r'''%s''' % (chr(39)) if False else r"%[-+ 0#]*[.]?\d*[sfeEgGu]", fmt_const):
+                    return self._cached(cache_key, AnalysisResult(
+                        code=2,
+                        reason=f"format-string sanitizer '{callee}({fmt_const!r})' — numeric-only format",
+                        chain=[{"step": "format_sanitizer", "vid": start_vid,
+                                "name": callee, "code": 2}],
+                        path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
         # Start-node passthrough: when the starting arg itself is a call
         # operator annotated as passthrough (by enrich_taint), its arguments
@@ -1856,6 +1993,25 @@ class GraphAnalyzer:
                 # (int), (float), (bool) etc. destroy string content.
                 if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
                     continue
+                # Format-string sanitizer call node on the BFS path
+                # (e.g. echo sprintf('%d', $x)): prune like a sanitizer when
+                # the constant format is numeric-only.
+                if (_vattr(uv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(uv, "type", "") in _CALL_TYPES):
+                    _fc = self._resolve_callee_name(up_vid)
+                    if _fc and _fc in _FORMAT_STRING_SANITIZERS:
+                        _ff = self._format_string_arg0(up_vid)
+                        if _ff is not None and not re.search(
+                                r"%[-+ 0#]*[.]?\d*[sfeEgGu]", _ff):
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=2,
+                                    reason=f"format-string sanitizer '{_fc}({_ff!r})' — numeric-only format",
+                                    chain=[{"step": "format_sanitizer", "vid": up_vid,
+                                            "name": _fc, "code": 2}],
+                                    path=path + [up_vid],
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
@@ -3385,6 +3541,25 @@ class GraphAnalyzer:
                 # (int), (float), (bool) etc. destroy string content.
                 if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
                     continue
+                # Format-string sanitizer call node on the BFS path
+                # (e.g. echo sprintf('%d', $x)): prune like a sanitizer when
+                # the constant format is numeric-only.
+                if (_vattr(uv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(uv, "type", "") in _CALL_TYPES):
+                    _fc = self._resolve_callee_name(up_vid)
+                    if _fc and _fc in _FORMAT_STRING_SANITIZERS:
+                        _ff = self._format_string_arg0(up_vid)
+                        if _ff is not None and not re.search(
+                                r"%[-+ 0#]*[.]?\d*[sfeEgGu]", _ff):
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=2,
+                                    reason=f"format-string sanitizer '{_fc}({_ff!r})' — numeric-only format",
+                                    chain=[{"step": "format_sanitizer", "vid": up_vid,
+                                            "name": _fc, "code": 2}],
+                                    path=path + [up_vid],
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
@@ -4166,6 +4341,33 @@ class GraphAnalyzer:
             for ee in self.graph.es.select(_source=sv, label="ast"):
                 stack.append(ee.target)
         if not calls:
+            # Source-level goto fallback: the PHP graph builder drops
+            # `goto label;` statements entirely, so a guard body of the form
+            # `if (!pred($x) or !pred2($x)) { goto reject; }` looks empty
+            # here and would be rejected as non-terminating — yet a goto IS
+            # an unconditional control transfer out of the guard body
+            # (izend fileupload.php:58-59).  When the branch body holds no
+            # calls, check the source lines right after the branch for a
+            # goto statement.
+            bv = self.graph.vs[branch_vid]
+            b_file = _vattr(bv, "file_path", "") or _vattr(bv, "path", "")
+            b_lineno = int(_vattr(bv, "lineno", 0) or 0)
+            if b_file and b_lineno and os.path.isfile(b_file):
+                try:
+                    with open(b_file, "r", encoding="utf-8",
+                              errors="replace") as _fh:
+                        for _ in range(3):
+                            _line = _fh.readline()
+                            if not _line:
+                                break
+                            _stripped = _line.strip()
+                            if not _stripped or _stripped.startswith("<?php"):
+                                continue
+                            if re.match(r"goto \w\+\s*\;", _stripped):
+                                return True
+                            break
+                except OSError:
+                    pass
             return False
         for cv in calls:
             cname = _vattr(self.graph.vs[cv], "name", "")
@@ -4204,6 +4406,25 @@ class GraphAnalyzer:
                                 and _vattr(rv, "name", "")
                                 in self._TERMINATOR_FUNCS):
                             return True
+        # Fix 27c: a plain `return;` inside the guarded body is just as
+        # terminating as die/exit — control cannot fall through to any
+        # later sink (phplist3 configure.php:9
+        # `if (!isset($default_config[$id])) { ...; return; }`).
+        # Walk the branch subtree for a RETURN node.
+        stack2 = [branch_vid]
+        seen2 = set()
+        while stack2:
+            sv = stack2.pop()
+            if sv in seen2:
+                continue
+            seen2.add(sv)
+            if self.graph.vs[sv].attributes().get("label") == \
+                    NodeLabel.RETURN.value:
+                return True
+            for ee in self.graph.es.select(_source=sv, label="own"):
+                stack2.append(ee.target)
+            for ee in self.graph.es.select(_source=sv, label="ast"):
+                stack2.append(ee.target)
         return False
 
     def _unconditional_terminate_before(self, sink_vid: int) -> bool:
@@ -4575,6 +4796,252 @@ class GraphAnalyzer:
                     stack.append(ce.target)
         return False
 
+    def _fixed_host_url_guard(self, sink_vid: int) -> bool:
+        """Fix 23 helper: sink is curl_setopt($ch, CURLOPT_URL, $url) and
+        $url's defining assign is a concat whose leftmost ast child is a
+        const scalar matching  scheme://host  (host chars inside the same
+        literal).  Verified graph shape (probe /tmp/t_curl):
+        call curl_setopt --ast/arg--> const 'CURLOPT_URL', var '$url';
+        assign('$url') --ast--> binary_op '.' --> [const 'http://...', var].
+        """
+        sv = self.graph.vs[sink_vid]
+        setopt_vid = sink_vid
+        if (_vattr(sv, "type", "") != "call"
+                or _vattr(sv, "name", "") != "curl_setopt"):
+            # scanner may enter pb at a sensitive-call ARGUMENT: the $url of
+            # CURLOPT_URL (ast parent is the curl_setopt call) or the $ch
+            # handle of curl_exec (the curl_setopt reaches $ch via dfg).
+            # Search: ast parent first, then dfg-feeder variables' ast
+            # parents, depth 2.
+            entry_file = _vattr(sv, "file_path", "") or _vattr(
+                sv, "path", "")
+
+            def _owning_setopt(vid):
+                for e in self.graph.es.select(_target=vid, label="ast"):
+                    pv = self.graph.vs[e.source]
+                    if (_vattr(pv, "type", "") == "call"
+                            and _vattr(pv, "name", "") == "curl_setopt"):
+                        # scope to the entry's file: cross-file same-name
+                        # dfg edges (global name matching) otherwise let
+                        # the walk land on unrelated curl_setopt calls in
+                        # other files whose $url has no pinned host.
+                        pf = _vattr(pv, "file_path", "") or _vattr(
+                            pv, "path", "")
+                        if not entry_file or pf == entry_file:
+                            return e.source
+                return None
+            parent = _owning_setopt(sink_vid)
+            if parent is None:
+                # walk BOTH dfg directions from the entry: toward taint
+                # sources (dfg in-edges) and toward the sink (dfg out-edges,
+                # e.g. entry=$query feeding $url feeding curl_setopt).
+                seen = {sink_vid}
+                frontier = [sink_vid]
+                for _depth in range(5):
+                    nxt = []
+                    for u in frontier:
+                        cand = [e.source for e in self.graph.es.select(
+                                    _target=u, label="dfg")]
+                        cand += [e.target for e in self.graph.es.select(
+                                     _source=u, label="dfg")]
+                        for src in cand:
+                            if src in seen:
+                                continue
+                            seen.add(src)
+                            parent = _owning_setopt(src)
+                            if parent is not None:
+                                break
+                            nxt.append(src)
+                        if parent is not None:
+                            break
+                    if parent is not None:
+                        break
+                    frontier = nxt
+            if parent is None:
+                return False
+            setopt_vid = parent
+        args = [e.target for e in self.graph.es.select(
+            _source=setopt_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if len(args) < 3:
+            return False
+        opt = self.graph.vs[args[1]]
+        # phply renders class constants as type 'constant' (not 'const')
+        if (_vattr(opt, "type", "") not in ("const", "constant")
+                or _vattr(opt, "name", "") != "CURLOPT_URL"):
+            return False
+        urlv = self.graph.vs[args[2]]
+        if _vattr(urlv, "label", "") != NodeLabel.IDENTIFIER.value:
+            return False
+        url_name = _vattr(urlv, "name", "")
+        if not url_name:
+            return False
+        # find the assign that defines $url (same file as the curl_setopt
+        # call, before it — global name matching otherwise picks same-name
+        # assigns from unrelated files)
+        setopt_file = _vattr(self.graph.vs[setopt_vid], "file_path", "") \
+            or _vattr(self.graph.vs[setopt_vid], "path", "")
+        setopt_line = int(_vattr(self.graph.vs[setopt_vid], "lineno", 0)
+                          or 0)
+        for v in self.graph.vs:
+            if (_vattr(v, "type", "") == "assign"
+                    and _vattr(v, "name", "") == url_name):
+                vf = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+                vln = int(_vattr(v, "lineno", 0) or 0)
+                if setopt_file and vf != setopt_file:
+                    continue
+                if setopt_line and vln and vln > setopt_line:
+                    continue
+                kids = [e.target for e in self.graph.es.select(
+                    _source=v.index, label="ast")]
+                rhs = None
+                for k in kids:
+                    if _vattr(self.graph.vs[k], "label", "") !=                             NodeLabel.IDENTIFIER.value:
+                        rhs = k
+                        break
+                if rhs is None:
+                    continue
+                rv = self.graph.vs[rhs]
+                if _vattr(rv, "type", "") != "binary_op":
+                    continue
+                # leftmost ast child of the concat (earliest ast edge =
+                # leftmost operand in phply insertion order)
+                subs = sorted(((e.index, e.target) for e in
+                               self.graph.es.select(
+                                   _source=rhs, label="ast")))
+                if not subs:
+                    continue
+                left = self.graph.vs[subs[0][1]]
+                if _vattr(left, "type", "") not in ("const", "constant",
+                                                    "string"):
+                    continue
+                # const node names carry their PHP quotes ('...' or "...")
+                lit = (_vattr(left, "name", "") or "").strip("'\u0022")
+                if re.match(
+                        r"^[a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s<>()"
+                        u"\u005c\u005c]+", lit):
+                    return True
+        return False
+
+    def _fixed_host_location_guard(self, header_vid: int) -> bool:
+        """Fix 23 extension: header('Location: http://host/...') where the
+        scheme://host lives inside the same string literal as the
+        'Location:' prefix — the redirect target host is pinned by the
+        literal, only the query/path can carry taint, so this is not an
+        open redirect.  Handles three arg0 shapes: const with full URL,
+        concat whose leftmost const child carries 'Location: scheme://host',
+        and an identifier whose defining assign's concat does the same."""
+        hv = self.graph.vs[header_vid]
+        if _vattr(hv, "type", "") != "call" or \
+                _vattr(hv, "name", "") != "header":
+            return False
+        args = [e.target for e in self.graph.es.select(
+            _source=header_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if not args:
+            return False
+        a0 = self.graph.vs[args[0]]
+
+        def _lit_pinned(lit: str) -> bool:
+            m = re.match(r"^[\s]*[Ll]ocation[\s]*:[\s]*"
+                         r"([a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s<>()"
+                         u"\u005c\u005c]+)", lit)
+            return bool(m)
+
+        if _vattr(a0, "label", "") == NodeLabel.CONST.value:
+            return _lit_pinned(_vattr(a0, "name", "") or "")
+        if _vattr(a0, "type", "") == "binary_op":
+            subs = sorted(((e.index, e.target) for e in
+                           self.graph.es.select(
+                               _source=args[0], label="ast")))
+            if subs:
+                left = self.graph.vs[subs[0][1]]
+                if _vattr(left, "label", "") == NodeLabel.CONST.value:
+                    return _lit_pinned(_vattr(left, "name", "") or "")
+        if _vattr(a0, "label", "") == NodeLabel.IDENTIFIER.value:
+            url_name = _vattr(a0, "name", "")
+            hfile = _vattr(hv, "file_path", "") or _vattr(hv, "path", "")
+            hline = int(_vattr(hv, "lineno", 0) or 0)
+            for v in self.graph.vs:
+                if (_vattr(v, "type", "") == "assign"
+                        and _vattr(v, "name", "") == url_name):
+                    vf = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+                    vln = int(_vattr(v, "lineno", 0) or 0)
+                    if hfile and vf != hfile:
+                        continue
+                    if hline and vln and vln > hline:
+                        continue
+                    kids = [e.target for e in self.graph.es.select(
+                        _source=v.index, label="ast")]
+                    rhs = None
+                    for k in kids:
+                        if _vattr(self.graph.vs[k], "label", "") != \
+                                NodeLabel.IDENTIFIER.value:
+                            rhs = k
+                            break
+                    if rhs is None:
+                        continue
+                    rv = self.graph.vs[rhs]
+                    if _vattr(rv, "type", "") != "binary_op":
+                        continue
+                    subs = sorted(((e.index, e.target) for e in
+                                   self.graph.es.select(
+                                       _source=rhs, label="ast")))
+                    if not subs:
+                        continue
+                    left = self.graph.vs[subs[0][1]]
+                    if _vattr(left, "label", "") == NodeLabel.CONST.value:
+                        if _lit_pinned(_vattr(left, "name", "") or ""):
+                            return True
+        return False
+
+    def _isset_dim_literal_whitelist(self, call_vid: int,
+                                     var_name: str) -> bool:
+        """Fix 22a helper: is this isset() call of the form
+        isset($some_array[$var]) where $some_array is assigned an array
+        literal somewhere in the graph?  Graph shape (verified on
+        phplist3 configure.php): isset call --ast/arg--> identifier
+        base ('$default_config') --member--> property dim ('$id').
+        The base's literal-ness is checked by finding an
+        operator/assign named '$base' whose ast rhs is a call to
+        'array' (phply renders array literals as array() calls)."""
+        args = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if not args:
+            return False
+        base_vid = args[0]
+        bv = self.graph.vs[base_vid]
+        if _vattr(bv, "label", "") != NodeLabel.IDENTIFIER.value:
+            return False
+        base_name = _vattr(bv, "name", "")
+        if not base_name:
+            return False
+        # dim must reference var_name (member edge from base)
+        dim_ok = False
+        for me in self.graph.es.select(_source=base_vid, label="member"):
+            dv = self.graph.vs[me.target]
+            dname = _vattr(dv, "name", "")
+            if dname in (var_name, var_name.lstrip("$"),
+                         "$" + var_name.lstrip("$")):
+                dim_ok = True
+                break
+        if not dim_ok:
+            return False
+        # base must be assigned an array literal somewhere
+        for v in self.graph.vs:
+            av = v.attributes()
+            if (_vattr(v, "type", "") == "assign"
+                    and _vattr(v, "name", "") == base_name):
+                for ae in self.graph.es.select(_source=v.index, label="ast"):
+                    if _vattr(ae, "role", "") != "rhs":
+                        continue
+                    rv = self.graph.vs[ae.target]
+                    if (_vattr(rv, "type", "") == "call"
+                            and _vattr(rv, "name", "") == "array"):
+                        return True
+        return False
+
     def _negated_whitelist_guard_before(self, sink_vid: int,
                                         var_name: str,
                                         sink_lineno: int | None = None) -> bool:
@@ -4643,70 +5110,275 @@ class GraphAnalyzer:
             cond_vid = self._get_condition_root(bvid)
             if cond_vid is None:
                 continue
-            # expect unary '!' wrapping a call
+            # Expect unary '!' wrapping a call — OR a disjunction of
+            # negated predicates (`!pred($x) or !pred2($x)`, izend
+            # fileupload.php:58).  With `or`, reaching the sink proves
+            # EVERY operand predicate true (any false operand would have
+            # terminated), so each operand must independently qualify.
             cv = self.graph.vs[cond_vid]
-            if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
-                    or _vattr(cv, "type", "") != "unary_op"):
+            _pred_calls = []
+            if (_vattr(cv, "label") == NodeLabel.OPERATOR.value
+                    and _vattr(cv, "type", "") == "binary_op"
+                    and _vattr(cv, "name", "") in ("or", "||")):
+                for _oe in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(_oe, "role", "") == "operand":
+                        _ov = self.graph.vs[_oe.target]
+                        if (_vattr(_ov, "label") == NodeLabel.OPERATOR.value
+                                and _vattr(_ov, "type", "") == "unary_op"):
+                            for _ie in self.graph.es.select(
+                                    _source=_oe.target, label="ast"):
+                                if _vattr(_ie, "role", "") == "operand":
+                                    _pred_calls.append(_ie.target)
+                                    break
+            if not _pred_calls:
+                if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
+                        or _vattr(cv, "type", "") != "unary_op"):
+                    continue
+                for ce in self.graph.es.select(_source=cond_vid, label="ast"):
+                    if _vattr(ce, "role", "") == "operand":
+                        _pred_calls.append(ce.target)
+                        break
+            if not _pred_calls:
                 continue
-            call_vid = None
-            for ce in self.graph.es.select(_source=cond_vid, label="ast"):
-                if _vattr(ce, "role", "") == "operand":
-                    call_vid = ce.target
+            # Fix 27: iterate every negated predicate — with `or`, EACH
+            # operand must independently qualify, so ANY failing predicate
+            # disqualifies the whole branch.  (This block previously
+            # referenced an undefined `call_vid` — NameError on every
+            # single-predicate guard, so the whitelist guard never fired.)
+            _branch_pred_ok = True
+            for call_vid in _pred_calls:
+                if not self._pred_qualifies(call_vid, var_name, bvid):
+                    _branch_pred_ok = False
                     break
-            if call_vid is None:
-                continue
-            callee = _vattr(self.graph.vs[call_vid], "name", "")
-            # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
-            # only — content unchanged"), but HERE membership in a constant
-            # whitelist IS the value constraint this guard encodes.  Accept
-            # it explicitly BEFORE the existence-check exclusion, else this
-            # branch is unreachable for the very predicate it was written
-            # for (probe: guard trace L4086→L4090 continue on callee=in_array).
-            if callee == "in_array":
-                if not self._array_literal_is_const_whitelist(call_vid):
-                    continue
-            elif callee in _EXISTENCE_CHECK_FUNCS:
-                # isset/empty etc. only prove existence, not value
-                # constraint — excluding them here mirrors the 20a
-                # predicate-guard exclusion (@4738).
-                continue
-            elif not (callee and self._is_safe_function_call(call_vid)):
-                continue
-            # NOTE: no double-negation exclusion here — the expected shape
-            # IS the negated predicate `!pred($var)` (cond = unary_op '!'
-            # wrapping the call, already verified above).  b19 probe: an
-            # exclusion copied from the 20a context skipped EVERY target
-            # branch, since _condition_call_is_negated finds exactly that
-            # one '!'.
-            # arg0 must reference var_name
-            args = [e.target for e in self.graph.es.select(
-                _source=call_vid, label="ast")
-                if _vattr(e, "role", "") == "arg"]
-            if not args:
-                continue
-            if not self._subtree_contains_name(args[0], var_name, depth=0):
-                # Bug D fix: `$in->method` guards use the PROPERTY name
-                # ('method') as arg0, while the path carries '$in'.  Accept
-                # when arg0 is a property whose member-parent is var_name.
-                prop_ok = False
-                a0 = self.graph.vs[args[0]]
-                if (_vattr(a0, "type", "") == "property"):
-                    for me in self.graph.es.select(_target=args[0], label="member"):
-                        if _vattr(self.graph.vs[me.source], "name", "") == var_name:
-                            prop_ok = True
-                            break
-                if not prop_ok:
-                    continue
-            # whitelist form needs a constant array; user predicates don't
-            if callee == "in_array":
-                if not self._array_literal_is_const_whitelist(call_vid):
-                    continue
-            # guarded body must provably terminate (else fall-through is
-            # NOT proven pred()==true)
-            if not self._branch_body_always_terminates(bvid):
+            if not _branch_pred_ok:
                 continue
             return True
         return False
+
+    _URLENCODE_FUNCS = frozenset({"urlencode", "rawurlencode"})
+
+    def _defining_assign_of(self, var_vid: int) -> int | None:
+        """Nearest own-subtree assign writing this variable name BEFORE
+        the variable's use line (def-chain head)."""
+        sv = self.graph.vs[var_vid]
+        v_name = _vattr(sv, "name", "")
+        v_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        v_line = int(_vattr(sv, "lineno", 0) or 0)
+        if not v_name or not v_file:
+            return None
+        best = None
+        best_ln = -1
+        for ve in self.graph.vs:
+            if (_vattr(ve, "type", "") == "assign"
+                    and _vattr(ve, "name", "") == v_name):
+                ve_file = _vattr(ve, "file_path", "") or _vattr(ve, "path", "")
+                ve_line = int(_vattr(ve, "lineno", 0) or 0)
+                if ve_file == v_file and 0 < ve_line < v_line and ve_line > best_ln:
+                    best = ve.index
+                    best_ln = ve_line
+        return best
+
+    def _subtree_has_superglobal(self, vid: int, depth: int = 0) -> bool:
+        if depth > 12:
+            return False
+        v = self.graph.vs[vid]
+        nm = _vattr(v, "name", "") or ""
+        if nm.startswith("$_"):
+            return True
+        for e in self.graph.es.select(_source=vid, label="ast"):
+            if self._subtree_has_superglobal(e.target, depth + 1):
+                return True
+        return False
+
+    def _urlencoded_output_guard(self, sink_vid: int, r1) -> str | None:
+        """Fix 28: every tainted operand of the echo output is wrapped in
+        urlencode — the value charset cannot break out of an HTML
+        attribute (no quote/angle/space chars), so this is not XSS."""
+        # find the defining assign of the sink variable itself (or of any
+        # def-chain variable in the reported path) whose RHS fully
+        # encodes the superglobal-derived operands.
+        sv = self.graph.vs[sink_vid]
+        s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        s_line = int(_vattr(sv, "lineno", 0) or 0)
+        candidates = [sink_vid]
+        for pv in list(r1.path or [])[:6]:
+            try:
+                candidates.append(pv if isinstance(pv, int) else int(pv))
+            except (TypeError, ValueError):
+                continue
+        seen_vars = set()
+        for cv in candidates:
+            try:
+                cvs = self.graph.vs[cv]
+            except Exception:
+                continue
+            # Fix 28 (revised 2): evaluate ALL same-file definitions of
+            # the variable before the use -- the value may come from any
+            # branch (osticket $url is defined at both L7 urlencode form
+            # and L27 const form), so every definition must be safe.
+            v_name = _vattr(cvs, "name", "")
+            if not v_name or v_name in seen_vars:
+                continue
+            seen_vars.add(v_name)
+            all_defs_ok = None  # None = no definitions found
+            any_encoded = False
+            for ve in self.graph.vs:
+                if (_vattr(ve, "type", "") != "assign"
+                        or _vattr(ve, "name", "") != v_name):
+                    continue
+                ve_file = _vattr(ve, "file_path", "") or _vattr(ve, "path", "")
+                ve_line = int(_vattr(ve, "lineno", 0) or 0)
+                if ve_file != s_file or not (0 < ve_line < s_line):
+                    continue
+                dav = ve
+                da = ve.index
+                # RHS = ast children that are not the LHS variable
+                rhs_vids = [e.target for e in self.graph.es.select(
+                    _source=da, label="ast")
+                    if _vattr(self.graph.vs[e.target], "name", "")
+                    != v_name]
+                # Fix 28 (revised): the RHS tree must contain at least one
+                # urlencode call AND no bare non-const leaf outside one --
+                # the PHP graph keeps member-access BASE nodes (($_REQUEST))
+                # out of the ast subtree (21h-3d probe), so "no superglobal
+                # in tree" proves nothing; leaf-level accounting is what
+                # works on both the encoded and the unencoded shape.
+                saw_encoded = any(self._rhs_tree_has_urlencode(rv)
+                                  for rv in rhs_vids)
+                leaves_ok = all(self._rhs_leaves_all_encoded(rv)
+                                for rv in rhs_vids)
+                if all_defs_ok is None:
+                    all_defs_ok = bool(rhs_vids) and leaves_ok
+                else:
+                    all_defs_ok = all_defs_ok and (
+                        bool(rhs_vids) and leaves_ok)
+                any_encoded = any_encoded or saw_encoded
+            if not all_defs_ok or not any_encoded:
+                continue
+            return ("urlencoded output: tainted operand wrapped in "
+                    "urlencode before echo (charset cannot escape "
+                    "HTML attribute context)")
+        return None
+
+    def _rhs_tree_has_urlencode(self, vid: int, depth: int = 0) -> bool:
+        if depth > 14:
+            return False
+        v = self.graph.vs[vid]
+        if (_vattr(v, "type", "") in _CALL_TYPES
+                and (_vattr(v, "name", "") or "")
+                in self._URLENCODE_FUNCS):
+            return True
+        return any(self._rhs_tree_has_urlencode(e.target, depth + 1)
+                   for e in self.graph.es.select(_source=vid, label="ast"))
+
+    def _rhs_leaves_all_encoded(self, vid: int, in_enc: bool = False,
+                                depth: int = 0) -> bool:
+        """Every non-const ast leaf must sit inside a urlencode call."""
+        if depth > 14:
+            return False
+        v = self.graph.vs[vid]
+        if _vattr(v, "label") == NodeLabel.CONST.value:
+            return True
+        v_type = _vattr(v, "type", "")
+        v_name = _vattr(v, "name", "") or ""
+        if v_type in _CALL_TYPES and v_name in self._URLENCODE_FUNCS:
+            return True
+        kids = [e.target for e in self.graph.es.select(
+            _source=vid, label="ast")]
+        if not kids:
+            return in_enc
+        # function-name identifiers of plain calls are graph artifacts,
+        # not data leaves (probe: urlencode node's ast kids include an
+        # identifier named 'urlencode')
+        kids = [k for k in kids if not (
+            _vattr(self.graph.vs[k], "type", "") == "identifier"
+            and _vattr(self.graph.vs[k], "name", "") == v_name
+            and v_type in _CALL_TYPES)]
+        return all(self._rhs_leaves_all_encoded(k, in_enc, depth + 1)
+                   for k in kids)
+
+
+    def _pred_qualifies(self, call_vid: int, var_name: str,
+                        bvid: int) -> bool:
+        """Fix 27 helper (extracted from _negated_whitelist_guard_before):
+        does ONE negated predicate `!pred(...)` qualify as a value
+        constraint on var_name whose guarded branch bvid terminates?"""
+        callee = _vattr(self.graph.vs[call_vid], "name", "")
+        # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
+        # only — content unchanged"), but HERE membership in a constant
+        # whitelist IS the value constraint this guard encodes.  Accept
+        # it explicitly BEFORE the existence-check exclusion.
+        if callee == "in_array":
+            if not self._array_literal_is_const_whitelist(call_vid):
+                return False
+        elif callee in _EXISTENCE_CHECK_FUNCS:
+            # isset/empty etc. only prove existence, not value
+            # constraint — excluding them here mirrors the 20a
+            # predicate-guard exclusion (@4738).
+            # Fix 22a: EXCEPT isset($LITERAL_ARRAY[$var]) — when the
+            # probed argument is an array-dim whose base variable is
+            # assigned an array literal, isset IS a key-whitelist
+            # constraint.
+            if (callee == "isset"
+                    and self._isset_dim_literal_whitelist(
+                        call_vid, var_name)
+                    and self._branch_body_always_terminates(bvid)):
+                return True
+            return False
+        elif not (callee and self._is_safe_function_call(call_vid)):
+            return False
+        # arg0 must reference var_name
+        args = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if not args:
+            return False
+        if not self._subtree_contains_name(args[0], var_name, depth=0):
+            # Bug D fix: `$in->method` guards use the PROPERTY name
+            # ('method') as arg0, while the path carries '$in'.  Accept
+            # when arg0 is a property whose member-parent is var_name.
+            prop_ok = False
+            a0 = self.graph.vs[args[0]]
+            if (_vattr(a0, "type", "") == "property"):
+                for me in self.graph.es.select(_target=args[0], label="member"):
+                    if _vattr(self.graph.vs[me.source], "name", "") == var_name:
+                        prop_ok = True
+                        break
+            if not prop_ok:
+                # Fix 27b: INDIRECT constraint — the predicate binds a
+                # derivative of var_name, e.g. phpcms search
+                #   $urm_md5 = md5($url); if (!in_array($urm_md5,$wl)) exit;
+                # md5 is a one-way function with a unique preimage, so
+                # membership of md5($url) in a constant whitelist pins $url
+                # to a single value.  Accept when arg0's defining assign
+                # wraps a call whose argument subtree contains var_name.
+                indir = False
+                a0_name = _vattr(a0, "name", "")
+                if a0_name:
+                    for ve in self.graph.vs:
+                        if (_vattr(ve, "type", "") == "assign"
+                                and _vattr(ve, "name", "") == a0_name):
+                            for ke in self.graph.es.select(
+                                    _source=ve.index, label="ast"):
+                                if self._subtree_contains_name(
+                                        ke.target, var_name, depth=0):
+                                    indir = True
+                                    break
+                        if indir:
+                            break
+                if not indir:
+                    return False
+            else:
+                pass
+        # whitelist form needs a constant array; user predicates don't
+        if callee == "in_array":
+            if not self._array_literal_is_const_whitelist(call_vid):
+                return False
+        # guarded body must provably terminate (else fall-through is
+        # NOT proven pred()==true)
+        if not self._branch_body_always_terminates(bvid):
+            return False
+        return True
 
     def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
         """Fix 20b: is this binary_op's Location/redirect base pinned to an
@@ -4899,6 +5571,52 @@ class GraphAnalyzer:
             cur_vid = parent_vid
 
         return None
+
+    def _format_string_arg0(self, call_vid: int):
+        """Return the *constant* format-string value of call arg0, else None."""
+        fmt = None
+        arg_counter = 0
+        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            if _vattr(ae, "role") != "arg":
+                continue
+            idx = _vattr(ae, "index")
+            actual_idx = int(idx) if idx else arg_counter
+            arg_counter += 1
+            if actual_idx != 0:
+                break
+            av = self.graph.vs[ae.target]
+            label = _vattr(av, "label", "")
+            if label == "const":
+                fmt = _vattr(av, "name", "") or ""
+            elif label == "operator":
+                for ce in self.graph.es.select(_source=ae.target, label="ast"):
+                    cv = self.graph.vs[ce.target]
+                    if _vattr(cv, "label", "") == "const":
+                        fmt = _vattr(cv, "name", "") or ""
+                        break
+            if fmt is None:
+                # One DFG hop back (const → $fmt); if that hop lands on an
+                # identifier (the assignment LHS $fmt at its definition
+                # site), take a second hop to reach the const — handles
+                # `$fmt = '%d'; printf($fmt, $x);` where the call arg is a
+                # *use site* and the const connects to the *definition*.
+                for de in self.graph.es.select(_target=ae.target, label="dfg"):
+                    dv = self.graph.vs[de.source]
+                    if _vattr(dv, "label", "") == "const":
+                        fmt = _vattr(dv, "name", "") or ""
+                        break
+                    if _vattr(dv, "label", "") == "identifier":
+                        for de2 in self.graph.es.select(_target=dv.index, label="dfg"):
+                            dv2 = self.graph.vs[de2.source]
+                            if _vattr(dv2, "label", "") == "const":
+                                fmt = _vattr(dv2, "name", "") or ""
+                                break
+                        if fmt is not None:
+                            break
+            break
+        if not fmt or len(fmt) > 128 or "%" not in fmt:
+            return None
+        return fmt.strip().strip("\'")
 
     def _is_repair_function(self, name: str) -> bool:
         if not name:

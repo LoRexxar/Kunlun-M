@@ -28,6 +28,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# Django 4 CSRF Origin 验证：Nginx TLS 终止后转发，浏览器 Origin 为 https 域名
+CSRF_TRUSTED_ORIGINS = ["https://km.shengnong.club", "http://km.shengnong.club"]
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
@@ -51,6 +55,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'Kunlun_M.middleware.NoCacheHTMLMiddleware',
     'Kunlun_M.middleware.SDataMiddleware',
 ]
 
@@ -68,6 +73,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'web.context_ai.ai_status',
             ],
         },
     },

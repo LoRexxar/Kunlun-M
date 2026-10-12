@@ -566,7 +566,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 
         # 对每种语言使用 GraphAnalyzer 扫描
-        from core.graph.graph_analyzer import GraphAnalyzer, AnalysisResult
+        from core.graph.graph_analyzer import GraphAnalyzer
+        from core.graph.graph_analyzer import _FORMAT_STRING_SANITIZERS, AnalysisResult
         from core.utils import parse_sink_names
         from Kunlun_M.const import VulnerabilityResult
         from utils.igraph_compat import _vattr
@@ -671,6 +672,39 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     _stype = sink.get('type', '')
                     if _stype and _stype not in ('call', 'method_call', 'static_call', 'new'):
                         continue
+                    # Fix 25: sinks inside a never-called function are dead
+                    # code — the function body only executes if something
+                    # invokes it, and the call graph says nothing does.
+                    # Previously this check ran only for no-arg sinks, so
+                    # taintable-arg sinks (curl_setopt, file_put_contents...)
+                    # inside dead helper functions were still reported with
+                    # the function parameters as hypothetical sources.
+                    # Fix 30: PHP-only.  Container-managed entry methods in
+                    # other languages legitimately have no call-graph
+                    # in-edges: Java servlet doGet()/doPost() are invoked
+                    # by the servlet container, JS express route callbacks
+                    # by the framework — skipping them as "dead" broke
+                    # every non-PHP case (cmd_inject.java CVI-6003,
+                    # cmd_inject_node.js CVI-3100).  PHP has no container
+                    # entry methods (each request enters a top-level
+                    # script), so the helper-function heuristic is sound
+                    # only there.
+                    if lang == "php":
+                        _dead_func_vid = None
+                        for _doe in analyzer.graph.es.select(
+                                _target=sink.get('vid'), label="own"):
+                            if _vattr(analyzer.graph.vs[_doe.source],
+                                      "label") == "function":
+                                _dead_func_vid = _doe.source
+                                break
+                        if _dead_func_vid is not None and not any(
+                                True for _ in analyzer.graph.es.select(
+                                    _target=_dead_func_vid, label="cg")):
+                            logger.debug(
+                                "sink '%s' skipped: owning function vid=%d "
+                                "has no callers (dead code)",
+                                _sn, _dead_func_vid)
+                            continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
@@ -736,6 +770,24 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     result = None
                     unconfirmed_result = None
                     for i, arg_vid in enumerate(arg_vids):
+                        # Fix 23: curl_setopt(CURLOPT_URL, $url) — when the
+                        # owning call is identified and the URL's defining
+                        # concat has a literal scheme://host leftmost leaf,
+                        # taint can only reach the query component; skip the
+                        # SSRF verdict for this argument.
+                        if (sink_name_lower == "curl_setopt" and i == 2
+                                and analyzer._fixed_host_url_guard(
+                                    sink.get('vid'))):
+                            any_arg_repaired = True
+                            continue
+                        # Fix 23-ext: header('Location: scheme://host...')
+                        # with the host pinned inside the same literal is
+                        # not an open redirect (only query/path tainted).
+                        if (sink_name_lower == "header" and i == 0
+                                and analyzer._fixed_host_location_guard(
+                                    sink.get('vid'))):
+                            any_arg_repaired = True
+                            continue
                         # Format-string sinks: only check the format string argument.
                         # Value arguments (printf %s values) are not dangerous.
                         if fmt_only_idx >= 0 and i != fmt_only_idx:
@@ -805,6 +857,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         chain=[{"step": "safe", "vid": op_vid,
                                                 "name": _cast_name, "code": 2}],
                                         path=[op_vid]), None
+                                # Format-string sanitizers: sprintf('%d', $x) with a
+                                # constant numeric-only format destroys string payload.
+                                # Do NOT descend into its sub-args — the result carries
+                                # only digits.  %s/%f formats still descend (taint passes).
+                                if _callee and _callee in _FORMAT_STRING_SANITIZERS:
+                                    _ffmt = analyzer._format_string_arg0(op_vid)
+                                    if _ffmt is not None and not re.search(
+                                            r"%[-+ 0#]*[.]?\d*[sfeEgGu]", _ffmt):
+                                        from core.graph.graph_analyzer import AnalysisResult as _AR
+                                        return _AR(
+                                            code=2,
+                                            reason=f"format-string sanitizer '{_callee}({_ffmt!r})' — numeric-only format",
+                                            chain=[{"step": "format_sanitizer", "vid": op_vid,
+                                                    "name": _callee, "code": 2}],
+                                            path=[op_vid]), None
                                 # If this method_call's function def is an
                                 # empty shell (unresolved external/framework
                                 # method), don't recurse into sub-args — the
@@ -1291,6 +1358,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         vuln_file_norm = os.path.normpath(vuln_file_path)
                         # vendor 目录
                         if '/vendor/' in vuln_file_norm or vuln_file_norm.endswith(os.path.join('vendor', '')):
+                            continue
+                        # 第三方/捆绑代码目录（高特异性命名）
+                        if any(seg + '/' in vuln_file_norm.replace(os.sep, '/')
+                               for seg in ('a3rd', '3rdparty', 'third_party', 'thirdparty',
+                                           'external_plugins', 'bower_components')):
                             continue
                         # site-packages (Python stdlib / third-party)
                         if '/site-packages/' in vuln_file_norm:

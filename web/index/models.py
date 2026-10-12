@@ -291,6 +291,13 @@ class ScanResultTask(models.Model):
     is_unconfirm = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     # 验证状态字段
+    # AI 自动分诊结论（扫描后由 AI 管线写入）
+    ai_verdict = models.CharField(max_length=20, default='', blank=True)      # tp/fp/uncertain
+    ai_confidence = models.CharField(max_length=10, default='', blank=True)   # high/medium/low
+    ai_reasoning = models.TextField(default='', blank=True)
+    ai_fix = models.TextField(default='', blank=True)
+    ai_severity_adjust = models.CharField(max_length=10, default='', blank=True)  # up/keep/down
+    ai_analyzed_at = models.DateTimeField(null=True, blank=True)
     verification_status = models.CharField(
         max_length=10,
         choices=VERIFICATION_CHOICES,
@@ -584,3 +591,85 @@ class ApiToken(models.Model):
 
     def __str__(self):
         return '{} - {}'.format(self.user.username, self.name or self.token[:12])
+
+
+class ProjectAiReport(models.Model):
+    """项目 AI 报告缓存（每项目一份，按漏洞指纹失效）"""
+    project_id = models.IntegerField(db_index=True)
+    report_json = models.TextField(default='')
+    vuls_fingerprint = models.CharField(max_length=64, default='')
+    created_at = models.DateTimeField(auto_now=True)
+
+
+class VerdictEvent(models.Model):
+    """判定事件账本（append-only）：经验的本体，永不删改。
+
+    状态（verification_status 等）只是账本的投影；互斥结论以事件形式共存，
+    任何判定史、口径演进、依据链都可从账本完整回放。
+    """
+    SOURCES = (
+        ('human', '人工标记'),
+        ('ai-adjudication', 'AI 改判采信'),
+        ('precedent-adoption', '判例采纳'),
+        ('undo', '撤销'),
+        ('genesis', '建账回填'),
+        ('bulk', '批量操作'),
+    )
+    vul_id = models.IntegerField(db_index=True)
+    old_status = models.CharField(max_length=20, default='')
+    new_status = models.CharField(max_length=20)
+    source = models.CharField(max_length=30, choices=SOURCES)
+    actor = models.CharField(max_length=80, default='')
+    notes = models.TextField(blank=True, default='')
+    cvi_id = models.CharField(max_length=20, default='')
+    scan_project_id = models.IntegerField(default=0)
+    pattern_hash = models.CharField(max_length=64, default='', help_text='判定时的源码模式指纹')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'verdict_event'
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return '#%d %s->%s (%s)' % (self.vul_id, self.old_status or '∅', self.new_status, self.source)
+
+
+class DiscussionDoc(models.Model):
+    """复盘讨论件（经验产出的显式文档，全量存 DB，不落 git/磁盘）"""
+    DOC_TYPES = (('lessons', '判定经验教训'), ('engine', '引擎缺陷清单'), ('log', '裁决台账'))
+    doc_type = models.CharField(max_length=20, choices=DOC_TYPES, db_index=True)
+    title = models.CharField(max_length=200)
+    content_md = models.TextField()
+    data_baseline = models.CharField(max_length=200, default='', help_text='生成时的数据规模描述')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'discussion_doc'
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return '%s %s' % (self.get_doc_type_display(), self.created_at.strftime('%Y-%m-%d %H:%M'))
+
+
+class AiTriageQueue(models.Model):
+    """AI 分诊后台队列（每项目一行，幂等）"""
+    project_id = models.IntegerField(db_index=True)
+    status = models.CharField(max_length=10, default='pending')  # pending/running/done/error
+    processed = models.IntegerField(default=0)
+    error = models.TextField(default='', blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class AiConfig(models.Model):
+    """AI 分析配置（单行表）"""
+    api_key = models.CharField(max_length=200, default='', blank=True)
+    base_url = models.CharField(max_length=200, default='', blank=True)
+    model = models.CharField(max_length=100, default='', blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI配置'
+
+    def save(self, *args, **kwargs):
+        self.id = 1
+        super().save(*args, **kwargs)

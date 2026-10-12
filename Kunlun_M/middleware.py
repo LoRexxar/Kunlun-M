@@ -30,6 +30,21 @@ def _get_cached_count(key, query_func):
     return value
 
 
+class NoCacheHTMLMiddleware:
+    """HTML 页面禁止浏览器缓存，避免发版后浏览器渲染旧页面（静态资源仍走 Last-Modified 启发式缓存）"""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        content_type = response.get("Content-Type", "")
+        if content_type.startswith("text/html"):
+            response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response["Pragma"] = "no-cache"
+        return response
+
+
 class SDataMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response

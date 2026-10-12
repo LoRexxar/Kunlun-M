@@ -69,6 +69,14 @@ class TaskListView(TemplateView):
             .values_list('scan_task_id', 'cnt')
         )
 
+        # 状态计数（快速过滤 chips 用）
+        from django.db.models import Value, IntegerField
+        all_ids = ScanTask.objects.all()
+        context['st_running'] = all_ids.filter(is_finished=2).count()
+        context['st_queued'] = all_ids.filter(is_finished=3).count()
+        context['st_done'] = all_ids.filter(is_finished=1).count()
+        context['st_failed'] = all_ids.filter(is_finished__in=[0, -1]).count()
+
         context['tasks'] = rows
 
         context['page'] = page
@@ -86,6 +94,13 @@ class TaskListView(TemplateView):
             project = Project.objects.filter(id=project_id).first()
 
             task.project_name = project.project_name if project else '-'
+
+            # 预计算耗时（秒）与是否运行中（模板无减法）
+            task.is_running = (task.is_finished == 2)
+            task.elapsed_sec = ''
+            if task.started_at:
+                end = task.finished_at if task.finished_at else timezone.now()
+                task.elapsed_sec = max(0, int((end - task.started_at).total_seconds()))
 
         return context
 
@@ -240,6 +255,7 @@ class TaskConfigView(View):
             "task": task,
             "options": options,
             "archive_name": archive_name,
+            "project": project,
             "project_des": project_des,
             "vendor_globally_off": vendor_globally_off,
             "tamper_names": tamper_names,
@@ -361,13 +377,26 @@ class TaskDetailView(View):
                 taskresult.level = VUL_LEVEL[r.level]
                 taskresult.rule_name = r.rule_name if r else taskresult.cvi_id
 
+        # AI 分诊统计（任务维度，来自 ai_pipeline 落库数据）
+        _vlist = list(taskresults)
+        ai_stats = {
+            'total': len(_vlist),
+            'analyzed': sum(1 for v in _vlist if v.ai_verdict),
+            'tp': sum(1 for v in _vlist if v.ai_verdict == 'tp'),
+            'fp': sum(1 for v in _vlist if v.ai_verdict == 'fp'),
+            'uncertain': sum(1 for v in _vlist if v.ai_verdict == 'uncertain'),
+        }
+        ai_stats['pct'] = int(ai_stats['analyzed'] * 100 / ai_stats['total']) if ai_stats['total'] else 0
+        ai_stats['pending'] = ai_stats['total'] - ai_stats['analyzed']
+
         # 构建 chain JSON 供前端使用
         chain_json_map = {}
         for tr in taskresults:
             if tr.has_chain:
                 chain_json_map[str(tr.id)] = tr.chain_nodes
         import json as _json
-        chain_json = _json.dumps(chain_json_map, ensure_ascii=False)
+        # '\/' escape: 防 source_code 里的 '</script>' 提前终止 inline script 块
+        chain_json = _json.dumps(chain_json_map, ensure_ascii=False).replace('/', '\\/')
 
         if not task:
             return HttpResponseNotFound('Task Not Found.')
@@ -380,6 +409,7 @@ class TaskDetailView(View):
                 'project': project,
                 'source_root': source_root,
                 'chain_json': chain_json,
+                'ai_stats': ai_stats,
             }
             return render(request, 'dashboard/tasks/task_detail.html', data)
 

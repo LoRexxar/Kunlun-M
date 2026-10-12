@@ -1,8 +1,8 @@
 {% extends "dashboard/base.html" %}
 {% load tz %}
-{% block title %}任务列表{% endblock %}
+{% block title %}扫描记录{% endblock %}
 {% block body_header %}
-<h1>任务列表 <small>KunLun-MA</small></h1>
+<h1>扫描记录 <small>KunLun-MA</small></h1>
 {% endblock %}
 
 
@@ -11,7 +11,7 @@
         <div class="col-12">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">任务列表</h3>
+              <h3 class="card-title">扫描记录 <small>每次扫描的执行情况，结果请到对应项目或漏洞列表查看</small></h3>
               <div class="card-tools km-box-tools">
                 <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_new' %}">新建扫描</a>
                 <input id="allTaskFilterInput" class="form-control form-control-sm" style="width: 240px;" placeholder="搜索任务...">
@@ -19,6 +19,15 @@
             </div>
             <!-- /.box-header -->
             <div class="card-body table-responsive">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                <span style="font-size:12px;color:#6c757d;">状态:</span>
+                <button type="button" class="btn btn-sm btn-primary tk-chip" data-st="all" onclick="setTaskFilter('all')">全部</button>
+                <button type="button" class="btn btn-sm btn-default tk-chip" data-st="2" onclick="setTaskFilter('2')">运行中 {% if st_running %}<span class="badge bg-warning text-dark ms-1">{{ st_running }}</span>{% endif %}</button>
+                <button type="button" class="btn btn-sm btn-default tk-chip" data-st="3" onclick="setTaskFilter('3')">队列中 {% if st_queued %}<span class="badge bg-info text-dark ms-1">{{ st_queued }}</span>{% endif %}</button>
+                <button type="button" class="btn btn-sm btn-default tk-chip" data-st="1" onclick="setTaskFilter('1')">成功</button>
+                <button type="button" class="btn btn-sm btn-default tk-chip" data-st="fail" onclick="setTaskFilter('fail')">失败 {% if st_failed %}<span class="badge bg-danger ms-1">{{ st_failed }}</span>{% endif %}</button>
+                <span style="font-size:11px;color:#9ca3af;" id="tkFilterHint"></span>
+              </div>
               <table id="allTaskTable" class="table table-hover km-table">
                 <thead>
                   <tr>
@@ -34,7 +43,7 @@
                 </thead>
                 <tbody>
                   {% for task in tasks %}
-                  <tr>
+                  <tr data-status="{% if task.is_finished == 0 or task.is_finished == -1 %}fail{% else %}{{ task.is_finished }}{% endif %}">
                       <td class="km-td-nowrap"><a href="{% url 'dashboard:task_detail' task.id %}">{{ task.id }}</a></td>
                       <td>
                         <a class="km-link-strong" href="{% url 'dashboard:project_detail' task.project_id %}">
@@ -55,7 +64,7 @@
                         {% elif task.is_finished == -1 %}
                         <span class="badge bg-danger status-label">失败</span>
                         {% elif task.is_finished == 2 %}
-                        <span class="badge bg-warning status-label">运行中</span>
+                        <span class="badge bg-warning status-label"><i class="fa fa-circle-notch fa-spin"></i> 运行中{% if task.elapsed_sec %} · {{ task.elapsed_sec }}s{% endif %}</span>
                         {% elif task.is_finished == 1 %}
                         <span class="badge bg-success status-label">成功</span>
                         {% elif task.is_finished == 3 %}
@@ -72,7 +81,7 @@
                       </td>
                       <td class="km-td-actions">
                         <div class="km-actions">
-                          <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_detail' task.id %}">查看日志</a>
+                          <a class="btn btn-primary btn-sm" href="{% url 'dashboard:task_detail' task.id %}">日志</a>
                         </div>
                       </td>
                     </tr>
@@ -100,12 +109,26 @@
 {% block script %}
 
 <script>
+function setTaskFilter(st) {
+  document.querySelectorAll('.tk-chip').forEach(function(b) {
+    var on = b.getAttribute('data-st') === st;
+    b.classList.toggle('btn-primary', on);
+    b.classList.toggle('btn-default', !on);
+  });
+  var n = 0;
+  document.querySelectorAll('#allTaskTable tbody tr').forEach(function(tr) {
+    var show = (st === 'all') || (tr.getAttribute('data-status') === st);
+    tr.style.display = show ? '' : 'none';
+    if (show) n++;
+  });
+  document.getElementById('tkFilterHint').textContent = st === 'all' ? '' : n + ' 条';
+}
       $(document).ready(function () {
           $("#dashboard").removeClass("active menu-open");
           $("#dashboard").find("ul li").removeClass("active");
-          $("#tasks").addClass("menu-open");
-          $("#tasks").find("ul").find("li#task_list").addClass("active");
-          $("#tasks").find("ul").css("display","block");
+          $("#projects").addClass("menu-open");
+          $("#projects").find("ul").find("li#task_list").addClass("active");
+          $("#projects").find("ul").css("display","block");
 
           $("#allTaskFilterInput").on("input", function () {
               var text = $(this).val().toLowerCase();

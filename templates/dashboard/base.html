@@ -9,8 +9,8 @@
   {% load static %}
   <link rel="icon" href="{% static 'favicon.ico' %}">
 
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/css/tabler.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="{% static 'css/tabler.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/tabler-icons.min.css' %}">
   <link rel="stylesheet" href="{% static 'font-awesome/css/font-awesome.min.css' %}">
   <link rel="stylesheet" href="{% static 'css/prism.css' %}">
   <link rel="stylesheet" href="{% static 'css/chain-panel.css' %}">
@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,600,700,300italic,400italic,600italic">
 
   {% block extra_css %}{% endblock %}
+  {% block page_style %}{% endblock %}
 </head>
 
 <body class="dashboard-shell theme-light layout-fluid">
@@ -76,26 +77,15 @@
             </a>
             <ul class="treeview-menu nav nav-pills nav-vertical">
               <li class="nav-item" id="projects_list"><a class="nav-link" href="{% url 'dashboard:projects_list' %}"><i class="fa fa-circle-o"></i>项目列表</a></li>
+              <li class="nav-item" id="task_new"><a class="nav-link" href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
+              <li class="nav-item" id="task_list"><a class="nav-link" href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>扫描记录</a></li>
             </ul>
           </li>
-          <li class="nav-item treeview" id="tasks">
-            <a class="nav-link" href="#">
-              <span class="nav-link-icon"><i class="ti ti-list-check fa ion-ios-analytics-outline"></i></span>
-              <span class="nav-link-title">扫描任务</span>
-              <span class="float-end">
-                <i class="ti ti-chevron-right fa fa-angle-left float-end"></i>
-              </span>
-            </a>
-            <ul class="treeview-menu nav nav-pills nav-vertical">
-              <li class="nav-item" id="task_new"><a class="nav-link" href="{% url 'dashboard:task_new' %}"><i class="fa fa-circle-o"></i>新建扫描</a></li>
           <li class="nav-item" id="vuls">
             <a class="nav-link" href="{% url 'dashboard:vuls_list' %}">
               <span class="nav-link-icon"><i class="ti ti-alert-triangle fa fa-bug"></i></span>
               <span class="nav-link-title">漏洞列表</span>
             </a>
-          </li>
-              <li class="nav-item" id="task_list"><a class="nav-link" href="{% url 'dashboard:tasks_list' %}"><i class="fa fa-circle-o"></i>任务列表</a></li>
-            </ul>
           </li>
           <li class="nav-item treeview" id="vendors">
             <a class="nav-link" href="#">
@@ -172,6 +162,7 @@
             <ul class="treeview-menu nav nav-pills nav-vertical">
               <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:userinfo' %}"><i class="fa fa-circle-o"></i>个人信息</a></li>
               <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:userinfo' %}#tokens"><i class="fa fa-circle-o"></i>API Token</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'dashboard:ai_settings' %}"><i class="fa fa-magic"></i>AI 设置</a></li>
               <li class="nav-item"><a class="nav-link" href="{% url 'index:logout' %}"><i class="fa fa-circle-o"></i>退出登录</a></li>
             </ul>
           </li>
@@ -199,7 +190,7 @@
           <div class="flex-grow-1 navbar-form navbar-left quick-nav hidden-xs km-quick-nav-wrap" style="min-width:0;">
             <div class="form-group input-icon m-0">
               <span class="icon"><i class="ti ti-search"></i></span>
-              <input id="quickSearch" type="text" class="form-control km-quick-search" placeholder="快速跳转：任务 / 项目 / 规则">
+              <input id="quickSearch" type="text" class="form-control km-quick-search" placeholder="快速跳转：项目 / 规则">
             </div>
           </div>
 
@@ -241,6 +232,14 @@
     </header>
 
     <main class="page-body content-wrapper">
+      {% if ai_not_ready %}
+      <div id="aiNotReadyBanner" style="display:flex;align-items:center;gap:10px;padding:9px 16px;margin-bottom:14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px;">
+        <i class="fa fa-magic"></i>
+        <span>AI 功能未配置：扫描与人工审计不受影响；配置 API Key 后可启用 AI 自动分诊、判定建议与项目报告。</span>
+        <a href="{% url 'dashboard:ai_settings' %}" style="color:#b45309;font-weight:600;text-decoration:underline;white-space:nowrap;">去配置</a>
+        <button type="button" onclick="this.parentElement.remove()" aria-label="关闭" style="margin-left:auto;background:none;border:none;font-size:18px;line-height:1;color:#92400e;cursor:pointer;">&times;</button>
+      </div>
+      {% endif %}
       <div class="container-fluid">
         <section class="content-header">
           {% block body_header %}
@@ -270,7 +269,7 @@
 </div>
 
 <script src="{% static 'js/jquery.min.js' %}"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js"></script>
+<script src="{% static 'js/tabler.min.js' %}"></script>
 <script src="{% static 'js/prism.js' %}"></script>
 <script src="{% static 'js/dashboard-shell.js' %}?v=3"></script>
 <script src="{% static 'js/dashboard-enhanced.js' %}?v=5"></script>
@@ -281,13 +280,13 @@ $(function(){
     if(e.key === 'Enter'){
       var val = $(this).val().trim();
       if(!val) return;
-      // 纯数字 → 任务详情
+      // 纯数字 → 项目详情
       if(/^\d+$/.test(val)){
-        window.location.href = '{% url "dashboard:task_detail" 0 %}'.replace('/0', '/' + val);
+        window.location.href = '{% url "dashboard:project_detail" 0 %}'.replace('/0', '/' + val);
         return;
       }
-      // 其他 → 任务列表搜索
-      window.location.href = '{% url "dashboard:tasks_list" %}?search=' + encodeURIComponent(val);
+      // 其他 → 项目列表搜索
+      window.location.href = '{% url "dashboard:projects_list" %}?project_name=' + encodeURIComponent('*' + val + '*');
     }
   });
 });

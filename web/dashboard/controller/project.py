@@ -125,9 +125,36 @@ class ProjectDetailView(View):
         newevilfuncs = NewEvilFunc.objects.filter(project_id=project.id).all()
         pvs = ProjectVendors.objects.filter(project_id=project.id)
 
+        # AI 分诊统计（深度接入：结论来自 ai_pipeline 落库数据）
+        _all_vuls = list(taskresults)
+        ai_stats = {
+            'total': len(_all_vuls),
+            'analyzed': sum(1 for v in _all_vuls if v.ai_verdict),
+            'tp': sum(1 for v in _all_vuls if v.ai_verdict == 'tp'),
+            'fp': sum(1 for v in _all_vuls if v.ai_verdict == 'fp'),
+            'uncertain': sum(1 for v in _all_vuls if v.ai_verdict == 'uncertain'),
+        }
+        try:
+            from web.index.models import AiTriageQueue
+            q = AiTriageQueue.objects.filter(project_id=project_id).first()
+            ai_stats['queue_status'] = q.status if q else ''
+        except Exception:
+            ai_stats['queue_status'] = ''
+        if ai_stats['total'] and ai_stats['analyzed'] < ai_stats['total']:
+            ai_stats['pct'] = int(ai_stats['analyzed'] * 100 / ai_stats['total'])
+        else:
+            ai_stats['pct'] = 100 if ai_stats['analyzed'] else 0
+
+        # 扫描记录摘要（只读，不链接到任务结果页）
+        scan_records = []
         for task in tasks:
-            task.is_finished = int(task.is_finished)
-            task.parameter_config = del_sensitive_for_config(task.parameter_config)
+            scan_records.append({
+                'id': task.id,
+                'task_name': task.task_name,
+                'last_scan_time': task.last_scan_time,
+                'status': int(task.is_finished),
+                'results_count': ScanResultTask.objects.filter(scan_task_id=task.id, is_active=1).count(),
+            })
 
         # 加载漏洞链数据
         chain_map = {}
@@ -194,10 +221,12 @@ class ProjectDetailView(View):
                 if tr.has_chain:
                     chain_json_map[str(tr.id)] = tr.chain_nodes
             import json as _json
-            chain_json = _json.dumps(chain_json_map, ensure_ascii=False)
+            # '\/' escape: 防 source_code 里的 '</script>' 提前终止 inline script 块
+            chain_json = _json.dumps(chain_json_map, ensure_ascii=False).replace('/', '\\/')
 
             data = {
-                'tasks': tasks,
+                'scan_records': scan_records,
+                'ai_stats': ai_stats,
                 'taskresults': taskresults,
                 'newevilfuncs': newevilfuncs,
                 'project': project,
