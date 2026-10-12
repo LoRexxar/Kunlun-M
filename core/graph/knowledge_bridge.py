@@ -282,6 +282,15 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     safe = knowledge.get("safe", False)
     passthrough: list = knowledge.get("passthrough", [])
 
+    # Fix 31d: explicit source entries (safe=False, no passthrough -- the
+    # call RETURNS attacker-controlled data, e.g. Ruby gets/ENV/ARGV).
+    # These must not fall through the neutral bucket: without this the
+    # node stayed unannotated and every builtin-source chain died as
+    # code=3.  Falls back to Rule 3c (operator taint_type="source").
+    if knowledge.get("source") and not safe:
+        graph.vs[func_vid]["taint_type"] = "source"
+        return True
+
     # 分离 receiver passthrough ("this"/"self") 和位置参数 passthrough (int 索引)
     receiver_pt = any(isinstance(x, str) and x in _RECEIVER_PT_NAMES for x in passthrough)
     param_indices = [i for i in passthrough if isinstance(i, int)]

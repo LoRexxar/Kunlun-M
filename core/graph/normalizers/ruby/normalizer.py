@@ -253,7 +253,11 @@ class Normalizer:
                                         file_path, depth)
 
         # ---- Block / do...end / lambda ---------------------------------
-        if ntype in ("block", "lambda"):
+        # Fix 31a: tree-sitter-ruby emits "do_block" for do...end blocks
+        # (only brace blocks are "block").  Without this the block body was
+        # walked by the fallback and block parameters never became lambda
+        # parameters - |img| in X.each { |img| } lost its container.
+        if ntype in ("block", "lambda", "do_block"):
             return self._walk_block_func(node, add_node, add_edge, ctx_stack,
                                          file_path, depth)
 
@@ -553,6 +557,14 @@ class Normalizer:
                             "target": p_pos,
                             "attrs": {"index": param_idx},
                         })
+                        # Fix 31b: iterator data flow (see identifier branch)
+                        if receiver_pos is not None:
+                            add_edge({
+                                "label": EdgeLabel.DFG.value,
+                                "source": receiver_pos,
+                                "target": p_pos,
+                                "attrs": {},
+                            })
                         param_idx += 1
                 elif c.type == "identifier":
                     # Simple params: tree-sitter-ruby uses bare identifier
@@ -645,7 +657,8 @@ class Normalizer:
     # ===================================================================
 
     def _walk_block_func(self, node, add_node, add_edge,
-                         ctx_stack, file_path, depth) -> int:
+                         ctx_stack, file_path, depth,
+                         receiver_pos=None) -> int:
         lineno = self._lineno(node)
 
         pos = add_node({
@@ -678,6 +691,18 @@ class Normalizer:
                             "attrs": {"index": param_idx},
                         })
                         param_idx += 1
+
+                        # Fix 31b: iterator data flow -- in X.each { |i| }
+                        # the block parameter receives elements of X, so
+                        # the receiver flows into every block parameter
+                        # (same semantics as PHP foreach fe_fetch, Fix 21c).
+                        if receiver_pos is not None:
+                            add_edge({
+                                "label": EdgeLabel.DFG.value,
+                                "source": receiver_pos,
+                                "target": p_pos,
+                                "attrs": {},
+                            })
                 elif c.type == "identifier":
                     # Simple block params: tree-sitter-ruby uses bare identifier
                     pname = self._text(c)
@@ -698,6 +723,15 @@ class Normalizer:
                             "target": p_pos,
                             "attrs": {"index": param_idx},
                         })
+                        # Fix 31b: iterator data flow (identifier form,
+                        # tree-sitter-ruby bare block params)
+                        if receiver_pos is not None:
+                            add_edge({
+                                "label": EdgeLabel.DFG.value,
+                                "source": receiver_pos,
+                                "target": p_pos,
+                                "attrs": {},
+                            })
                         param_idx += 1
 
         # Walk body
@@ -1280,10 +1314,13 @@ class Normalizer:
                 arg_idx += 1
 
         # Walk block (do...end / {})
+        # Fix 31b: route blocks directly so the iterator receiver flows
+        # into the block parameters (X.each { |i| } => dfg receiver -> i).
         block = self._find_child_by_type(node, "block", "do_block")
         if block:
-            self._walk_node(block, add_node, add_edge, ctx_stack,
-                            file_path, depth)
+            self._walk_block_func(block, add_node, add_edge, ctx_stack,
+                                  file_path, depth,
+                                  receiver_pos=recv_pos if recv_node else None)
 
         # NOTE: use edge generation moved to UseEdgeBuilder (phase 2).
 
@@ -1480,6 +1517,7 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         # Walk operands (skip operator nodes)
+        operand_positions = []
         for idx, child in enumerate(node.children):
             if child.type in _SKIP_TYPES:
                 continue
@@ -1487,6 +1525,25 @@ class Normalizer:
                                           ctx_stack, file_path, idx)
             if child_pos is not None:
                 self._ast_edge(add_edge, pos, child_pos, AstRole.OPERAND.value)
+                operand_positions.append(child_pos)
+
+        # Fix 31g: Ruby "recv << arg" is the idiomatic in-place append
+        # (array push / string concat).  The binary walk only emitted ast
+        # operand edges, so the accumulated receiver never carried the
+        # appended data: paths << tainted left `paths` clean in the DFG
+        # and every downstream block/sink saw an untainted variable.
+        # Emit dfg arg -> receiver so the appended value flows into the
+        # mutated operand (the data flow PHP gets from .= / array_push).
+        op_text = text.strip()
+        if ("<<" in op_text.split()
+                and len(operand_positions) >= 2
+                and operand_positions[0] != operand_positions[1]):
+            add_edge({
+                "label": EdgeLabel.DFG.value,
+                "source": operand_positions[1],
+                "target": operand_positions[0],
+                "attrs": {"role": "append"},
+            })
 
         return pos
 

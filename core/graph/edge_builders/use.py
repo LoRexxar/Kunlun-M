@@ -281,6 +281,12 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             parts = op_name.replace("::", ".").rsplit(".", 1)
             if len(parts) == 2 and parts[1]:
                 return parts[1]
+            # Fix 31e: bare function call ("gets", "dir" -- no qualifier).
+            # The previous fallback returned "" here, so bare calls never
+            # got a use edge to their function stub and builtin-knowledge
+            # annotations (source/safe) on that stub were unreachable from
+            # the call site.
+            return parts[0]
         return ""
 
     def _resolve_receiver_type(self, graph: "ig.Graph", op_vid: int,

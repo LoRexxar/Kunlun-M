@@ -27,7 +27,7 @@ class CVI_9403(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"File\.read\s*\(|File\.open\s*\(|File\.write\s*\(|File\.delete\s*\(|IO\.read\s*\(|Dir\.glob\s*\("
+        self.match = r"File\.read\s*\(|File\.open\s*\(|File\.write\s*\(|File\.delete\s*\(|IO\.read\s*\(|IO\.write\s*\(|Dir\.glob\s*\(|client\.fs\.file\.download_file\s*\("
 
         # vul_function intentionally empty: match regex already requires
         # File./IO./Dir. prefix. Using bare "delete"/"read"/"open"/"write"
@@ -98,7 +98,9 @@ class CVI_9403(SingleRuleMixin):
             r"File\.write\s*\(",
             r"File\.delete\s*\(",
             r"IO\.read\s*\(",
+            r"IO\.write\s*\(",
             r"Dir\.glob\s*\(",
+            r"client\.fs\.file\.download_file\s*\(",
         ]
         for pat in dangerous_patterns:
             if re.search(pat, regex_string):
