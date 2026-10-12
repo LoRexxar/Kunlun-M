@@ -168,6 +168,8 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # are now in builtin_knowledge (safe=True) and resolved automatically
     # by _is_repair_function via that knowledge base.
     # Framework-specific sanitizer aliases
+    "getParser.filter",  # e107 e107::getParser()->filter() -- official
+    "$tp.filter",  # e107 $tp->filter() input filter (file/text types)
     "hsc",  # DokuWiki htmlspecialchars alias
     "htmlchars",  # osTicket Format::htmlchars — array-recursive htmlspecialchars
     "Format.htmlchars",  # qualified static call (dotted fullname on the wire)
