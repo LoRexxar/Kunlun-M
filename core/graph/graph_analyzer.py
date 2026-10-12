@@ -931,19 +931,88 @@ class GraphAnalyzer:
 
     # --- Controllability backtracking (core) ------------------------------
 
+    def _arg_sanitized_inside_callee(self, arg_vid: int) -> bool:
+        """Fix 26: the argument's owning call invokes a user-defined function
+        whose body re-assigns a same-named variable with a repair function
+        (e.g. html::category($catid,$page) doing $page = intval($page)).
+        In that case the callee never uses the raw argument value, so the
+        call-site argument is sanitized regardless of where it came from.
+        Graph shape (probe /tmp/t_pc_probe): call --use--> function;
+        function --own--> assign(name=arg name) --ast--> [lhs var, rhs call
+        to an _is_repair_function callee]."""
+        sv = self.graph.vs[arg_vid]
+        a_name = _vattr(sv, "name", "")
+        if not a_name:
+            return False
+        # owning call: ast parent that is a call node
+        call_vid = None
+        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+            pv = self.graph.vs[pe.source]
+            if _vattr(pv, "type", "") in ("call", "method_call", "static_call"):
+                call_vid = pe.source
+                break
+        if call_vid is None:
+            return False
+        a_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        # callee function definition via use edge
+        fn_vids = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="use")
+            if _vattr(self.graph.vs[e.target], "label") == "function"]
+        # PHP normalizer often binds $obj->method() use edges to a
+        # same-NAMED function in the caller's own file (phpcms probe:
+        # $this->html->category(...) → create_html.php::category, while the
+        # sanitizing definition lives in html.class.php).  Widen to all
+        # same-name function nodes, mirroring the Rule 3a2 same-name lookup.
+        if fn_vids:
+            fname = _vattr(self.graph.vs[fn_vids[0]], "name", "")
+            if fname:
+                seen = set(fn_vids)
+                for sv2 in self.graph.vs.select(name=fname, label="function"):
+                    if sv2.index not in seen:
+                        seen.add(sv2.index)
+                        fn_vids.append(sv2.index)
+        for fvid in fn_vids:
+            # walk the callee's own subtree for a sanitizing re-assign
+            own_ids = [e.target for e in self.graph.es.select(
+                _source=fvid, label="own")]
+            for oid in own_ids:
+                ov = self.graph.vs[oid]
+                if _vattr(ov, "type", "") != "assign":
+                    continue
+                if (_vattr(ov, "name", "") or "") != a_name:
+                    continue
+                kids = [e.target for e in self.graph.es.select(
+                    _source=oid, label="ast")]
+                for k in kids:
+                    kv = self.graph.vs[k]
+                    if _vattr(kv, "type", "") in ("call", "method_call"):
+                        callee = self._resolve_callee_name(k) or ""
+                        base = callee.rsplit(".", 1)[-1]
+                        if base and self._is_repair_function(base):
+                            return True
+        return False
+
     def parameters_back(self, start_vid: int, context_vid: int | None = None,
                         max_depth: int = 50) -> AnalysisResult:
         """Public entry — runs the BFS impl, then applies Fix 20b two-pass
-        redirect resolution.
-
-        Why here: the BFS impl returns early the moment ANY controllable
-        source is found (FIFO order decides which caller's path wins).
-        For redirect sinks with a pinned concat ('./user.php?id=' . $_GET),
-        a code=1 may have travelled THROUGH the pinned node.  Re-run with
-        pinned nodes blocked: a surviving code=1 proves an independent
-        fully-controlled path (true TP); no survivor means the only taint
-        route was pinned → -1.  Order-independent, path-sensitive.
-        """
+        redirect resolution."""
+        # Fix 26: argument sanitized inside the callee (param re-assigned
+        # Fix 26: argument sanitized inside the callee (param re-assigned
+        # with a repair function in the function body) — no need to trace.
+        try:
+            if self._arg_sanitized_inside_callee(start_vid):
+                return self._cached(
+                    "pb_sanitized_callee:%s" % start_vid,
+                    AnalysisResult(
+                        code=2,
+                        reason="argument sanitized inside callee (repair re-assign)",
+                        chain=[{"step": "callee_sanitize", "vid": start_vid,
+                                "name": _vattr(self.graph.vs[start_vid], "name", ""),
+                                "code": 2}],
+                        path=[start_vid],
+                        expr_lineno=_vattr(self.graph.vs[start_vid], "lineno", 0)))
+        except Exception:
+            pass
         self._redirect_pin_ctx = bool(self._start_is_redirect_sink(start_vid))
         self._redirect_pin_vids = set()
         self._redirect_pin_blocked = set()
