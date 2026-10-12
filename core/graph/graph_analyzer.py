@@ -1048,6 +1048,24 @@ class GraphAnalyzer:
 
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
                                         max_depth=max_depth)
+        # Fix 28: urlencoded output guard (XSS echo context).  When the
+        # tainted variable's defining assign wraps EVERY tainted operand
+        # in urlencode()/rawurlencode() (output charset: alnum -_.~% —
+        # no quotes, angle brackets, spaces), the echoed value cannot
+        # escape an HTML attribute or inject markup (browsers do not
+        # URL-decode before protocol parsing, so `%6A%61va...` stays
+        # inert).  osticket dynamic-form.inc.php:7
+        # `?id=" . urlencode($_REQUEST['id'])` echoed into action=.
+        if self.language == "php" and r1.code == 1:
+            _ue_reason = self._urlencoded_output_guard(start_vid, r1)
+            if _ue_reason:
+                return AnalysisResult(
+                    code=-1,
+                    reason=_ue_reason,
+                    chain=[{"step": "urlencoded_output_guard",
+                            "vid": start_vid, "code": -1}],
+                    path=list(r1.path), expr_lineno=_vattr(
+                        self.graph.vs[start_vid], "lineno", 0))
         pinned_seen = getattr(self, "_redirect_pin_vids", set())
         # Fix 21a: negated safe-predicate predecessor guard (CouchCMS
         # whitelist form).  The superglobal member feeding this path is
@@ -5134,6 +5152,149 @@ class GraphAnalyzer:
                 continue
             return True
         return False
+
+    _URLENCODE_FUNCS = frozenset({"urlencode", "rawurlencode"})
+
+    def _defining_assign_of(self, var_vid: int) -> int | None:
+        """Nearest own-subtree assign writing this variable name BEFORE
+        the variable's use line (def-chain head)."""
+        sv = self.graph.vs[var_vid]
+        v_name = _vattr(sv, "name", "")
+        v_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        v_line = int(_vattr(sv, "lineno", 0) or 0)
+        if not v_name or not v_file:
+            return None
+        best = None
+        best_ln = -1
+        for ve in self.graph.vs:
+            if (_vattr(ve, "type", "") == "assign"
+                    and _vattr(ve, "name", "") == v_name):
+                ve_file = _vattr(ve, "file_path", "") or _vattr(ve, "path", "")
+                ve_line = int(_vattr(ve, "lineno", 0) or 0)
+                if ve_file == v_file and 0 < ve_line < v_line and ve_line > best_ln:
+                    best = ve.index
+                    best_ln = ve_line
+        return best
+
+    def _subtree_has_superglobal(self, vid: int, depth: int = 0) -> bool:
+        if depth > 12:
+            return False
+        v = self.graph.vs[vid]
+        nm = _vattr(v, "name", "") or ""
+        if nm.startswith("$_"):
+            return True
+        for e in self.graph.es.select(_source=vid, label="ast"):
+            if self._subtree_has_superglobal(e.target, depth + 1):
+                return True
+        return False
+
+    def _urlencoded_output_guard(self, sink_vid: int, r1) -> str | None:
+        """Fix 28: every tainted operand of the echo output is wrapped in
+        urlencode — the value charset cannot break out of an HTML
+        attribute (no quote/angle/space chars), so this is not XSS."""
+        # find the defining assign of the sink variable itself (or of any
+        # def-chain variable in the reported path) whose RHS fully
+        # encodes the superglobal-derived operands.
+        sv = self.graph.vs[sink_vid]
+        s_file = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        s_line = int(_vattr(sv, "lineno", 0) or 0)
+        candidates = [sink_vid]
+        for pv in list(r1.path or [])[:6]:
+            try:
+                candidates.append(pv if isinstance(pv, int) else int(pv))
+            except (TypeError, ValueError):
+                continue
+        seen_vars = set()
+        for cv in candidates:
+            try:
+                cvs = self.graph.vs[cv]
+            except Exception:
+                continue
+            # Fix 28 (revised 2): evaluate ALL same-file definitions of
+            # the variable before the use -- the value may come from any
+            # branch (osticket $url is defined at both L7 urlencode form
+            # and L27 const form), so every definition must be safe.
+            v_name = _vattr(cvs, "name", "")
+            if not v_name or v_name in seen_vars:
+                continue
+            seen_vars.add(v_name)
+            all_defs_ok = None  # None = no definitions found
+            any_encoded = False
+            for ve in self.graph.vs:
+                if (_vattr(ve, "type", "") != "assign"
+                        or _vattr(ve, "name", "") != v_name):
+                    continue
+                ve_file = _vattr(ve, "file_path", "") or _vattr(ve, "path", "")
+                ve_line = int(_vattr(ve, "lineno", 0) or 0)
+                if ve_file != s_file or not (0 < ve_line < s_line):
+                    continue
+                dav = ve
+                da = ve.index
+                # RHS = ast children that are not the LHS variable
+                rhs_vids = [e.target for e in self.graph.es.select(
+                    _source=da, label="ast")
+                    if _vattr(self.graph.vs[e.target], "name", "")
+                    != v_name]
+                # Fix 28 (revised): the RHS tree must contain at least one
+                # urlencode call AND no bare non-const leaf outside one --
+                # the PHP graph keeps member-access BASE nodes (($_REQUEST))
+                # out of the ast subtree (21h-3d probe), so "no superglobal
+                # in tree" proves nothing; leaf-level accounting is what
+                # works on both the encoded and the unencoded shape.
+                saw_encoded = any(self._rhs_tree_has_urlencode(rv)
+                                  for rv in rhs_vids)
+                leaves_ok = all(self._rhs_leaves_all_encoded(rv)
+                                for rv in rhs_vids)
+                if all_defs_ok is None:
+                    all_defs_ok = bool(rhs_vids) and leaves_ok
+                else:
+                    all_defs_ok = all_defs_ok and (
+                        bool(rhs_vids) and leaves_ok)
+                any_encoded = any_encoded or saw_encoded
+            if not all_defs_ok or not any_encoded:
+                continue
+            return ("urlencoded output: tainted operand wrapped in "
+                    "urlencode before echo (charset cannot escape "
+                    "HTML attribute context)")
+        return None
+
+    def _rhs_tree_has_urlencode(self, vid: int, depth: int = 0) -> bool:
+        if depth > 14:
+            return False
+        v = self.graph.vs[vid]
+        if (_vattr(v, "type", "") in _CALL_TYPES
+                and (_vattr(v, "name", "") or "")
+                in self._URLENCODE_FUNCS):
+            return True
+        return any(self._rhs_tree_has_urlencode(e.target, depth + 1)
+                   for e in self.graph.es.select(_source=vid, label="ast"))
+
+    def _rhs_leaves_all_encoded(self, vid: int, in_enc: bool = False,
+                                depth: int = 0) -> bool:
+        """Every non-const ast leaf must sit inside a urlencode call."""
+        if depth > 14:
+            return False
+        v = self.graph.vs[vid]
+        if _vattr(v, "label") == NodeLabel.CONST.value:
+            return True
+        v_type = _vattr(v, "type", "")
+        v_name = _vattr(v, "name", "") or ""
+        if v_type in _CALL_TYPES and v_name in self._URLENCODE_FUNCS:
+            return True
+        kids = [e.target for e in self.graph.es.select(
+            _source=vid, label="ast")]
+        if not kids:
+            return in_enc
+        # function-name identifiers of plain calls are graph artifacts,
+        # not data leaves (probe: urlencode node's ast kids include an
+        # identifier named 'urlencode')
+        kids = [k for k in kids if not (
+            _vattr(self.graph.vs[k], "type", "") == "identifier"
+            and _vattr(self.graph.vs[k], "name", "") == v_name
+            and v_type in _CALL_TYPES)]
+        return all(self._rhs_leaves_all_encoded(k, in_enc, depth + 1)
+                   for k in kids)
+
 
     def _pred_qualifies(self, call_vid: int, var_name: str,
                         bvid: int) -> bool:
