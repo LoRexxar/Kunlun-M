@@ -4386,6 +4386,25 @@ class GraphAnalyzer:
                                 and _vattr(rv, "name", "")
                                 in self._TERMINATOR_FUNCS):
                             return True
+        # Fix 27c: a plain `return;` inside the guarded body is just as
+        # terminating as die/exit — control cannot fall through to any
+        # later sink (phplist3 configure.php:9
+        # `if (!isset($default_config[$id])) { ...; return; }`).
+        # Walk the branch subtree for a RETURN node.
+        stack2 = [branch_vid]
+        seen2 = set()
+        while stack2:
+            sv = stack2.pop()
+            if sv in seen2:
+                continue
+            seen2.add(sv)
+            if self.graph.vs[sv].attributes().get("label") == \
+                    NodeLabel.RETURN.value:
+                return True
+            for ee in self.graph.es.select(_source=sv, label="own"):
+                stack2.append(ee.target)
+            for ee in self.graph.es.select(_source=sv, label="ast"):
+                stack2.append(ee.target)
         return False
 
     def _unconditional_terminate_before(self, sink_vid: int) -> bool:
@@ -5101,70 +5120,102 @@ class GraphAnalyzer:
                         break
             if not _pred_calls:
                 continue
-            callee = _vattr(self.graph.vs[call_vid], "name", "")
-            # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
-            # only — content unchanged"), but HERE membership in a constant
-            # whitelist IS the value constraint this guard encodes.  Accept
-            # it explicitly BEFORE the existence-check exclusion, else this
-            # branch is unreachable for the very predicate it was written
-            # for (probe: guard trace L4086→L4090 continue on callee=in_array).
-            if callee == "in_array":
-                if not self._array_literal_is_const_whitelist(call_vid):
-                    continue
-            elif callee in _EXISTENCE_CHECK_FUNCS:
-                # isset/empty etc. only prove existence, not value
-                # constraint — excluding them here mirrors the 20a
-                # predicate-guard exclusion (@4738).
-                # Fix 22a: EXCEPT isset($LITERAL_ARRAY[$var]) — when the
-                # probed argument is an array-dim whose base variable is
-                # assigned an array literal, isset IS a key-whitelist
-                # constraint: reaching the sink proves $var is one of the
-                # array's keys, so taint through $var is bounded by the
-                # literal key set (phplist3 configure.php:9
-                # isset($default_config[$id]) guarding every later output).
-                if (callee == "isset"
-                        and self._isset_dim_literal_whitelist(
-                            call_vid, var_name)
-                        and self._branch_body_always_terminates(bvid)):
-                    return True
-                continue
-            elif not (callee and self._is_safe_function_call(call_vid)):
-                continue
-            # NOTE: no double-negation exclusion here — the expected shape
-            # IS the negated predicate `!pred($var)` (cond = unary_op '!'
-            # wrapping the call, already verified above).  b19 probe: an
-            # exclusion copied from the 20a context skipped EVERY target
-            # branch, since _condition_call_is_negated finds exactly that
-            # one '!'.
-            # arg0 must reference var_name
-            args = [e.target for e in self.graph.es.select(
-                _source=call_vid, label="ast")
-                if _vattr(e, "role", "") == "arg"]
-            if not args:
-                continue
-            if not self._subtree_contains_name(args[0], var_name, depth=0):
-                # Bug D fix: `$in->method` guards use the PROPERTY name
-                # ('method') as arg0, while the path carries '$in'.  Accept
-                # when arg0 is a property whose member-parent is var_name.
-                prop_ok = False
-                a0 = self.graph.vs[args[0]]
-                if (_vattr(a0, "type", "") == "property"):
-                    for me in self.graph.es.select(_target=args[0], label="member"):
-                        if _vattr(self.graph.vs[me.source], "name", "") == var_name:
-                            prop_ok = True
-                            break
-                if not prop_ok:
-                    continue
-            # whitelist form needs a constant array; user predicates don't
-            if callee == "in_array":
-                if not self._array_literal_is_const_whitelist(call_vid):
-                    continue
-            # guarded body must provably terminate (else fall-through is
-            # NOT proven pred()==true)
-            if not self._branch_body_always_terminates(bvid):
+            # Fix 27: iterate every negated predicate — with `or`, EACH
+            # operand must independently qualify, so ANY failing predicate
+            # disqualifies the whole branch.  (This block previously
+            # referenced an undefined `call_vid` — NameError on every
+            # single-predicate guard, so the whitelist guard never fired.)
+            _branch_pred_ok = True
+            for call_vid in _pred_calls:
+                if not self._pred_qualifies(call_vid, var_name, bvid):
+                    _branch_pred_ok = False
+                    break
+            if not _branch_pred_ok:
                 continue
             return True
         return False
+
+    def _pred_qualifies(self, call_vid: int, var_name: str,
+                        bvid: int) -> bool:
+        """Fix 27 helper (extracted from _negated_whitelist_guard_before):
+        does ONE negated predicate `!pred(...)` qualify as a value
+        constraint on var_name whose guarded branch bvid terminates?"""
+        callee = _vattr(self.graph.vs[call_vid], "name", "")
+        # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
+        # only — content unchanged"), but HERE membership in a constant
+        # whitelist IS the value constraint this guard encodes.  Accept
+        # it explicitly BEFORE the existence-check exclusion.
+        if callee == "in_array":
+            if not self._array_literal_is_const_whitelist(call_vid):
+                return False
+        elif callee in _EXISTENCE_CHECK_FUNCS:
+            # isset/empty etc. only prove existence, not value
+            # constraint — excluding them here mirrors the 20a
+            # predicate-guard exclusion (@4738).
+            # Fix 22a: EXCEPT isset($LITERAL_ARRAY[$var]) — when the
+            # probed argument is an array-dim whose base variable is
+            # assigned an array literal, isset IS a key-whitelist
+            # constraint.
+            if (callee == "isset"
+                    and self._isset_dim_literal_whitelist(
+                        call_vid, var_name)
+                    and self._branch_body_always_terminates(bvid)):
+                return True
+            return False
+        elif not (callee and self._is_safe_function_call(call_vid)):
+            return False
+        # arg0 must reference var_name
+        args = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if not args:
+            return False
+        if not self._subtree_contains_name(args[0], var_name, depth=0):
+            # Bug D fix: `$in->method` guards use the PROPERTY name
+            # ('method') as arg0, while the path carries '$in'.  Accept
+            # when arg0 is a property whose member-parent is var_name.
+            prop_ok = False
+            a0 = self.graph.vs[args[0]]
+            if (_vattr(a0, "type", "") == "property"):
+                for me in self.graph.es.select(_target=args[0], label="member"):
+                    if _vattr(self.graph.vs[me.source], "name", "") == var_name:
+                        prop_ok = True
+                        break
+            if not prop_ok:
+                # Fix 27b: INDIRECT constraint — the predicate binds a
+                # derivative of var_name, e.g. phpcms search
+                #   $urm_md5 = md5($url); if (!in_array($urm_md5,$wl)) exit;
+                # md5 is a one-way function with a unique preimage, so
+                # membership of md5($url) in a constant whitelist pins $url
+                # to a single value.  Accept when arg0's defining assign
+                # wraps a call whose argument subtree contains var_name.
+                indir = False
+                a0_name = _vattr(a0, "name", "")
+                if a0_name:
+                    for ve in self.graph.vs:
+                        if (_vattr(ve, "type", "") == "assign"
+                                and _vattr(ve, "name", "") == a0_name):
+                            for ke in self.graph.es.select(
+                                    _source=ve.index, label="ast"):
+                                if self._subtree_contains_name(
+                                        ke.target, var_name, depth=0):
+                                    indir = True
+                                    break
+                        if indir:
+                            break
+                if not indir:
+                    return False
+            else:
+                pass
+        # whitelist form needs a constant array; user predicates don't
+        if callee == "in_array":
+            if not self._array_literal_is_const_whitelist(call_vid):
+                return False
+        # guarded body must provably terminate (else fall-through is
+        # NOT proven pred()==true)
+        if not self._branch_body_always_terminates(bvid):
+            return False
+        return True
 
     def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
         """Fix 20b: is this binary_op's Location/redirect base pinned to an
