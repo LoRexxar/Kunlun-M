@@ -2,6 +2,18 @@
  * 漏洞链面板组件（横向链 + 深色代码区）
  * 依赖: jQuery, Prism.js
  */
+/* HTML escaping (self-contained: renderChain/renderFullFile work on any host page) */
+if (typeof escapeHtml !== 'function') {
+    function escapeHtml(x) {
+        return String(x == null ? '' : x)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+}
+
 var chainPanelVisible = false;
 var chainPanelVulId = null;
 
