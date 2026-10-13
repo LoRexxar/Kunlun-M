@@ -647,7 +647,13 @@ class GraphAnalyzer:
             # These cannot be resolved via use-edge (no user-defined function
             # node), so they need an explicit short-name match path.
             if not matched_name and self._framework_method_sinks:
-                _short_lower = normalized_callee.lower()
+                # Short-name match: compare the BARE method name (last
+                # dotted segment).  _resolve_callee_name returns the
+                # receiver-qualified form ("_session.fetch_token"), and a
+                # strict whole-string compare made every qualified call
+                # miss the whitelist.  The whitelist's contract is
+                # receiver-agnostic ("any .fetch_token(...) call").
+                _short_lower = normalized_callee.lower().rsplit(".", 1)[-1]
                 if _short_lower in self._framework_method_sinks:
                     matched_name = normalized_callee
                     _is_qualified_match = False

@@ -643,7 +643,35 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             return None
 
 
+        def _sink_has_method_sink_rule(sink, rule_list):
+            """True if any rule declares this sink's bare method name in
+            method_sinks (receiver-agnostic, require_taint opt-in)."""
+            _nm = (sink.get('name', '') or '').lower().replace("::", ".")
+            if not _nm:
+                return False
+            _bare = _nm.rsplit(".", 1)[-1]
+            for _r in rule_list:
+                _rms = [str(_x).lower() for _x in (getattr(_r, 'method_sinks', None) or [])]
+                if _bare in _rms:
+                    return True
+            return False
+
         for lang, lang_rule_list in lang_rules.items():
+            # Rule-declared method-call sinks: short names that must match
+            # ANY receiver (Path C in find_sinks).  Must run BEFORE the
+            # GraphAnalyzer is constructed below so the set is complete
+            # when find_sinks executes.  Library code like OAuth2
+            # "session.fetch_token(token_url=...)" has no user-defined
+            # function node for use-edge fullname resolution, so qualified
+            # matching can never hit -- the rule author opts in by listing
+            # the bare method name.
+            for rule in lang_rule_list:
+                try:
+                    for _ms in (getattr(rule, 'method_sinks', None) or []):
+                        if _ms:
+                            _framework_method_sinks.add(str(_ms).lower())
+                except Exception:
+                    continue
             analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang),
                                      framework_method_sinks=_framework_method_sinks)
 
@@ -654,7 +682,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     for name_str in _get_rule_sink_names(rule):
                         all_sink_names.append(name_str)
                 except Exception:
-                    continue
+                    pass
 
             if not all_sink_names:
                 continue
@@ -1098,7 +1126,19 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 result = recv_result
                                 sink_vid = sink['vid']
                             else:
-                                continue
+                                # Rule-declared method sinks (require_taint
+                                # opt-in) must survive this gate: their vuln
+                                # boundary is the library's public API
+                                # parameter, invisible to the source model.
+                                # Fall through to rule matching, where the
+                                # require_taint=False presence path reports.
+                                _sn_now = sink.get('name', '')
+                                _sn_bare_early = _sn_now.lower().replace("::", ".").rsplit(".", 1)[-1]
+                                _has_ms_rule = any(
+                                    _sn_bare_early in [str(_x).lower() for _x in (getattr(_r, 'method_sinks', None) or [])]
+                                    for _r in lang_rule_list)
+                                if not _has_ms_rule:
+                                    continue
                         else:
                             # receiver 追溯：sink 的 arg 都不可控时，
                             # 检查 sink operator 本身是否通过 receiver 链路可控。
@@ -1110,7 +1150,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 的 passthrough 过滤），不要回退到 receiver 追溯——
                             # 那会绕过 builtin_knowledge 的 passthrough 约束。
                             if callable_only or any_arg_repaired:
-                                continue
+                                _ms_pass = _sink_has_method_sink_rule(sink, lang_rule_list)
+                                if not _ms_pass:
+                                    continue
                             # Path-only sinks (file_put_contents): skip receiver
                             # tracing. The path arg was already checked and found
                             # not controllable. Receiver tracing would re-discover
@@ -1120,7 +1162,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # Sanitizer detected in args: skip receiver tracing.
                             # If any arg was sanitizer-wrapped (repair result),
                             # the sink output is safe even if receiver chain is controllable.
-                            if any_arg_repaired:
+                            if any_arg_repaired and not _sink_has_method_sink_rule(sink, lang_rule_list):
                                 continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
@@ -1128,7 +1170,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 result = recv_result
                                 sink_vid = sink['vid']
                             else:
-                                continue
+                                if not _sink_has_method_sink_rule(sink, lang_rule_list):
+                                    continue
 
                     sink_name = sink.get('name', '')
                     # JSON Content-Type 的 @ResponseBody 不构成 XSS
@@ -1140,8 +1183,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # first rule whose main() passes gets to report.
                     matched_rules = []
                     sn_lower = sink_name.lower().replace("::", ".")
+                    _sn_bare = sn_lower.rsplit(".", 1)[-1]
                     for pass_name in ("exact", "suffix"):
                         for rule in lang_rule_list:
+                            # Rule-declared method sinks (receiver-agnostic,
+                            # mirrors find_sinks Path C): bare method name match.
+                            _rms = [str(_x).lower() for _x in (getattr(rule, 'method_sinks', None) or [])]
+                            if _rms and _sn_bare in _rms:
+                                matched_rules.append(rule)
+                                continue
                             rule_sink_names = _get_rule_sink_names(rule)
                             if not rule_sink_names:
                                 continue
@@ -1351,6 +1401,32 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     if matched_rule is None:
                         # All candidate rules' main() returned False
                         continue
+
+
+                    # Presence-of-sink reporting for rules that opt out of
+                    # taint proof (require_taint=False).  Library-internal
+                    # sinks (e.g. OAuth2 fetch_token sending client_secret
+                    # to a caller-derived URL) have no framework source to
+                    # back-trace to: the vulnerability boundary is the
+                    # library's public API parameter, which the graph
+                    # source model cannot see.  The rule's main() already
+                    # filtered constants/literals via sink_args; without a
+                    # confirmed taint we still report -- the rule author
+                    # accepted the FP surface by opting in.
+                    if not found_controllable and getattr(matched_rule, 'require_taint', True) is False:
+                        _arg_desc = ", ".join(
+                            filter(None, (
+                                (sa.get('name') or '') + ((' (' + sa['type'] + ')') if sa.get('type') else '')
+                                for sa in sink_args
+                            ))
+                        ) or '(no args)'
+                        result = type('R', (), {
+                            'is_controllable': True,
+                            'code': 1,
+                            'reason': "presence-of-sink: '%s' called with non-constant argument(s) %s; static taint unverifiable inside library boundary (parameter-controlled URL risk)" % (sink_name, _arg_desc),
+                            'path': [],
+                        })()
+                        found_controllable = True
 
                     # 文件路径过滤：vendor/test/third-party 目录
                     vuln_file_path = _vattr(graph.vs[sink['vid']], 'file_path', '') or _vattr(graph.vs[sink['vid']], 'path', '')

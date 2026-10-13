@@ -17,7 +17,17 @@ class CVI_7004(SingleRuleMixin):
         self.description = "使用了可能存在SSRF风险的HTTP请求函数"
         self.level = 6
         self.match_mode = "function-param-regex"
-        self.match = r"requests\.get|requests\.post|requests\.put|requests\.delete|requests\.head|requests\.patch|requests\.options|requests\.request|urllib\.request\.urlopen|urllib\.request\.urlretrieve|urlopen|http\.client\.HTTPConnection|http\.client\.HTTPSConnection|aiohttp\.ClientSession|httpx\.Client|httpx\.get|httpx\.post|httpx\.request|treq\.get|treq\.post"
+        # Method-call sinks matched by bare name on any receiver (Path C):
+        # OAuth2 fetch_token sends client_secret to token_url -- if
+        # tenant_subdomain redirects token_url, credentials exfiltrate
+        # (CVE-2026-89111, SAP cloud-sdk-python).
+        self.method_sinks = ["fetch_token", "fetch_token_from", "request_token"]
+        # Library-boundary sinks: no framework source exists inside the
+        # library for back-trace -- the vuln boundary is the public API
+        # parameter (e.g. tenant_subdomain, CVE-2026-89111).  Report on
+        # presence + main() filtering instead of taint proof.
+        self.require_taint = False
+        self.match = r"requests\.get|requests\.post|requests\.put|requests\.delete|requests\.head|requests\.patch|requests\.options|requests\.request|urllib\.request\.urlopen|urllib\.request\.urlretrieve|urlopen|http\.client\.HTTPConnection|http\.client\.HTTPSConnection|aiohttp\.ClientSession|httpx\.Client|httpx\.get|httpx\.post|httpx\.request|treq\.get|treq\.post|fetch_token|fetch_token_from|request_token"
 
     def main(self, regex_string, sink_args=None):
         if sink_args:
