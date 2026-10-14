@@ -550,12 +550,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     safe_call_descendants.add(ae.target)
                                     queue.append(ae.target)
                     
-                    # Delete DFG edges targeting these descendants
-                    # (these are the same-edges that link them to external sources)
-                    for desc_vid in safe_call_descendants:
-                        if _vattr(graph.vs[desc_vid], "label", "") == NodeLabel.IDENTIFIER.value:
-                            for dfg_e in graph.es.select(_target=desc_vid, label="dfg"):
-                                edges_to_delete.append(dfg_e.index)
+                    # Delete DFG edges targeting these descendants.
+                    # Fix 34d: restrict to type='same' edges (the original
+                    # intent: same-name links to external variables).  The
+                    # previous blanket delete also removed source dfg edges
+                    # (e.g. $_POST['branch'] -> call-argument identifiers
+                    # at the CALL SITE of a safe function), severing the
+                    # arg -> param handoff and hiding SQL injection in
+                    # CVE-2026-108970 (register() judged 'safe' because
+                    # its return is a bool, while $branch flows into
+                    # addNewUser's INSERT).
+                    # Fix 34d-final: rule 2 disabled entirely.  The
+                    # same-edge rationale is already covered by rule 1
+                    # (arg->call passthrough delete): once the passthrough
+                    # is gone, pb reaching a safe call's args terminates at
+                    # the call node itself.  Keeping rule 2 active also
+                    # deleted source edges ($_POST['branch'] -> call
+                    # argument, type='same') at the CALL SITE, severing the
+                    # arg->param handoff for taint that flows THROUGH the
+                    # callee into its own sinks (register -> addNewUser
+                    # INSERT, CVE-2026-108970).
                     
                     if edges_to_delete:
                         graph.delete_edges(edges_to_delete)

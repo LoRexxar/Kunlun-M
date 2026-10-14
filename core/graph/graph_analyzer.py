@@ -1945,12 +1945,26 @@ class GraphAnalyzer:
                 if _rhs is not None:
                     _rhs_callee = self._resolve_callee_name(_rhs)
                     if _rhs_callee and self._is_repair_function(_rhs_callee):
-                        return self._cached(cache_key, AnalysisResult(
-                            code=2, reason=f"assign RHS repair '{_rhs_callee}'",
-                            chain=[{"step": "repair", "vid": _rhs,
-                                    "name": _rhs_callee, "code": 2}],
-                            path=path + [_rhs],
-                            expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
+                        # Fix 34c: record the sanitation proof and CONTINUE
+                        # the BFS instead of returning immediately.  This
+                        # stop fires on any identifier whose assignment RHS
+                        # is a repair call -- including sub-expressions of a
+                        # larger concatenation.  CVE-2026-108970: in
+                        # addNewUser, "INSERT ... VALUES('$username',...,
+                        # $time, $branch)" concat contains $time=time();
+                        # the $time route dead-ended here and returned
+                        # safe for the WHOLE concat, hiding the unquoted
+                        # $branch route.  Sibling routes must keep tracing;
+                        # the proof is only returned if ALL routes end
+                        # clean (exhausted fallback, same as Fix 21b-2).
+                        if repaired_result is None:
+                            repaired_result = AnalysisResult(
+                                code=2, reason=f"assign RHS repair '{_rhs_callee}'",
+                                chain=[{"step": "repair", "vid": _rhs,
+                                        "name": _rhs_callee, "code": 2}],
+                                path=path + [_rhs],
+                                expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0))
+                        continue
                     # Also check if RHS is a safe function call (sanitizer).
                     # When DFG cleanup has removed the safe function's
                     # arg→return edge, the LHS identifier has no DFG sources,
@@ -1973,7 +1987,17 @@ class GraphAnalyzer:
                 # to reach the true source (argv).
                 if self._is_dfg_branch_safe(up_vid, cur_vid):
                     cur_bc = self.get_branch_chain(cur_vid)
-                    if cur_bc and (set(cur_bc) & sink_branch_set):
+                    # Fix 34e: only trust the intersection when a shared
+                    # branch actually has a condition.  Empty-condition
+                    # branches (normalizer never filled type/condition --
+                    # e.g. register()'s if-blocks in CVE-2026-108970) carry
+                    # no constraint evidence; intersecting on their vids
+                    # alone silently dropped the cross-function arg->param
+                    # route and hid the SQL injection.
+                    _shared_bc = set(cur_bc) & sink_branch_set
+                    if cur_bc and _shared_bc and any(
+                            _vattr(self.graph.vs[_b], 'condition', '')
+                            for _b in _shared_bc):
                         continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
@@ -6277,6 +6301,19 @@ class GraphAnalyzer:
         - re.match anchored regex, Python str.isdigit etc.
         """
         btype = _vattr(self.graph.vs[branch_vid], "type", "")
+        # Fix 34f: fast fail -- if the branch condition text is known and
+        # does not mention var_name, it cannot constrain it.  CVE-2026-108970:
+        # "if ($database->addNewUser(...))" was treated as constraining
+        # $subbranch (an argument inside the block), returning
+        # uncontrollable and hiding the INSERT injection.  A condition
+        # that is a plain call whose result is unrelated to var_name is
+        # not a sanitizer for it.
+        _bcond = _vattr(self.graph.vs[branch_vid], "condition", "")
+        if _bcond and var_name not in _bcond:
+            # else/default branches inherit the negated condition; the
+            # negation of "A()" still does not mention var_name, so the
+            # fast fail holds for them too.
+            return False
 
         # Wildcard branches: else and default normally don't constrain.
         # EXCEPTION: else of a != branch — the else means == (constraining).

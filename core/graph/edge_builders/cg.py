@@ -49,12 +49,35 @@ class CallGraphBuilder(BaseEdgeBuilder):
                 func_vids.add(v.index)
 
         # ── 3. 遍历函数 → call operator → use callee，批量收集 ──
+        # Fix 34b: previously only operators OWNED directly by the function
+        # node were visited.  Calls nested inside if/else/loop/branch blocks
+        # (own chain: function → branch → … → operator) were invisible to
+        # the callgraph (CVE-2026-108970: Session::register calls
+        # addNewUser inside an if block -- no cg edge, function judged
+        # dead, sink skipped).  Walk each function's full own subtree.
+        children_of: dict[int, list[int]] = {}
+        for src, tgts in own_src_idx.items():
+            children_of[src] = tgts
+
+        def _iter_own_subtree(root_vid: int):
+            """Yield all vids in the own subtree rooted at root_vid (incl.)."""
+            stack = [root_vid]
+            seen = set()
+            while stack:
+                cur = stack.pop()
+                if cur in seen:
+                    continue
+                seen.add(cur)
+                yield cur
+                for ch in children_of.get(cur, ()):
+                    if ch not in seen:
+                        stack.append(ch)
+
         cg_edges: dict[tuple[int, int], dict] = {}  # (caller, callee) → attrs
 
         for func_vid in func_vids:
-            # function 下的 own 出边
-            own_tgts = own_src_idx.get(func_vid, [])
-            for op_vid in own_tgts:
+            # Fix 34b: full own subtree, not just direct own children
+            for op_vid in _iter_own_subtree(func_vid):
                 ov = graph.vs[op_vid]
                 if _vattr(ov, "label") != NodeLabel.OPERATOR.value:
                     continue
@@ -83,7 +106,8 @@ class CallGraphBuilder(BaseEdgeBuilder):
 
         for (caller, callee), attrs in cg_edges.items():
             # 找 caller 下 call operator 的 use 边指向 callee 的属性
-            own_tgts = own_src_idx.get(caller, [])
+            # (Fix 34b: subtree walk mirrors the collection phase above)
+            own_tgts = list(_iter_own_subtree(caller))
             for op_vid in own_tgts:
                 ov = graph.vs[op_vid]
                 if _vattr(ov, "label") != NodeLabel.OPERATOR.value:
@@ -103,6 +127,12 @@ class CallGraphBuilder(BaseEdgeBuilder):
             edges = [(s, t) for s, t in cg_edges.keys()]
             # attributes 需要 dict[str, list]，长度与 edges 一致
             attr_dict: dict[str, list] = {}
+            # Fix 34: label='cg' was never set -- all callgraph edges got
+            # label=None, so every label="cg" query in the scanner (dead
+            # code check, interprocedural taint) matched nothing and all
+            # sinks inside called functions were treated as dead code
+            # (CVE-2026-108970: addNewUser mysqli_query missed).
+            attr_dict["label"] = ["cg"] * len(edges)
             for key in ("call_type", "lineno"):
                 vals = []
                 for (s, t), a in cg_edges.items():
