@@ -286,9 +286,16 @@ def build_ast_graph(
                     skipped_special += 1
                     continue
 
-                # 跳过过大文件（>100KB，通常是 minified/bundled 代码）
+                # 跳过过大文件（>512KB，通常是 minified/bundled 代码）。
+                # Fix 35: 100KB threshold silently skipped large
+                # hand-written sources -- c2pa-rs store.rs is 359KB of
+                # legitimate Rust and its skip hid the CVE-2026-95634
+                # SSRF sink (fetch_remote_manifest) entirely.  Minified
+                # bundles are still caught by the _skip_patterns above
+                # (.min.js / node_modules / jquery); 512KB keeps a guard
+                # against generated garbage without dropping real code.
                 try:
-                    if os.path.getsize(abs_filepath) > 100 * 1024:
+                    if os.path.getsize(abs_filepath) > 512 * 1024:
                         skipped_large += 1
                         continue
                 except OSError:

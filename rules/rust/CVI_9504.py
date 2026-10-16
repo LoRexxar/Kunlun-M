@@ -28,11 +28,14 @@ class CVI_9504(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
+        # Fix 35b: also match http::Request::get/post/... constructor
+        # forms (c2pa-rs builds requests via http::Request::get(url),
+        # not only ::builder(); CVE-2026-95634 sink at store.rs:3435).
         self.match = (
             r"\breqwest\s*::\s*Client\s*::\s*(?:new|builder)\s*\("
             r"|\bclient\s*\.\s*(?:get|post|put|delete|patch|head|request|execute)\s*\("
             r"|\bureq\s*::\s*(?:get|post|put|delete|patch|head|agent|request)\s*\("
-            r"|\bhttp\s*::\s*Request\s*::\s*builder\s*\("
+            r"|\bhttp\s*::\s*Request\s*::\s*(?:builder|get|post|put|delete|patch|head)\s*\("
         )
 
         self.vul_function = [
@@ -42,6 +45,9 @@ class CVI_9504(SingleRuleMixin):
             "ureq::get", "ureq::post", "ureq::put", "ureq::delete",
             "ureq::patch", "ureq::head", "ureq::agent", "ureq::request",
             "http::Request::builder",
+            "http.Request.get", "http.Request.post", "http.Request.put",
+            "http.Request.delete", "http.Request.patch", "http.Request.head",
+            "http.Request.builder",
         ]
 
     def main(self, regex_string, sink_args=None):

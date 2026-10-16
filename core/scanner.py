@@ -1184,7 +1184,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 result = recv_result
                                 sink_vid = sink['vid']
                             else:
-                                if not _sink_has_method_sink_rule(sink, lang_rule_list):
+                                # Fix 35e: also pass the gate when a rule
+                                # with an EXACT qualified sink-name match
+                                # opted into presence reporting
+                                # (require_taint=False).  find_sinks only
+                                # returns these via precise vul_function
+                                # matching (http.Request.get), so the
+                                # receiver-agnostic noise method_sinks
+                                # guards against cannot occur here.
+                                # CVE-2026-95634: CVI_9512 was blocked by
+                                # this gate -- bare 'get' is deliberately
+                                # NOT in its method_sinks (HashMap.get).
+                                _sn_gate = sink.get('name', '').lower().replace("::", ".")
+                                _has_pt_rule = any(
+                                    getattr(_r, 'require_taint', True) is False
+                                    and _sn_gate in [str(_x).lower() for _x in (getattr(_r, 'vul_function', None) or [])]
+                                    for _r in lang_rule_list)
+                                if not _has_pt_rule and not _sink_has_method_sink_rule(sink, lang_rule_list):
                                     continue
 
                     sink_name = sink.get('name', '')
@@ -1386,6 +1402,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             pass
 
                     matched_rule = None
+                    # Fix 35d: presence-opted rules (require_taint=False,
+                    # library-boundary sinks) must win the candidate race
+                    # over taint-proving rules that happen to share the
+                    # sink name -- otherwise the first rule's main()=None
+                    # claims matched_rule and the presence path never
+                    # fires (CVE-2026-95634: CVI_9504 shadowed CVI_9512).
+                    matched_rules.sort(
+                        key=lambda _r: 0 if getattr(_r, 'require_taint', True) is False else 1)
                     for candidate_rule in matched_rules:
                         if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
                             try:

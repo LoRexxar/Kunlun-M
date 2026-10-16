@@ -1996,15 +1996,25 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def _get_ast_children_by_arg_index(self, vid: int) -> dict[int, int]:
         """获取调用节点的所有 arg 子节点，返回 {arg_index: child_vid} 映射。"""
         result: dict[int, int] = {}
+        ordered: list[int] = []
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
             if self._elabel[e.index] != EdgeLabel.AST.value:
                 continue
             if self._erole[e.index] != AstRole.ARG.value:
                 continue
+            ordered.append(e.target)
             arg_index = self._earg_index[e.index]
             if arg_index is not None:
                 result[int(arg_index)] = e.target
+        # Fix 35c: when the normalizer never wrote arg_index (Rust
+        # chained/associated calls like Store::fetch_remote_manifest(a, b)),
+        # fall back to edge insertion order -- normalizer emits arg edges in
+        # source order, so the Nth arg edge IS parameter N.  CVE-2026-95634:
+        # without this, param-passing built no arg->param dfg edge and the
+        # SSRF route (ext_ref -> url -> http::Request::get) was invisible.
+        if not result and ordered:
+            result = {idx: t for idx, t in enumerate(ordered)}
         return result
 
     def _get_own_children(self, vid: int, index: int | None = None) -> list[int]:
