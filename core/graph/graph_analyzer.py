@@ -1937,6 +1937,43 @@ class GraphAnalyzer:
 
         while queue:
             cur_vid, depth, path = queue.popleft()
+            # Fix 37a: Java this.<field> READ reached during backward trace
+            # -- bridge to the constructor/method WRITE points of the same
+            # field (field-load propagation).  Only fires for java
+            # this.<name> method_call reads with a same-class field decl
+            # hub; PHP/JS member chains are handled by the member-access
+            # pre-check above.
+            if (self.language == "java" and depth < max_depth - 1
+                    and _vattr(self.graph.vs[cur_vid], "type", "") == "method_call"):
+                _stores = self._java_field_store_sources(cur_vid)
+                for _rhs_vid, _wctx in _stores:
+                    _sub = self.parameters_back(_rhs_vid, context_vid=_wctx,
+                                                max_depth=max_depth - depth - 1)
+                    if _sub is not None and _sub.is_controllable:
+                        _sub.path = path + [cur_vid] + (_sub.path or [])
+                        return self._cached(cache_key, _sub)
+                    # Fix 37a-2: stored value depends on the writer
+                    # function's params (e.g. constructor param f in
+                    # this.fld = f) -- resolve through the writer's call
+                    # sites' actual args.
+                    if (_sub is not None and _wctx is not None
+                            and (_sub.has_deps
+                                 or (_sub.code in (-1, 4)
+                                     and "entry parameter" in (_sub.reason or "")))):
+                        _dep_names = list(_sub.deps or [])
+                        if not _dep_names and "entry parameter" in (_sub.reason or ""):
+                            import re as _re37
+                            _m37 = _re37.search(r"entry parameter '([^']+)'", _sub.reason or "")
+                            if _m37:
+                                _dep_names = [_m37.group(1)]
+                        _resolved = self._resolve_java_param_deps(_dep_names, _wctx,
+                                                                  max_depth - depth - 1)
+                        if _resolved is not None:
+                            _resolved.path = path + [cur_vid] + (_resolved.path or [])
+                            return self._cached(cache_key, _resolved)
+                    if _sub is not None and _sub.code == 3:
+                        if inconclusive_fallback is None:
+                            inconclusive_fallback = _sub
             # Check if cur_vid is an assign LHS identifier whose RHS is a
             # repair/safe function call. If so, taint stops here.
             if (_vattr(self.graph.vs[cur_vid], "label", "") == NodeLabel.IDENTIFIER.value
@@ -3343,6 +3380,105 @@ class GraphAnalyzer:
         logger.debug("find_function_def('%s', from=%s) → %s",
                       func_name, from_vid, results)
         return results
+
+
+    def _java_field_store_sources(self, read_vid: int) -> list[tuple[int, int]]:
+        """Fix 37a: Java field-load propagation (constructor-write ->
+        getter-read).  The java normalizer emits a shared field-declaration
+        node (label=function, lineno=0) as the *use* hub for every
+        this.<field> access in the class.  Given a this.<field> READ
+        (method_call node), find all WRITE points (assign LHS of the same
+        field) and return [(rhs_vid, write_func_vid), ...] so the caller
+        can trace each stored value.  Scoped to same class (same field
+        decl via use edges) -- no cross-class guessing."""
+        v = self.graph.vs[read_vid]
+        if _vattr(v, "type", "") != "method_call":
+            return []
+        base_ids = [e.source for e in self.graph.es.select(_target=read_vid, label="member")
+                    if (_vattr(self.graph.vs[e.source], "name", "") or "") == "this"]
+        if not base_ids:
+            return []
+        for e in self.graph.es.select(_target=read_vid, label="ast"):
+            if _vattr(e, "role", "") == "lhs":
+                return []
+        decl_vids = [e.target for e in self.graph.es.select(_source=read_vid, label="use")
+                     if _vattr(self.graph.vs[e.target], "label", "") == NodeLabel.FUNCTION.value
+                     and not int(_vattr(self.graph.vs[e.target], "lineno", 0) or 0)]
+        if not decl_vids:
+            return []
+        decl = decl_vids[0]
+        results: list[tuple[int, int]] = []
+        for e in self.graph.es.select(_target=decl, label="use"):
+            w = e.source
+            wv = self.graph.vs[w]
+            if _vattr(wv, "type", "") != "method_call":
+                continue
+            for ae in self.graph.es.select(_target=w, label="ast"):
+                if _vattr(ae, "role", "") != "lhs":
+                    continue
+                assign_vid = ae.source
+                for re_ in self.graph.es.select(_source=assign_vid, label="ast"):
+                    if _vattr(re_, "role", "") == "rhs":
+                        wfunc = None
+                        for oe in self.graph.es.select(_target=assign_vid, label="own"):
+                            pn = self.graph.vs[oe.source]
+                            if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
+                                wfunc = oe.source
+                                break
+                        results.append((re_.target, wfunc if wfunc is not None else assign_vid))
+        return results
+
+
+    def _resolve_java_param_deps(self, dep_names: list[str], writer_func_vid: int,
+                                 max_depth: int) -> "AnalysisResult | None":
+        """Fix 37a-2: dep names that are the writer function's formal
+        params -- resolve each through the writer's call sites (cg in
+        edges), taking the actual arg vid at each site and tracing it."""
+        param_by_name: dict[str, int] = {}
+        for pvid in self._find_own_children(writer_func_vid, child_label=NodeLabel.PARAMETER.value):
+            pn = _vattr(self.graph.vs[pvid], "name", "")
+            if pn:
+                param_by_name[pn] = pvid
+        param_list = sorted(param_by_name.items(), key=lambda kv: kv[1])
+        for dn in (dep_names or []):
+            if dn not in param_by_name:
+                continue
+            pidx = None
+            for i, (pn, pvid) in enumerate(param_list):
+                if pn == dn:
+                    pidx = _vattr(self.graph.vs[pvid], "index", i)
+                    try:
+                        pidx = int(pidx) if str(pidx) != "" else i
+                    except (TypeError, ValueError):
+                        pidx = i
+                    break
+            _call_sites: list[int] = []
+            for ce in self.graph.es.select(_target=writer_func_vid, label="cg"):
+                call_vid = ce.source
+                if _vattr(self.graph.vs[call_vid], "label", "") == NodeLabel.OPERATOR.value:
+                    _call_sites.append(call_vid)
+            if not _call_sites:
+                # Fix 37a-2b: constructor call sites may connect via use
+                # edges (new T references the constructor def) instead of cg.
+                for ue in self.graph.es.select(_target=writer_func_vid, label="use"):
+                    call_vid = ue.source
+                    if _vattr(self.graph.vs[call_vid], "label", "") == NodeLabel.OPERATOR.value:
+                        _call_sites.append(call_vid)
+            for call_vid in _call_sites:
+                for ae in self.graph.es.select(_source=call_vid, label="ast"):
+                    if _vattr(ae, "role", "") != "arg":
+                        continue
+                    aidx = _vattr(ae, "index", None)
+                    try:
+                        aidx_i = int(aidx) if aidx is not None and str(aidx) != "" else None
+                    except (TypeError, ValueError):
+                        aidx_i = None
+                    if pidx is not None and aidx_i is not None and aidx_i != int(pidx):
+                        continue
+                    sub = self.parameters_back(ae.target, max_depth=max_depth)
+                    if sub is not None and sub.is_controllable:
+                        return sub
+        return None
 
     # --- Function return analysis -----------------------------------------
 
