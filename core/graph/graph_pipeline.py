@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from typing import TYPE_CHECKING
 
 from utils.log import logger
@@ -105,6 +106,55 @@ _TS_MODULE_MAP = {
     "kotlin": "tree_sitter_kotlin",
     "lua": "tree_sitter_lua",
 }
+
+
+# Fix 41: PHP 数据文件识别阈值。
+# _DATA_ITEM_RE 匹配 "123=>" / "'k'=>" 形态的数组项；
+# _DATA_NOISE_RE 匹配任何带语义的 PHP 代码痕迹（函数/superglobal/控制流）。
+_DATA_ITEM_RE = re.compile(r"(?:\d+|'[^']*'|\"[^\"]*\")\s*=>")
+_DATA_NOISE_RE = re.compile(
+    r"\$_(GET|POST|REQUEST|COOKIE|SERVER|FILES|SESSION|ENV)"
+    r"|\bfunction\s+\w+\s*\("
+    r"|\b(if|foreach|while|for|switch|return)\s*\("
+    r"|\b(mysqli_query|mysql_query|pg_query|sqlite_query|exec|eval)\b"
+)
+# 数据文件合法携带的纯加载语句（tcpdf 字体表 include 兄弟映射文件）
+_DATA_INCLUDE_RE = re.compile(
+    r"include\s*\(\s*dirname\s*\(\s*__FILE__\s*\)", re.I)
+
+
+def _looks_like_php_data_file(content: str) -> bool:
+    """识别 PHP 数组形态的数据文件（TCPDF 字体/CID 映射表等）。
+
+    特征：内容几乎全是 ``$x['k'] = array(k=>v, k=>v, ...);`` 的字面量
+    映射项，且完全没有函数体 / superglobal / 查询调用 / 控制流。
+    这类文件对污点分析零贡献，但会把图撑爆（单文件数万节点）。
+    """
+    # 去掉 PHP 开闭标签、注释、以及数据文件合法的兄弟文件加载语句
+    body = content
+    for _pat in (r"<\?php", r"<\?=", r"\?>"):
+        body = re.sub(_pat, " ", body)
+    body = re.sub(r"//[^\n]*", " ", body)
+    body = re.sub(r"#[^\n]*", " ", body)
+    body = _DATA_INCLUDE_RE.sub(" ", body)
+
+    # 存在任何污点语义痕迹 → 不是数据文件
+    if _DATA_NOISE_RE.search(body):
+        return False
+
+    # 数组项计数：至少 200 个 "k=>" 项才算映射表（正常配置文件只有几十项）
+    n_items = len(_DATA_ITEM_RE.findall(body))
+    if n_items < 200:
+        return False
+
+    # 平均每项非空白字符数：真实代码即使 200+ 项也携带长值/逻辑
+    # （实测代码侧最小 121）；纯映射表每项 9-19 字符（CJK 码点 5 位数
+    # 的 uni2cid=12.5，含字符串键的字体描述表=19）。< 20 视为数据形态。
+    non_ws = len(re.sub(r"\s", "", body))
+    if non_ws == 0:
+        return False
+    per_item = non_ws / n_items
+    return per_item < 20
 
 
 def _parse_source(filepath: str, language: str):
@@ -333,6 +383,23 @@ def build_ast_graph(
                             _line_count = _code_sample.count('\n') + 1
                             _avg_line_len = len(_code_sample) / max(_line_count, 1)
                             if _avg_line_len > 500 or _line_count < 5:
+                                skipped_special += 1
+                                continue
+                        except (OSError, IOError):
+                            pass
+
+                    # Fix 41: PHP 数据文件守卫。TCPDF 等库把字形/CID 映射表存成
+                    # PHP 数组形态（fonts/uni2cid_*.php、cid0*.php、
+                    # include/tcpdf_font_data.php：$x['k'] = array(32=>1,33=>2,...)
+                    # 单文件数万个字面量数组项）。这类文件零污点语义（无函数体、
+                    # 无 superglobal、无调用点），却把全库图撑到 92.8 万节点 /
+                    # 114 万边，use builder 单 pass 847s，全库扫描超时
+                    # （CVE-2026-111990 的 HMS 项目 1750s 超时现场）。跳过之。
+                    if detected_lang == 'php':
+                        try:
+                            with open(abs_filepath, 'r', encoding='utf-8', errors='ignore') as _df:
+                                _dc = _df.read(262144)  # 前 256KB 足以识别数据形态
+                            if _looks_like_php_data_file(_dc):
                                 skipped_special += 1
                                 continue
                         except (OSError, IOError):
