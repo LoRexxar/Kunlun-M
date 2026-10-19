@@ -273,9 +273,28 @@ def build_ast_graph(
             if not isinstance(file_data, dict) or "list" not in file_data:
                 continue
             for filepath in file_data["list"]:
-                # files 列表中的路径可能是相对路径，需要拼接 target_directory
+                # files 列表中的路径可能是相对路径，需要拼接 target_directory。
+                # Fix 40: file 模式（-t 指向单个文件）下 target_directory 本身
+                # 就是那个文件的完整路径，Directory.collect_files 已把文件名
+                # 剥离为相对路径（'admin-panel.php'），再 join 会产生
+                # '/path/file.php/file.php' → Parse OSError → empty AST →
+                # 单文件扫描静默 0 结果（CVE-2026-111990 admin-panel.php 漏报
+                # 现场）。拼接前先验证产物存在，不存在则回退原路径。
                 if target_directory and not os.path.isabs(filepath):
-                    abs_filepath = os.path.join(target_directory, filepath)
+                    _joined = os.path.join(target_directory, filepath)
+                    if os.path.exists(_joined):
+                        abs_filepath = _joined
+                    else:
+                        # file 模式：target_directory 本身是文件，相对路径的
+                        # 真实容器是其父目录。
+                        _by_dirname = os.path.join(
+                            os.path.dirname(target_directory), filepath)
+                        if os.path.exists(_by_dirname):
+                            abs_filepath = _by_dirname
+                        elif os.path.exists(filepath):
+                            abs_filepath = filepath
+                        else:
+                            abs_filepath = _joined
                 else:
                     abs_filepath = filepath
                 file_ext = os.path.splitext(abs_filepath)[1].lower()
