@@ -1755,6 +1755,39 @@ class GraphAnalyzer:
                 else:
                     break
 
+            # Fix 42: cross-file property store→load chaining.
+            #
+            # PHP plugin architecture (Support Genix CVE-2026-110895 shape):
+            # the parent class file assigns a request-sourced value to an
+            # instance property —
+            #     class Apbd_Wps_APIBase {          // APIBase.php
+            #         function LoadPayload() {
+            #             self::$payload_obj = json_decode($_POST['payload'], true);
+            #             $this->payload = &self::$payload_obj;   // WRITE
+            #     } }
+            # and a DIFFERENT file reads it —
+            #     class ApbdWpsAPI_Ticket extends Apbd_Wps_APIBase {  // Ticket.php
+            #         function grid() {
+            #             $x = $this->payload['sort_by'][0]['prop'];   // READ
+            #     } }
+            #
+            # The graph builder creates separate property nodes per file and
+            # the dfg builder deliberately skips self/this member edges
+            # (field-insensitivity FPs), so the store in APIBase.php has no
+            # out-edge and the load in Ticket.php has no dfg in-edge — the
+            # taint chain is severed at the file boundary.
+            #
+            # Fallback: when the member-chain walk above terminated without
+            # finding a source, look for same-name property WRITE nodes
+            # (assign lhs) in other files whose class is in an extends
+            # relationship with the reader's class (either direction), and
+            # trace the stored value with _trace_dfg_direct (bounded, no
+            # recursion into parameters_back).
+            if _vattr(sv, "type") in ("field", "property"):
+                _r42 = self._cross_file_property_source(start_vid, sname)
+                if _r42 is not None:
+                    return self._cached(cache_key, _r42)
+
         if _vattr(sv, "label") == NodeLabel.OPERATOR.value \
                 and _vattr(sv, "type") in _CALL_TYPES:
             callee = self._resolve_callee_name(start_vid)
@@ -2271,6 +2304,20 @@ class GraphAnalyzer:
                                     "name": uname, "code": -1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0))
+
+                # Fix 42: property node reached mid-BFS — the member-access
+                # pre-check at parameters_back entry never ran for it (the
+                # trace started at a plain variable).  Run the cross-file
+                # property store→load search here so `$q = ... $this->payload[...]`
+                # chains resolve when BFS walks var -> property.
+                if (_vattr(uv, "label", "") == NodeLabel.IDENTIFIER.value
+                        and _vattr(uv, "type", "") in ("field", "property")
+                        and uname):
+                    _r42b = self._cross_file_property_source(up_vid, uname)
+                    if _r42b is not None:
+                        _r42b.path = (path + [cur_vid]
+                                      + (_r42b.path or []))
+                        return self._cached(cache_key, _r42b)
 
                 # Rule 1: superglobal
                 if self._is_source_variable(uname):
@@ -3739,6 +3786,241 @@ class GraphAnalyzer:
             result._redirect_pinned_seen = bool(pin_vids)
         self._decision_cache[key] = result
         return result
+
+    # ── Fix 42: cross-file property store→load chaining ──────────────────
+    #
+    # Graph reality: `$this->prop = X` in file A and `$this->prop` read in
+    # file B create disjoint property nodes (dfg builder intentionally
+    # skips self/this member edges).  This fallback connects a property
+    # READ in the reader file to property WRITES (assign lhs) stored in
+    # another file, then traces the stored value to a controllable source
+    # with _trace_dfg_direct.
+    #
+    # Precision guards (all must hold):
+    #   G1. reader and writer are in DIFFERENT files
+    #   G2. property names match exactly
+    #   G3. the writer's enclosing class and the reader's enclosing class
+    #       are connected by an extends relationship (either direction) —
+    #       resolved via class nodes' inherits_from attr / crg edges, with
+    #       a same-identifier fallback when class nodes are unavailable
+    #   G4. the writer's stored value actually reaches a controllable
+    #       source (bounded _trace_dfg_direct, no parameters_back recursion)
+    #   G5. the property write is not inside a constructor whitelist guard
+    #       (Fix 21h-3 family) — reuse existing guards by keeping this a
+    #       plain source search; guards evaluate inside _trace_dfg_direct.
+    def _cross_file_property_source(self, start_vid: int, prop_name: str):
+        if not prop_name:
+            return None
+        sv = self.graph.vs[start_vid]
+        reader_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        if not reader_fp:
+            return None
+
+        reader_class = self._get_enclosing_class_name(start_vid)
+        reader_file_classes = self._file_class_names(reader_fp)
+
+        # Iterate same-name property nodes across the whole graph.
+        for cand in self._nname.get(("identifier", prop_name), []):
+            if cand == start_vid:
+                continue
+            cv = self.graph.vs[cand]
+            if _vattr(cv, "type", "") not in ("field", "property"):
+                continue
+            cand_fp = _vattr(cv, "file_path", "") or _vattr(cv, "path", "")
+            if not cand_fp or cand_fp == reader_fp:
+                continue  # G1
+            # must be a WRITE: has an assign parent via ast[lhs]
+            is_write = False
+            rhs_vid = None
+            for e in self.graph.es.select(_target=cand, label="ast"):
+                if _vattr(e, "role") != "lhs":
+                    continue
+                op = self.graph.vs[e.source]
+                if (_vattr(op, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(op, "type", "") == OperatorType.ASSIGN.value):
+                    is_write = True
+                    for re_ in self.graph.es.select(
+                            _source=e.source, label="ast"):
+                        if _vattr(re_, "role") == "rhs":
+                            rhs_vid = re_.target
+                            break
+                    break
+            if not is_write or rhs_vid is None:
+                continue
+            # G3: inheritance link between reader class and writer class.
+            writer_class = self._get_enclosing_class_name(cand)
+            if not self._classes_inherit(reader_class, writer_class):
+                # Fallback: writer file declares a class the reader extends,
+                # or vice versa (helps when enclosing-class resolution
+                # failed for one side, e.g. trait/abstract shapes).
+                writer_file_classes = self._file_class_names(cand_fp)
+                linked = bool(
+                    (reader_file_classes & writer_file_classes)
+                    or (writer_class and writer_class in reader_file_classes)
+                    or (reader_class and reader_class in writer_file_classes)
+                )
+                if not linked:
+                    continue
+            # G4: does the stored value derive from a controllable source?
+            # Three passes:
+            #   a) subtree scan of the assign RHS for any superglobal read
+            #      (catches `$_POST[...]` stored directly through wrappers)
+            #   b) static/var def-chain: the RHS is often a plain static or
+            #      variable read (`$this->payload = &self::$payload_obj`).
+            #      Find same-name assign-lhs nodes in the writer's file and
+            #      subtree-scan THOSE rhs values — catches branch-merged
+            #      stores (if-branch stores $_POST via json_decode, else
+            #      branch stores php://input, merged read later)
+            #   c) bounded dfg trace as fallback (catches stores whose
+            #      source enters via intermediate variables)
+            hit = self._store_value_hits_superglobal(rhs_vid)
+            if not hit:
+                hit = self._same_name_store_hits_superglobal(rhs_vid)
+            if hit:
+                return AnalysisResult(
+                    code=1,
+                    reason=(f"cross-file property store '{prop_name}' → "
+                            f"superglobal '{hit}' via member access"),
+                    chain=[{"step": "xfile_prop_store", "vid": cand,
+                            "name": prop_name, "code": 1}],
+                    path=[start_vid, cand, rhs_vid],
+                    expr_lineno=_vattr(sv, "lineno", 0))
+            r = self._trace_dfg_direct(rhs_vid, max_depth=20)
+            if r is not None and r.is_controllable:
+                return AnalysisResult(
+                    code=1,
+                    reason=(f"cross-file property store '{prop_name}' → {r.reason}"),
+                    chain=[{"step": "xfile_prop_store", "vid": cand,
+                            "name": prop_name, "code": 1}] + (r.chain or []),
+                    path=[start_vid, cand] + (r.path or []),
+                    expr_lineno=_vattr(sv, "lineno", 0))
+        return None
+
+    def _store_value_hits_superglobal(self, rhs_vid: int,
+                                      max_depth: int = 14) -> str:
+        """Subtree scan: does the AST subtree at rhs_vid read any known
+        superglobal directly?  Returns the superglobal name or ''.
+
+        Superglobal reads surface as a property/offset node whose MEMBER
+        in-edge comes from the superglobal variable (e.g. ``$_POST`` is
+        connected to ``payload`` via a member edge, NOT via ast), so the
+        scan follows both ast children and member in-edges."""
+        stack = [(rhs_vid, 0)]
+        while stack:
+            vid, depth = stack.pop()
+            if depth > max_depth:
+                continue
+            v = self.graph.vs[vid]
+            nm = _vattr(v, "name", "")
+            if nm and nm in _SUPERGLOBALS:
+                return nm
+            # member in-edge: $sg --member--> prop/node reads $sg[...]
+            for e in self.graph.es.select(_target=vid, label="member"):
+                src = self.graph.vs[e.source]
+                snm = _vattr(src, "name", "")
+                if snm and snm in _SUPERGLOBALS:
+                    return snm
+            for e in self.graph.es.select(_source=vid, label="ast"):
+                stack.append((e.target, depth + 1))
+        return ""
+
+    def _same_name_store_hits_superglobal(self, rhs_vid: int) -> str:
+        """Def-chain pass: rhs_vid is a variable/static read (e.g.
+        ``self::$payload_obj``).  Find every same-name identifier in the
+        same file that is the LHS of an assignment, and subtree-scan that
+        assignment's RHS for superglobal reads.  This bridges SSA-style
+        per-assignment node splits across if/else branches."""
+        rv = self.graph.vs[rhs_vid]
+        rname = _vattr(rv, "name", "")
+        rlabel = _vattr(rv, "label", "")
+        rfp = _vattr(rv, "file_path", "") or _vattr(rv, "path", "")
+        if not rname or not rfp:
+            return ""
+        for cand2 in self._nname.get((rlabel, rname), []):
+            if cand2 == rhs_vid:
+                continue
+            c2 = self.graph.vs[cand2]
+            c2_fp = _vattr(c2, "file_path", "") or _vattr(c2, "path", "")
+            if c2_fp != rfp:
+                continue
+            # cand2 must be an assign lhs
+            for e in self.graph.es.select(_target=cand2, label="ast"):
+                if _vattr(e, "role") != "lhs":
+                    continue
+                op = self.graph.vs[e.source]
+                if (_vattr(op, "label", "") != NodeLabel.OPERATOR.value
+                        or _vattr(op, "type", "") != OperatorType.ASSIGN.value):
+                    continue
+                for re_ in self.graph.es.select(_source=e.source, label="ast"):
+                    if _vattr(re_, "role") == "rhs":
+                        hit = self._store_value_hits_superglobal(re_.target)
+                        if hit:
+                            return hit
+                        break
+                break
+        return ""
+
+    def _get_enclosing_class_name(self, vid: int) -> str:
+        """Nearest CLASS ancestor: property/identifier nodes attach via ast
+        edges to statement operators (assign), which then hang off the own
+        chain (file→class→method→stmt).  Climb ast first to reach the own
+        chain, then walk own parents level by level to the first CLASS."""
+        cur = vid
+        # Phase 1: climb ast in-edges (bounded) until a vertex has an own
+        # in-edge.  Property reads (ast/rhs of an assign) reach the assign
+        # operator, whose own parent is the enclosing statement/branch.
+        for _ in range(8):
+            if list(self.graph.es.select(_target=cur, label="own")):
+                break
+            ast_sel = list(self.graph.es.select(_target=cur, label="ast"))
+            if not ast_sel:
+                return ""
+            cur = ast_sel[0].source
+        # Phase 2: walk own parents upward; return the first CLASS name.
+        for _ in range(12):
+            own_sel = list(self.graph.es.select(_target=cur, label="own"))
+            if not own_sel:
+                return ""
+            parent = self.graph.vs[own_sel[0].source]
+            if _vattr(parent, "label", "") == NodeLabel.CLASS.value:
+                return _vattr(parent, "name", "") or ""
+            cur = own_sel[0].source
+        return ""
+
+    def _file_class_names(self, file_path: str) -> set[str]:
+        """Class names declared in a file (via class-node file_path attr)."""
+        out: set[str] = set()
+        if not file_path:
+            return out
+        for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
+            fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if fp == file_path and v["name"]:
+                out.add(v["name"])
+        return out
+
+    def _classes_inherit(self, cls_a: str, cls_b: str) -> bool:
+        """True when a and b are non-empty and equal, or linked by an
+        extends crg edge / inherits_from chain (either direction)."""
+        if not cls_a or not cls_b:
+            return False
+        if cls_a == cls_b:
+            return True
+        for base, other in ((cls_a, cls_b), (cls_b, cls_a)):
+            # direct attr check
+            for v in self.graph.vs.select(
+                    label=NodeLabel.CLASS.value, name=base):
+                if _vattr(v, "inherits_from", "") == other:
+                    return True
+            # crg extends edges
+            for e in self.graph.es.select(label="crg"):
+                if _vattr(e, "type", "") != "extends":
+                    continue
+                s = self.graph.vs[e.source]
+                t = self.graph.vs[e.target]
+                if (_vattr(s, "name", "") == base
+                        and _vattr(t, "name", "") == other):
+                    return True
+        return False
 
     def _trace_dfg_direct(self, start_vid: int, max_depth: int = 20,
                           file_path: str = "") -> AnalysisResult | None:

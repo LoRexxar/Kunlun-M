@@ -201,10 +201,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         _extra = merge_framework_config(_repair_tmp, _controlled_tmp, _fw_mod)
                         if _extra:
                             for _pattern, _svids in _extra.items():
+                                _vw_method_sinks = []
+                                if '->' in _pattern:
+                                    import re as _re
+                                    _m = _re.search(r'->(\w+)', _pattern)
+                                    if _m:
+                                        _vw_method_sinks.append(_m.group(1))
                                 for _svid in _svids:
                                     _vw_name = "VW_{}_{}".format(_svid, len(rules))
                                     _vw_class = type(_vw_name, (VirtualRule,), {
-                                        '__init__': lambda self, _p=_pattern, _s=_svid, _l=_lang_lower: VirtualRule.__init__(self, _p, _s, _l)
+                                        '__init__': lambda self, _p=_pattern, _s=_svid, _l=_lang_lower: VirtualRule.__init__(self, _p, _s, _l),
+                                        # Fix 42e: find_sinks Path C matches the
+                                        # bare method name, but the sink node's
+                                        # name is receiver-qualified ("$mainobj.
+                                        # SelectAllGridData") and the second-stage
+                                        # rule matcher skips qualified names in
+                                        # the suffix pass — without this attr the
+                                        # VirtualRule never matched its own sink
+                                        # and the finding was dropped after taint
+                                        # analysis had already proven code=1.
+                                        'method_sinks': _vw_method_sinks,
                                     })
                                     _vw_module = _types.ModuleType(_vw_name)
                                     setattr(_vw_module, _vw_name, _vw_class)
@@ -739,9 +755,31 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                       "label") == "function":
                                 _dead_func_vid = _doe.source
                                 break
-                        if _dead_func_vid is not None and not any(
-                                True for _ in analyzer.graph.es.select(
-                                    _target=_dead_func_vid, label="cg")):
+                        # Fix 42d: class METHODS are exempt from the dead-code
+                        # skip.  PHP dispatches methods through strings and
+                        # framework routing far more often than direct calls:
+                        # WP REST registers callbacks as [$this, "method"],
+                        # call_user_func([$obj, "name"]), magic __call, trait
+                        # composition... none of which produce cg in-edges.
+                        # Treating such methods as dead code suppressed real
+                        # sinks (CVE-2026-110895: ApbdWpsAPI_Ticket::
+                        # notifications() reaches ORDER BY injection via REST
+                        # dispatch invisible to the call graph).  Global
+                        # functions (fullname without '.') keep the strict
+                        # check — they are only reachable via direct calls.
+                        _fn_fullname = (_dead_func_vid and _vattr(
+                            analyzer.graph.vs[_dead_func_vid],
+                            "fullname", "")) or ""
+                        _fn_type = (_dead_func_vid and _vattr(
+                            analyzer.graph.vs[_dead_func_vid],
+                            "type", "")) or ""
+                        _is_class_method = ("." in _fn_fullname
+                                            or "::" in _fn_fullname
+                                            or _fn_type == "method")
+                        if (_dead_func_vid is not None and not _is_class_method
+                                and not any(
+                                    True for _ in analyzer.graph.es.select(
+                                        _target=_dead_func_vid, label="cg"))):
                             logger.debug(
                                 "sink '%s' skipped: owning function vid=%d "
                                 "has no callers (dead code)",
