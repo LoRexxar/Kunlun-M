@@ -1944,7 +1944,16 @@ class GraphAnalyzer:
             # hub; PHP/JS member chains are handled by the member-access
             # pre-check above.
             if (self.language == "java" and depth < max_depth - 1
-                    and _vattr(self.graph.vs[cur_vid], "type", "") == "method_call"):
+                    and _vattr(self.graph.vs[cur_vid], "type", "") in ("method_call", "static_call")):
+                # Fix 38: accumulator read (toString/build/...) -- bridge
+                # to same-receiver write args (write/append/...).
+                _frag = self._java_accum_read_sources(cur_vid)
+                for _arg_vid, _wctx in _frag:
+                    _fsub = self.parameters_back(_arg_vid, context_vid=_wctx,
+                                                 max_depth=max_depth - depth - 1)
+                    if _fsub is not None and _fsub.is_controllable:
+                        _fsub.path = path + [cur_vid] + (_fsub.path or [])
+                        return self._cached(cache_key, _fsub)
                 _stores = self._java_field_store_sources(cur_vid)
                 for _rhs_vid, _wctx in _stores:
                     _sub = self.parameters_back(_rhs_vid, context_vid=_wctx,
@@ -3479,6 +3488,66 @@ class GraphAnalyzer:
                     if sub is not None and sub.is_controllable:
                         return sub
         return None
+
+
+    _JAVA_ACCUM_READS = frozenset({
+        "toString", "toStringBuilder", "build", "getBuffer", "string",
+        "value", "getQuery", "getSql", "getText", "getBody",
+    })
+    _JAVA_ACCUM_WRITES = frozenset({"write", "append", "add", "put",
+                                    "addBatch", "concat", "insert", "addSql"})
+
+    def _java_accum_read_sources(self, read_call_vid: int) -> list[tuple[int, int]]:
+        """Fix 38: Java accumulator-object flow (write-side -> read-side).
+
+        Builder/Writer objects accumulate fragments via mutating calls
+        (write/append/...) whose ARGUMENTS carry taint; the assembled
+        string is read back via toString()/build()/... on the same
+        receiver.  The graph gives each such call a dotted full name
+        ('this.out.write'), so read and write calls of the same
+        accumulator share the dotted prefix.  Match on that prefix,
+        take each write's non-constant dfg arg as a taint source.
+        Same-file only; constant fragments contribute nothing."""
+        rv = self.graph.vs[read_call_vid]
+        if _vattr(rv, "type", "") not in ("method_call", "static_call"):
+            return []
+        rname = (_vattr(rv, "name", "") or "")
+        rparts = rname.split(".")
+        rshort = rparts[-1].strip("'\"")
+        if rshort not in self._JAVA_ACCUM_READS or len(rparts) < 2:
+            return []
+        rprefix = ".".join(rparts[:-1])
+        read_file = _vattr(rv, "file_path", "") or ""
+        results: list[tuple[int, int]] = []
+        for w in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+            wv = self.graph.vs[w]
+            wname = (_vattr(wv, "name", "") or "")
+            wparts = wname.split(".")
+            if len(wparts) < 2:
+                continue
+            wshort = wparts[-1].strip("'\"")
+            if wshort not in self._JAVA_ACCUM_WRITES:
+                continue
+            if ".".join(wparts[:-1]) != rprefix:
+                continue
+            wf = _vattr(wv, "file_path", "") or ""
+            if wf and read_file and wf != read_file:
+                continue
+            wfunc = None
+            for oe in self.graph.es.select(_target=w, label="own"):
+                pn = self.graph.vs[oe.source]
+                if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
+                    wfunc = oe.source
+                    break
+            for de in self.graph.es.select(_target=w, label="dfg"):
+                av = self.graph.vs[de.source]
+                if _vattr(av, "label", "") == NodeLabel.CONST.value:
+                    continue
+                aname = (_vattr(av, "name", "") or "")
+                if aname == rprefix:
+                    continue  # receiver node itself
+                results.append((de.source, wfunc if wfunc is not None else w))
+        return results
 
     # --- Function return analysis -----------------------------------------
 
