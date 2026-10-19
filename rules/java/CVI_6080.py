@@ -84,11 +84,44 @@ class CVI_6080(SingleRuleMixin):
         if sink_args is not None:
             if not sink_args:
                 return False
+            # Fix 6080-2: differential validation against the patched
+            # upstream (geotools 35.1, CVE-2026-76904 fix) showed this
+            # rule fired on the FIXED line too -- the fix routes the
+            # value through escapeJsonLiteral() before formatting, but
+            # presence mode could not see the assignment source.  The
+            # scanner already annotates each sink_arg with
+            # is_func_return/return_callee (DFG walk to the defining
+            # call).  If the QUOTED slot's argument is the return of
+            # an escape/sanitize-named function, the injection surface
+            # is closed: do not report.
+            quoted_slot_idx = self._quoted_slot_indexes(str(tpl))
+            for i, a in enumerate(sink_args):
+                if i in quoted_slot_idx and a.get('is_func_return'):
+                    rc = (a.get('return_callee') or '').lower()
+                    if re.search(r'escape|sanitiz|clean', rc):
+                        return False
             for a in sink_args:
                 if not (a.get('label') == 'const' or a.get('type') in ('string', 'constant')):
                     return None
             return False
         return None
+
+    @staticmethod
+    def _quoted_slot_indexes(tpl):
+        """Indexes (into format args) of %s slots that sit in a quoted
+        comparison position (== \"%s\" / like '%s' ...).  Slot index
+        counts ALL format specifiers in order (%d/%f consume args too)."""
+        fmt_re = re.compile(r'%(?:%%|[-#0 +]*\d*(?:\.\d+)?[a-zA-Z])')
+        specs = [m.start() for m in fmt_re.finditer(tpl)]
+        q_re = re.compile(r"(?:==|!=|>=|<=|>|<|\blike\b)\s*[\\]*[\"']%s", re.I)
+        idxs = set()
+        for m in q_re.finditer(tpl):
+            pos_s = m.end() - 2  # start of the '%s'
+            for i, p in enumerate(specs):
+                if p == pos_s:
+                    idxs.add(i)
+                    break
+        return idxs
 
 def _has_sql_shape(tpl):
     """模板是否携带 SQL 语义：比较表达式/路径表达式/常见 SQL 子句。"""
