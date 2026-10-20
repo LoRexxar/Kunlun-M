@@ -2995,7 +2995,7 @@ class GraphAnalyzer:
 
                     # 4d: graph-based function trace (unknown or no taint attribute)
                     # Skip if use-edge already resolved the callee — re-searching by
-                    # short name would match unrelated same-named methods across classes.
+                    # short-name search would match unrelated same-named methods across classes.
                     # BUT: if use-edge found a placeholder node (no taint annotation),
                     # still try find_function_def to locate the real definition.
                     # Fix 42g: also admit PASSTHROUGH callees.  The positional
@@ -3007,6 +3007,22 @@ class GraphAnalyzer:
                     # analyze_function_return.  Arriving here already means no
                     # pt arg was controllable (4c returns immediately on
                     # controllable), so the body trace can only add signal.
+                    # Fix 42v: preg_replace with a whitelist charset-strip
+                    # pattern ('#[^a-z0-9@ _\-\.]#i') is a sanitizer — the
+                    # output only contains characters from the class, so no
+                    # attacker-controlled metacharacters survive.  Detect
+                    # BEFORE the general function trace so the call's DFG
+                    # upstream (the tainted subject) is NOT followed.
+                    if (callee == "preg_replace"
+                            and self._preg_replace_whitelist_pattern(up_vid)):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=2,
+                            reason="whitelist charset strip (preg_replace "
+                                   "negated-charclass pattern) sanitizes input",
+                            chain=[{"step": "sanitizer", "vid": up_vid,
+                                    "name": "preg_replace", "code": 2}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
                     if callee and callee not in self._call_stack and (
                             func_vid is None or not func_taint
                             or func_taint == "passthrough"):
@@ -5202,6 +5218,16 @@ class GraphAnalyzer:
             if self.graph.vs[sv].attributes().get("label") == \
                     NodeLabel.RETURN.value:
                 return True
+            # Fix 42u: `continue` inside the guarded body terminates the
+            # CURRENT LOOP ITERATION — for sinks later in the same loop
+            # body the guard is just as absolute as die/exit (sgx-1.4.55
+            # L93: `if (!is_array($src_item) || ... || !in_array(
+            # $src_item['prop'], [...], true)) { continue; }` before the
+            # L96 dynamic-dispatch sink).
+            _sv_attrs = self.graph.vs[sv].attributes()
+            if (_sv_attrs.get("label") == NodeLabel.OPERATOR.value
+                    and _sv_attrs.get("type", "") == "continue"):
+                return True
             for ee in self.graph.es.select(_source=sv, label="own"):
                 stack2.append(ee.target)
             for ee in self.graph.es.select(_source=sv, label="ast"):
@@ -5926,11 +5952,26 @@ class GraphAnalyzer:
             # disqualifies the whole branch.  (This block previously
             # referenced an undefined `call_vid` — NameError on every
             # single-predicate guard, so the whitelist guard never fired.)
-            _branch_pred_ok = True
+            # Fix 42u: existence/type predicates (isset/is_array/is_scalar/
+            # is_string/...) referencing var_name are NEUTRAL in an or-chain:
+            # they impose no value constraint themselves, but reaching the
+            # sink past them (each false operand would have terminated)
+            # does not weaken the in_array/whitelist operand's constraint.
+            # A branch qualifies when at least one operand is a CONSTRAINT
+            # predicate and none is a disqualifying unknown predicate.
+            _branch_pred_ok = False
+            _has_constraint = False
             for call_vid in _pred_calls:
-                if not self._pred_qualifies(call_vid, var_name, bvid):
+                _pv = self._pred_qualifies_state(call_vid, var_name, bvid)
+                if _pv == "constraint":
+                    _has_constraint = True
+                elif _pv == "neutral":
+                    continue
+                else:  # "disqualify"
                     _branch_pred_ok = False
                     break
+            else:
+                _branch_pred_ok = _has_constraint
             if not _branch_pred_ok:
                 continue
             return True
@@ -6084,14 +6125,47 @@ class GraphAnalyzer:
         """Fix 27 helper (extracted from _negated_whitelist_guard_before):
         does ONE negated predicate `!pred(...)` qualify as a value
         constraint on var_name whose guarded branch bvid terminates?"""
+        return self._pred_qualifies_state(call_vid, var_name, bvid) == "constraint"
+
+    # Fix 42u: existence/type-check predicates that reference var_name.
+    # In a disjunction guard (each false operand terminates), reaching
+    # the sink proves every operand TRUE — an existence/type predicate
+    # being TRUE constrains shape, not content: NEUTRAL (no value
+    # constraint contributed, but no reason to distrust sibling
+    # whitelist operands either).
+    _NEUTRAL_GUARD_PREDS = frozenset({
+        "isset", "empty", "is_null", "array_key_exists", "property_exists",
+        "is_array", "is_scalar", "is_string", "is_int", "is_integer",
+        "is_numeric", "is_float", "is_double", "is_bool", "is_callable",
+        "is_object", "is_iterable", "is_countable", "is_long",
+    })
+
+    def _pred_qualifies_state(self, call_vid: int, var_name: str,
+                              bvid: int) -> str:
+        """Fix 42u tri-state variant of _pred_qualifies:
+        'constraint' — the predicate pins var_name's value/content,
+        'neutral'    — shape/existence check on var_name (no content claim),
+        'disqualify' — unknown predicate; the guard proves nothing safe."""
         callee = _vattr(self.graph.vs[call_vid], "name", "")
+        # neutral predicates must actually reference var_name to be
+        # relevant; a neutral check on an unrelated variable neither
+        # constrains nor weakens var_name's guard chain
+        _refs_var = False
+        _nargs = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if _nargs and any(self._subtree_contains_name(a, var_name, depth=0)
+                          for a in _nargs):
+            _refs_var = True
+        if callee in self._NEUTRAL_GUARD_PREDS:
+            return "neutral" if _refs_var else "disqualify"
         # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
         # only — content unchanged"), but HERE membership in a constant
         # whitelist IS the value constraint this guard encodes.  Accept
         # it explicitly BEFORE the existence-check exclusion.
         if callee == "in_array":
             if not self._array_literal_is_const_whitelist(call_vid):
-                return False
+                return "disqualify"
         elif callee in _EXISTENCE_CHECK_FUNCS:
             # isset/empty etc. only prove existence, not value
             # constraint — excluding them here mirrors the 20a
@@ -6104,10 +6178,10 @@ class GraphAnalyzer:
                     and self._isset_dim_literal_whitelist(
                         call_vid, var_name)
                     and self._branch_body_always_terminates(bvid)):
-                return True
-            return False
+                return "constraint"
+            return "disqualify"
         elif not (callee and self._is_safe_function_call(call_vid)):
-            return False
+            return "disqualify"
         # arg0 must reference var_name
         args = [e.target for e in self.graph.es.select(
             _source=call_vid, label="ast")
@@ -6148,18 +6222,18 @@ class GraphAnalyzer:
                         if indir:
                             break
                 if not indir:
-                    return False
+                    return "disqualify"
             else:
                 pass
         # whitelist form needs a constant array; user predicates don't
         if callee == "in_array":
             if not self._array_literal_is_const_whitelist(call_vid):
-                return False
+                return "disqualify"
         # guarded body must provably terminate (else fall-through is
         # NOT proven pred()==true)
         if not self._branch_body_always_terminates(bvid):
-            return False
-        return True
+            return "disqualify"
+        return "constraint"
 
     def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
         """Fix 20b: is this binary_op's Location/redirect base pinned to an
@@ -6399,6 +6473,50 @@ class GraphAnalyzer:
             return None
         return fmt.strip().strip("\'")
 
+    def _preg_replace_whitelist_pattern(self, call_vid: int) -> bool:
+        """Fix 42v: does this preg_replace call carry a whitelist
+        charset-strip pattern as its FIRST argument?
+
+        Accepted form: ``preg_replace('#[^a-z0-9@ _\\-\\.]#i', '', $x)``
+        — pattern begins with a delimiter, then ``[^...]`` (negated
+        character class) whose members are literal/escape-only (no
+        metacharacter reuse like ``\\w`` which re-imports broad classes),
+        and replacement is a constant (usually '').  Every character
+        outside the class is deleted, confining the output to the class.
+        """
+        args = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if len(args) < 2:
+            return False
+        pat = _vattr(self.graph.vs[args[0]], "value", "") or \
+            _vattr(self.graph.vs[args[0]], "name", "") or ""
+        if not isinstance(pat, str):
+            return False
+        pat = pat.strip().strip("'\"")
+        # Same shape as verified by /tmp/fix42_probe58.py (PAT_RE/BODY_OK)
+        m = re.match(r'^([^a-zA-Z0-9\s])\^?\[\^([^\]]*)\]\1[a-zA-Z]*$',
+                     pat)
+        if not m:
+            return False
+        body = m.group(2)
+        # Only literal chars, escapes of punctuation (\- \. \\ \/), and
+        # explicit ranges a-z0-9A-Z — reject \w \s \d . * etc. that keep
+        # broad classes alive.
+        if not re.fullmatch(
+                r'(?:[a-zA-Z0-9@ _\-#&=,;:!?/().\[\]{}~^$+*%|<>]'
+                r'|\\[-./\\]|[a-z]-[a-z]|[A-Z]-[A-Z]|[0-9]-[0-9])*',
+                body):
+            return False
+        # replacement (arg1) must be a constant (usually empty)
+        rep = _vattr(self.graph.vs[args[1]], "value", "") or ""
+        rep_name = _vattr(self.graph.vs[args[1]], "name", "") or ""
+        if _vattr(self.graph.vs[args[1]], "type", "") == "const" or rep == "":
+            return True
+        if rep_name in ("''", '""', ""):
+            return True
+        return False
+
     def _is_repair_function(self, name: str) -> bool:
         if not name:
             return False
@@ -6418,6 +6536,14 @@ class GraphAnalyzer:
         tail = clean[dot + 1:] if dot >= 0 else clean
         if tail != clean and tail in _REPAIR_FUNCTIONS:
             return True
+        # Fix 42v: bare 'preg_replace' is NOT unconditionally safe (an
+        # arbitrary pattern can pass anything through), but the whitelist
+        # charset-strip form is:
+        #   preg_replace('#[^a-z0-9@ _\-\.]#i', "", $x)
+        # A leading-^ negated character class with only literal members
+        # DELETES every character outside the class — the output is
+        # confined to the class.  Callers must verify the pattern via
+        # _preg_replace_whitelist_pattern before trusting this name.
         # Also check builtin_knowledge for this language — any function
         # marked safe=True is a repair/sanitizer function.
         bk = self._load_builtin_knowledge()
