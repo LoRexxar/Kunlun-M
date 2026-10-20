@@ -658,6 +658,60 @@ class GraphAnalyzer:
                     matched_name = normalized_callee
                     _is_qualified_match = False
 
+            # Path D: dynamic dispatch — `$obj->{$expr}(...)` (PHP) or
+            # computed member calls.  The callee name is an EXPRESSION
+            # string (e.g. "ArrayOffset(Variable('$src_item'), 'prop')"),
+            # never a plain identifier, so every name-based path above
+            # misses.  CVE-2026-110895: `$mainobj->{$src_item['prop']}(...)`
+            # dispatches to like/order_by with attacker-chosen names.
+            # Semantics: the possible targets include every method the
+            # project defines; expand the call into one virtual sink per
+            # FRAMEWORK-WHITELISTED method that actually exists in the
+            # graph.  Downstream taint analysis (pb on arg_vids) filters
+            # harmless cases, exactly like Path C.
+            _is_dyn_expr_name = bool(callee_name) and (
+                "(" in callee_name or ")" in callee_name or " " in callee_name.strip())
+            if (not matched_name and _is_dyn_expr_name
+                    and self._framework_method_sinks
+                    and _vattr(v, "type", "") == OperatorType.METHOD_CALL.value):
+                _fn_short: set[str] = set()
+                try:
+                    for fvid in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+                        _fn = _vattr(self.graph.vs[fvid], "fullname", "")
+                        if _fn:
+                            _fn_short.add(_fn.replace("::", ".").rsplit(".", 1)[-1].lower())
+                except Exception:
+                    _fn_short = set()
+                _dyn_targets = sorted(
+                    m for m in self._framework_method_sinks if m in _fn_short)
+                if _dyn_targets:
+                    # Collect shared sink fields once
+                    _base = {
+                        "lineno": _vattr(v, "lineno", 0),
+                        "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                        "type": _vattr(v, "type", ""),
+                    }
+                    _arg_vids = [
+                        e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                        if _vattr(e, "role") == "arg"
+                    ]
+                    if not _arg_vids:
+                        for de in self.graph.es.select(_target=v.index, label="dfg"):
+                            if _vattr(self.graph.vs[de.source], "label", "") == NodeLabel.OPERATOR.value:
+                                continue
+                            _arg_vids.append(de.source)
+                    for _m in _dyn_targets:
+                        results.append({
+                            "vid": v.index, "name": _m,
+                            "dynamic_dispatch": True,
+                            "arg_vids": list(_arg_vids),
+                            **_base,
+                        })
+                # Path D fully handles this node — skip default emission below
+                matched_name = None
+                if _dyn_targets:
+                    continue
+
             if not matched_name:
                 continue
 
