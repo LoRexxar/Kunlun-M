@@ -3226,7 +3226,16 @@ class GraphAnalyzer:
         # identifier nodes in the same file not in visited, and recursively
         # check if they lead to a controllable source.
         start_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
-        if start_fp and len(visited) > 2:
+        # Fix 42l: PHP foreach use-points have NO dfg in-edge (the graph
+        # only links the foreach-header def site), so the BFS exhausts at
+        # depth 0 (visited == {start}) and never reaches the def-chain
+        # below.  Admit a single-node visited set for identifier starts —
+        # the def-chain's own guards (same file/function, earlier line,
+        # branch scope, SSA-kill, loop-admit 42k) provide the precision.
+        _defchain_min_visited = 1 if self.language == "php" else 3
+        if start_fp and len(visited) >= _defchain_min_visited:
+            if not hasattr(self, "_in_defchain_fallback"):
+                self._in_defchain_fallback = False
             # Collect identifier names encountered during BFS
             visited_idents: dict[str, list[int]] = {}
             for up_vid in visited:
@@ -3286,23 +3295,95 @@ class GraphAnalyzer:
                     # between the candidate and the sink, the candidate's
                     # data flow is broken (killed by the re-definition).
                     continue_outer = False
-                    for snv in self._nname.get(
-                        (NodeLabel.IDENTIFIER.value, u_name), []
-                    ):
-                        if snv == cand or snv in visited or snv in checked:
-                            continue
-                        snv_fp = _vattr(self.graph.vs[snv], "file_path", "") or _vattr(self.graph.vs[snv], "path", "")
-                        if snv_fp and snv_fp != start_fp:
-                            continue
-                        snv_lineno = _vattr(self.graph.vs[snv], "lineno", 0)
-                        if cand_lineno < snv_lineno < start_lineno:
-                            snv_func = self._get_enclosing_func_vid(snv)
-                            shared_func = cand_func or start_func
-                            if shared_func is not None and snv_func is not None and snv_func != shared_func:
+                    # Fix 42m: PHP foreach iteration variables are re-bound
+                    # by the loop itself on every iteration — same-name
+                    # nodes INSIDE the loop body are USE points, not kills
+                    # (there is no explicit re-assignment).  When the
+                    # candidate's innermost branch is the foreach header
+                    # owning this binding, skip the kill check entirely.
+                    _cand_chain0 = self.get_branch_chain(cand)
+                    _loop_owner = bool(
+                        _cand_chain0
+                        and self.language == "php"
+                        and (_vattr(self.graph.vs[_cand_chain0[0]], "type", "") or "").lower()
+                        in ("foreach", "for", "while"))
+                    if not _loop_owner:
+                        # Fix 42p: the 42n recursion loses the ORIGINAL use
+                        # point's line — an inner def-chain hop links defs
+                        # that were killed by defs BETWEEN the outer use and
+                        # the inner start (variable reuse, hms doctor-panel
+                        # L332 const $query chained back to L9 $_GET).
+                        # Track the outermost use line during the recursion
+                        # and use it as the SSA interval bound.
+                        _upper = start_lineno
+                        _outer = getattr(self, "_defchain_outer_use", None)
+                        if _outer is not None and _outer > _upper:
+                            _upper = _outer
+                        # Fix 42r: a same-name node is a KILL witness only
+                        # if it is the LHS of a real assignment whose RHS
+                        # does NOT reference the same variable.  Plain USE
+                        # points (foreach bodies, mysqli_query args) rebind
+                        # nothing; flow-through reassignments ($x = f($x))
+                        # propagate rather than kill.  Without this, nodes
+                        # visited by the BFS (the reaching def itself) were
+                        # exempted via `in visited` and variable-reuse
+                        # chained across redefinitions (hms doctor-panel
+                        # L332→L280→L186 all named $query).
+                        def _snv_kills(snv: int) -> bool:
+                            assign_vid = None
+                            snv_v = self.graph.vs[snv]
+                            if (_vattr(snv_v, "label", "") == NodeLabel.OPERATOR.value
+                                    and _vattr(snv_v, "type", "") == "assign"):
+                                assign_vid = snv
+                            else:
+                                for pe in self.graph.es.select(_target=snv, label="ast"):
+                                    pv = self.graph.vs[pe.source]
+                                    if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                                            and _vattr(pv, "type", "") == "assign"
+                                            and _vattr(pe, "role", "") == "lhs"):
+                                        assign_vid = pe.source
+                                        break
+                            if assign_vid is None:
+                                return False  # plain use point, not a kill
+                            # RHS subtree must not reference the same name
+                            # (flow-through like `$x = f($x)` is not a kill)
+                            stack = [assign_vid]
+                            seen_s = {assign_vid}
+                            for _ in range(200):
+                                if not stack:
+                                    break
+                                cur = stack.pop()
+                                for ce in self.graph.es.select(_source=cur, label="ast"):
+                                    if _vattr(ce, "role", "") == "lhs":
+                                        continue
+                                    if ce.target in seen_s:
+                                        continue
+                                    seen_s.add(ce.target)
+                                    cv2 = self.graph.vs[ce.target]
+                                    if (_vattr(cv2, "label", "") == NodeLabel.IDENTIFIER.value
+                                            and _vattr(cv2, "name", "") == u_name):
+                                        return False  # flow-through
+                                    stack.append(ce.target)
+                            return True
+
+                        for snv in self._nname.get(
+                                (NodeLabel.IDENTIFIER.value, u_name), []):
+                            if snv == cand or snv in checked:
                                 continue
-                            # Re-definition found between candidate and sink
-                            continue_outer = True
-                            break
+                            snv_fp = _vattr(self.graph.vs[snv], "file_path", "") or _vattr(self.graph.vs[snv], "path", "")
+                            if snv_fp and snv_fp != start_fp:
+                                continue
+                            snv_lineno = _vattr(self.graph.vs[snv], "lineno", 0)
+                            if cand_lineno < snv_lineno < _upper:
+                                snv_func = self._get_enclosing_func_vid(snv)
+                                shared_func = cand_func or start_func
+                                if shared_func is not None and snv_func is not None and snv_func != shared_func:
+                                    continue
+                                if not _snv_kills(snv):
+                                    continue
+                                # Re-definition found between candidate and sink
+                                continue_outer = True
+                                break
                     if continue_outer:
                         continue
                     checked.add(cand)
@@ -3318,12 +3399,64 @@ class GraphAnalyzer:
                         cand_chain = self.get_branch_chain(cand)
                         # Candidate must share at least one ancestor branch
                         if not set(cand_chain) & sink_branch_set:
-                            continue
+                            # Fix 42k: PHP foreach loop variables.  A use
+                            # inside a nested if/else (branch chain stops at
+                            # the else — negated branches don't inherit the
+                            # parent if) shares no ancestor with the foreach
+                            # def site, yet the iteration variable IS the
+                            # foreach's value binding.  Admit the candidate
+                            # when: same function, candidate line strictly
+                            # earlier, and the candidate's innermost branch
+                            # is a loop-shaped branch (foreach/for/while)
+                            # whose header lexically encloses earlier lines.
+                            _admit = False
+                            if (cand_chain and self.language == "php"
+                                    and cand_func is not None
+                                    and cand_func == start_func):
+                                _inner = self.graph.vs[cand_chain[0]]
+                                _ibtype = (_vattr(_inner, "type", "") or "").lower()
+                                if _ibtype in ("foreach", "for", "while"):
+                                    _admit = True
+                            if not _admit:
+                                continue
                     # Check if this candidate has DFG sources to trace
                     if self._get_dfg_sources(cand):
                         # Use _trace_dfg_direct to avoid recursive
                         # parameters_back calling def-chain again
                         r = self._trace_dfg_direct(cand, max_depth=20, file_path=start_fp)
+                        # Fix 42n: the weak tracer resolves only raw dfg
+                        # chains — it does not follow method-call returns
+                        # (foreach var ← GetPayload(...) ← $this->payload ←
+                        # $_POST).  On a None outcome, fall back to ONE
+                        # full parameters_back recursion guarded by an
+                        # anti-reentry flag; the def-chain's own scope
+                        # guards keep the recursion bounded.
+                        # Fix 42q: gate the recursion to LOOP-OWNED
+                        # candidates (foreach/for/while iteration vars).
+                        # Plain variable reuse (hms doctor-panel $query
+                        # redefined at L9/L278/L331) must NOT chain defs
+                        # across reassignments — that's the SSA-kill
+                        # contract, and the weak tracer's None there is
+                        # the CORRECT inconclusive answer.
+                        if (r is None and _loop_owner
+                                and not self._in_defchain_fallback):
+                            self._in_defchain_fallback = True
+                            _saved_outer = getattr(self, "_defchain_outer_use", None)
+                            if _saved_outer is None or start_lineno > _saved_outer:
+                                self._defchain_outer_use = start_lineno
+                            try:
+                                sub_r = self.parameters_back(cand, context_vid=None,
+                                                             max_depth=max_depth - 10)
+                            finally:
+                                self._in_defchain_fallback = False
+                                self._defchain_outer_use = _saved_outer
+                            if sub_r is not None and sub_r.is_controllable:
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"def-chain '{u_name}' → {sub_r.reason}",
+                                    chain=sub_r.chain,
+                                    path=sub_r.path,
+                                    expr_lineno=sub_r.expr_lineno))
                         if r is not None and r.is_controllable:
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
@@ -3729,6 +3862,20 @@ class GraphAnalyzer:
 
             # Recurse into return expression
             sub = self.parameters_back(expr_vid, context_vid=func_vid, max_depth=20)
+            if not sub.is_controllable:
+                # Fix 42j: PHP ternary returns render as a branch node
+                # whose BFS doesn't descend into iftrue/iffalse children
+                # (e.g. GetPayload: !empty($this->payload[$key]) ?
+                # $this->payload[$key] : $default).  Trace each ast
+                # sub-branch directly — any controllable arm makes the
+                # return controllable.
+                if _vattr(ev, "label") == NodeLabel.BRANCH.value or _vattr(ev, "type") in ("ternary", "if"):
+                    for be in self.graph.es.select(_source=expr_vid, label="ast"):
+                        if _vattr(be, "role") not in ("iftrue", "iffalse", "value"):
+                            continue
+                        arm = self.parameters_back(be.target, context_vid=func_vid, max_depth=20)
+                        if arm.is_controllable:
+                            return arm
             if sub.is_controllable:
                 return sub
             if sub.has_deps:
@@ -3878,8 +4025,20 @@ class GraphAnalyzer:
             if _vattr(cv, "type", "") not in ("field", "property"):
                 continue
             cand_fp = _vattr(cv, "file_path", "") or _vattr(cv, "path", "")
-            if not cand_fp or cand_fp == reader_fp:
-                continue  # G1
+            if not cand_fp:
+                continue
+            same_file = (cand_fp == reader_fp)
+            # G1: cross-file is the primary (SSA-split) case.  Fix 42i:
+            # same-file reader/writer pairs (store in LoadPayload L58,
+            # read in GetPayload L83 — both inside Apbd_Wps_APIBase.php)
+            # are EQUALLY valid property flows; the dfg builder skips
+            # this/self member edges there too.  Admit them, but under a
+            # stricter contract: G3 inheritance must hold via the
+            # resolved enclosing classes (no file-level fallback, which
+            # would be vacuous inside one file).
+            if same_file and not self._classes_inherit(
+                    reader_class, self._get_enclosing_class_name(cand)):
+                continue  # G1'
             # must be a WRITE: has an assign parent via ast[lhs]
             is_write = False
             rhs_vid = None
