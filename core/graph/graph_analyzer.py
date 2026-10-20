@@ -2871,6 +2871,20 @@ class GraphAnalyzer:
                                 actual_idx = int(idx) if idx else arg_counter
                                 if actual_idx in pt_param_indices:
                                     arg_vid = ae.target
+                                    # Fix 42h: skip PHP array-literal pseudo-calls
+                                    # ('array()' renders as a call node).  A
+                                    # literal default like GetPayload(k, [])
+                                    # carries no taint; tracing it only wedges
+                                    # the BFS on the 'array' empty shell and
+                                    # masks the receiver-member route the 4d
+                                    # body trace would find.
+                                    _av_type = _vattr(self.graph.vs[arg_vid], "type", "")
+                                    _av_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                                    if (self.language == "php"
+                                            and _av_type in ("call", "method_call")
+                                            and _av_name == "array"):
+                                        arg_counter += 1
+                                        continue
                                     # Try tracing arg_vid directly via dfg first;
                                     # only fall back to _find_identifier_by_name (which
                                     # searches the whole graph by name) when the arg has
@@ -2930,11 +2944,48 @@ class GraphAnalyzer:
                     # short name would match unrelated same-named methods across classes.
                     # BUT: if use-edge found a placeholder node (no taint annotation),
                     # still try find_function_def to locate the real definition.
-                    if callee and callee not in self._call_stack and (func_vid is None or not func_taint):
+                    # Fix 42g: also admit PASSTHROUGH callees.  The positional
+                    # passthrough summary ([1] for GetPayload) only covers the
+                    # $default fallback arg; when every pt arg traces
+                    # inconclusive (e.g. GetPayload('src_by', []) → array()),
+                    # the real taint route is the function BODY's receiver
+                    # member read ($this->payload[$key]) — reachable only via
+                    # analyze_function_return.  Arriving here already means no
+                    # pt arg was controllable (4c returns immediately on
+                    # controllable), so the body trace can only add signal.
+                    if callee and callee not in self._call_stack and (
+                            func_vid is None or not func_taint
+                            or func_taint == "passthrough"):
                         # Prefer the use-edge-resolved func_vid when available —
                         # it's the precise target of this call.  Only fall back
                         # to short-name search when no use-edge target exists.
+                        # Fix 42f: PHP method calls often bind their use edge
+                        # to a bare-name placeholder stub (no taint, no body)
+                        # while the real definition — an inherited base-class
+                        # method like Apbd_Wps_APIBase.GetPayload — carries the
+                        # passthrough/safe annotation.  When the use-edge
+                        # target is an unannotated empty shell, also search by
+                        # short name and prefer an annotated definition;
+                        # identical-arity same-file defs still win (overloads).
                         if func_vid is not None:
+                            _fv_is_shell = not func_taint and not any(
+                                True for _pe in self.graph.es.select(
+                                    _source=func_vid, label="own")
+                                if _vattr(self.graph.vs[_pe.target], "label", "")
+                                in ("return", "parameter"))
+                            if _fv_is_shell and self.language == "php":
+                                # callee may be receiver-qualified ('$this.
+                                # GetPayload') — strip to the bare method
+                                # name for the definition search.
+                                _bare = callee.rsplit(".", 1)[-1]
+                                _extra = [fv for fv in self.find_function_def(
+                                    _bare, from_vid=up_vid)
+                                    if fv != func_vid
+                                    and _vattr(self.graph.vs[fv], "taint_type", "")]
+                                if _extra:
+                                    func_vid = _extra[0]
+                                    func_taint = _vattr(
+                                        self.graph.vs[func_vid], "taint_type", "")
                             func_vids = [func_vid]
                         else:
                             func_vids = self.find_function_def(callee, from_vid=up_vid)
