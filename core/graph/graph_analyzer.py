@@ -674,6 +674,57 @@ class GraphAnalyzer:
             if (not matched_name and _is_dyn_expr_name
                     and self._framework_method_sinks
                     and _vattr(v, "type", "") == OperatorType.METHOD_CALL.value):
+                # Fix 42t: narrow the expansion to the RECEIVER's class
+                # closure (its class + base-class chain via 'crg' edges).
+                # `$h->{$t}($t)` where $h = new DataHolder can only reach
+                # DataHolder(+'bases) methods — expanding all 13
+                # whitelist names produces FPs (synthetic f42t site 1).
+                # Escape hatch: when the closure defines __call/__callStatic
+                # (PHP magic forwarding, sgx ApbdWpsModel::__call), any
+                # name is reachable — keep the full expansion.
+                _wl_names = self._framework_method_sinks
+                _recv_classes = self._dyn_call_receiver_classes(v.index)
+                if _recv_classes is not None:
+                    _closure: set[str] = set()
+                    _has_magic = False
+                    # Union every same-named class node: the crg edge may
+                    # land on a per-file STUB (phply emits one empty
+                    # class node per `extends X` reference, L=0, no own
+                    # children) while the real definition with __call/
+                    # methods lives on another node of the same name.
+                    _names: set[str] = set()
+                    for _cvid in _recv_classes:
+                        _cn = str(_vattr(self.graph.vs[_cvid], "name", "")
+                                  or _vattr(self.graph.vs[_cvid], "fullname", "")
+                                  or "").strip("'\"").lower()
+                        if _cn:
+                            _names.add(_cn)
+                    _name_to_vids: dict[str, list[int]] = {}
+                    for cv2 in self._nlbl.get(NodeLabel.CLASS.value, []):
+                        _cn2 = str(_vattr(self.graph.vs[cv2], "name", "")
+                                   or _vattr(self.graph.vs[cv2], "fullname", "")
+                                   or "").strip("'\"").lower()
+                        if _cn2 in _names:
+                            _name_to_vids.setdefault(_cn2, []).append(cv2)
+                    for _cvid in _recv_classes:
+                        _cn = str(_vattr(self.graph.vs[_cvid], "name", "")
+                                  or _vattr(self.graph.vs[_cvid], "fullname", "")
+                                  or "").strip("'\"").lower()
+                        _vids = _name_to_vids.get(_cn, [_cvid])
+                        for _vid2 in _vids:
+                            for e in self.graph.es.select(_source=_vid2, label="own"):
+                                tv = self.graph.vs[e.target]
+                                if _vattr(tv, "label", "") != NodeLabel.FUNCTION.value:
+                                    continue
+                                _fn = _vattr(tv, "fullname", "") or ""
+                                _short = _fn.replace("::", ".").rsplit(".", 1)[-1].lower()
+                                _closure.add(_short)
+                                if _short in ("__call", "__callstatic"):
+                                    _has_magic = True
+                    if not _has_magic:
+                        _wl_names = {
+                            m for m in self._framework_method_sinks
+                            if m in _closure}
                 _fn_short: set[str] = set()
                 try:
                     for fvid in self._nlbl.get(NodeLabel.FUNCTION.value, []):
@@ -683,7 +734,7 @@ class GraphAnalyzer:
                 except Exception:
                     _fn_short = set()
                 _dyn_targets = sorted(
-                    m for m in self._framework_method_sinks if m in _fn_short)
+                    m for m in _wl_names if m in _fn_short)
                 if _dyn_targets:
                     # Collect shared sink fields once
                     _base = {
@@ -6472,6 +6523,97 @@ class GraphAnalyzer:
         if not fmt or len(fmt) > 128 or "%" not in fmt:
             return None
         return fmt.strip().strip("\'")
+
+    def _dyn_call_receiver_classes(self, call_vid: int) -> list[int] | None:
+        """Fix 42t: class-node closure (class + crg base chain) for the
+        receiver of a dynamic-dispatch method call.
+
+        Resolves ``$obj->{$expr}(...)``'s receiver: find the member-edge
+        parent identifier (e.g. ``$mainobj``), then the most recent
+        ``$mainobj = new <Class>`` assign BEFORE the call line in the
+        same file.  Returns None when the receiver cannot be resolved
+        (unknown class, stdClass, param, cross-file) — callers keep the
+        un-narrowed full whitelist expansion.
+        """
+        # 1) receiver identifier vid: member-edge source of the callee
+        #    property node, or dfg source of the call
+        recv_vids: list[int] = []
+        for e in self.graph.es.select(_target=call_vid, label="ast"):
+            if _vattr(e, "role", "") == "callee":
+                for me in self.graph.es.select(_target=e.target, label="member"):
+                    recv_vids.append(me.source)
+                break
+        if not recv_vids:
+            for e in self.graph.es.select(_target=call_vid, label="dfg"):
+                sv = self.graph.vs[e.source]
+                if (_vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
+                        or _vattr(sv, "type", "") in ("variable", "identifier")):
+                    if str(_vattr(sv, "name", "")).startswith("$"):
+                        recv_vids.append(e.source)
+        if not recv_vids:
+            return None
+        call_line = int(_vattr(self.graph.vs[call_vid], "lineno", 0) or 0)
+
+        for recv_vid in recv_vids:
+            recv_name = _vattr(self.graph.vs[recv_vid], "name", "")
+            if not recv_name:
+                continue
+            recv_file = _vattr(self.graph.vs[recv_vid], "file_path", "") or \
+                _vattr(self.graph.vs[recv_vid], "path", "")
+
+            # 2) most recent `recv = new Class` assign before call_line
+            best_line, best_new = -1, None
+            for av in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                ov = self.graph.vs[av]
+                if _vattr(ov, "type", "") != "assign":
+                    continue
+                if _vattr(ov, "name", "") != recv_name:
+                    continue
+                if (recv_file and
+                        (_vattr(ov, "file_path", "") or _vattr(ov, "path", ""))
+                        != recv_file):
+                    continue
+                aline = int(_vattr(ov, "lineno", 0) or 0)
+                if aline >= call_line or aline <= best_line:
+                    continue
+                for ae in self.graph.es.select(_source=av, label="ast"):
+                    if _vattr(ae, "role", "") != "rhs":
+                        continue
+                    rv = self.graph.vs[ae.target]
+                    if _vattr(rv, "type", "") == "new":
+                        best_line, best_new = aline, ae.target
+                    break
+            if best_new is None:
+                continue
+
+            # 3) class node by NAME — the new node's use edge points at a
+            #    constructor FUNCTION stub, never the class node (phply);
+            #    match `new <Class>` against class nodes' names instead.
+            cls_name = str(_vattr(self.graph.vs[best_new], "name", "")
+                           or "").strip("'\"").lower()
+            if not cls_name:
+                continue
+            cls_vid = None
+            for cv in self._nlbl.get(NodeLabel.CLASS.value, []):
+                cn = str(_vattr(self.graph.vs[cv], "name", "")
+                         or _vattr(self.graph.vs[cv], "fullname", "")
+                         or "").strip("'\"").lower()
+                if cn == cls_name:
+                    cls_vid = cv
+                    break
+            if cls_vid is None:
+                continue
+            out, stack, seen = [], [cls_vid], set()
+            while stack:
+                cv = stack.pop()
+                if cv in seen:
+                    continue
+                seen.add(cv)
+                out.append(cv)
+                for ce in self.graph.es.select(_source=cv, label="crg"):
+                    stack.append(ce.target)
+            return out
+        return None
 
     def _preg_replace_whitelist_pattern(self, call_vid: int) -> bool:
         """Fix 42v: does this preg_replace call carry a whitelist
