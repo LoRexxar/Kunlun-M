@@ -3572,6 +3572,17 @@ class GraphAnalyzer:
                                 self._in_defchain_fallback = False
                                 self._defchain_outer_use = _saved_outer
                             if sub_r is not None and sub_r.is_controllable:
+                                # Fix 42w: field-store kill — a sanitized
+                                # per-field store (e.g. $b['val'] =
+                                # preg_replace(...)) between this candidate
+                                # def and the sink use means the sink reads
+                                # the NEW field value, not the candidate's
+                                # old container taint. The store lhs is
+                                # taint=safe (enrich_taint) and its line
+                                # sits strictly between cand and sink.
+                                if self._defchain_field_store_killed(
+                                        cand, start_vid, u_name):
+                                    continue
                                 return self._cached(cache_key, AnalysisResult(
                                     code=1,
                                     reason=f"def-chain '{u_name}' → {sub_r.reason}",
@@ -3579,6 +3590,9 @@ class GraphAnalyzer:
                                     path=sub_r.path,
                                     expr_lineno=sub_r.expr_lineno))
                         if r is not None and r.is_controllable:
+                            if self._defchain_field_store_killed(
+                                    cand, start_vid, u_name):
+                                continue
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"def-chain '{u_name}' → {r.reason}",
@@ -4352,6 +4366,64 @@ class GraphAnalyzer:
                         and _vattr(t, "name", "") == other):
                     return True
         return False
+
+    def _defchain_field_store_killed(self, cand_vid: int, sink_vid: int,
+                                     var_name: str) -> bool:
+        """Fix 42w: detect a sanitized per-field store (``$b['val'] =
+        preg_replace(...)``) on *var_name* whose line sits strictly between
+        the def-chain candidate def and the sink use.
+
+        The store's LHS identifier node carries taint_type='safe' (set by
+        enrich_taint's safe-callee reassign marking) and is the direct DFG
+        source of the sink's container variable. When such a store exists,
+        the sink reads the NEW (sanitized) field value — the candidate's
+        old container taint is dead. Used to suppress the def-chain fallback
+        re-introducing taint that a field-sensitive store already killed.
+        """
+        try:
+            sink_line = int(_vattr(self.graph.vs[sink_vid], "lineno", 0) or 0)
+            cand_line = int(_vattr(self.graph.vs[cand_vid], "lineno", 0) or 0)
+            if sink_line <= 0 or cand_line <= 0 or cand_line >= sink_line:
+                return False
+            # Same function scope requirement — mirror the def-chain guards
+            _cf = self._get_enclosing_func_vid(cand_vid)
+            _sf = self._get_enclosing_func_vid(sink_vid)
+            if _cf is not None and _sf is not None and _cf != _sf:
+                return False
+            # Candidate must be a container def the sink's container reads
+            # through: walk same-name identifier nodes with a safe-taint
+            # lhs whose line is strictly between cand and sink lines.
+            for snv in self._nname.get(
+                    (NodeLabel.IDENTIFIER.value, var_name), []):
+                if snv == cand_vid or snv == sink_vid:
+                    continue
+                snv_line = int(_vattr(self.graph.vs[snv], "lineno", 0) or 0)
+                # Fix 42w: allow snv_line == cand_line — the store-RHS old-value
+                # USE node (e.g. vid19 $b inside preg_replace(..., $b['val']))
+                # sits on the SAME line as the store lhs. Its taint is exactly
+                # what the store kills; a candidate at that line is the old
+                # value, not a live def reaching the sink.
+                if not (cand_line <= snv_line < sink_line):
+                    continue
+                if _vattr(self.graph.vs[snv], "taint_type", "") != "safe":
+                    continue
+                # The safe node must be the LHS of an assignment whose LHS
+                # form is a field/element store (e.g. '$b[val]'), not a
+                # whole-variable reassign (that case is handled by the
+                # plain SSA kill in the def-chain itself).
+                for pe in self.graph.es.select(_target=snv, label="ast"):
+                    pv = self.graph.vs[pe.source]
+                    if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                            and _vattr(pv, "type", "") in ("assign", "aug_assign")
+                            and _vattr(pe, "role", "") == "lhs"):
+                        # '$b[val]' style name marks an element store;
+                        # whole-var assigns normalize name to '$b' exactly.
+                        if _vattr(pv, "name", "") != var_name:
+                            return True
+                        break
+            return False
+        except Exception:
+            return False
 
     def _trace_dfg_direct(self, start_vid: int, max_depth: int = 20,
                           file_path: str = "") -> AnalysisResult | None:
