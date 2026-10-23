@@ -491,7 +491,7 @@ class GraphAnalyzer:
             try:
                 has_arg = any(
                     _vattr(e, "role") == "arg"
-                    for e in self.graph.es.select(_source=ct_vid, label="ast")
+                    for e in self._edge_out(ct_vid, "ast")
                 )
             except KeyError:
                 has_arg = False
@@ -517,7 +517,7 @@ class GraphAnalyzer:
                     _vattr(v, "raw_type") == "MemberExpression" and
                     v.index not in callee_with_args and
                     not any(_vattr(e, "role") == "arg"
-                            for e in self.graph.es.select(_source=v.index, label="ast"))):
+                            for e in self._edge_out(v.index, "ast"))):
                 continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
@@ -610,7 +610,7 @@ class GraphAnalyzer:
             if not matched_name:
                 # Path B: qualified fullname match via use-edge function node.
                 # This is the ONLY path for bare method_call/static_call.
-                for ue in self.graph.es.select(_source=v.index, label="use"):
+                for ue in self._edge_out(v.index, "use"):
                     tgt = self.graph.vs[ue.target]
                     if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                         continue
@@ -712,7 +712,7 @@ class GraphAnalyzer:
                                   or "").strip("'\"").lower()
                         _vids = _name_to_vids.get(_cn, [_cvid])
                         for _vid2 in _vids:
-                            for e in self.graph.es.select(_source=_vid2, label="own"):
+                            for e in self._edge_out(_vid2, "own"):
                                 tv = self.graph.vs[e.target]
                                 if _vattr(tv, "label", "") != NodeLabel.FUNCTION.value:
                                     continue
@@ -743,11 +743,11 @@ class GraphAnalyzer:
                         "type": _vattr(v, "type", ""),
                     }
                     _arg_vids = [
-                        e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                        e.target for e in self._edge_out(v.index, "ast")
                         if _vattr(e, "role") == "arg"
                     ]
                     if not _arg_vids:
-                        for de in self.graph.es.select(_target=v.index, label="dfg"):
+                        for de in self._edge_in(v.index, "dfg"):
                             if _vattr(self.graph.vs[de.source], "label", "") == NodeLabel.OPERATOR.value:
                                 continue
                             _arg_vids.append(de.source)
@@ -772,7 +772,7 @@ class GraphAnalyzer:
 
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "arg"
             ]
             # Only collect DFG sources if there are NO AST arg children.
@@ -781,7 +781,7 @@ class GraphAnalyzer:
             # creating false positive taint chains. BFS from AST args will
             # correctly encounter the safe call node.
             if not arg_vids:
-                for de in self.graph.es.select(_target=v.index, label="dfg"):
+                for de in self._edge_in(v.index, "dfg"):
                     src = de.source
                     if src in arg_vids:
                         continue
@@ -827,7 +827,7 @@ class GraphAnalyzer:
                 continue
             # Collect argument vid via ast[role=arg] edge
             arg_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "arg"
             ]
             results.append({
@@ -852,7 +852,7 @@ class GraphAnalyzer:
                 continue
             # 查找 LHS 边
             lhs_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "lhs"
             ]
             lhs_name = None
@@ -875,7 +875,7 @@ class GraphAnalyzer:
                 elif lhs_label == "operator":
                     # LHS 是 operator（如 document.getElementById().innerHTML）
                     # 检查其 ast 子节点中是否有 identifier/property 匹配 sink
-                    for ce in self.graph.es.select(_source=lhs_vid, label="ast"):
+                    for ce in self._edge_out(lhs_vid, "ast"):
                         child = self.graph.vs[ce.target]
                         cl = _vattr(child, "label", "")
                         cn = _vattr(child, "name", "")
@@ -891,7 +891,7 @@ class GraphAnalyzer:
                 continue
             # 查找 RHS 边作为 arg_vids（被赋值的表达式）
             rhs_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "rhs"
             ]
             results.append({
@@ -950,7 +950,7 @@ class GraphAnalyzer:
                         })
                         for func_vid in class_to_funcs.get(parent_vid, []):
                             has_mapping = False
-                            for fe in self.graph.es.select(_source=func_vid, label='own'):
+                            for fe in self._edge_out(func_vid, "own"):
                                 cn = _vattr(self.graph.vs[fe.target], 'name', '')
                                 cl = _vattr(self.graph.vs[fe.target], 'label', '')
                                 if cl == NodeLabel.ANNOTATION.value and cn in _http_mapping_annos:
@@ -969,12 +969,12 @@ class GraphAnalyzer:
                     # 只处理有 function-return scope own 边的 return 节点
                     has_func_scope = any(
                         _vattr(e, 'scope') == 'function-return' and _vattr(self.graph.vs[e.source], 'label') == NodeLabel.FUNCTION.value
-                        for e in self.graph.es.select(_target=vid, label='own')
+                        for e in self._edge_in(vid, "own")
                     )
                     if not has_func_scope:
                         continue
                     ret_arg_vids = [
-                        e.target for e in self.graph.es.select(_source=v.index, label='ast')
+                        e.target for e in self._edge_out(v.index, "ast")
                         if _vattr(e, 'role') == 'value'
                     ]
                     results.append({
@@ -1008,7 +1008,7 @@ class GraphAnalyzer:
         # 浏览器不会将 JSON 解析为 HTML，XSS 不成立。
         # 只有当方法显式声明 text/html Content-Type 时才 unsafe。
         is_json_ct = True
-        for fe in self.graph.es.select(_source=func_vid, label='own'):
+        for fe in self._edge_out(func_vid, "own"):
             child_name = _vattr(self.graph.vs[fe.target], 'name', '')
             for html_pat in ('TEXT_HTML_VALUE', 'text/html', '"text/html"'):
                 if html_pat in child_name:
@@ -1017,7 +1017,7 @@ class GraphAnalyzer:
             if not is_json_ct:
                 break
 
-        for fe in self.graph.es.select(_source=func_vid, label='own'):
+        for fe in self._edge_out(func_vid, "own"):
             if _vattr(fe, 'scope') != 'function-return':
                 continue
             ret_vid = fe.target
@@ -1025,7 +1025,7 @@ class GraphAnalyzer:
             if ret_label != NodeLabel.RETURN.value:
                 continue
             ret_arg_vids = [
-                e.target for e in self.graph.es.select(_source=ret_vid, label='ast')
+                e.target for e in self._edge_out(ret_vid, "ast")
                 if _vattr(e, 'role') == 'value'
             ]
             results.append({
@@ -1059,7 +1059,7 @@ class GraphAnalyzer:
             return False
         # owning call: ast parent that is a call node
         call_vid = None
-        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+        for pe in self._edge_in(arg_vid, "ast"):
             pv = self.graph.vs[pe.source]
             if _vattr(pv, "type", "") in ("call", "method_call", "static_call"):
                 call_vid = pe.source
@@ -1236,7 +1236,7 @@ class GraphAnalyzer:
                 # scanner typically enters parameters_back at the sink's
                 # ARG node — find an XML-parse call this node feeds as an
                 # ast argument (api.php:29 enters at '$_POST[data]').
-                for pe in self.graph.es.select(_target=start_vid, label="ast"):
+                for pe in self._edge_in(start_vid, "ast"):
                     if _vattr(pe, "role", "") != "arg":
                         continue
                     pv = self.graph.vs[pe.source]
@@ -1305,7 +1305,7 @@ class GraphAnalyzer:
                                     "vid": _se.target, "code": -1}],
                             path=list(r1.path),
                             expr_lineno=_vattr(_sv, "lineno", 0))
-            for _me in self.graph.es.select(_source=start_vid, label="member"):
+            for _me in self._edge_out(start_vid, "member"):
                 if self._ctor_property_whitelist_guard(_me.target):
                     return AnalysisResult(
                         code=-1,
@@ -1315,7 +1315,7 @@ class GraphAnalyzer:
                                 "vid": _me.target, "code": -1}],
                         path=list(r1.path),
                         expr_lineno=_vattr(_sv, "lineno", 0))
-            for _pe in self.graph.es.select(_target=start_vid, label="ast"):
+            for _pe in self._edge_in(start_vid, "ast"):
                 if _vattr(_pe, "role", "") != "arg":
                     continue
                 _pv = self.graph.vs[_pe.source]
@@ -1373,7 +1373,7 @@ class GraphAnalyzer:
     def _ast_children_role(self, vid: int, role: str) -> list[int]:
         """Ast out-edges of vid with the given role."""
         out = []
-        for e in self.graph.es.select(_source=vid, label="ast"):
+        for e in self._edge_out(vid, "ast"):
             if (e["role"] or "") == role:
                 out.append(e.target)
         return out
@@ -1391,12 +1391,12 @@ class GraphAnalyzer:
             if (v["label"] == NodeLabel.IDENTIFIER.value
                     and _vattr(v, "name", "") == prop_name
                     and _vattr(v, "type", "") == "property"):
-                for e in self.graph.es.select(_target=vid, label="member"):
+                for e in self._edge_in(vid, "member"):
                     src = self.graph.vs[e.source]
                     if (_vattr(src, "label", "") == NodeLabel.IDENTIFIER.value
                             and _vattr(src, "name", "") == sg_name):
                         return True
-            for e in self.graph.es.select(_source=vid, label="ast"):
+            for e in self._edge_out(vid, "ast"):
                 stack.append((e.target, depth + 1))
         return False
 
@@ -1421,7 +1421,7 @@ class GraphAnalyzer:
             prop_name = _vattr(pv, "name", "")
             # superglobal owner of this property read
             sg_name = None
-            for e in self.graph.es.select(_target=pvid, label="member"):
+            for e in self._edge_in(pvid, "member"):
                 src = self.graph.vs[e.source]
                 n = _vattr(src, "name", "")
                 if n.startswith("$") and n.upper() in (
@@ -1435,7 +1435,7 @@ class GraphAnalyzer:
             cur = pvid
             assign_vid = None
             for _ in range(8):
-                ups = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+                ups = [e.source for e in self._edge_in(cur, "ast")]
                 if not ups:
                     break
                 cur = ups[0]
@@ -1447,7 +1447,7 @@ class GraphAnalyzer:
             if assign_vid is None:
                 continue
             guarded = False
-            for own_src in self.graph.es.select(_target=assign_vid, label="own"):
+            for own_src in self._edge_in(assign_vid, "own"):
                 bv = self.graph.vs[own_src.source]
                 if _vattr(bv, "label", "") != NodeLabel.BRANCH.value:
                     continue
@@ -1471,7 +1471,7 @@ class GraphAnalyzer:
                                         break
                             if guarded:
                                 break
-                        for e in self.graph.es.select(_source=cvid, label="ast"):
+                        for e in self._edge_out(cvid, "ast"):
                             stack.append((e.target, depth + 1))
                     if guarded:
                         break
@@ -1607,7 +1607,7 @@ class GraphAnalyzer:
         if (_vattr(sv, "label") == NodeLabel.OPERATOR.value and
                 _vattr(sv, "type", "") in _CALL_TYPES):
             start_lang = _vattr(sv, "language", "")
-            for ue in self.graph.es.select(_source=start_vid, label="use"):
+            for ue in self._edge_out(start_vid, "use"):
                 tgt = self.graph.vs[ue.target]
                 if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                     continue
@@ -1743,7 +1743,7 @@ class GraphAnalyzer:
             # interpolated variables (e.g. userInput → dfg → "User: #{userInput}").
             # Continue BFS through these incoming DFG edges instead of returning constant.
             has_dfg_in = False
-            for e in self.graph.es.select(_target=start_vid, label="dfg"):
+            for e in self._edge_in(start_vid, "dfg"):
                 has_dfg_in = True
                 break
             if not has_dfg_in:
@@ -1778,7 +1778,7 @@ class GraphAnalyzer:
             cur_member = start_vid
             chain_names_start: list[str] = [sname]
             for _ in range(10):
-                member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                member_edges = list(self._edge_in(cur_member, "member"))
                 if not member_edges:
                     break
                 obj_vid = member_edges[0].source
@@ -1892,6 +1892,15 @@ class GraphAnalyzer:
                 _r42 = self._cross_file_property_source(start_vid, sname)
                 if _r42 is not None:
                     return self._cached(cache_key, _r42)
+                # Fix 43: stored-XSS DB table bridge.  Property reads on
+                # DB row objects ($h->nama where $h came from
+                # db->get('t')->result()) trace to nothing (the DB is
+                # outside the graph).  Bridge to db->insert('t', $data)
+                # sites whose data array has the SAME key stored from a
+                # superglobal.
+                _r43 = self._db_table_bridge_source(start_vid, sname)
+                if _r43 is not None:
+                    return self._cached(cache_key, _r43)
 
         if _vattr(sv, "label") == NodeLabel.OPERATOR.value \
                 and _vattr(sv, "type") in _CALL_TYPES:
@@ -1970,7 +1979,7 @@ class GraphAnalyzer:
             cur_member = start_vid
             chain_names_pre: list[str] = [sname]
             for _ in range(10):
-                member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                member_edges = list(self._edge_in(cur_member, "member"))
                 if not member_edges:
                     break
                 obj_vid = member_edges[0].source
@@ -2044,6 +2053,22 @@ class GraphAnalyzer:
                     cur_member = obj_vid
                 else:
                     break
+
+        # ── Fix 43j: CI view bridge, EARLY (pre-BFS) ──────────────────
+        # Same predicate as the exhausted-tail bridge (Fix 43c) but fired
+        # BEFORE the 50-hop BFS: a view-file variable with no DFG in-edge
+        # can only resolve through the loader bridge, and running the full
+        # BFS first costs O(sinks × 50 hops) for a guaranteed dead end.
+        if self.language == "php":
+            _sfp0 = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+            if (_sfp0 and "/views/" in _sfp0.replace("\\", "/")
+                    and _vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
+                    and _vattr(sv, "type", "") == "variable"
+                    and not self._get_dfg_sources(start_vid)
+                    and not getattr(self, "_in_view_bridge", False)):
+                _v43j = self._ci_view_bridge_source(start_vid, _vattr(sv, "name", ""))
+                if _v43j is not None and _v43j.code == 1:
+                    return self._cached(cache_key, _v43j)
 
         # Pre-compute branch chain for the sink arg (start_vid).
         # Branch constraints protect the sink location, not intermediate
@@ -2603,14 +2628,14 @@ class GraphAnalyzer:
                                 _is_safe_call = True
                             else:
                                 # Check func_summary_type via use edge
-                                for _ue in self.graph.es.select(_source=up_vid, label="use"):
+                                for _ue in self._edge_out(up_vid, "use"):
                                     _fvid = _ue.target
                                     if _fvid < self.graph.vcount():
                                         _fv = self.graph.vs[_fvid]
                                         if _vattr(_fv, "func_summary_type", "") == "safe":
                                             _is_safe_call = True
                                             break
-                    for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                    for ae in self._edge_out(up_vid, "ast"):
                         # If this call's callee is a known safe function (sanitizer),
                         # skip all AST children — the return value is not tainted.
                         if _is_safe_call:
@@ -2749,7 +2774,7 @@ class GraphAnalyzer:
                     # stripinput() that wraps htmlspecialchars) that were
                     # marked safe by build_function_summaries.
                     call_lang = _vattr(self.graph.vs[up_vid], "language", "")
-                    for ue in self.graph.es.select(_source=up_vid, label="use"):
+                    for ue in self._edge_out(up_vid, "use"):
                         tgt = self.graph.vs[ue.target]
                         if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                             continue
@@ -2815,7 +2840,7 @@ class GraphAnalyzer:
                         if node_taint == "source:user":
                             # Find function def via use edge
                             func_def_vid = None
-                            for ue in self.graph.es.select(_source=up_vid, label="use"):
+                            for ue in self._edge_out(up_vid, "use"):
                                 if _vattr(self.graph.vs[ue.target], "label") == NodeLabel.FUNCTION.value:
                                     func_def_vid = ue.target
                                     break
@@ -2839,7 +2864,7 @@ class GraphAnalyzer:
 
                     # Count actual args at the call site for overload resolution.
                     call_arg_count = 0
-                    for _ae in self.graph.es.select(_source=up_vid, label="ast"):
+                    for _ae in self._edge_out(up_vid, "ast"):
                         if _vattr(_ae, "role", "") == "arg":
                             call_arg_count += 1
 
@@ -2853,7 +2878,7 @@ class GraphAnalyzer:
                     # can miss safe/passthrough annotations on the real def.
                     # Also resolve overloads: prefer function defs whose
                     # parameter count matches the call site.
-                    use_targets = list(self.graph.es.select(_source=up_vid, label="use"))
+                    use_targets = list(self._edge_out(up_vid, "use"))
                     # Partition: matching param count vs non-matching
                     matching_arity = []
                     other = []
@@ -2863,7 +2888,7 @@ class GraphAnalyzer:
                             continue
                         # Count function def parameters
                         param_count = sum(
-                            1 for pe in self.graph.es.select(_source=ce.target, label="own")
+                            1 for pe in self._edge_out(ce.target, "own")
                             if _vattr(self.graph.vs[pe.target], "label", "") == "parameter"
                         )
                         if param_count == call_arg_count:
@@ -2887,7 +2912,7 @@ class GraphAnalyzer:
                     # alias edges to find the real function definition that
                     # does (e.g. placeholder node → alias → Core_Upgrader.upgrade).
                     if not func_taint and func_vid is not None:
-                        for ae in self.graph.es.select(_source=func_vid, label="alias"):
+                        for ae in self._edge_out(func_vid, "alias"):
                             av = self.graph.vs[ae.target]
                             if _vattr(av, "label") == NodeLabel.FUNCTION.value:
                                 at = _vattr(av, "taint_type", "")
@@ -2969,7 +2994,7 @@ class GraphAnalyzer:
                         # 映射到 call 的实参
                         if pt_param_indices:
                             arg_counter = 0
-                            for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                            for ae in self._edge_out(up_vid, "ast"):
                                 if _vattr(ae, "role") != "arg":
                                     continue
                                 idx = _vattr(ae, "index")
@@ -3027,7 +3052,7 @@ class GraphAnalyzer:
                     if (utype in ("method_call", "static_call")
                             and self._source_registry is not None):
                         _callee_vid = None
-                        for _ae in self.graph.es.select(_source=up_vid, label="ast"):
+                        for _ae in self._edge_out(up_vid, "ast"):
                             if _vattr(_ae, "role") == "callee":
                                 _callee_vid = _ae.target
                                 break
@@ -3192,9 +3217,9 @@ class GraphAnalyzer:
                         # different resolved_names), don't trust it as known
                         # — the real callee might be different.
                         if _known and callee:
-                            for ue in self.graph.es.select(_source=up_vid, label="use"):
+                            for ue in self._edge_out(up_vid, "use"):
                                 _an = set()
-                                for ae in self.graph.es.select(_source=ue.target, label="alias"):
+                                for ae in self._edge_out(ue.target, "alias"):
                                     rn = _vattr(ae, "resolved_name", "")
                                     if rn and " " not in rn:
                                         _an.add(rn)
@@ -3283,7 +3308,7 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.IDENTIFIER.value and _vattr(uv, "type") in ("field", "property"):
                     cur_member = up_vid
                     for _ in range(10):
-                        member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                        member_edges = list(self._edge_in(cur_member, "member"))
                         if not member_edges:
                             break
                         obj_vid = member_edges[0].source
@@ -3335,8 +3360,40 @@ class GraphAnalyzer:
                                 expr_lineno=_vattr(obj_v, "lineno", 0)))
                         if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
                             cur_member = obj_vid
-                        else:
-                            break
+                            continue
+                        # Fix 43b: stored-XSS DB bridge from the BFS path —
+                        # the member walk dead-ended at a non-superglobal
+                        # object (e.g. foreach row var $h in $h->nama).
+                        # Try the db->insert/db->get table bridge; guards
+                        # inside _db_table_bridge_source (same-function
+                        # foreach sibling, same-file insert data var,
+                        # same-key superglobal write) provide precision.
+                        if self.language == "php" and depth < max_depth - 1:
+                            _p43 = self._db_table_bridge_source(
+                                cur_member,
+                                _vattr(self.graph.vs[cur_member], "name", ""))
+                            if _p43 is not None and _p43.code == 1:
+                                _p43.path = new_path + (_p43.path or [])
+                                return self._cached(cache_key, _p43)
+                        break
+
+        start_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        # ── Fix 43c: CodeIgniter view bridge (stored/echo XSS final hop) ──
+        # View files (e.g. views/contact/bg_home.php) receive their variables
+        # through $this->load->view('contact/bg_home', $d) — no DFG crosses
+        # that boundary, so `echo $data_retrieve` in the view dead-ends even
+        # when the controller stored a tainted value at $d['data_retrieve'].
+        # When the start node is a view-file variable with no DFG in-edge,
+        # locate the loader call whose view name matches this file and pb()
+        # the same-key array write in the controller.
+        if (self.language == "php" and start_fp
+                and _vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
+                and _vattr(sv, "type", "") == "variable"
+                and not self._get_dfg_sources(start_vid)
+                and not getattr(self, "_in_view_bridge", False)):
+            _v43c = self._ci_view_bridge_source(start_vid, _vattr(sv, "name", ""))
+            if _v43c is not None and _v43c.code == 1:
+                return self._cached(cache_key, _v43c)
 
         # Before returning Inconclusive, try "same-name variable def-chaining":
         # SSA-like graphs create separate identifier nodes per assignment.
@@ -3346,7 +3403,6 @@ class GraphAnalyzer:
         # Fix: collect all identifier names in visited, find same-name
         # identifier nodes in the same file not in visited, and recursively
         # check if they lead to a controllable source.
-        start_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
         # Fix 42l: PHP foreach use-points have NO dfg in-edge (the graph
         # only links the foreach-header def site), so the BFS exhausts at
         # depth 0 (visited == {start}) and never reaches the def-chain
@@ -3457,7 +3513,7 @@ class GraphAnalyzer:
                                     and _vattr(snv_v, "type", "") == "assign"):
                                 assign_vid = snv
                             else:
-                                for pe in self.graph.es.select(_target=snv, label="ast"):
+                                for pe in self._edge_in(snv, "ast"):
                                     pv = self.graph.vs[pe.source]
                                     if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
                                             and _vattr(pv, "type", "") == "assign"
@@ -3474,7 +3530,7 @@ class GraphAnalyzer:
                                 if not stack:
                                     break
                                 cur = stack.pop()
-                                for ce in self.graph.es.select(_source=cur, label="ast"):
+                                for ce in self._edge_out(cur, "ast"):
                                     if _vattr(ce, "role", "") == "lhs":
                                         continue
                                     if ce.target in seen_s:
@@ -3626,10 +3682,10 @@ class GraphAnalyzer:
         """
         # 策略 1: 检查是否有 DFG receiver 边指向 call（forward_slice，且 source 不是 callee 的参数）
         callee_arg_vids: set[int] = set()
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") == "arg":
                 callee_arg_vids.add(ae.target)
-        for e in self.graph.es.select(_target=call_vid, label="dfg"):
+        for e in self._edge_in(call_vid, "dfg"):
             source_vid = e.source
             if source_vid in callee_arg_vids:
                 continue  # source 是 call 的实参，不是 receiver
@@ -3651,7 +3707,7 @@ class GraphAnalyzer:
 
         # 策略 2: 沿 callee member chain 回溯到 root identifier（JS/Go）
         callee_vid = None
-        for e in self.graph.es.select(_source=call_vid, label="ast"):
+        for e in self._edge_out(call_vid, "ast"):
             if _vattr(e, "role") == "callee":
                 callee_vid = e.target
                 break
@@ -3713,7 +3769,7 @@ class GraphAnalyzer:
         visited: set[int] = {current}
         while True:
             found = False
-            for e in self.graph.es.select(_target=current, label="member"):
+            for e in self._edge_in(current, "member"):
                 source = e.source
                 if source in visited:
                     continue
@@ -3769,33 +3825,33 @@ class GraphAnalyzer:
         v = self.graph.vs[read_vid]
         if _vattr(v, "type", "") != "method_call":
             return []
-        base_ids = [e.source for e in self.graph.es.select(_target=read_vid, label="member")
+        base_ids = [e.source for e in self._edge_in(read_vid, "member")
                     if (_vattr(self.graph.vs[e.source], "name", "") or "") == "this"]
         if not base_ids:
             return []
-        for e in self.graph.es.select(_target=read_vid, label="ast"):
+        for e in self._edge_in(read_vid, "ast"):
             if _vattr(e, "role", "") == "lhs":
                 return []
-        decl_vids = [e.target for e in self.graph.es.select(_source=read_vid, label="use")
+        decl_vids = [e.target for e in self._edge_out(read_vid, "use")
                      if _vattr(self.graph.vs[e.target], "label", "") == NodeLabel.FUNCTION.value
                      and not int(_vattr(self.graph.vs[e.target], "lineno", 0) or 0)]
         if not decl_vids:
             return []
         decl = decl_vids[0]
         results: list[tuple[int, int]] = []
-        for e in self.graph.es.select(_target=decl, label="use"):
+        for e in self._edge_in(decl, "use"):
             w = e.source
             wv = self.graph.vs[w]
             if _vattr(wv, "type", "") != "method_call":
                 continue
-            for ae in self.graph.es.select(_target=w, label="ast"):
+            for ae in self._edge_in(w, "ast"):
                 if _vattr(ae, "role", "") != "lhs":
                     continue
                 assign_vid = ae.source
-                for re_ in self.graph.es.select(_source=assign_vid, label="ast"):
+                for re_ in self._edge_out(assign_vid, "ast"):
                     if _vattr(re_, "role", "") == "rhs":
                         wfunc = None
-                        for oe in self.graph.es.select(_target=assign_vid, label="own"):
+                        for oe in self._edge_in(assign_vid, "own"):
                             pn = self.graph.vs[oe.source]
                             if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
                                 wfunc = oe.source
@@ -3828,19 +3884,19 @@ class GraphAnalyzer:
                         pidx = i
                     break
             _call_sites: list[int] = []
-            for ce in self.graph.es.select(_target=writer_func_vid, label="cg"):
+            for ce in self._edge_in(writer_func_vid, "cg"):
                 call_vid = ce.source
                 if _vattr(self.graph.vs[call_vid], "label", "") == NodeLabel.OPERATOR.value:
                     _call_sites.append(call_vid)
             if not _call_sites:
                 # Fix 37a-2b: constructor call sites may connect via use
                 # edges (new T references the constructor def) instead of cg.
-                for ue in self.graph.es.select(_target=writer_func_vid, label="use"):
+                for ue in self._edge_in(writer_func_vid, "use"):
                     call_vid = ue.source
                     if _vattr(self.graph.vs[call_vid], "label", "") == NodeLabel.OPERATOR.value:
                         _call_sites.append(call_vid)
             for call_vid in _call_sites:
-                for ae in self.graph.es.select(_source=call_vid, label="ast"):
+                for ae in self._edge_out(call_vid, "ast"):
                     if _vattr(ae, "role", "") != "arg":
                         continue
                     aidx = _vattr(ae, "index", None)
@@ -3900,12 +3956,12 @@ class GraphAnalyzer:
             if wf and read_file and wf != read_file:
                 continue
             wfunc = None
-            for oe in self.graph.es.select(_target=w, label="own"):
+            for oe in self._edge_in(w, "own"):
                 pn = self.graph.vs[oe.source]
                 if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
                     wfunc = oe.source
                     break
-            for de in self.graph.es.select(_target=w, label="dfg"):
+            for de in self._edge_in(w, "dfg"):
                 av = self.graph.vs[de.source]
                 if _vattr(av, "label", "") == NodeLabel.CONST.value:
                     continue
@@ -3927,6 +3983,7 @@ class GraphAnalyzer:
            If return depends on a caller variable → code='deps'.
         """
         call_v = self.graph.vs[call_vid]
+        depth_guard_43g: set[str] = set()
 
         # Formal params: own children with label=parameter
         param_vids = self._find_own_children(func_vid, child_label=NodeLabel.PARAMETER.value)
@@ -3939,7 +3996,7 @@ class GraphAnalyzer:
         # Actual args: ast edges with role=arg from the call operator
         actual_args: dict[int, int] = {}
         arg_counter = 0
-        for e in self.graph.es.select(_source=call_vid, label="ast"):
+        for e in self._edge_out(call_vid, "ast"):
             if _vattr(e, "role") == "arg":
                 idx = _vattr(e, "index")
                 actual_args[int(idx) if idx else arg_counter] = e.target
@@ -3971,7 +4028,7 @@ class GraphAnalyzer:
             rv = self.graph.vs[ret_vid]
             # Find return expression via ast[role=value/rhs] or dfg backward
             expr_vid: int | None = None
-            for e in self.graph.es.select(_source=ret_vid, label="ast"):
+            for e in self._edge_out(ret_vid, "ast"):
                 if _vattr(e, "role") in ("value", "rhs"):
                     expr_vid = e.target
                     break
@@ -4005,7 +4062,7 @@ class GraphAnalyzer:
                 # sub-branch directly — any controllable arm makes the
                 # return controllable.
                 if _vattr(ev, "label") == NodeLabel.BRANCH.value or _vattr(ev, "type") in ("ternary", "if"):
-                    for be in self.graph.es.select(_source=expr_vid, label="ast"):
+                    for be in self._edge_out(expr_vid, "ast"):
                         if _vattr(be, "role") not in ("iftrue", "iffalse", "value"):
                             continue
                         arm = self.parameters_back(be.target, context_vid=func_vid, max_depth=20)
@@ -4015,6 +4072,39 @@ class GraphAnalyzer:
                 return sub
             if sub.has_deps:
                 caller_deps.extend(sub.deps)
+
+            # Fix 43g: SSA break fallback — `return $x` where the return's
+            # $x node has no dfg in-edge (foreach-built values link their
+            # aug_assign rhs subtrees, not the return use-site).  Retry via
+            # every same-name variable's assign/aug_assign RHS inside this
+            # function; the rhs subtree is where stored-XSS table bridges
+            # and view bridges fire.  (CVI-115534: generate_index_contact
+            # returns $hasil but only the L867 concat rhs carries taint.)
+            if ename and ename not in depth_guard_43g:
+                depth_guard_43g.add(ename)
+                fn_fp = _vattr(self.graph.vs[func_vid], "file_path", "") or ""
+                fn_ln0 = _vattr(self.graph.vs[func_vid], "lineno", 0)
+                for sib in self._nname.get(("identifier", ename), []):
+                    svv = self.graph.vs[sib]
+                    if (_vattr(svv, "file_path", "") or "") != fn_fp:
+                        continue
+                    _ln = _vattr(svv, "lineno", 0) or 0
+                    if _ln < (fn_ln0 or 0):
+                        continue
+                    for le in self._edge_in(sib, "ast"):
+                        if _vattr(le, "role", "") != "lhs":
+                            continue
+                        av = self.graph.vs[le.source]
+                        if _vattr(av, "type", "") not in ("assign", "aug_assign"):
+                            continue
+                        for re_ in self._edge_out(le.source, "ast"):
+                            if _vattr(re_, "role", "") != "rhs":
+                                continue
+                            r43g = self.parameters_back(re_.target, context_vid=func_vid, max_depth=20)
+                            if r43g is not None and r43g.is_controllable:
+                                r43g.reason = (f"return '{ename}' ← same-name "
+                                               f"assign rhs: {r43g.reason}")
+                                return r43g
 
         if controllable_indices:
             return AnalysisResult(code=1, reason="Return depends on controllable params",
@@ -4099,7 +4189,7 @@ class GraphAnalyzer:
             if cur_vid == sink_vid:
                 results.append({"path": path, "length": len(path), "decisions": []})
                 continue
-            for e in self.graph.es.select(_source=cur_vid, label="dfg"):
+            for e in self._edge_out(cur_vid, "dfg"):
                 tgt = e.target
                 if tgt not in visited:
                     visited.add(tgt)
@@ -4107,6 +4197,29 @@ class GraphAnalyzer:
         return results
 
     # --- Internal helpers -------------------------------------------------
+
+    # ── Fix 43i: O(deg) adjacency index (built lazily once) ──────────
+    # igraph's es.select(_source=X, label=L) scans ALL edges — O(E) per
+    # query.  The stored-XSS bridges (Fix 43) fire hundreds of such
+    # queries per sink, turning a 5-minute scan into 80+ minutes.  Build
+    # outgoing/incoming maps keyed by (label, vid) ONCE and reuse.
+    def _edge_out(self, vid: int, label: str):
+        idx = getattr(self, "_adj_out", None)
+        if idx is None:
+            idx = {}
+            for _e in self.graph.es:
+                idx.setdefault((_e["label"], _e.source), []).append(_e)
+            self._adj_out = idx
+        return idx.get((label, vid), ())
+
+    def _edge_in(self, vid: int, label: str):
+        idx = getattr(self, "_adj_in", None)
+        if idx is None:
+            idx = {}
+            for _e in self.graph.es:
+                idx.setdefault((_e["label"], _e.target), []).append(_e)
+            self._adj_in = idx
+        return idx.get((label, vid), ())
 
     def _cached(self, key, result: AnalysisResult) -> AnalysisResult:
         # Fix 20b: when a pinned concat was traversed on the way to a CTRL
@@ -4177,7 +4290,7 @@ class GraphAnalyzer:
             # must be a WRITE: has an assign parent via ast[lhs]
             is_write = False
             rhs_vid = None
-            for e in self.graph.es.select(_target=cand, label="ast"):
+            for e in self._edge_in(cand, "ast"):
                 if _vattr(e, "role") != "lhs":
                     continue
                 op = self.graph.vs[e.source]
@@ -4241,6 +4354,480 @@ class GraphAnalyzer:
                     expr_lineno=_vattr(sv, "lineno", 0))
         return None
 
+    # ── Fix 43: stored-XSS DB table bridge ──────────────────────────────
+    #
+    # Graph reality: stored-XSS splits source and sink across a database.
+    #   WRITE: contact.php kirim() { $in['nama'] = $_POST['nama'];
+    #                                 $this->db->insert('dlmbg_contact', $in); }
+    #   READ:  app_global_admin_model.php generate_index_contact() {
+    #                                 $w = $this->db->get('dlmbg_contact',...);
+    #                                 foreach ($w->result() as $h)
+    #                                     $hasil .= "<td>".$h->nama."</td>"; }
+    # The DB is outside the taint graph, so $h->nama traces to code=3
+    # exhausted.  Bridge: when a property read's base variable derives
+    # from db->get('t') (same-table literal), search the graph for
+    # db->insert('t', $data) calls and check whether $data (or its
+    # same-name key write, e.g. $in['nama'] = $_POST['nama']) holds a
+    # superglobal-sourced value.
+    #
+    # Precision guards (all must hold):
+    #   H1. reader base derives from a db->get/query/get_where whose table
+    #       literal matches the writer db->insert table literal exactly
+    #   H2. writer insert's data argument contains the SAME key name as the
+    #       read property (nama == nama) sourced from a superglobal —
+    #       either directly ($in['nama'] = $_POST['nama']) or via a
+    #       bounded subtree scan of the array-variable's writes
+    #   H3. both sites are inside functions/methods (not top-level noise)
+    #   H4. the reported reason names both ends for auditability
+    def _ci_view_bridge_source(self, var_vid: int, var_name: str):
+        """Fix 43c: CodeIgniter load->view boundary bridge.
+        var_vid is a variable node inside a view file with no DFG in-edge.
+        Find loader calls `load->view('<name>', $arr)` whose <name> matches
+        the view file, then array-key writes `$arr[<var_name minus $>] =
+        <rhs>` in the same controller function, and pb() the rhs."""
+        _ck = ("_view_bridge", var_vid)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        # Fix 43h: recursion brake — bridging a view var whose controller
+        # value is ITSELF a bridged view var (multi-view controller methods)
+        # cascades bridge-in-bridge chains. Cap active bridge depth at 2.
+        _d = getattr(self, "_view_bridge_depth", 0)
+        if _d >= 2:
+            return None
+        self._view_bridge_depth = _d + 1
+        try:
+            _r = self._ci_view_bridge_source_uncached(var_vid, var_name)
+        finally:
+            self._view_bridge_depth = _d
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _ci_view_bridge_source_uncached(self, var_vid: int, var_name: str):
+        if not var_name or not var_name.startswith("$"):
+            return None
+        key = var_name[1:]
+        sv = self.graph.vs[var_vid]
+        view_fp = _vattr(sv, "file_path", "") or ""
+        if not view_fp or "/views/" not in view_fp.replace("\\", "/"):
+            return None
+        # view name candidates from the file path:
+        # .../views/contact/bg_home.php → {'contact/bg_home', 'bg_home'}
+        rel = view_fp.replace("\\", "/").split("/views/")[-1]
+        if rel.endswith(".php"):
+            rel = rel[:-4]
+        rel_short = rel.rsplit("/", 1)[-1]
+        # Fix 43h: precomputed loader index (built once per analyzer)
+        if getattr(self, "_view_loader_index", None) is None:
+            idx: dict[str, list[tuple[int, str]]] = {}
+            for lvv2 in self._nname.get(("operator", "view"), []):
+                vv2 = self.graph.vs[lvv2]
+                if _vattr(vv2, "type", "") != "method_call":
+                    continue
+                lfp2 = _vattr(vv2, "file_path", "") or ""
+                if not lfp2 or "/views/" in lfp2.replace("\\", "/"):
+                    continue
+                _a2 = [e2.target for e2 in self._edge_out(lvv2, "ast")
+                       if _vattr(e2, "role") == "arg"]
+                if not _a2:
+                    continue
+                _n2 = str(_vattr(self.graph.vs[_a2[0]], "name", "")).strip("'\"")
+                if _n2:
+                    idx.setdefault(_n2, []).append((lvv2, lfp2))
+            self._view_loader_index = idx
+        # candidate loaders: exact rel match + bare-name matches filtered
+        # by module dir below (Fix 43f)
+        cand_loaders = list(self._view_loader_index.get(rel, []))
+        for _bn, _lst in self._view_loader_index.items():
+            if "/" not in _bn and _bn == rel_short:
+                cand_loaders.extend(_lst)
+        for lv, lfp in cand_loaders:
+            lvv = self.graph.vs[lv]
+            if lfp == view_fp:
+                continue
+            args = [e.target for e in self._edge_out(lv, "ast")
+                    if _vattr(e, "role") == "arg"]
+            if not args:
+                continue
+            a0 = self.graph.vs[args[0]]
+            vname = str(_vattr(a0, "name", "")).strip("'\"")
+            if vname != rel and vname.rsplit("/", 1)[-1] == rel_short:
+                # bare-name loader ('bg_input') hits view files in ANY
+                # module's views dir — require the loader's module dir to
+                # match the view file's module dir (Fix 43f).
+                _vm = view_fp.replace("\\", "/").split("/views/")[0].rsplit("/", 1)[-1]
+                _lm = lfp.replace("\\", "/").split("/modules/")[-1].split("/")[0] \
+                    if "/modules/" in lfp.replace("\\", "/") else _vm
+                if _vm != _lm:
+                    continue
+                vname = rel
+            if vname != rel and vname != rel_short:
+                # qualified loader name must equal the full relative path
+                if "/" in vname:
+                    continue
+                vname = rel
+            # data array arg: $d (or $data).  The graph often omits the
+            # second loader arg (only the view-name const survives), so
+            # when absent fall back to ANY array variable in the loader's
+            # enclosing function that stores this key.
+            data_arr = None
+            if len(args) >= 2:
+                dv = self.graph.vs[args[1]]
+                if _vattr(dv, "type", "") == "variable":
+                    data_arr = _vattr(dv, "name", "")
+            # same enclosing function: array-key writes $data_arr[key]=rhs
+            _lf = self._get_enclosing_function_name(lv)
+            for kv in self._nname.get(("identifier", key), []):
+                kvv = self.graph.vs[kv]
+                kfp = _vattr(kvv, "file_path", "") or ""
+                if kfp != lfp:
+                    continue
+                if _lf and self._get_enclosing_function_name(kv) not in ("", _lf):
+                    continue
+                for me in self._edge_in(kv, "member"):
+                    arr_v = self.graph.vs[me.source]
+                    if data_arr and _vattr(arr_v, "name", "") != data_arr:
+                        continue
+                    # the stored value: array var's dfg in-edge source.
+                    # For a method_call value (e.g. generate_index_contact()),
+                    # pb() traces the CALL ARGS, not the return — use the
+                    # function-return analyzer for those (Fix 43e).
+                    for de in self._edge_in(me.source, "dfg"):
+                        _dvv = self.graph.vs[de.source]
+                        if _vattr(_dvv, "type", "") in ("method_call", "static_call", "call"):
+                            sub = None
+                            _fn = self._resolve_callee_name(de.source) or ""
+                            for _fv2 in self._nname.get(("function", _fn.rsplit(".", 1)[-1]), []):
+                                sub = self.analyze_function_return(de.source, _fv2)
+                                if sub is not None:
+                                    break
+                            if sub is None:
+                                # callee unresolved in graph — fall back to pb
+                                sub = self.parameters_back(de.source, context_vid=kv)
+                        else:
+                            sub = self.parameters_back(de.source, context_vid=kv)
+                        if sub is not None and sub.code == 1:
+                            sub.reason = (f"CI view bridge '{vname}' key "
+                                          f"'{key}' → {sub.reason}")
+                            sub.path = [var_vid] + (sub.path or [])
+                            return sub
+        return None
+
+    def _db_table_bridge_source(self, start_vid: int, prop_name: str):
+        _ck = ("_db_bridge", start_vid, prop_name)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        _r = self._db_table_bridge_source_uncached(start_vid, prop_name)
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _db_table_bridge_source_uncached(self, start_vid: int, prop_name: str):
+        if not prop_name:
+            return None
+        sv = self.graph.vs[start_vid]
+        # Base variable: member in-edge chain start_vid <- base (e.g. $h)
+        base_vid = None
+        for e in self._edge_in(start_vid, "member"):
+            bv = self.graph.vs[e.source]
+            if _vattr(bv, "type", "") == "variable":
+                base_vid = e.source
+                break
+        if base_vid is None:
+            return None
+        # The use-site SSA node ($h@L867) may have no dfg in-edge while the
+        # foreach VALUE node ($h@L865, dfg <- result()) does.  Try the base
+        # itself first, then same-name SSA siblings in the same file whose
+        # dfg in-edge comes from a result() call (the foreach value site) —
+        # this keeps the table lookup anchored to the same loop instead of
+        # grabbing an unrelated same-name get() elsewhere in the file.
+        base_name = _vattr(self.graph.vs[base_vid], "name", "")
+        base_fp = _vattr(self.graph.vs[base_vid], "file_path", "") or ""
+        cand_bases = [base_vid]
+        if base_name and base_fp:
+            for sib in self._nname.get(("identifier", base_name), []):
+                if sib == base_vid:
+                    continue
+                svv = self.graph.vs[sib]
+                if _vattr(svv, "type", "") != "variable":
+                    continue
+                if (_vattr(svv, "file_path", "") or "") != base_fp:
+                    continue
+                # same enclosing function as the read site — the same
+                # file hosts ~26 generate_index_* helpers each with its
+                # own $h loop; only the read site's own function counts
+                _bf = self._get_enclosing_function_name(base_vid)
+                if _bf:
+                    _sf = self._get_enclosing_function_name(sib)
+                    if _sf and _sf != _bf:
+                        continue
+                is_foreach_value = False
+                for de in self._edge_in(sib, "dfg"):
+                    dv = self.graph.vs[de.source]
+                    if _vattr(dv, "label", "") == NodeLabel.OPERATOR.value \
+                            and _vattr(dv, "type", "") == "method_call" \
+                            and (self._resolve_callee_name(de.source) or "").rsplit(".", 1)[-1] == "result":
+                        is_foreach_value = True
+                        break
+                if is_foreach_value:
+                    cand_bases.insert(0, sib)  # foreach-value site wins
+        # Collect every candidate table reachable from the base's SSA
+        # siblings (same-name foreach values) and try each — the first
+        # sibling with a table might be an unrelated loop in the same
+        # file (dlmbg_ruang's raw-SQL get); only a table whose insert
+        # actually superglobal-stores THIS key counts.
+        table_lits = []
+        seen_tl = set()
+        for cb in cand_bases:
+            tl = self._base_table_literal(cb)
+            if tl:
+                tl = tl.strip("'\"")
+                if tl not in seen_tl:
+                    seen_tl.add(tl)
+                    table_lits.append(tl)
+        if not table_lits:
+            return None
+        # Find db->insert('<same table>', $data) call sites.
+        for table_lit in table_lits:
+            for cand in self._nname.get(("operator", "insert"), []):
+                    cv = self.graph.vs[cand]
+                    if _vattr(cv, "type", "") not in ("method_call",):
+                        continue
+                    # receiver chain must end with 'db' (this->db->insert)
+                    recv_ok = False
+                    for re_ in self._edge_out(cand, "ast"):
+                        if _vattr(re_, "role") == "callee":
+                            callee_v = self.graph.vs[re_.target]
+                            if _vattr(callee_v, "type", "") in ("field", "property") \
+                                    and _vattr(callee_v, "name", "") == "insert":
+                                recv_ok = True
+                            break
+                    if not recv_ok:
+                        continue
+                    # arg0 must be the same table literal
+                    args = [e_.target for e_ in self._edge_out(cand, "ast")
+                            if _vattr(e_, "role") == "arg"]
+                    if not args:
+                        continue
+                    arg0 = self.graph.vs[args[0]]
+                    if _vattr(arg0, "label", "") != NodeLabel.CONST.value:
+                        continue
+                    cand_table = str(_vattr(arg0, "name", "")).strip("'\"")
+                    if cand_table != table_lit:
+                        continue
+                    # H2: data argument holds a superglobal-sourced write at the
+                    # same key (prop_name).  arg1 is typically a variable ($in):
+                    # look for same-name array-key writes $in[<prop_name>] whose
+                    # value subtree hits a superglobal.
+                    if len(args) < 2:
+                        continue
+                    data_v = self.graph.vs[args[1]]
+                    dname = _vattr(data_v, "name", "")
+                    if not dname or _vattr(data_v, "type", "") != "variable":
+                        continue
+                    for kv in self._nname.get(("identifier", prop_name), []):
+                        kvv = self.graph.vs[kv]
+                        if _vattr(kvv, "type", "") != "const_key" and _vattr(kvv, "label", "") != "identifier":
+                            continue
+                        # array-key write $dname[<prop>] = RHS : the key node's
+                        # enclosing assign must reference the data variable
+                        hit = self._array_key_write_hits_superglobal(kv, dname, _vattr(data_v, "file_path", "") or "")
+                        if hit:
+                            return AnalysisResult(
+                                code=1,
+                                reason=(f"stored-XSS DB bridge table '{table_lit}' "
+                                        f"key '{prop_name}' → superglobal '{hit}' "
+                                        f"(db->insert write, db->get read)"),
+                                chain=[{"step": "db_bridge", "vid": cand,
+                                        "name": f"{table_lit}.{prop_name}", "code": 1}],
+                                path=[start_vid, cand],
+                                expr_lineno=_vattr(sv, "lineno", 0))
+        return None
+
+    def _base_table_literal(self, base_vid: int):
+        """base_vid (e.g. $h) derives from db->get('t')…->result() —
+        the foreach value variable often has NO dfg in-edge, so walk a
+        wider neighbourhood: dfg in-edges, plus same-function variables
+        feeding a ->result() call whose receiver reaches db->get('t').
+        Returns the table literal name or None."""
+        visited = {base_vid}
+        frontier = [base_vid]
+        for _ in range(10):
+            nxt = []
+            for fv in frontier:
+                # dfg in-edges
+                for e in self._edge_in(fv, "dfg"):
+                    if e.source in visited:
+                        continue
+                    visited.add(e.source)
+                    src = self.graph.vs[e.source]
+                    if _vattr(src, "label", "") == NodeLabel.OPERATOR.value \
+                            and _vattr(src, "type", "") == "method_call":
+                        callee = self._resolve_callee_name(e.source)
+                        if callee == "result":
+                            # result()'s receiver var — continue from it
+                            for me in self._edge_in(e.source, "dfg"):
+                                if me.source not in visited:
+                                    nxt.append(me.source)
+                            continue
+                        if callee in ("get", "get_where", "query"):
+                            args = [x.target for x in self.graph.es.select(
+                                _source=e.source, label="ast")
+                                if _vattr(x, "role") == "arg"]
+                            if args:
+                                a0 = self.graph.vs[args[0]]
+                                nm = _vattr(a0, "name", "")
+                                if nm and _vattr(a0, "label", "") == NodeLabel.CONST.value:
+                                    return nm
+                    nxt.append(e.source)
+                # member in-edges (property reads on this base, e.g.
+                # $w->result() links result call to $w) — skip, handled
+                # via the result() receiver above
+            frontier = list(set(nxt))
+            if not frontier:
+                break
+        # foreach-value fallback: base has no dfg in-edge but a sibling
+        # variable in the same function assigns from db->get('t') and the
+        # foreach source is <sibling>->result().  Find method_call 'result'
+        # nodes in the same file, walk recv → SSA var → assign(lhs)→rhs
+        # method_call, and accept db-qualified callees ('db.get').
+        base_fp = _vattr(self.graph.vs[base_vid], "file_path", "") or ""
+        if not base_fp:
+            return None
+        _DB_READERS = ("get", "get_where", "query")
+
+        def _is_db_read(callee_name):
+            if not callee_name:
+                return False
+            bare = callee_name.rsplit(".", 1)[-1].rsplit("::", 1)[-1]
+            return bare in _DB_READERS
+
+        for rv in self._nname.get(("operator", "result"), []):
+            rvv = self.graph.vs[rv]
+            if _vattr(rvv, "type", "") != "method_call":
+                continue
+            rfp = _vattr(rvv, "file_path", "") or ""
+            if rfp != base_fp:
+                continue
+            # scope to the same enclosing function as the property read
+            # (same file hosts many generate_index_* helpers; without
+            # this the first sibling match wins and picks the wrong
+            # table — dlmbg_user instead of dlmbg_contact)
+            _base_fn = self._get_enclosing_function_name(base_vid) \
+                if hasattr(self, "_get_enclosing_function_name") else None
+            if _base_fn:
+                _rv_fn = self._get_enclosing_function_name(rv)
+                if _rv_fn and _rv_fn != _base_fn:
+                    continue
+            # receiver variables of result(): dfg in-edge sources
+            recv_vars = [e.source for e in self._edge_in(rv, "dfg")
+                         if _vattr(self.graph.vs[e.source], "type", "") == "variable"]
+            # BFS from receivers through: dfg in-edges (SSA chain) and
+            # assign(lhs)→rhs edges, bounded
+            seen = set(recv_vars)
+            frontier = list(recv_vars)
+            for _ in range(6):
+                nxt = []
+                for fv in frontier:
+                    # assign(lhs)→rhs: fv is an assign lhs whose rhs is a
+                    # db read call with a const table arg
+                    for le in self._edge_in(fv, "ast"):
+                        if _vattr(le, "role") != "lhs":
+                            continue
+                        av = self.graph.vs[le.source]
+                        if _vattr(av, "type", "") != "assign":
+                            continue
+                        for re_ in self._edge_out(le.source, "ast"):
+                            if _vattr(re_, "role") != "rhs":
+                                continue
+                            rhs_v = self.graph.vs[re_.target]
+                            if _vattr(rhs_v, "label", "") == NodeLabel.OPERATOR.value \
+                                    and _vattr(rhs_v, "type", "") == "method_call" \
+                                    and _is_db_read(self._resolve_callee_name(re_.target)):
+                                args = [x.target for x in self.graph.es.select(
+                                    _source=re_.target, label="ast")
+                                    if _vattr(x, "role") == "arg"]
+                                if args:
+                                    a0 = self.graph.vs[args[0]]
+                                    nm = _vattr(a0, "name", "")
+                                    if nm and _vattr(a0, "label", "") == NodeLabel.CONST.value:
+                                        return nm
+                    # SSA chain: continue through dfg in-edges
+                    for de in self._edge_in(fv, "dfg"):
+                        if de.source not in seen:
+                            seen.add(de.source)
+                            nxt.append(de.source)
+                frontier = nxt
+        return None
+
+    def _array_key_write_hits_superglobal(self, key_vid: int, arr_name: str, scope_fp: str = "") -> str:
+        """key_vid is an identifier node used as an array key.  Find the
+        enclosing assign whose lhs contains this key AND the array
+        variable arr_name; return the superglobal hit from the RHS.
+        Fallback: array keys often have NO ast parent (they attach via
+        member edges to the array variable).  In that case the array
+        variable's dfg in-edge sources ARE the stored values — scan
+        those subtrees for a superglobal read, but only accept a hit
+        whose key name matches key_vid's name (dlmbg_user.nama stores
+        $_POST['nama'] but so does dlmbg_contact — the key gate lives
+        in the caller; here we just confirm a superglobal flows into
+        the array through this key's member site)."""
+        key_name = _vattr(self.graph.vs[key_vid], "name", "")
+        # Path A: key has an ast parent assign (direct lhs/rhs shapes).
+        # Guard: skip self-reference (the $_POST['nama'] key node IS the
+        # ast-rhs child of the $in['nama'] assign — rhs == key_vid is the
+        # value side, not a stored-array key), and require the assign to
+        # live in the same file as the db->insert data arg.
+        for pe in self._edge_in(key_vid, "ast"):
+            pv = self.graph.vs[pe.source]
+            if _vattr(pv, "label", "") != NodeLabel.OPERATOR.value:
+                continue
+            ptype = _vattr(pv, "type", "")
+            if ptype not in ("assign", "binary_op"):
+                continue
+            if scope_fp and (_vattr(pv, "file_path", "") or "") != scope_fp:
+                continue
+            # lhs side must reference arr_name variable, rhs checked for superglobal
+            lhs_has_arr = False
+            rhs_vid = None
+            for ce in self._edge_out(pe.source, "ast"):
+                role = _vattr(ce, "role", "")
+                if role == "lhs":
+                    cv = self.graph.vs[ce.target]
+                    if _vattr(cv, "name", "") == arr_name:
+                        lhs_has_arr = True
+                elif role == "rhs":
+                    rhs_vid = ce.target
+            if lhs_has_arr and rhs_vid is not None and rhs_vid != key_vid:
+                hit = self._store_value_hits_superglobal(rhs_vid)
+                if hit:
+                    return hit
+        # Path B: key attaches via member edge to the array variable.
+        # The array variable's dfg in-edge source is the stored value
+        # node (e.g. $_POST['nama'] key node feeding $in).  Require the
+        # stored node's own key/name to match key_name so cross-key
+        # stores don't false-bridge.
+        if key_name:
+            for me in self._edge_in(key_vid, "member"):
+                arr_v = self.graph.vs[me.source]
+                if _vattr(arr_v, "name", "") != arr_name:
+                    continue
+                # Fix 43 precision: the array variable must live in the same
+                # file as the db->insert data arg ($in is a common name --
+                # contact.php's $in is unrelated to data_status.php's $in)
+                if scope_fp and (_vattr(arr_v, "file_path", "") or "") != scope_fp:
+                    continue
+                for de in self._edge_in(me.source, "dfg"):
+                    dv = self.graph.vs[de.source]
+                    dn = _vattr(dv, "name", "")
+                    if _vattr(dv, "type", "") in ("field", "property") and dn == key_name:
+                        # this stored value IS <superglobal>[key_name]:
+                        # its member in-edge source must be a superglobal
+                        for se in self._edge_in(de.source, "member"):
+                            sgv = self.graph.vs[se.source]
+                            sgn = _vattr(sgv, "name", "")
+                            if sgn and sgn in _SUPERGLOBALS:
+                                return sgn
+        return ""
+
     def _store_value_hits_superglobal(self, rhs_vid: int,
                                       max_depth: int = 14) -> str:
         """Subtree scan: does the AST subtree at rhs_vid read any known
@@ -4260,12 +4847,12 @@ class GraphAnalyzer:
             if nm and nm in _SUPERGLOBALS:
                 return nm
             # member in-edge: $sg --member--> prop/node reads $sg[...]
-            for e in self.graph.es.select(_target=vid, label="member"):
+            for e in self._edge_in(vid, "member"):
                 src = self.graph.vs[e.source]
                 snm = _vattr(src, "name", "")
                 if snm and snm in _SUPERGLOBALS:
                     return snm
-            for e in self.graph.es.select(_source=vid, label="ast"):
+            for e in self._edge_out(vid, "ast"):
                 stack.append((e.target, depth + 1))
         return ""
 
@@ -4289,20 +4876,41 @@ class GraphAnalyzer:
             if c2_fp != rfp:
                 continue
             # cand2 must be an assign lhs
-            for e in self.graph.es.select(_target=cand2, label="ast"):
+            for e in self._edge_in(cand2, "ast"):
                 if _vattr(e, "role") != "lhs":
                     continue
                 op = self.graph.vs[e.source]
                 if (_vattr(op, "label", "") != NodeLabel.OPERATOR.value
                         or _vattr(op, "type", "") != OperatorType.ASSIGN.value):
                     continue
-                for re_ in self.graph.es.select(_source=e.source, label="ast"):
+                for re_ in self._edge_out(e.source, "ast"):
                     if _vattr(re_, "role") == "rhs":
                         hit = self._store_value_hits_superglobal(re_.target)
                         if hit:
                             return hit
                         break
                 break
+        return ""
+
+    def _get_enclosing_function_name(self, vid: int) -> str:
+        """Nearest FUNCTION ancestor name (climb ast to the own chain, then
+        own parents to the first function/method node)."""
+        cur = vid
+        for _ in range(24):
+            if list(self._edge_in(cur, "own")):
+                break
+            ast_sel = list(self._edge_in(cur, "ast"))
+            if not ast_sel:
+                return ""
+            cur = ast_sel[0].source
+        for _ in range(16):
+            own_sel = list(self._edge_in(cur, "own"))
+            if not own_sel:
+                return ""
+            parent = self.graph.vs[own_sel[0].source]
+            if _vattr(parent, "label", "") == NodeLabel.FUNCTION.value:
+                return _vattr(parent, "name", "") or ""
+            cur = own_sel[0].source
         return ""
 
     def _get_enclosing_class_name(self, vid: int) -> str:
@@ -4315,15 +4923,15 @@ class GraphAnalyzer:
         # in-edge.  Property reads (ast/rhs of an assign) reach the assign
         # operator, whose own parent is the enclosing statement/branch.
         for _ in range(8):
-            if list(self.graph.es.select(_target=cur, label="own")):
+            if list(self._edge_in(cur, "own")):
                 break
-            ast_sel = list(self.graph.es.select(_target=cur, label="ast"))
+            ast_sel = list(self._edge_in(cur, "ast"))
             if not ast_sel:
                 return ""
             cur = ast_sel[0].source
         # Phase 2: walk own parents upward; return the first CLASS name.
         for _ in range(12):
-            own_sel = list(self.graph.es.select(_target=cur, label="own"))
+            own_sel = list(self._edge_in(cur, "own"))
             if not own_sel:
                 return ""
             parent = self.graph.vs[own_sel[0].source]
@@ -4334,6 +4942,9 @@ class GraphAnalyzer:
 
     def _file_class_names(self, file_path: str) -> set[str]:
         """Class names declared in a file (via class-node file_path attr)."""
+        _ck = ("_fcls", file_path)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
         out: set[str] = set()
         if not file_path:
             return out
@@ -4341,6 +4952,7 @@ class GraphAnalyzer:
             fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
             if fp == file_path and v["name"]:
                 out.add(v["name"])
+        self._decision_cache[_ck] = out
         return out
 
     def _classes_inherit(self, cls_a: str, cls_b: str) -> bool:
@@ -4411,7 +5023,7 @@ class GraphAnalyzer:
                 # form is a field/element store (e.g. '$b[val]'), not a
                 # whole-variable reassign (that case is handled by the
                 # plain SSA kill in the def-chain itself).
-                for pe in self.graph.es.select(_target=snv, label="ast"):
+                for pe in self._edge_in(snv, "ast"):
                     pv = self.graph.vs[pe.source]
                     if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
                             and _vattr(pv, "type", "") in ("assign", "aug_assign")
@@ -4514,7 +5126,7 @@ class GraphAnalyzer:
                                 path=[start_vid, up_vid],
                                 expr_lineno=_vattr(uv, "lineno", 0))
                     # Also check member edges for source objects (e.g., $_REQUEST → member → 'ip')
-                    for me in self.graph.es.select(_target=up_vid, label="member"):
+                    for me in self._edge_in(up_vid, "member"):
                         obj_vid = me.source
                         obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
                         if self._is_source_variable(obj_name):
@@ -4560,7 +5172,7 @@ class GraphAnalyzer:
 
         Returns the annotation name if found safe, else None.
         """
-        for e in self.graph.es.select(_source=param_vid, label="own"):
+        for e in self._edge_out(param_vid, "own"):
             tgt = self.graph.vs[e.target]
             if _vattr(tgt, "label") == "annotation":
                 ann_name = _vattr(tgt, "name", "")
@@ -4595,7 +5207,7 @@ class GraphAnalyzer:
         if jtype in _NON_INJECTABLE_TYPES:
             return False
 
-        for e in self.graph.es.select(_source=param_vid, label="own"):
+        for e in self._edge_out(param_vid, "own"):
             tgt = self.graph.vs[e.target]
             if _vattr(tgt, "label") == "annotation":
                 ann_name = _vattr(tgt, "name", "").lstrip("@")
@@ -4724,7 +5336,7 @@ class GraphAnalyzer:
         """
         if not self.graph:
             return False
-        for e in self.graph.es.select(_target=vid, label="member"):
+        for e in self._edge_in(vid, "member"):
             at = e["access_type"] if "access_type" in e.attribute_names() else ""
             if at != "array_offset":
                 continue
@@ -4741,7 +5353,7 @@ class GraphAnalyzer:
         cur_vid = vid
         chain_names = []
         for _ in range(10):
-            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            member_in = list(self._edge_in(cur_vid, "member"))
             if not member_in:
                 break
             parent_vid = member_in[0].source
@@ -4784,7 +5396,7 @@ class GraphAnalyzer:
             non_source_set = _FILES_NON_SOURCE_MEMBERS
         else:
             return False
-        for e in self.graph.es.select(_source=sg_vid, label="member"):
+        for e in self._edge_out(sg_vid, "member"):
             child_name = _vattr(self.graph.vs[e.target], "name", "")
             if child_name and child_name not in non_source_set:
                 return False
@@ -4862,7 +5474,7 @@ class GraphAnalyzer:
                 # with the matching key, plus a blacklist const arg.
                 has_member = False
                 has_blacklist_const = False
-                for ae in self.graph.es.select(_source=sv, label="ast"):
+                for ae in self._edge_out(sv, "ast"):
                     child = self.graph.vs[ae.target]
                     child_label = _vattr(child, "label", "")
                     if child_label == NodeLabel.IDENTIFIER.value:
@@ -4893,7 +5505,7 @@ class GraphAnalyzer:
                 if has_member and has_blacklist_const:
                     probe_found = True
                     break
-            for e in self.graph.es.select(_source=sv, label="ast"):
+            for e in self._edge_out(sv, "ast"):
                 stack.append(e.target)
 
         if not probe_found:
@@ -4914,7 +5526,7 @@ class GraphAnalyzer:
                         and _vattr(bv_node, "type", "") in _CALL_TYPES
                         and _vattr(bv_node, "name", "") in ("die", "exit")):
                     return True
-                for e in self.graph.es.select(_source=bv, label="ast"):
+                for e in self._edge_out(bv, "ast"):
                     body_stack.append(e.target)
                 # own edges cover nested blocks
                 for e in self.graph.es.select(_source=bv, label=EdgeLabel.OWN.value):
@@ -4961,7 +5573,7 @@ class GraphAnalyzer:
         """
         cur = vid
         for _ in range(15):  # max AST depth
-            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [e.source for e in self._edge_in(cur, "ast")]
             if not parents:
                 break
             for p_vid in parents:
@@ -5040,7 +5652,7 @@ class GraphAnalyzer:
         # Method 1: AST parent chain
         cur = vid
         for _ in range(20):
-            parents = [(e.source, _vattr(e, "role", "")) for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [(e.source, _vattr(e, "role", "")) for e in self._edge_in(cur, "ast")]
             if not parents:
                 break
             for p_vid, edge_role in parents:
@@ -5088,7 +5700,7 @@ class GraphAnalyzer:
         if _vattr(cv, "taint_type", "") == "safe":
             return True
         # 3. func_summary_type via use edge
-        for ue in self.graph.es.select(_source=call_vid, label="use"):
+        for ue in self._edge_out(call_vid, "use"):
             fvid = ue.target
             if fvid < self.graph.vcount():
                 fv = self.graph.vs[fvid]
@@ -5105,7 +5717,7 @@ class GraphAnalyzer:
         """
         callback_vid = None
         arg_counter = 0
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") != "arg":
                 continue
             # index attr is '' on most graphs (probe 25); positional
@@ -5153,7 +5765,7 @@ class GraphAnalyzer:
         """
         cur = call_vid
         for _ in range(max_up):
-            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [e.source for e in self._edge_in(cur, "ast")]
             if not parents:
                 return False
             for p_vid in parents:
@@ -5186,7 +5798,7 @@ class GraphAnalyzer:
         function call return, etc.) — membership then proves nothing.
         """
         candidates = []
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role", "") == "arg":
                 candidates.append(ae.target)
         if len(candidates) < 2:
@@ -5216,7 +5828,7 @@ class GraphAnalyzer:
                 if fv in seen:
                     continue
                 seen.add(fv)
-                for de in self.graph.es.select(_target=fv, label="dfg"):
+                for de in self._edge_in(fv, "dfg"):
                     sv = de.source
                     svv = self.graph.vs[sv]
                     if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
@@ -5256,9 +5868,9 @@ class GraphAnalyzer:
             if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(svv, "type", "") in _CALL_TYPES):
                 calls.append(sv)
-            for ee in self.graph.es.select(_source=sv, label="own"):
+            for ee in self._edge_out(sv, "own"):
                 stack.append(ee.target)
-            for ee in self.graph.es.select(_source=sv, label="ast"):
+            for ee in self._edge_out(sv, "ast"):
                 stack.append(ee.target)
         if not calls:
             # Source-level goto fallback: the PHP graph builder drops
@@ -5296,7 +5908,7 @@ class GraphAnalyzer:
             # one-level callee expansion: does control return past the
             # callee's end?  "Not" iff the callee's LAST top-level
             # statement is a bare die/exit call.
-            for ue in self.graph.es.select(_source=cv, label="use"):
+            for ue in self._edge_out(cv, "use"):
                 # Bug A fix: wrap int index in Vertex — b15 trace showed
                 # _vattr(int, "label") silently failing the FUNCTION check
                 fv = self.graph.vs[ue.target]
@@ -5304,7 +5916,7 @@ class GraphAnalyzer:
                     continue
                 last_top_stmt = None
                 top_stmts = []
-                for oe in self.graph.es.select(_source=fv, label="own"):
+                for oe in self._edge_out(fv, "own"):
                     top_stmts.append((int(_vattr(oe, "index", 0) or 0),
                                       oe.target))
                 if not top_stmts:
@@ -5351,9 +5963,9 @@ class GraphAnalyzer:
             if (_sv_attrs.get("label") == NodeLabel.OPERATOR.value
                     and _sv_attrs.get("type", "") == "continue"):
                 return True
-            for ee in self.graph.es.select(_source=sv, label="own"):
+            for ee in self._edge_out(sv, "own"):
                 stack2.append(ee.target)
-            for ee in self.graph.es.select(_source=sv, label="ast"):
+            for ee in self._edge_out(sv, "ast"):
                 stack2.append(ee.target)
         return False
 
@@ -5376,11 +5988,11 @@ class GraphAnalyzer:
         cur = sink_vid
         for _ in range(30):
             up = None
-            for e in self.graph.es.select(_target=cur, label="own"):
+            for e in self._edge_in(cur, "own"):
                 up = e.source
                 break
             if up is None:
-                for e in self.graph.es.select(_target=cur, label="ast"):
+                for e in self._edge_in(cur, "ast"):
                     up = e.source
                     break
             if up is None:
@@ -5393,7 +6005,7 @@ class GraphAnalyzer:
         if owner_vid is None:
             return False
         top_stmts = []
-        for oe in self.graph.es.select(_source=owner_vid, label="own"):
+        for oe in self._edge_out(owner_vid, "own"):
             top_stmts.append((int(_vattr(oe, "index", 0) or 0), oe.target))
         if not top_stmts:
             return False
@@ -5409,9 +6021,9 @@ class GraphAnalyzer:
                 seen.add(w)
                 if w == target:
                     return True
-                for ee in self.graph.es.select(_source=w, label="own"):
+                for ee in self._edge_out(w, "own"):
                     stack.append(ee.target)
-                for ee in self.graph.es.select(_source=w, label="ast"):
+                for ee in self._edge_out(w, "ast"):
                     stack.append(ee.target)
             return False
 
@@ -5473,7 +6085,7 @@ class GraphAnalyzer:
         if _vattr(sv, "type", "") not in ("field", "property"):
             return False
         obj_vid = None
-        for me in self.graph.es.select(_target=sink_vid, label="member"):
+        for me in self._edge_in(sink_vid, "member"):
             obj_vid = me.source
             break
         if obj_vid is None:
@@ -5489,20 +6101,20 @@ class GraphAnalyzer:
         # not the assign operator itself — climb to the ast parent and
         # verify the identifier is the assign's LHS child.
         def _assign_of_lhs(lhs_vid: int):
-            for pe in self.graph.es.select(_target=lhs_vid, label="ast"):
+            for pe in self._edge_in(lhs_vid, "ast"):
                 parent = pe.source
                 pv = self.graph.vs[parent]
                 if (_vattr(pv, "label") == NodeLabel.OPERATOR.value
                         and _vattr(pv, "type", "") == "assign"):
                     # confirm lhs role
-                    for le in self.graph.es.select(_source=parent, label="ast"):
+                    for le in self._edge_out(parent, "ast"):
                         if (_vattr(le, "role", "") == "lhs"
                                 and le.target == lhs_vid):
                             return parent
             return None
 
         ctor_fn = None
-        for de in self.graph.es.select(_target=obj_vid, label="dfg"):
+        for de in self._edge_in(obj_vid, "dfg"):
             src = de.source
             svv = self.graph.vs[src]
             assign_vid = None
@@ -5515,7 +6127,7 @@ class GraphAnalyzer:
                 continue
             src = assign_vid
             # RHS: new call with a linked ctor function
-            for re_ in self.graph.es.select(_source=src, label="ast"):
+            for re_ in self._edge_out(src, "ast"):
                 if _vattr(re_, "role", "") != "rhs":
                     continue
                 rhs_v = self.graph.vs[re_.target]
@@ -5556,7 +6168,7 @@ class GraphAnalyzer:
         if ctor_fn is None:
             return False
         # walk ctor body: find `$this->prop = ...` assign
-        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+        for oe in self._edge_out(ctor_fn, "own"):
             stack = [oe.target]
             seen = set()
             while stack:
@@ -5569,7 +6181,7 @@ class GraphAnalyzer:
                         and _vattr(wv, "type", "") == "assign"):
                     lhs_name = None
                     rhs_vid = None
-                    for ae in self.graph.es.select(_source=w, label="ast"):
+                    for ae in self._edge_out(w, "ast"):
                         if _vattr(ae, "role", "") == "lhs":
                             av = self.graph.vs[ae.target]
                             if _vattr(av, "type", "") in ("field", "property"):
@@ -5580,9 +6192,9 @@ class GraphAnalyzer:
                         if self._rhs_is_whitelist_ternary(rhs_vid):
                             return True
                         return False
-                for ce in self.graph.es.select(_source=w, label="ast"):
+                for ce in self._edge_out(w, "ast"):
                     stack.append(ce.target)
-                for ce in self.graph.es.select(_source=w, label="own"):
+                for ce in self._edge_out(w, "own"):
                     stack.append(ce.target)
         return False
 
@@ -5606,7 +6218,7 @@ class GraphAnalyzer:
             if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(wv, "type", "") in _CALL_TYPES):
                 calls.append(w)
-            for ee in self.graph.es.select(_source=w, label="ast"):
+            for ee in self._edge_out(w, "ast"):
                 stack.append(ee.target)
         for cv in calls:
             cname = _vattr(self.graph.vs[cv], "name", "")
@@ -5645,7 +6257,7 @@ class GraphAnalyzer:
         $this-><prop> through a whitelist ternary (Fix 21h-3b)."""
         new_vid = None
         arg_idx = None
-        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+        for pe in self._edge_in(arg_vid, "ast"):
             parent = pe.source
             if _vattr(self.graph.vs[parent], "type", "") != "new":
                 continue
@@ -5671,7 +6283,7 @@ class GraphAnalyzer:
             return False
         # param i of the ctor
         params = []
-        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+        for oe in self._edge_out(ctor_fn, "own"):
             pv_ = self.graph.vs[oe.target]
             if _vattr(pv_, "label", "") == NodeLabel.PARAMETER.value:
                 params.append(oe.target)
@@ -5685,7 +6297,7 @@ class GraphAnalyzer:
         # does the ctor store THIS param through a whitelist ternary?
         # walk the ctor body: find assigns whose RHS ternary contains a dfg
         # edge from param_vid and passes _rhs_is_whitelist_ternary.
-        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+        for oe in self._edge_out(ctor_fn, "own"):
             stack = [oe.target]
             seen = set()
             while stack:
@@ -5697,7 +6309,7 @@ class GraphAnalyzer:
                 if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
                         and _vattr(wv, "type", "") == "assign"):
                     rhs_vid = None
-                    for ae in self.graph.es.select(_source=w, label="ast"):
+                    for ae in self._edge_out(w, "ast"):
                         if _vattr(ae, "role", "") == "rhs":
                             rhs_vid = ae.target
                     if rhs_vid is not None:
@@ -5722,7 +6334,7 @@ class GraphAnalyzer:
                         if hits_param and self._rhs_is_whitelist_ternary(
                                 rhs_vid):
                             return True
-                for ce in self.graph.es.select(_source=w, label="ast"):
+                for ce in self._edge_out(w, "ast"):
                     stack.append(ce.target)
         return False
 
@@ -5747,7 +6359,7 @@ class GraphAnalyzer:
                 sv, "path", "")
 
             def _owning_setopt(vid):
-                for e in self.graph.es.select(_target=vid, label="ast"):
+                for e in self._edge_in(vid, "ast"):
                     pv = self.graph.vs[e.source]
                     if (_vattr(pv, "type", "") == "call"
                             and _vattr(pv, "name", "") == "curl_setopt"):
@@ -5949,7 +6561,7 @@ class GraphAnalyzer:
             return False
         # dim must reference var_name (member edge from base)
         dim_ok = False
-        for me in self.graph.es.select(_source=base_vid, label="member"):
+        for me in self._edge_out(base_vid, "member"):
             dv = self.graph.vs[me.target]
             dname = _vattr(dv, "name", "")
             if dname in (var_name, var_name.lstrip("$"),
@@ -5963,7 +6575,7 @@ class GraphAnalyzer:
             av = v.attributes()
             if (_vattr(v, "type", "") == "assign"
                     and _vattr(v, "name", "") == base_name):
-                for ae in self.graph.es.select(_source=v.index, label="ast"):
+                for ae in self._edge_out(v.index, "ast"):
                     if _vattr(ae, "role", "") != "rhs":
                         continue
                     rv = self.graph.vs[ae.target]
@@ -6007,11 +6619,11 @@ class GraphAnalyzer:
         cur = sink_vid
         for _ in range(30):
             up = None
-            for e in self.graph.es.select(_target=cur, label="own"):
+            for e in self._edge_in(cur, "own"):
                 up = e.source
                 break
             if up is None:
-                for e in self.graph.es.select(_target=cur, label="ast"):
+                for e in self._edge_in(cur, "ast"):
                     up = e.source
                     break
             if up is None:
@@ -6050,7 +6662,7 @@ class GraphAnalyzer:
             if (_vattr(cv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(cv, "type", "") == "binary_op"
                     and _vattr(cv, "name", "") in ("or", "||")):
-                for _oe in self.graph.es.select(_source=cond_vid, label="ast"):
+                for _oe in self._edge_out(cond_vid, "ast"):
                     if _vattr(_oe, "role", "") == "operand":
                         _ov = self.graph.vs[_oe.target]
                         if (_vattr(_ov, "label") == NodeLabel.OPERATOR.value
@@ -6064,7 +6676,7 @@ class GraphAnalyzer:
                 if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
                         or _vattr(cv, "type", "") != "unary_op"):
                     continue
-                for ce in self.graph.es.select(_source=cond_vid, label="ast"):
+                for ce in self._edge_out(cond_vid, "ast"):
                     if _vattr(ce, "role", "") == "operand":
                         _pred_calls.append(ce.target)
                         break
@@ -6130,7 +6742,7 @@ class GraphAnalyzer:
         nm = _vattr(v, "name", "") or ""
         if nm.startswith("$_"):
             return True
-        for e in self.graph.es.select(_source=vid, label="ast"):
+        for e in self._edge_out(vid, "ast"):
             if self._subtree_has_superglobal(e.target, depth + 1):
                 return True
         return False
@@ -6139,6 +6751,17 @@ class GraphAnalyzer:
         """Fix 28: every tainted operand of the echo output is wrapped in
         urlencode — the value charset cannot break out of an HTML
         attribute (no quote/angle/space chars), so this is not XSS."""
+        # Fix 43k-3: memoize on (sink_vid, path head) — the guard's result
+        # depends only on the graph and those inputs.
+        _pkey = tuple((r1.path or [])[:6]) if r1 is not None else ()
+        _ck = ("_uog", sink_vid, _pkey)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        _r = self._urlencoded_output_guard_uncached(sink_vid, r1)
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _urlencoded_output_guard_uncached(self, sink_vid: int, r1) -> str | None:
         # find the defining assign of the sink variable itself (or of any
         # def-chain variable in the reported path) whose RHS fully
         # encodes the superglobal-derived operands.
@@ -6214,7 +6837,7 @@ class GraphAnalyzer:
                 in self._URLENCODE_FUNCS):
             return True
         return any(self._rhs_tree_has_urlencode(e.target, depth + 1)
-                   for e in self.graph.es.select(_source=vid, label="ast"))
+                   for e in self._edge_out(vid, "ast"))
 
     def _rhs_leaves_all_encoded(self, vid: int, in_enc: bool = False,
                                 depth: int = 0) -> bool:
@@ -6269,6 +6892,16 @@ class GraphAnalyzer:
         'constraint' — the predicate pins var_name's value/content,
         'neutral'    — shape/existence check on var_name (no content claim),
         'disqualify' — unknown predicate; the guard proves nothing safe."""
+        _ck = ("_pqs", call_vid, var_name, bvid)
+        _hit = self._decision_cache.get(_ck, None)
+        if _hit is not None:
+            return _hit
+        _r = self._pred_qualifies_state_uncached(call_vid, var_name, bvid)
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _pred_qualifies_state_uncached(self, call_vid: int, var_name: str,
+                                       bvid: int) -> str:
         callee = _vattr(self.graph.vs[call_vid], "name", "")
         # neutral predicates must actually reference var_name to be
         # relevant; a neutral check on an unrelated variable neither
@@ -6318,7 +6951,7 @@ class GraphAnalyzer:
             prop_ok = False
             a0 = self.graph.vs[args[0]]
             if (_vattr(a0, "type", "") == "property"):
-                for me in self.graph.es.select(_target=args[0], label="member"):
+                for me in self._edge_in(args[0], "member"):
                     if _vattr(self.graph.vs[me.source], "name", "") == var_name:
                         prop_ok = True
                         break
@@ -6379,7 +7012,7 @@ class GraphAnalyzer:
         cur = op_vid
         for _ in range(20):
             left_vid = None
-            for e in self.graph.es.select(_source=cur, label="ast"):
+            for e in self._edge_out(cur, "ast"):
                 if _vattr(e, "role", "") == "left":
                     left_vid = e.target
                     break
@@ -6423,7 +7056,7 @@ class GraphAnalyzer:
         """
         cur = vid
         for _ in range(max_up):
-            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [e.source for e in self._edge_in(cur, "ast")]
             found_call = None
             for p_vid in parents:
                 pv = self.graph.vs[p_vid]
@@ -6447,7 +7080,7 @@ class GraphAnalyzer:
             if low == "header":
                 # header() is a redirect sink only for Location targets:
                 # first arg must reference a 'Location:'-style const.
-                for ae in self.graph.es.select(_source=found_call, label="ast"):
+                for ae in self._edge_out(found_call, "ast"):
                     if _vattr(ae, "role", "") != "arg":
                         continue
                     return self._const_in_subtree_starts_with(
@@ -6466,7 +7099,7 @@ class GraphAnalyzer:
         if _vattr(v, "label", "") == NodeLabel.CONST.value:
             nm = str(_vattr(v, "name", "") or "").strip("'\"").lower()
             return any(nm.startswith(p) for p in prefixes)
-        for e in self.graph.es.select(_source=root_vid, label="ast"):
+        for e in self._edge_out(root_vid, "ast"):
             if self._const_in_subtree_starts_with(e.target, prefixes, depth + 1):
                 return True
         return False
@@ -6485,7 +7118,7 @@ class GraphAnalyzer:
             return ""
         cur_vid = vid
         for _ in range(10):
-            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            member_in = list(self._edge_in(cur_vid, "member"))
             if not member_in:
                 break
             parent_vid = member_in[0].source
@@ -6519,7 +7152,7 @@ class GraphAnalyzer:
         chain = name
         cur_vid = vid
         for _ in range(10):  # 最多 10 级，防止循环
-            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            member_in = list(self._edge_in(cur_vid, "member"))
             if not member_in:
                 break
             parent_vid = member_in[0].source
@@ -6554,7 +7187,7 @@ class GraphAnalyzer:
         """Return the *constant* format-string value of call arg0, else None."""
         fmt = None
         arg_counter = 0
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") != "arg":
                 continue
             idx = _vattr(ae, "index")
@@ -6567,7 +7200,7 @@ class GraphAnalyzer:
             if label == "const":
                 fmt = _vattr(av, "name", "") or ""
             elif label == "operator":
-                for ce in self.graph.es.select(_source=ae.target, label="ast"):
+                for ce in self._edge_out(ae.target, "ast"):
                     cv = self.graph.vs[ce.target]
                     if _vattr(cv, "label", "") == "const":
                         fmt = _vattr(cv, "name", "") or ""
@@ -6578,13 +7211,13 @@ class GraphAnalyzer:
                 # site), take a second hop to reach the const — handles
                 # `$fmt = '%d'; printf($fmt, $x);` where the call arg is a
                 # *use site* and the const connects to the *definition*.
-                for de in self.graph.es.select(_target=ae.target, label="dfg"):
+                for de in self._edge_in(ae.target, "dfg"):
                     dv = self.graph.vs[de.source]
                     if _vattr(dv, "label", "") == "const":
                         fmt = _vattr(dv, "name", "") or ""
                         break
                     if _vattr(dv, "label", "") == "identifier":
-                        for de2 in self.graph.es.select(_target=dv.index, label="dfg"):
+                        for de2 in self._edge_in(dv.index, "dfg"):
                             dv2 = self.graph.vs[de2.source]
                             if _vattr(dv2, "label", "") == "const":
                                 fmt = _vattr(dv2, "name", "") or ""
@@ -6610,13 +7243,13 @@ class GraphAnalyzer:
         # 1) receiver identifier vid: member-edge source of the callee
         #    property node, or dfg source of the call
         recv_vids: list[int] = []
-        for e in self.graph.es.select(_target=call_vid, label="ast"):
+        for e in self._edge_in(call_vid, "ast"):
             if _vattr(e, "role", "") == "callee":
-                for me in self.graph.es.select(_target=e.target, label="member"):
+                for me in self._edge_in(e.target, "member"):
                     recv_vids.append(me.source)
                 break
         if not recv_vids:
-            for e in self.graph.es.select(_target=call_vid, label="dfg"):
+            for e in self._edge_in(call_vid, "dfg"):
                 sv = self.graph.vs[e.source]
                 if (_vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
                         or _vattr(sv, "type", "") in ("variable", "identifier")):
@@ -6648,7 +7281,7 @@ class GraphAnalyzer:
                 aline = int(_vattr(ov, "lineno", 0) or 0)
                 if aline >= call_line or aline <= best_line:
                     continue
-                for ae in self.graph.es.select(_source=av, label="ast"):
+                for ae in self._edge_out(av, "ast"):
                     if _vattr(ae, "role", "") != "rhs":
                         continue
                     rv = self.graph.vs[ae.target]
@@ -6682,7 +7315,7 @@ class GraphAnalyzer:
                     continue
                 seen.add(cv)
                 out.append(cv)
-                for ce in self.graph.es.select(_source=cv, label="crg"):
+                for ce in self._edge_out(cv, "crg"):
                     stack.append(ce.target)
             return out
         return None
@@ -6829,7 +7462,7 @@ class GraphAnalyzer:
         """
         # Find callee identifier via ast[role=callee]
         callee_vid = None
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") == "callee":
                 callee_vid = ae.target
                 break
@@ -6847,7 +7480,7 @@ class GraphAnalyzer:
             visited_members: set[int] = {callee_vid}
             while True:
                 found_member = False
-                for me in self.graph.es.select(_target=current, label="member"):
+                for me in self._edge_in(current, "member"):
                     obj_vid = me.source
                     if obj_vid in visited_members:
                         continue
@@ -6967,7 +7600,7 @@ class GraphAnalyzer:
         Looks for own edges from param to annotation nodes whose name is in
         _USER_INPUT_PARAM_ANNOTATIONS.
         """
-        for e in self.graph.es.select(_source=param_vid, label="own"):
+        for e in self._edge_out(param_vid, "own"):
             ann = self.graph.vs[e.target]
             ann_name = _vattr(ann, "name", "")
             if ann_name in _USER_INPUT_PARAM_ANNOTATIONS:
@@ -6982,13 +7615,13 @@ class GraphAnalyzer:
             label = _vattr(self.graph.vs[cur], "label", "")
             if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
                 return cur
-            inc = self.graph.es.select(_target=cur, label="own")
+            inc = self._edge_in(cur, "own")
             cur = inc[0].source if inc else None
         return None
 
     def _get_ast_parent(self, vid: int) -> int | None:
         """从 vid 沿 ast 边反向找直接父节点（ast[source=parent, target=vid]）。"""
-        inc = self.graph.es.select(_target=vid, label="ast")
+        inc = self._edge_in(vid, "ast")
         return inc[0].source if inc else None
 
     def get_enclosing_branch(self, vid: int) -> int | None:
@@ -7013,7 +7646,7 @@ class GraphAnalyzer:
             if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
                 return None
             # 先检查是否是 own target（顶层语句），沿 own 反向
-            own_inc = self.graph.es.select(_target=cur, label="own")
+            own_inc = self._edge_in(cur, "own")
             if own_inc:
                 cur = own_inc[0].source
             else:
@@ -7037,13 +7670,13 @@ class GraphAnalyzer:
             if label == NodeLabel.FILE.value:
                 return None
             # Walk up via OWN edges (incoming, i.e., parent owns child)
-            own_in = self.graph.es.select(_target=cur, label="own")
+            own_in = self._edge_in(cur, "own")
             if own_in:
                 cur = own_in[0].source
             else:
                 # Parameter nodes are connected via AST edges, not OWN.
                 # Try the AST parent as fallback.
-                ast_in = self.graph.es.select(_target=cur, label="ast")
+                ast_in = self._edge_in(cur, "ast")
                 if ast_in:
                     cur = ast_in[0].source
                 else:
@@ -7075,14 +7708,14 @@ class GraphAnalyzer:
                 # else/default 不继承父 if/switch 的条件
                 if btype in self._NEGATED_BRANCH_TYPES:
                     break
-            own_inc = self.graph.es.select(_target=cur, label="own")
+            own_inc = self._edge_in(cur, "own")
             if own_inc:
                 # Check if any branch has this node as its condition
                 # (ast edge with role='condition'). If so, include that
                 # branch in the chain — needed for JS/TS where condition
                 # nodes may be owned by function rather than branch.
                 found_branch = False
-                for ae in self.graph.es.select(_target=cur, label="ast"):
+                for ae in self._edge_in(cur, "ast"):
                     if _vattr(ae, "role", "") == "condition":
                         src = self.graph.vs[ae.source]
                         if _vattr(src, "label", "") == NodeLabel.BRANCH.value:
@@ -7153,7 +7786,7 @@ class GraphAnalyzer:
 
     def _get_condition_root(self, branch_vid: int) -> int | None:
         """Get the condition expression root node vid from a branch."""
-        for e in self.graph.es.select(_source=branch_vid, label="ast"):
+        for e in self._edge_out(branch_vid, "ast"):
             if _vattr(e, "role", "") == "condition":
                 return e.target
         # PHP normalizer emits the if-condition as a plain ast child
@@ -7161,7 +7794,7 @@ class GraphAnalyzer:
         # "condition" role. Fall back to the first ast child that is an
         # operator/expression node rather than a statement.
         _fallback = None
-        for e in self.graph.es.select(_source=branch_vid, label="ast"):
+        for e in self._edge_out(branch_vid, "ast"):
             t_type = _vattr(self.graph.vs[e.target], "type", "")
             if t_type in ("binary_op", "unary_op", "expression", "boolean_op"):
                 return e.target
@@ -7185,15 +7818,15 @@ class GraphAnalyzer:
             return True
 
         # Walk AST children
-        for e in self.graph.es.select(_source=root_vid, label="ast"):
+        for e in self._edge_out(root_vid, "ast"):
             if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
                 return True
         # Walk DFG edges (Java normalizer may link via DFG)
-        for e in self.graph.es.select(_source=root_vid, label="dfg"):
+        for e in self._edge_out(root_vid, "dfg"):
             if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
                 return True
         # Walk member edges (method chaining: matcher(cb) links cb)
-        for e in self.graph.es.select(_source=root_vid, label="member"):
+        for e in self._edge_out(root_vid, "member"):
             if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
                 return True
         return False
@@ -7202,7 +7835,7 @@ class GraphAnalyzer:
         """Check if a validation call references *var_name*."""
         if call_name == "check_input_parameter":
             _ai = 0
-            for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            for ae in self._edge_out(call_vid, "ast"):
                 if _vattr(ae, "role") == "arg":
                     _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                     if _ai == 0 and _arg_val:
@@ -7211,7 +7844,7 @@ class GraphAnalyzer:
                             return True
                     _ai += 1
         else:
-            for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            for ae in self._edge_out(call_vid, "ast"):
                 if _vattr(ae, "role") == "arg":
                     if self._subtree_contains_name(ae.target, var_name):
                         return True
@@ -7306,7 +7939,7 @@ class GraphAnalyzer:
             while stack:
                 sv = stack.pop()
                 search_vids.append(sv)
-                for ce in self.graph.es.select(_source=sv, label="ast"):
+                for ce in self._edge_out(sv, "ast"):
                     stack.append(ce.target)
 
             for sv in search_vids:
@@ -7319,7 +7952,7 @@ class GraphAnalyzer:
                     # Match var_name against the string value.
                     if sv_name == "check_input_parameter":
                         _ai = 0
-                        for ae in self.graph.es.select(_source=sv, label="ast"):
+                        for ae in self._edge_out(sv, "ast"):
                             if _vattr(ae, "role") == "arg":
                                 _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                                 if _ai == 0 and _arg_val:
@@ -7526,7 +8159,7 @@ class GraphAnalyzer:
                 # == or === : one side must be var_name, other must be constant
                 left_vid, right_vid = None, None
                 operand_vids = []  # fallback: Ruby uses OPERAND role
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     role = _vattr(e, "role", "")
                     if role == "left":
                         left_vid = e.target
@@ -7561,7 +8194,7 @@ class GraphAnalyzer:
                                  "strncasecmp"):
                         # Extract strcmp args
                         cmp_args = []
-                        for ce in self.graph.es.select(_source=left_vid, label="ast"):
+                        for ce in self._edge_out(left_vid, "ast"):
                             if _vattr(ce, "role") == "arg":
                                 cmp_args.append(ce.target)
                         if len(cmp_args) >= 2:
@@ -7575,14 +8208,14 @@ class GraphAnalyzer:
 
             elif actual_op == "||":
                 # OR: both sides must constrain → enum pattern
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if not self._check_condition_node(e.target, var_name, depth + 1):
                         return False
                 return True
 
             elif actual_op == "&&":
                 # AND: either side constrains → safe
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if self._check_condition_node(e.target, var_name, depth + 1):
                         return True
                 return False
@@ -7594,24 +8227,24 @@ class GraphAnalyzer:
         if label == NodeLabel.OPERATOR.value and ntype in _CALL_TYPES:
             if name in _TYPE_VALIDATION_FUNCS:
                 # Check if any arg references var_name
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         arg_name = _vattr(self.graph.vs[e.target], "name", "")
                         if arg_name == var_name:
                             return True
                 # Check method receiver via member chain
                 # e.g. page.isdigit() → callee 'isdigit' → member → 'page'
-                for ae in self.graph.es.select(_source=cond_vid, label="ast"):
+                for ae in self._edge_out(cond_vid, "ast"):
                     if _vattr(ae, "role", "") == "callee":
                         callee_vid = ae.target
-                        for me in self.graph.es.select(_target=callee_vid, label="member"):
+                        for me in self._edge_in(callee_vid, "member"):
                             recv_name = _vattr(self.graph.vs[me.source], "name", "")
                             if recv_name == var_name:
                                 return True
                 # Check method receiver via DFG edge (Python: user_input.isdigit())
                 # Python normalizer routes the receiver through a DFG edge into
                 # the method_call node instead of a member edge.
-                for de in self.graph.es.select(_target=cond_vid, label="dfg"):
+                for de in self._edge_in(cond_vid, "dfg"):
                     recv_name = _vattr(self.graph.vs[de.source], "name", "")
                     if recv_name == var_name:
                         return True
@@ -7624,17 +8257,17 @@ class GraphAnalyzer:
                 recv_vid = None
                 arg_vid = None
                 # Receiver is linked via member edge INTO the method_call node
-                for me in self.graph.es.select(_target=cond_vid, label="member"):
+                for me in self._edge_in(cond_vid, "member"):
                     recv_vid = me.source
                     break
                 # Arg is the ast child with role='arg'
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         arg_vid = e.target
                         break
                 # Fallback: try member or use edge source for receiver
                 if recv_vid is None:
-                    for me in self.graph.es.select(_source=cond_vid, label="member"):
+                    for me in self._edge_out(cond_vid, "member"):
                         recv_vid = me.target
                         break
                 if recv_vid is not None and arg_vid is not None:
@@ -7670,7 +8303,7 @@ class GraphAnalyzer:
             # preg_match: anchored regex without dot wildcard → safe
             if name == "preg_match":
                 args = []
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         args.append(e.target)
                 # args[0] = pattern, args[1] = subject
@@ -7710,7 +8343,7 @@ class GraphAnalyzer:
             if (_pred_callee not in _EXISTENCE_CHECK_FUNCS
                     and self._is_safe_function_call(cond_vid)
                     and not self._condition_call_is_negated(cond_vid)):
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         if self._subtree_contains_name(e.target, var_name, depth=0):
                             return True
@@ -7718,7 +8351,7 @@ class GraphAnalyzer:
             # re.match / re.fullmatch: anchored regex → safe
             if name in ("match", "fullmatch", "search"):
                 args = []
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         args.append(e.target)
                 # args[0] = pattern, args[1] = subject (for re.match/re.fullmatch)
@@ -7753,7 +8386,7 @@ class GraphAnalyzer:
                 # The switch branch owns the case branch, and switch's condition
                 # references the variable
                 switch_vid = None
-                for e in self.graph.es.select(_target=branch_parent, label="own"):
+                for e in self._edge_in(branch_parent, "own"):
                     switch_vid = e.source
                     break
                 if switch_vid is not None:
@@ -7819,10 +8452,10 @@ class GraphAnalyzer:
         """
         # Check alias edges: if any ast[callee] child identifier has an
         # outgoing alias edge, use the resolved_name directly.
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
+        for e in self._edge_out(op_vid, "ast"):
             if _vattr(e, "role") == "callee":
                 tvid = e.target
-                for ae in self.graph.es.select(_source=tvid, label="alias"):
+                for ae in self._edge_out(tvid, "alias"):
                     resolved_name = _vattr(ae, "resolved_name", "")
                     # Sanity check: resolved_name must look like a valid
                     # function name (no spaces, no SQL keywords, etc.)
@@ -7841,7 +8474,7 @@ class GraphAnalyzer:
                                 return op_fullname
                         return resolved_name
         callee_names: list[tuple[str, int]] = []  # (name, target_vid)
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
+        for e in self._edge_out(op_vid, "ast"):
             if _vattr(e, "role") == "callee":
                 t = self.graph.vs[e.target]
                 name = _vattr(t, "name") or _vattr(t, "value")
@@ -7854,9 +8487,9 @@ class GraphAnalyzer:
         # resolved_name values (ambiguous — e.g. ``get`` aliased to both
         # ``requests.get`` and ``form.get``), skip alias resolution and fall
         # through to AST callee chain analysis, which is more precise.
-        for e in self.graph.es.select(_source=op_vid, label="use"):
+        for e in self._edge_out(op_vid, "use"):
             alias_names: set[str] = set()
-            for ae in self.graph.es.select(_source=e.target, label="alias"):
+            for ae in self._edge_out(e.target, "alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
                 if resolved_name and " " not in resolved_name:
                     alias_names.add(resolved_name)
@@ -7889,7 +8522,7 @@ class GraphAnalyzer:
                         qualifier_name = callee_names[idx - 1][0]
                         return qualifier_name + "." + name
                     # Fallback: check member edges for object qualification
-                    for me in self.graph.es.select(_target=tvid, label="member"):
+                    for me in self._edge_in(tvid, "member"):
                         obj = self.graph.vs[me.source]
                         obj_name = _vattr(obj, "name", "")
                         if obj_name:
@@ -7909,7 +8542,7 @@ class GraphAnalyzer:
                     return resolved
                 return name
                 # Check member edges for qualified name (e.g. os.system)
-                for me in self.graph.es.select(_target=tvid, label="member"):
+                for me in self._edge_in(tvid, "member"):
                     obj = self.graph.vs[me.source]
                     obj_name = _vattr(obj, "name", "")
                     if obj_name:
@@ -7928,9 +8561,9 @@ class GraphAnalyzer:
                     return op_fullname
             return short
         # Fallback: use edge target — check alias first, then variable callee
-        for e in self.graph.es.select(_source=op_vid, label="use"):
+        for e in self._edge_out(op_vid, "use"):
             # Check alias edges on the function target
-            for ae in self.graph.es.select(_source=e.target, label="alias"):
+            for ae in self._edge_out(e.target, "alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
                 if resolved_name and " " not in resolved_name:
                     return resolved_name
@@ -8063,7 +8696,7 @@ class GraphAnalyzer:
             seen.add(cur)
             if _vattr(self.graph.vs[cur], "label") == NodeLabel.BRANCH.value:
                 result.append(cur)
-            inc = self.graph.es.select(_target=cur, label="own")
+            inc = self._edge_in(cur, "own")
             cur = inc[0].source if inc else None
         return result
 

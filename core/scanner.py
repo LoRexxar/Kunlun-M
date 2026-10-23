@@ -1737,7 +1737,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    node_source = show_context(chain[2], chain[3], is_back=True)
+                    # Fix 43m: context printing deferred — console logging of every chain node dominated scan time; result rows already carry file/line.
+                    node_source = ""
                     node_vid = chain[4] if len(chain) >= 5 else None
                     tc = TaintChain(
                         scan_task=int(a_sid),
@@ -1901,7 +1902,8 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
             step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    node_source = show_context(chain[2], chain[3], is_back=True)
+                    # Fix 43m: context printing deferred — console logging of every chain node dominated scan time; result rows already carry file/line.
+                    node_source = ""
                     tc = TaintChain(
                         scan_task=int(a_sid),
                         vul_result=sr.id,
