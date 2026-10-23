@@ -270,6 +270,7 @@ def main(argv):
 
         exit_code = 0
         reason = 'ok'
+        forbidden_violations = []  # threshold 模式下无 expected.json，仍被摘要输出引用
 
         if expected_data and isinstance(expected_data.get('expected'), list):
             # 对比模式：实际结果 vs expected.json

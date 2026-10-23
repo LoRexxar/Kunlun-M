@@ -28,14 +28,22 @@ class CVI_9703(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"(?:fs\.)?(?:readFile|readFileSync|writeFile|writeFileSync|unlink|unlinkSync|rename|renameSync|createReadStream|createWriteStream|appendFile|appendFileSync|exists|existsSync|rmdir|rmdirSync|mkdir|mkdirSync|readdir|readdirSync|stat|statSync)\s*\("
+        self.match = r"(?:fs\.)?(?:readFile|readFileSync|writeFile|writeFileSync|unlink|unlinkSync|rename|renameSync|createReadStream|createWriteStream|appendFile|appendFileSync|exists|existsSync|rmdir|rmdirSync|mkdir|mkdirSync|readdir|readdirSync|stat|statSync)\s*\(|\bcopyBinaryFile\s*\("
 
         self.vul_function = ["readFile", "readFileSync", "writeFile", "writeFileSync",
                              "unlink", "unlinkSync", "rename", "renameSync",
                              "createReadStream", "createWriteStream",
                              "appendFile", "appendFileSync", "exists", "existsSync",
                              "rmdir", "rmdirSync", "mkdir", "mkdirSync",
-                             "readdir", "readdirSync", "stat", "statSync"]
+                             "readdir", "readdirSync", "stat", "statSync",
+                             "copyBinaryFile"]
+
+        # CVE-2026-21858（n8n Ni8mare）：copyBinaryFile 是 n8n 内部封装的
+        # 文件读取 sink（内部 fs 读 filePath 后入 binary 数据）。Content-Type
+        # 混淆场景下 req.body.files 整体由攻击者 JSON 注入，file.filepath 即
+        # 任意路径。库/SDK 边界无框架 source，presence + main() 常量过滤即报告
+        # （同 fix35 CVI_9512 模式）。
+        self.require_taint = False
 
     def main(self, regex_string, sink_args=None):
         """
@@ -50,10 +58,27 @@ class CVI_9703(SingleRuleMixin):
                     return False
                 if arg0.get('resolved_value', ''):
                     return False
+            # CVE-2026-21858：copyBinaryFile 形态下第 1 参数非 const 即报
+            # （file.filepath 成员链无法证 const）
             return None
 
         if not isinstance(regex_string, str):
             regex_string = str(regex_string)
+
+        # n8n copyBinaryFile：非 fs 家族，直接走参数检查
+        if re.search(r'\bcopyBinaryFile\s*\(', regex_string):
+            m = re.search(r'copyBinaryFile\s*\((.*)\)', regex_string, re.DOTALL)
+            if m:
+                args = m.group(1).strip()
+                if not args:
+                    return False
+                arg_parts = self._split_args(args)
+                if arg_parts:
+                    path_arg = arg_parts[0].strip()
+                    # 硬编码路径安全
+                    if re.match(r'^"[^"]*"$', path_arg) or re.match(r"^'[^']*'$", path_arg):
+                        return False
+            return True
 
         # 提取函数调用参数部分
         match = re.search(

@@ -1088,7 +1088,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     found_controllable = True
                                     result = r
                                     break
-                                # Repair/safe result — sanitizer found, this arg is safe
+                                # Repair/safe result — sanitizer found, this arg is safe.
+                                # code=3 (inconclusive, e.g. `a ?? b` binary_op whose
+                                # sub-args trace to unsourced fields) is NOT a repair:
+                                # treating it as one set any_arg_repaired and the
+                                # L1196 method_sinks gate dropped presence-reporting
+                                # sinks entirely (CVE-2026-21858: copyBinaryFile).
+                                if getattr(r, 'code', 0) == 3:
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
                                 any_arg_repaired = True
                                 continue
                         r = analyzer.parameters_back(arg_vid)
