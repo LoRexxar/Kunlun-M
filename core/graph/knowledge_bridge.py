@@ -136,6 +136,8 @@ def enrich_taint(
     # 4. 注解标注（Java @RequestParam/@PathVariable 等标记参数为 source）
     annotated_param_count = _enrich_annotated_params(graph)
     count += annotated_param_count
+    mbean_param_count = _enrich_jmx_mbean_params(graph)
+    count += mbean_param_count
 
     # 5. 框架 request 参数标注（PHP $request, Python flask.request 等）
     #    当检测到框架时，函数参数中名为 $request / request 的参数标注为 source
@@ -710,6 +712,59 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
             "_record_sanitized_superglobal_members: marked %d nodes taint_type=safe",
             marked,
         )
+
+
+def _enrich_jmx_mbean_params(graph: ig.Graph) -> int:
+    """Fix 45: JMX MBean 实现类的方法参数 = source。
+
+    类 -crg-> 名字以 MBean 结尾的接口（implements XxxMBean）意味着该类的
+    public 方法通过 MBeanServer 暴露给 JMX 客户端（Jolokia HTTP 桥、
+    jconsole 等）远程 exec 并传任意参数。CVE-2026-42588 即 Jolokia exec
+    BrokerView.addNetworkConnector(String) 触发 VM transport brokerConfig
+    加载任意 Spring XML。
+
+    建模：实现类每个方法中类型为 String/ObjectName/Object 的参数标注
+    taint_type=source, taint_origin=jmx-mbean。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    mbean_iface_targets = set()
+    for e in graph.es.select(label="crg"):
+        tname = _vattr(graph.vs[e.target], "name", "")
+        if isinstance(tname, str) and tname.endswith("MBean"):
+            mbean_iface_targets.add(e.target)
+    if not mbean_iface_targets:
+        return 0
+
+    impl_classes = set()
+    for e in graph.es.select(label="crg"):
+        if e.target in mbean_iface_targets:
+            impl_classes.add(e.source)
+    if not impl_classes:
+        return 0
+
+    _SOURCE_PARAM_TYPES = {"String", "ObjectName", "Object", "java.lang.String"}
+    count = 0
+    for cls_vid in impl_classes:
+        for fe in graph.es.select(_source=cls_vid, label="own"):
+            fnode = graph.vs[fe.target]
+            if _vattr(fnode, "label") != NodeLabel.FUNCTION.value:
+                continue
+            for pe in graph.es.select(_source=fe.target, label="own"):
+                pnode = graph.vs[pe.target]
+                if _vattr(pnode, "label") != NodeLabel.PARAMETER.value:
+                    continue
+                if _vattr(pnode, "taint_type"):
+                    continue
+                ptype = _vattr(pnode, "java_type", "") or _vattr(pnode, "param_type", "") or ""
+                bare = str(ptype).split("<")[0].strip()
+                if "." in bare:
+                    bare = bare.rsplit(".", 1)[-1]
+                if bare in _SOURCE_PARAM_TYPES:
+                    graph.vs[pe.target]["taint_type"] = "source"
+                    graph.vs[pe.target]["taint_origin"] = "jmx-mbean"
+                    count += 1
+    return count
 
 
 def _enrich_annotated_params(graph: ig.Graph) -> int:
