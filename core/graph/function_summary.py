@@ -412,6 +412,28 @@ def _trace_return_value(
             "has_unresolved_call": False,
         }
 
+    # ── 1b. Fix 44a: same-name parameter use-site (Java/JS SSA vids) ──
+    #    Normalizers create distinct vids per use-site; a use of parameter
+    #    ``sql`` at L281 has a different vid than the formal parameter node.
+    #    Java DFG def-use ordering then routes it through the *last* writer
+    #    (e.g. an if-branch assignment) instead of the parameter — the
+    #    CVE-2026-38158 parseSql case: ``String sqlForUse=sql`` resolved to
+    #    ``new Context`` (safe) and the param dependency was lost, marking
+    #    parseSql as a sanitizer.  A bare identifier whose name equals a
+    #    parameter name is that parameter's use: resolve to param directly.
+    if (vlabel == NodeLabel.IDENTIFIER.value and vtype in ("variable", "identifier")
+            and isinstance(vname, str) and vname
+            and start_vid not in param_idx):
+        for pvid, pidx in param_idx.items():
+            pname = _vattr(graph.vs[pvid], "name", "")
+            if pname == vname:
+                p_taint = _vattr(graph.vs[pvid], "taint_type", "")
+                if p_taint == "source":
+                    return {"origin": vname, "origin_type": "source",
+                            "dep_params": [], "has_unresolved_call": False}
+                return {"origin": vname, "origin_type": "param",
+                        "dep_params": [pidx], "has_unresolved_call": False}
+
     # ── 2. 字面量 ──
     if vlabel == NodeLabel.CONST.value:
         return {"origin": vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
@@ -980,6 +1002,43 @@ def _trace_passthrough_call(
     all_dep_params: list[int] = []
     any_unresolved = False
     arg_counter = 0
+
+    # Fix 44b: Java/JS method_call receiver model.  For String methods in
+    # KNOWLEDGE (replace/trim/substring/...) passthrough index 0 refers to
+    # the RECEIVER (this), but the method_call's ast children only carry
+    # callee + explicit args — arg0 is the first *explicit* argument, not
+    # the receiver.  When passthrough includes 0 and the call name is
+    # 'recv.method', resolve the receiver's same-name use-site in own_vids
+    # and trace it first (CVE-2026-38158: sqlForUse.replace(substr, result)
+    # traced substr→substring→safe while the receiver held the sql param).
+    _call_name = _vattr(graph.vs[call_vid], "name", "") or ""
+    _receiver_traced = False
+    if 0 in pt_indices and isinstance(_call_name, str) and "." in _call_name:
+        _recv_name = _call_name.split(".", 1)[0]
+        # skip literal receivers (e.g. "foo".replace(...)) — chr(34)/chr(39)
+        # avoid nested-quote escaping entirely
+        if _recv_name and _recv_name[0] not in (chr(34), chr(39)):
+            _recv_vids = [
+                ov for ov in own_vids
+                if ov != call_vid
+                and _vattr(graph.vs[ov], "label", "") == NodeLabel.IDENTIFIER.value
+                and _vattr(graph.vs[ov], "name", "") == _recv_name
+            ]
+            for _rv in _recv_vids:
+                _sub = _trace_return_value(
+                    graph, _rv, own_vids, param_idx, visited, eidx, depth + 1
+                )
+                if _sub["origin_type"] in ("source", "param"):
+                    return _sub
+                if _sub["origin_type"] == "safe":
+                    # receiver resolves safe (e.g. literal) — fall through
+                    # to explicit args without treating it as a verdict.
+                    _receiver_traced = True
+                    break
+            if _recv_vids and not _receiver_traced:
+                # receiver traced to unknown/literal — non-verdict; fall
+                # through to explicit-arg tracing below.
+                pass
 
     for tgt, role, arg_idx in eidx["ast_ch"].get(call_vid, []):
         if role != "arg":
