@@ -890,6 +890,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 """Recursively trace operator sub-args for controllable data."""
                                 if depth >= max_depth:
                                     return None, None
+                                # Fix 47: a flat chain of binary_op '.' (SQL
+                                # concat) is a linear sequence, not nested
+                                # structure — depth exists to cap exponential
+                                # call nesting.  String-concat operators do
+                                # not consume depth budget.
+                                _is_concat_op = (
+                                    _vattr(graph.vs[op_vid], "type", "") == "binary_op"
+                                    and _vattr(graph.vs[op_vid], "name", "") == ".")
                                 # Check if this operator is a repair function —
                                 # if so, its output is safe, return repaired.
                                 _callee = analyzer._resolve_callee_name(op_vid)
@@ -1043,7 +1051,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         continue
                                     u = None
                                     if sub_label == 'operator':
-                                        r, u = _deep_trace_args(sub_vid, depth + 1, max_depth)
+                                        # Fix 47: concat chains stay at the
+                                        # same depth (see comment above).
+                                        _sub_depth = depth if _is_concat_op else depth + 1
+                                        r, u = _deep_trace_args(sub_vid, _sub_depth, max_depth)
                                         if r is not None:
                                             if r.is_controllable:
                                                 return r, u
