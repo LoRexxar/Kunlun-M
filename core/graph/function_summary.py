@@ -608,12 +608,28 @@ def _trace_return_value(
     # the safe function call, not directly.
     dfg_src_list = list(eidx["in"].get("dfg", {}).get(start_vid, []))
 
+    # Fix 46d: for concat binary_op ('.'), a safe operand must NOT
+    # short-circuit a param operand — "safe_prefix" . $param keeps the
+    # parameter dependency.  Only a non-concat single-source (or an
+    # operand pair where ALL sources are safe) may conclude safe.
+    _is_concat = (vlabel == NodeLabel.OPERATOR.value
+                  and _vattr(v, "type", "") == "binary_op"
+                  and vname in (".", "+", "+="))
+    _first_pass_safe = None
+    _first_pass_source = None
+
     # Two-pass: first check for immediate safe/source taint on DFG sources
     for src_vid in dfg_src_list:
         src_taint = _vattr(graph.vs[src_vid], "taint_type", "")
         if src_taint == "source":
+            if _is_concat:
+                _first_pass_source = src_vid
+                continue
             return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
         if src_taint == "safe":
+            if _is_concat:
+                _first_pass_safe = src_vid
+                continue
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
         # For call operators, check use→function for func_summary_type
         src_label = _vattr(graph.vs[src_vid], "label", "")
@@ -629,8 +645,13 @@ def _trace_return_value(
             continue
         sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, eidx, depth + 1)
         if sub["origin_type"] == "source":
+            if _is_concat:
+                continue  # collect; concat may also carry params
             return sub  # source 立即返回
         if sub["origin_type"] == "safe":
+            if _is_concat:
+                dfg_has_safe_source = True
+                continue  # safe operand doesn't erase other operands
             return sub  # safe 立即返回（阻断）
         if sub["origin_type"] == "literal":
             dfg_has_safe_source = True
@@ -709,6 +730,16 @@ def _trace_return_value(
     #     e.g. return $compiled; // $compiled = $a . $b . ' ' （DFG 链到 string literal）
     if dfg_has_safe_source and not any_unresolved:
         return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+
+    # Fix 46d concat epilogue: source operand anywhere in a concat wins;
+    # safe-only concat stays safe.
+    if _is_concat:
+        if _first_pass_source is not None:
+            return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": any_unresolved}
+        if all_dep_params:
+            return {"origin": vname, "origin_type": "param", "dep_params": list(dict.fromkeys(all_dep_params)), "has_unresolved_call": any_unresolved}
+        if _first_pass_safe is not None:
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": any_unresolved}
 

@@ -2898,11 +2898,11 @@ class GraphAnalyzer:
                     # Search matching-arity targets first, then fall back
                     for ce in matching_arity + other:
                         fv = self.graph.vs[ce.target]
-                        ft = _vattr(fv, "taint_type", "")
+                        ft = _vattr(fv, "taint_type", "") or _vattr(fv, "func_summary_type", "")  # Fix 46e-2
                         if ft:
                             # Found an annotated function — use it
                             func_vid = ce.target
-                            func_taint = ft
+                            func_taint = _vattr(fv, "taint_type", "") or ft
                             break
                         # Remember the first unannotated function as fallback
                         if func_vid is None:
@@ -2954,11 +2954,54 @@ class GraphAnalyzer:
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
+                    # Fix 46e-6: passthrough stub without a body carries no
+                    # taint_passthrough/func_summary_pt (empty pt list below).
+                    # Prefer a same-name definition WITH parameters that also
+                    # carries a passthrough summary — its pt indices apply.
+                    # Fix 46e-7: find_function_def is a graph-wide search;
+                    # running it per method-call wedged the sink loop
+                    # (12634 sinks × O(nodes)).  Memoize per stub vid.
+                    if func_vid is not None:
+                        _stub_pt = (_vattr(self.graph.vs[func_vid], "taint_passthrough", [])
+                                    or _vattr(self.graph.vs[func_vid], "func_summary_pt", []))
+                        if not _stub_pt and self.language == "php":
+                            _memo = getattr(self, "_stub_pt_memo", None)
+                            if _memo is None:
+                                _memo = {}
+                                self._stub_pt_memo = _memo
+                            if func_vid in _memo:
+                                _m = _memo[func_vid]
+                                if _m is not None:
+                                    func_vid = _m
+                                    func_taint = "passthrough"
+                            else:
+                                _bare = callee.rsplit(".", 1)[-1] if callee else ""
+                                _found = None
+                                if _bare:
+                                    for fv2 in self.find_function_def(_bare, from_vid=up_vid):
+                                        if fv2 == func_vid:
+                                            continue
+                                        _pt2 = (_vattr(self.graph.vs[fv2], "taint_passthrough", [])
+                                                or _vattr(self.graph.vs[fv2], "func_summary_pt", []))
+                                        if _pt2:
+                                            _found = fv2
+                                            break
+                                _memo[func_vid] = _found
+                                if _found is not None:
+                                    func_vid = _found
+                                    func_taint = "passthrough"
+
                     # 4c: passthrough — 读 function.taint_passthrough 常驻属性
                     #     function.taint_passthrough 与 parameter.taint_type="passthrough_arg"
                     #     是同一数据的两个视图：反向分析走 function，正向分析走 parameter
                     #     形参 index → 映射到 call 的 ast[role=arg] → 追踪实参
-                    if func_taint == "passthrough" and func_vid is not None:
+                    # Fix 46e: build_function_summaries writes
+                    # func_summary_type / func_summary_pt on function nodes,
+                    # but the taint-attribute sync pass (scanner) only covers
+                    # some same-name duplicates — use-edge targets can carry
+                    # the summary without the taint attributes.  Accept both.
+                    _fs_type = _vattr(self.graph.vs[func_vid], "func_summary_type", "") if func_vid is not None else ""
+                    if (func_taint == "passthrough" or _fs_type == "passthrough") and func_vid is not None:
                         # 优先追溯 receiver passthrough (this/self)
                         if _vattr(self.graph.vs[func_vid], "taint_receiver_pt", False):
                             receiver_result = self._trace_call_receiver(
@@ -2988,6 +3031,8 @@ class GraphAnalyzer:
 
                         # 位置参数 passthrough：读 function 节点的常驻属性
                         tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
+                        if not tp:
+                            tp = _vattr(self.graph.vs[func_vid], "func_summary_pt", [])  # Fix 46e
                         pt_param_indices: set[int] = set(
                             int(i) for i in tp if isinstance(i, int)
                         )
@@ -3114,11 +3159,38 @@ class GraphAnalyzer:
                         # short name and prefer an annotated definition;
                         # identical-arity same-file defs still win (overloads).
                         if func_vid is not None:
-                            _fv_is_shell = not func_taint and not any(
+                            # Fix 46e-4: a node carrying a func_summary
+                            # annotation is NOT an empty shell even when its
+                            # taint_type attribute was not synced — but a
+                            # stub with a summary and zero own-children still
+                            # has no body to trace; prefer a same-name def
+                            # that HAS parameters (the real body).
+                            _fv_summary = _vattr(self.graph.vs[func_vid],
+                                                 "func_summary_type", "")
+                            _fv_has_body = any(
                                 True for _pe in self.graph.es.select(
                                     _source=func_vid, label="own")
                                 if _vattr(self.graph.vs[_pe.target], "label", "")
                                 in ("return", "parameter"))
+                            _fv_is_shell = not func_taint and not _fv_has_body
+                            if (_fv_is_shell and _fv_summary
+                                    and self.language == "php"):
+                                # stub carries summary but no body — search
+                                # same-name defs with a real body
+                                _bare = callee.rsplit(".", 1)[-1]
+                                _body_defs = [
+                                    fv for fv in self.find_function_def(_bare, from_vid=up_vid)
+                                    if fv != func_vid and any(
+                                        True for _pe in self.graph.es.select(
+                                            _source=fv, label="own")
+                                        if _vattr(self.graph.vs[_pe.target], "label", "")
+                                        == "parameter")
+                                ]
+                                if _body_defs:
+                                    func_vid = _body_defs[0]
+                                    func_taint = (_vattr(self.graph.vs[func_vid], "taint_type", "")
+                                                  or _vattr(self.graph.vs[func_vid], "func_summary_type", ""))
+                                    _fv_is_shell = False
                             if _fv_is_shell and self.language == "php":
                                 # callee may be receiver-qualified ('$this.
                                 # GetPayload') — strip to the bare method
@@ -4018,7 +4090,25 @@ class GraphAnalyzer:
                 caller_deps.append(aname)
 
         # Find return children
+        # Fix 46e-5: returns may be nested inside branch/loop subtrees
+        # (PHP: function -own-> branch -own-> return).  Search the whole
+        # own/ast subtree recursively; only conclude "no return" when the
+        # body truly has none.
         return_vids = self._find_own_children(func_vid, child_label=NodeLabel.RETURN.value)
+        if not return_vids:
+            _stk = [func_vid]
+            _seen = set()
+            while _stk:
+                _x = _stk.pop()
+                if _x in _seen:
+                    continue
+                _seen.add(_x)
+                if (_x != func_vid
+                        and _vattr(self.graph.vs[_x], "label", "") == NodeLabel.RETURN.value):
+                    return_vids.append(_x)
+                for _e in self.graph.es.select(_source=_x):
+                    if _vattr(_e, "label", "") in ("own", "ast"):
+                        _stk.append(_e.target)
         if not return_vids:
             return AnalysisResult(code=3,
                                   reason=f"No return in func vid={func_vid}",
@@ -5215,10 +5305,23 @@ class GraphAnalyzer:
                     return True
         return False
 
+    # Fix 46c: PHP apps commonly wrap superglobals in accessor objects at
+    # bootstrap (phpIPAM: $POST = new Params($_POST, null, true) with a
+    # magic __get), then read $POST->key everywhere.  The wrapper's
+    # property reads are request data.  Recognised by the conventional
+    # global wrapper names (case-insensitive, $_-less).
+    _PHP_REQUEST_WRAPPERS: frozenset[str] = frozenset({
+        "$POST", "$GET", "$REQUEST", "$COOKIE",
+    })
+
     def _is_source_variable(self, name: str) -> bool:
         if not name:
             return False
         if name in _SUPERGLOBALS:
+            return True
+        if self.language == "php" and name in self._PHP_REQUEST_WRAPPERS:
+            # Wrapper object holding request data ($POST->deviceid).
+            # Legitimate PHP code never names an unrelated variable $POST.
             return True
         if "[" in name:
             if name.split("[", 1)[0] in _SUPERGLOBALS:
@@ -6910,7 +7013,8 @@ class GraphAnalyzer:
         _nargs = [e.target for e in self.graph.es.select(
             _source=call_vid, label="ast")
             if _vattr(e, "role", "") == "arg"]
-        if _nargs and any(self._subtree_contains_name(a, var_name, depth=0)
+        if _nargs and any(self._subtree_contains_name(a, var_name, depth=0,
+                                                        follow_dfg=False)
                           for a in _nargs):
             _refs_var = True
         if callee in self._NEUTRAL_GUARD_PREDS:
@@ -6944,7 +7048,8 @@ class GraphAnalyzer:
             if _vattr(e, "role", "") == "arg"]
         if not args:
             return False
-        if not self._subtree_contains_name(args[0], var_name, depth=0):
+        if not self._subtree_contains_name(args[0], var_name, depth=0,
+                                              follow_dfg=False):
             # Bug D fix: `$in->method` guards use the PROPERTY name
             # ('method') as arg0, while the path carries '$in'.  Accept
             # when arg0 is a property whose member-parent is var_name.
@@ -7803,7 +7908,8 @@ class GraphAnalyzer:
         return _fallback
 
     def _subtree_contains_name(self, root_vid: int, var_name: str,
-                               depth: int = 0, visited: set | None = None) -> bool:
+                               depth: int = 0, visited: set | None = None,
+                               follow_dfg: bool = True) -> bool:
         """Recursively check if var_name appears anywhere in the AST subtree."""
         if depth > 8 or not var_name:
             return False
@@ -7819,15 +7925,21 @@ class GraphAnalyzer:
 
         # Walk AST children
         for e in self._edge_out(root_vid, "ast"):
-            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited, follow_dfg):
                 return True
         # Walk DFG edges (Java normalizer may link via DFG)
-        for e in self._edge_out(root_vid, "dfg"):
-            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
-                return True
+        # Guard-semantic matching (Fix 46): pass follow_dfg=False —
+        # the DFG layer links sibling member reads of the same object
+        # ($POST->rackid dfg-> $POST->deviceid), so a guard on rackid
+        # would spuriously "contain" deviceid. A guard condition must
+        # lexically reference the variable (AST scope only).
+        if follow_dfg:
+            for e in self._edge_out(root_vid, "dfg"):
+                if self._subtree_contains_name(e.target, var_name, depth + 1, visited, follow_dfg):
+                    return True
         # Walk member edges (method chaining: matcher(cb) links cb)
         for e in self._edge_out(root_vid, "member"):
-            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited, follow_dfg):
                 return True
         return False
 
@@ -7846,7 +7958,8 @@ class GraphAnalyzer:
         else:
             for ae in self._edge_out(call_vid, "ast"):
                 if _vattr(ae, "role") == "arg":
-                    if self._subtree_contains_name(ae.target, var_name):
+                    if self._subtree_contains_name(ae.target, var_name,
+                                                   follow_dfg=False):
                         return True
         return False
 
@@ -7968,7 +8081,8 @@ class GraphAnalyzer:
                     # match silently fail for PHP.  Walking the whole call
                     # subtree is equivalent for validation calls because
                     # their callee names never equal a data variable name.
-                    if self._subtree_contains_name(sv, var_name):
+                    if self._subtree_contains_name(sv, var_name,
+                                                    follow_dfg=False):
                         return True
 
         # 4. Fallback: check standalone validation calls (not in branches)
