@@ -401,6 +401,9 @@ class GraphAnalyzer:
                  source_registry=None, framework_method_sinks: set[str] | None = None) -> None:
         self.graph = graph
         self.language = language
+        # Fix 48a: per-svid repair context (None = svid-blind legacy mode)
+        self._sink_svid = None
+        self._repair_registry = None
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._builtin_knowledge_cache: dict | None = None
         self._call_stack: list[str] = []
@@ -1959,6 +1962,40 @@ class GraphAnalyzer:
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int, list[int]]] = deque()
         queue.append((start_vid, 0, [start_vid]))
+        # Fix 48g: concat operand identifiers hang off the binary_op chain via
+        # ast edges only (no dfg), so a pure-dfg BFS never reaches them.  Seed
+        # the queue with the ast leaf operands of any binary_op '.' on the
+        # start path — mirrors Fix 47's concat-chain semantics (linear string
+        # concatenation is not nested structure).
+        def _concat_ast_leaves(vid: int, depth: int = 0, out=None, seen=None) -> list[int]:
+            if out is None:
+                out, seen = [], set()
+            if vid in seen or depth > 24:
+                return out
+            seen.add(vid)
+            v = self.graph.vs[vid]
+            if (_vattr(v, "label", "") == "operator"
+                    and _vattr(v, "type", "") == "binary_op"
+                    and _vattr(v, "name", "") == "."):
+                for _le in self._edge_out(vid, "ast"):
+                    if _vattr(_le, "role", "") in ("left", "right", "arg"):
+                        _t = _le.target
+                        _tv = self.graph.vs[_t]
+                        if (_vattr(_tv, "label", "") == "operator"
+                                and _vattr(_tv, "type", "") == "binary_op"):
+                            _concat_ast_leaves(_t, depth + 1, out, seen)
+                        elif _vattr(_tv, "label", "") != "const":
+                            out.append(_t)
+            return out
+        for _leaf in _concat_ast_leaves(start_vid):
+            if _leaf not in visited:
+                visited.add(_leaf)
+                queue.append((_leaf, 1, [start_vid, _leaf]))
+        # Fix 48h: a call sink's concat ARG is reachable via dfg (call <- dfg -
+        # concat), but the concat's variable operands are only reachable via
+        # ast.  When the BFS pops a concat node, splice its ast leaves into
+        # the frontier (same linear-chain semantics as Fix 47/48g).
+        _spliced_concat_leaves: set[int] = set()
 
         # Pre-check: if start_vid itself is a property in a member chain,
         # walk the chain to find a source variable (e.g., $_FILES['uploaded']['tmp_name'])
@@ -2213,21 +2250,53 @@ class GraphAnalyzer:
                 # Safe node — taint propagation stops here
                 up_taint = _vattr(uv, "taint_type", "")
                 if up_taint == "safe":
-                    # Fix 21b-2: remember the sanitation proof.  If ALL routes
-                    # dead-end clean, the result is repaired (code=2), not
-                    # inconclusive.  Only trust safe marks that a call node
-                    # with a safe resolver backs (enrich_taint sets 'safe'
-                    # exactly for safe-call reassignments).
-                    if repaired_result is None:
-                        repaired_result = AnalysisResult(
-                            code=2,
-                            reason=f"'{sname}' sanitized by safe reassignment "
-                                   f"(vid={up_vid})",
-                            chain=[{"step": "safe_reassign", "vid": up_vid,
-                                    "name": _vattr(uv, "name", ""), "code": 2}],
-                            path=path + [up_vid],
-                            expr_lineno=_vattr(uv, "lineno", 0))
-                    continue
+                    # Fix 48c/48e/48f/48i: enrich-time safe marks come from
+                    # the svid-blind global set (_enrich_repair_calls /
+                    # _propagate_safe_taint).  When the sink svid is set, the
+                    # per-svid registry is authoritative.  Two node shapes
+                    # carry the propagated mark:
+                    #   a) the sanitizer CALL node itself — its callee name is
+                    #      the registry key (48f);
+                    #   b) the assigned LHS identifier — resolve the assigning
+                    #      RHS callee (48e).
+                    # If the registry knows that function but does not bind it
+                    # to this sink's svid, the mark is NOT a sanitizer here:
+                    # veto the safe short-circuit entirely (48i) so the node
+                    # is processed as an ordinary one and the BFS keeps
+                    # expanding its dfg upstream (e.g. $town(def) → trim call
+                    # → strip_tags call → $_POST member).
+                    _vetoed = False
+                    if self._sink_svid is not None:
+                        _up_clean = ""
+                        if _vattr(uv, "label", "") == "operator":
+                            _up_clean = (self._resolve_callee_name(up_vid) or "")
+                        else:
+                            _rhs_call = self._find_assign_rhs_call(up_vid)
+                            _up_clean = (self._resolve_callee_name(_rhs_call)
+                                         if _rhs_call is not None else "")
+                        if _up_clean:
+                            _up_clean = _up_clean.lstrip("\\").replace("::", ".")
+                            if "." in _up_clean:
+                                _up_clean = _up_clean.rsplit(".", 1)[-1]
+                            if self._registry_safe_for_sink(_up_clean) is False:
+                                _vetoed = True
+                    if not _vetoed:
+                        # Fix 21b-2: remember the sanitation proof.  If ALL
+                        # routes dead-end clean, the result is repaired
+                        # (code=2), not inconclusive.  Only trust safe marks
+                        # that a call node with a safe resolver backs
+                        # (enrich_taint sets 'safe' exactly for safe-call
+                        # reassignments).
+                        if repaired_result is None:
+                            repaired_result = AnalysisResult(
+                                code=2,
+                                reason=f"'{sname}' sanitized by safe reassignment "
+                                       f"(vid={up_vid})",
+                                chain=[{"step": "safe_reassign", "vid": up_vid,
+                                        "name": _vattr(uv, "name", ""), "code": 2}],
+                                path=path + [up_vid],
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                 # Fix 14: type cast operators also sanitize taint.
                 # (int), (float), (bool) etc. destroy string content.
                 if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
@@ -4274,8 +4343,19 @@ class GraphAnalyzer:
 
         while queue:
             cur_vid, depth, path = queue.popleft()
-            if depth > max_depth:
+            if depth >= max_depth:
                 continue
+            # Fix 48h: splice concat ast leaves on first visit
+            _cv = self.graph.vs[cur_vid]
+            if (cur_vid not in _spliced_concat_leaves
+                    and _vattr(_cv, "label", "") == "operator"
+                    and _vattr(_cv, "type", "") == "binary_op"
+                    and _vattr(_cv, "name", "") == "."):
+                _spliced_concat_leaves.add(cur_vid)
+                for _leaf in _concat_ast_leaves(cur_vid):
+                    if _leaf not in visited:
+                        visited.add(_leaf)
+                        queue.append((_leaf, depth + 1, path + [_leaf]))
             if cur_vid == sink_vid:
                 results.append({"path": path, "length": len(path), "decisions": []})
                 continue
@@ -5792,15 +5872,31 @@ class GraphAnalyzer:
         """
         # 1. builtin_knowledge
         _callee = self._resolve_callee_name(call_vid)
+        _reg_verdict = None
+        _reg_knows = False
         if _callee:
+            # Fix 48a/48b: registry binding (if any) takes precedence over
+            # the svid-blind builtin_knowledge safe=True flag AND over the
+            # svid-blind enrich-time taint_type/safe marks below.
+            _clean = _callee.replace("::", ".").rsplit("\\", 1)[-1]
+            _reg_verdict = self._registry_safe_for_sink(_clean)
+            _reg_knows = self._registry_knows(_clean)
+            if _reg_verdict is True:
+                return True
             _bk = self._load_builtin_knowledge(self.language)
             if _bk and _callee in _bk:
                 _entry = _bk[_callee]
                 if isinstance(_entry, dict) and _entry.get("safe"):
+                    if _reg_verdict is False and _reg_knows:
+                        return False
                     return True
-        # 2. taint_type on call node
+        # 2. taint_type on call node — set at enrich time from the svid-blind
+        # global set; when the registry knows this function and does not
+        # bind it to the current sink svid, the registry wins.
         cv = self.graph.vs[call_vid]
         if _vattr(cv, "taint_type", "") == "safe":
+            if _reg_verdict is False and _reg_knows:
+                return False
             return True
         # 3. func_summary_type via use edge
         for ue in self._edge_out(call_vid, "use"):
@@ -7480,6 +7576,18 @@ class GraphAnalyzer:
         clean = clean.replace("::", ".")
         if "\\" in clean:
             clean = clean.rsplit("\\", 1)[-1]
+        # Fix 48a: registry-first semantics.  If the L1/L2/L3 registry has a
+        # binding for this function, its per-svid verdict is authoritative —
+        # the svid-blind global set must NOT override it (strip_tags is
+        # registry-bound to XSS-family svids only, so it must not kill SQLi
+        # taint).  Functions absent from the registry keep the legacy global
+        # behavior (historic FP fixes: cleanValue, Format.input, ...).
+        _reg_verdict = self._registry_safe_for_sink(clean)
+        if _reg_verdict is not None:
+            if _reg_verdict:
+                return True
+            if self._registry_knows(clean):
+                return False
         if clean in _REPAIR_FUNCTIONS:
             return True
         # For fluent API chains (e.g. "EntityQuery.use().from().where().queryOne"),
@@ -7506,6 +7614,65 @@ class GraphAnalyzer:
             if tail != clean:
                 entry = bk.get(tail)
                 if entry and entry.get("safe"):
+                    return True
+        return False
+
+    # Fix 48a: per-svid repair registry (core/filter_functions L1/L2/L3).
+    # The graph engine historically used a svid-blind global frozenset
+    # (_REPAIR_FUNCTIONS) — strip_tags/trim killed SQLi taint although the
+    # L1 registry only binds them to XSS-family svids.  The analyzer now
+    # consults the registry first when a sink svid is set; the global set
+    # remains the fallback for functions the registry doesn't know (historic
+    # FP fixes like cleanValue / Format.input stay effective, zero
+    # regression).
+    def _set_sink_svid(self, svid):
+        """Scanner sets the current sink's CVI id before taint analysis."""
+        self._sink_svid = svid
+
+    def _get_repair_registry(self):
+        if self._repair_registry is None:
+            from core.filter_functions import _registry
+            # Fix 48m: the graph scan path doesn't go through the AST
+            # matcher's init_php_repair, so the L1 builtin store may be empty
+            # in this process — bootstrap it once (idempotent).  Without this,
+            # _registry_safe_for_sink always returns None and every per-svid
+            # veto silently degrades to svid-blind legacy behavior.
+            try:
+                _lang = (self.language or '').lower()
+                if _lang and not _registry._builtin.get(_lang):
+                    from rules.tamper._loader import load_base_config
+                    from core.filter_functions import load_builtin
+                    _rd, _ = load_base_config(_lang)
+                    load_builtin(_lang, _rd)
+            except Exception:
+                pass
+            self._repair_registry = _registry
+        return self._repair_registry
+
+    def _registry_knows(self, clean: str) -> bool:
+        """True if the registry has any svid binding for *clean*."""
+        reg = self._get_repair_registry()
+        try:
+            stores = (reg._rule, reg._summary, reg._builtin)
+        except AttributeError:
+            return False
+        lang = self.language or ''
+        for store in stores:
+            if lang in store and clean in store[lang]:
+                return True
+        return False
+
+    def _registry_safe_for_sink(self, clean: str) -> bool | None:
+        """None = registry has no binding (caller falls back to global set);
+        True/False = registry verdict for the current sink svid."""
+        svid = getattr(self, '_sink_svid', None)
+        if svid is None:
+            return None
+        reg = self._get_repair_registry()
+        lang = self.language or ''
+        for store in (reg._rule, reg._summary, reg._builtin):
+            if lang in store and clean in store[lang]:
+                if svid in store[lang][clean]:
                     return True
         return False
 

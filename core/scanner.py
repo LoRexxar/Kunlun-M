@@ -849,6 +849,33 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     found_unconfirmed = False
                     result = None
                     unconfirmed_result = None
+                    # Fix 48j: per-svid repair context for the GRAPH path.
+                    # Resolve the sink name against lang_rule_list right
+                    # here (the AST-path matched_rules variable doesn't
+                    # exist in this loop).  Exactly one candidate svid →
+                    # taint analysis runs under that svid so registry
+                    # bindings decide repair semantics (strip_tags no
+                    # longer kills SQLi).  Multiple/no candidates keep
+                    # svid-blind legacy behavior.
+                    _g_sink_svids = set()
+                    try:
+                        _sn_bare_g = sink_name_lower.replace("::", ".").rsplit(".", 1)[-1]
+                        for _gr in lang_rule_list:
+                            _gms = [str(_x).lower() for _x in (getattr(_gr, 'method_sinks', None) or [])]
+                            if _gms and _sn_bare_g in _gms:
+                                _g_sink_svids.add(_gr.svid)
+                                continue
+                            for _gn in _get_rule_sink_names(_gr):
+                                _gn_l = str(_gn).lower()
+                                if (_gn_l == sink_name_lower
+                                        or _gn_l.endswith("." + _sn_bare_g)
+                                        or _gn_l == _sn_bare_g):
+                                    _g_sink_svids.add(_gr.svid)
+                                    break
+                    except Exception:
+                        pass
+                    _active_svid = next(iter(_g_sink_svids)) if len(_g_sink_svids) == 1 else None
+                    analyzer._set_sink_svid(_active_svid)
                     for i, arg_vid in enumerate(arg_vids):
                         # Fix 23: curl_setopt(CURLOPT_URL, $url) — when the
                         # owning call is identified and the URL's defining
@@ -913,12 +940,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # esc_html) that builtin_knowledge marks safe=True
                                 # but are not in the hardcoded _REPAIR_FUNCTIONS set.
                                 if _vattr(graph.vs[op_vid], "taint_type", "") == "safe":
-                                    from core.graph.graph_analyzer import AnalysisResult as _AR
-                                    return _AR(
-                                        code=2, reason=f"nested safe '{_callee or ''}'",
-                                        chain=[{"step": "safe", "vid": op_vid,
-                                                "name": _callee or '', "code": 2}],
-                                        path=[op_vid]), None
+                                    # Fix 48k: enrich-time safe marks are
+                                    # svid-blind; the per-svid registry veto
+                                    # (48f) applies here too — a function the
+                                    # registry knows but doesn't bind to the
+                                    # current sink svid is NOT safe here.
+                                    _nk_clean = ""
+                                    if _callee:
+                                        _nk_clean = _callee.lstrip("\\").replace("::", ".")
+                                        if "." in _nk_clean:
+                                            _nk_clean = _nk_clean.rsplit(".", 1)[-1]
+                                    _nk_veto = (_nk_clean
+                                                and analyzer._sink_svid is not None
+                                                and analyzer._registry_safe_for_sink(_nk_clean) is False)
+                                    if not _nk_veto:
+                                        from core.graph.graph_analyzer import AnalysisResult as _AR
+                                        return _AR(
+                                            code=2, reason=f"nested safe '{_callee or ''}'",
+                                            chain=[{"step": "safe", "vid": op_vid,
+                                                    "name": _callee or '', "code": 2}],
+                                            path=[op_vid]), None
                                 # Check func_summary_type via _is_safe_function_call.
                                 # Catches user-defined safe functions (e.g. adminer's
                                 # myescape, checkbox, html_select) that are marked safe
@@ -1039,7 +1080,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     if sub_label == 'identifier':
                                         # Skip variables already marked safe by sanitizer propagation
                                         if _vattr(graph.vs[sub_vid], "taint_type", "") == "safe":
-                                            continue
+                                            # Fix 48l: same registry veto as 48e —
+                                            # the safe mark was propagated from the
+                                            # assigning sanitizer; when the registry
+                                            # knows that function but doesn't bind
+                                            # it to the current sink svid, keep
+                                            # tracing this variable instead of
+                                            # skipping it.
+                                            _l_veto = False
+                                            if analyzer._sink_svid is not None:
+                                                _l_rhs = analyzer._find_assign_rhs_call(sub_vid)
+                                                _l_callee = (analyzer._resolve_callee_name(_l_rhs)
+                                                             if _l_rhs is not None else "")
+                                                if _l_callee:
+                                                    _l_clean = _l_callee.lstrip("\\").replace("::", ".")
+                                                    if "." in _l_clean:
+                                                        _l_clean = _l_clean.rsplit(".", 1)[-1]
+                                                    _l_veto = (analyzer._registry_safe_for_sink(_l_clean)
+                                                               is False)
+                                            if not _l_veto:
+                                                continue
                                     if sub_label == 'function':
                                         # Check if this function is a sanitizer (taint_type="safe")
                                         _sub_callee = analyzer._resolve_callee_name(sub_vid)
