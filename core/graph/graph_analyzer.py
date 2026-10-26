@@ -1159,7 +1159,28 @@ class GraphAnalyzer:
         # A literal of just "http://" does NOT qualify — the host chars must
         # appear inside the same literal, otherwise the host itself is the
         # tainted part (true SSRF stays reported).
-        _f23 = self._fixed_host_url_guard(start_vid)
+        # Fix 48q: the Fix-23 guard's dfg walk is O(subgraph) per pb call
+        # and runs on EVERY entry; Fix 47 concat descent multiplied pb calls
+        # ~20x, making this guard 92% of pb cost on large corpora.  O(1)
+        # pre-check: the guard can only fire when a curl_setopt call is
+        # reachable from the entry (ast parent chain, depth 1) or exists
+        # anywhere in this file.  Cache the per-file verdict once.
+        _f23 = False
+        _f23_file = _vattr(self.graph.vs[start_vid], "file_path", "") or ""
+        if self.language == "php":
+            _f23_cache = getattr(self, "_f23_file_cache", None)
+            if _f23_cache is None:
+                _f23_cache = self._f23_file_cache = {}
+            if _f23_file in _f23_cache:
+                _f23 = _f23_cache[_f23_file]
+            else:
+                _has_curl = any(
+                    _vattr(v, "type", "") == "call"
+                    and str(_vattr(v, "name", "")).lower() in
+                    ("curl_setopt", "curl_exec", "curl_init")
+                    for v in self.graph.vs)
+                _f23 = self._fixed_host_url_guard(start_vid) if _has_curl else False
+                _f23_cache[_f23_file] = _f23
         self._f23_guard_cache = _f23
 
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
@@ -1962,40 +1983,6 @@ class GraphAnalyzer:
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int, list[int]]] = deque()
         queue.append((start_vid, 0, [start_vid]))
-        # Fix 48g: concat operand identifiers hang off the binary_op chain via
-        # ast edges only (no dfg), so a pure-dfg BFS never reaches them.  Seed
-        # the queue with the ast leaf operands of any binary_op '.' on the
-        # start path — mirrors Fix 47's concat-chain semantics (linear string
-        # concatenation is not nested structure).
-        def _concat_ast_leaves(vid: int, depth: int = 0, out=None, seen=None) -> list[int]:
-            if out is None:
-                out, seen = [], set()
-            if vid in seen or depth > 24:
-                return out
-            seen.add(vid)
-            v = self.graph.vs[vid]
-            if (_vattr(v, "label", "") == "operator"
-                    and _vattr(v, "type", "") == "binary_op"
-                    and _vattr(v, "name", "") == "."):
-                for _le in self._edge_out(vid, "ast"):
-                    if _vattr(_le, "role", "") in ("left", "right", "arg"):
-                        _t = _le.target
-                        _tv = self.graph.vs[_t]
-                        if (_vattr(_tv, "label", "") == "operator"
-                                and _vattr(_tv, "type", "") == "binary_op"):
-                            _concat_ast_leaves(_t, depth + 1, out, seen)
-                        elif _vattr(_tv, "label", "") != "const":
-                            out.append(_t)
-            return out
-        for _leaf in _concat_ast_leaves(start_vid):
-            if _leaf not in visited:
-                visited.add(_leaf)
-                queue.append((_leaf, 1, [start_vid, _leaf]))
-        # Fix 48h: a call sink's concat ARG is reachable via dfg (call <- dfg -
-        # concat), but the concat's variable operands are only reachable via
-        # ast.  When the BFS pops a concat node, splice its ast leaves into
-        # the frontier (same linear-chain semantics as Fix 47/48g).
-        _spliced_concat_leaves: set[int] = set()
 
         # Pre-check: if start_vid itself is a property in a member chain,
         # walk the chain to find a source variable (e.g., $_FILES['uploaded']['tmp_name'])
@@ -4345,17 +4332,6 @@ class GraphAnalyzer:
             cur_vid, depth, path = queue.popleft()
             if depth >= max_depth:
                 continue
-            # Fix 48h: splice concat ast leaves on first visit
-            _cv = self.graph.vs[cur_vid]
-            if (cur_vid not in _spliced_concat_leaves
-                    and _vattr(_cv, "label", "") == "operator"
-                    and _vattr(_cv, "type", "") == "binary_op"
-                    and _vattr(_cv, "name", "") == "."):
-                _spliced_concat_leaves.add(cur_vid)
-                for _leaf in _concat_ast_leaves(cur_vid):
-                    if _leaf not in visited:
-                        visited.add(_leaf)
-                        queue.append((_leaf, depth + 1, path + [_leaf]))
             if cur_vid == sink_vid:
                 results.append({"path": path, "length": len(path), "decisions": []})
                 continue
@@ -7662,9 +7638,19 @@ class GraphAnalyzer:
                 return True
         return False
 
+    # Fix 48p: the svid binding lists are an INCOMPLETE enumeration —
+    # absence of a svid does not mean "definitely not a sanitizer for it"
+    # (intval lists only SQLi svids yet also fixes XSS).  Veto ONLY the
+    # known cross-family false-killers: functions whose registered bindings
+    # cover the XSS/SSTI family exclusively — under a NON-XSS sink svid
+    # their enrich-time safe mark must not kill the trace.
+    _XSS_FAMILY_SVIDS = frozenset({1000, 10001, 10002, 1012})
+
     def _registry_safe_for_sink(self, clean: str) -> bool | None:
         """None = registry has no binding (caller falls back to global set);
-        True/False = registry verdict for the current sink svid."""
+        True = bound to the current sink svid; False = veto — the function's
+        registered bindings cover the XSS family exclusively, so under a
+        non-XSS sink svid it is not a sanitizer."""
         svid = getattr(self, '_sink_svid', None)
         if svid is None:
             return None
@@ -7674,7 +7660,14 @@ class GraphAnalyzer:
             if lang in store and clean in store[lang]:
                 if svid in store[lang][clean]:
                     return True
-        return False
+        # Not bound to this svid anywhere.  Veto only the exclusive-XSS
+        # binding shape (the strip_tags/trim class); everything else keeps
+        # the svid-blind legacy fallback.
+        for store in (reg._rule, reg._summary, reg._builtin):
+            if lang in store and clean in store[lang]:
+                if store[lang][clean] and store[lang][clean] <= self._XSS_FAMILY_SVIDS:
+                    return False
+        return None
 
     def _load_builtin_knowledge(self, language: str = None) -> dict:
         """Load builtin_knowledge for the given language (or self.language).
