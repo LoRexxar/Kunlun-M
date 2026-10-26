@@ -687,22 +687,6 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             return False
 
         for lang, lang_rule_list in lang_rules.items():
-            # Fix 48n: precompute sink-name → candidate svids once per
-            # language (the per-sink _get_rule_sink_names loop was
-            # O(sinks × rules × parse) — 12634 sinks never finished).
-            _sink_svid_map: dict[str, set[int]] = {}
-            try:
-                for _pr in lang_rule_list:
-                    _pms = [str(_x).lower() for _x in (getattr(_pr, 'method_sinks', None) or [])]
-                    for _pmn in _pms:
-                        _sink_svid_map.setdefault(_pmn, set()).add(_pr.svid)
-                    for _pn in _get_rule_sink_names(_pr):
-                        _pn_l = str(_pn).lower()
-                        _sink_svid_map.setdefault(_pn_l, set()).add(_pr.svid)
-                        _pn_bare = _pn_l.rsplit('.', 1)[-1]
-                        _sink_svid_map.setdefault(_pn_bare, set()).add(_pr.svid)
-            except Exception:
-                _sink_svid_map = {}
             # Rule-declared method-call sinks: short names that must match
             # ANY receiver (Path C in find_sinks).  Must run BEFORE the
             # GraphAnalyzer is constructed below so the set is complete
@@ -873,7 +857,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # bindings decide repair semantics (strip_tags no
                     # longer kills SQLi).  Multiple/no candidates keep
                     # svid-blind legacy behavior.
-                    _g_sink_svids = _sink_svid_map.get(sink_name_lower, set())
+                    _g_sink_svids = set()
+                    try:
+                        _sn_bare_g = sink_name_lower.replace("::", ".").rsplit(".", 1)[-1]
+                        for _gr in lang_rule_list:
+                            _gms = [str(_x).lower() for _x in (getattr(_gr, 'method_sinks', None) or [])]
+                            if _gms and _sn_bare_g in _gms:
+                                _g_sink_svids.add(_gr.svid)
+                                continue
+                            for _gn in _get_rule_sink_names(_gr):
+                                _gn_l = str(_gn).lower()
+                                if (_gn_l == sink_name_lower
+                                        or _gn_l.endswith("." + _sn_bare_g)
+                                        or _gn_l == _sn_bare_g):
+                                    _g_sink_svids.add(_gr.svid)
+                                    break
+                    except Exception:
+                        pass
                     _active_svid = next(iter(_g_sink_svids)) if len(_g_sink_svids) == 1 else None
                     analyzer._set_sink_svid(_active_svid)
                     for i, arg_vid in enumerate(arg_vids):
