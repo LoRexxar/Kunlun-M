@@ -57,7 +57,95 @@ def normalize_language(lan_list):
     return result
 
 
-class Pretreatment:
+def _vue_props_from_script(script_text):
+    """Fix 49g: 用 esprima AST 从 <script> 块提取 Vue 组件 props 名(零正则)。
+
+    支持的宿主形态:
+    - export default { props: {...} | [...] }
+    - defineComponent({ props: ... })
+    - Vue.extend({...}) / Vue.component('x', {...}) / Vue.mixin({...})
+
+    script 含 import/export 时用 parseModule,失败回退 parseScript
+    (老式 <script> 无模块语法)。任何解析失败返回 [](该组件无 props)。
+    """
+    if not script_text or not script_text.strip():
+        return []
+    try:
+        import esprima
+    except ImportError:
+        return []
+    try:
+        try:
+            tree = esprima.parseModule(script_text)
+        except Exception:
+            tree = esprima.parseScript(script_text)
+    except Exception:
+        return []
+
+    def _node_children(node):
+        # esprima 节点: 遍历所有子字段(跳过 loc/range 元数据)
+        for _field, _val in vars(node).items():
+            if _field in ("loc", "range"):
+                continue
+            if hasattr(_val, "type"):
+                yield _val
+            elif isinstance(_val, list):
+                for _v in _val:
+                    if hasattr(_v, "type"):
+                        yield _v
+
+    def _props_from_value(val):
+        out = []
+        vt = getattr(val, "type", "")
+        if vt == "ObjectExpression":
+            for prop in (val.properties or []):
+                key = getattr(prop, "key", None)
+                n = getattr(key, "name", None) or getattr(key, "value", None)
+                if n:
+                    out.append(n)
+        elif vt == "ArrayExpression":
+            for el in (val.elements or []):
+                n = getattr(el, "value", None)
+                if n:
+                    out.append(n)
+        return out
+
+    names = []
+
+    def _visit(node, in_options_host):
+        nt = getattr(node, "type", "")
+        if not nt:
+            return
+        # 宿主形态 1: export default OBJ
+        if nt == "ExportDefaultDeclaration":
+            _visit(node.declaration, True)
+            return
+        # 宿主形态 2: defineComponent(OBJ) / Vue.extend|component|mixin(OBJ)
+        if nt == "CallExpression":
+            _callee = getattr(node.callee, "name", "") or ""
+            _callee_ns = ""
+            if getattr(node.callee, "type", "") == "MemberExpression":
+                _callee_ns = getattr(node.callee.property, "name", "") or ""
+            if _callee == "defineComponent" or _callee_ns in ("extend", "component", "mixin"):
+                for _a in (node.arguments or []):
+                    _visit(_a, True)
+                return
+        # 选项对象: props 属性
+        if nt == "ObjectExpression" and in_options_host:
+            for prop in (node.properties or []):
+                key = getattr(prop, "key", None)
+                kname = getattr(key, "name", None) or getattr(key, "value", None) or ""
+                if kname == "props":
+                    names.extend(_props_from_value(prop.value))
+        for _child in _node_children(node):
+            _visit(_child, False)
+
+    for _stmt in getattr(tree, "body", []):
+        _visit(_stmt, False)
+    return names
+
+
+class Pretreatment(object):
 
     def __init__(self):
         self.file_list = []
@@ -454,36 +542,31 @@ class Pretreatment:
                     # argilla SettingsInfo.vue:10 v-html="settings.dataset.name").
                     if filepath.endswith(".vue"):
                         try:
-                            _vm = re.search(
-                                r'<script[^>]*>(.*?)</script>', code_content, re.S | re.I)
-                            _vscript = _vm.group(1) if _vm else ""
+                            # Fix 49g: 零正则的 .vue 拆解 —— SFC 不是 JS,
+                            # 用 BeautifulSoup 解析模板结构(script 块 + 任意
+                            # 标签的 v-html 属性),props 用 esprima AST 提取。
+                            # 正则仅允许用于 sink 定位后的行级匹配,不用于
+                            # 内容解析(单/双引号、多行属性、嵌套块都会漏)。
+                            _vsoup = BeautifulSoup(code_content, "html.parser")
+                            _vscript = "\n".join(
+                                t.string or "" for t in _vsoup.find_all("script"))
                             if _vscript.strip():
                                 fi2.write(" \n{}\n ".format(_vscript))
-                            # Fix 49c: Vue 组件 props 是父级传入的外部数据,
-                            # 等价于函数形参(组件实例化时由外部填充)。提取
+                            # Fix 49c/49g: Vue 组件 props 是父级传入的外部数据,
+                            # 等价于函数形参(组件实例化时由外部填充)。AST 提取
                             # props 名注入 __vue_props__ 标记调用,由
                             # source_discovery 登记为该文件的源变量。
-                            _pm = re.search(r'props\s*:\s*\{', _vscript)
-                            if _pm:
-                                _body = _vscript[_pm.end():]
-                                _depth = 1
-                                _i = 0
-                                while _i < len(_body) and _depth > 0:
-                                    if _body[_i] == '{':
-                                        _depth += 1
-                                    elif _body[_i] == '}':
-                                        _depth -= 1
-                                    _i += 1
-                                _pblock = _body[:_i]
-                                _pnames = re.findall(
-                                    r'(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:\s*[{\'"]', _pblock)
-                                if _pnames:
-                                    fi2.write(" \n__vue_props__({});\n ".format(
-                                        ", ".join(_pnames)))
-                            for _vh in re.finditer(
-                                    r'v-html\s*=\s*"([^"\n]+)"', code_content):
-                                fi2.write(
-                                    " \n__vue_vhtml__.innerHTML = {};\n ".format(_vh.group(1)))
+                            _pnames = _vue_props_from_script(_vscript)
+                            if _pnames:
+                                fi2.write(" \n__vue_props__({});\n ".format(
+                                    ", ".join(_pnames)))
+                            for _tag in _vsoup.find_all(True):
+                                for _an, _av in _tag.attrs.items():
+                                    if _an.lower() == "v-html":
+                                        _expr = _av if isinstance(_av, str) \
+                                            else " ".join(_av)
+                                        fi2.write(
+                                            " \n__vue_vhtml__.innerHTML = {};\n ".format(_expr))
                             fi2.close()
                             if tmp_path not in script_list:
                                 script_list.append(tmp_path)
