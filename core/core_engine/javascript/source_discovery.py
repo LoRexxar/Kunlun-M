@@ -38,6 +38,8 @@ class SourceRegistry:
     # Known source variable names: 'process', 'arguments', etc.
     source_variables: Set[str] = field(default_factory=set)
     # Framework request method calls: (obj_name, method_name)
+    # Fix 49c: 文件作用域源变量(Vue props)。key=filepath, value=set(var names)。
+    file_scoped_source_vars: Dict[str, set] = field(default_factory=dict)
     framework_request_methods: Set[Tuple[str, str]] = field(default_factory=set)
     # User-defined source producer functions: func_name -> SourceInfo
     user_source_functions: Dict[str, SourceInfo] = field(default_factory=dict)
@@ -110,7 +112,23 @@ _FRAMEWORK_PACKAGE_MAP = {
     'koa': ['koa'],
     'hapi': ['@hapi/hapi', 'hapi'],
     'fastify': ['fastify'],
+    # Fix 49b: SPA 前端(Vue/Nuxt/React)的 HTTP 客户端——存储型 XSS 的
+    # 污点入口是 API 响应体 (CVE-2026-116554: argilla axios.get 返回的
+    # dataset.name 流入 v-html)。
+    'axios': ['axios', '@nuxtjs/axios'],
 }
+
+
+# Fix 49b: axios 实例的常见宿主对象链(this.axios / $axios / app.$axios...)
+_AXIOS_HOST_CHAINS = {
+    'axios', '$axios', 'this.axios', 'this.$axios',
+    'app.$axios', 'ctx.$axios', 'context.$axios', 'Vue.axios', 'http',
+}
+_AXIOS_METHODS = {'get', 'post', 'put', 'patch', 'delete', 'request', '$get', '$post', '$put', '$delete'}
+
+# _FRAMEWORK_CONFIGS 在下方 define_framework_configs 中按框架名填充;
+# axios 无 source_members(响应不是成员表达式,是解构变量),请求方法
+# 匹配走 _is_axios_response_call。
 
 
 def detect_framework(project_dir: str) -> Optional[str]:
@@ -164,6 +182,12 @@ _CHROME_EXT_SOURCE_MEMBERS = {
 }
 
 _FRAMEWORK_CONFIGS = {
+    # Fix 49b: axios —— 响应体即污点入口(SPA 存储型 XSS)。响应绑定走
+    # _mark_axios_response_bindings 的源变量登记,这里留空配置占位。
+    'axios': {
+        'source_members': set(),
+        'request_methods': set(),
+    },
     'express': {
         'source_members': {
             'req.query', 'req.body', 'req.params', 'req.headers',
@@ -367,6 +391,135 @@ def _function_body_contains_source(body_stmts: list, registry: SourceRegistry) -
 # ── Function Discovery ─────────────────────────────────────────────────
 
 
+def _is_axios_response_call(node) -> bool:
+    """node 是 axios 宿主链上的请求调用(this.axios.get(...) / $axios.get(...) / axios(...))"""
+    if not isinstance(node, jsnodes.CallExpression):
+        return False
+    callee = node.callee
+    # 直接调用: axios(...) / $axios(...)
+    if isinstance(callee, jsnodes.Identifier) and callee.name in _AXIOS_HOST_CHAINS:
+        return True
+    if _is_member_expr(callee):
+        chain = _extract_member_chain(callee)  # e.g. 'this.axios.get'
+        if chain and '.' in chain:
+            host, method = chain.rsplit('.', 1)
+            if method in _AXIOS_METHODS and (host in _AXIOS_HOST_CHAINS or host.split('.')[-1] in ('axios', '$axios')):
+                return True
+    return False
+
+
+def _ts_node_type(node) -> str:
+    return getattr(node, 'type', '') or ''
+
+
+def _ts_children(node):
+    """tree-sitter Node 的子节点列表(named + unnamed,保序)。"""
+    out = []
+    try:
+        for i in range(node.child_count):
+            c = node.child(i)
+            if c is not None:
+                out.append(c)
+    except Exception:
+        pass
+    return out
+
+
+def _mark_axios_response_bindings(nodes, registry: SourceRegistry, _fp_hint: str = ''):
+    """遍历 AST,把 axios 响应绑定(含解构)登记为源变量"""
+    if isinstance(nodes, list):
+        for node in nodes:
+            _mark_axios_response_bindings(node, registry, _fp_hint)
+        return
+    # Fix 49b-v4: pretreatment 存的 TS ast_nodes 是 tree_sitter Tree(非 Node),
+    # 没有 .type 属性,会在下方 hasattr 检查处整体静默返回 → 解包 root_node。
+    if nodes is not None and hasattr(nodes, 'root_node') and not hasattr(nodes, 'type'):
+        nodes = nodes.root_node
+    if nodes is None or not hasattr(nodes, 'type'):
+        return
+
+    # Fix 49b-v3: tree-sitter 节点(TS AST 无 __dict__,vars() 会崩)。
+    # 形态: lexical_declaration > variable_declarator
+    #   (value: await_expression > call_expression (this.axios.get ...),
+    #    name: object_pattern > shorthand_property_identifier_pattern 'data')
+    _t = _ts_node_type(nodes)
+    if _t == 'variable_declarator':
+        val = nodes.child_by_field_name('value')
+        name_node = nodes.child_by_field_name('name')
+        while val is not None and _ts_node_type(val) == 'await_expression':
+            # tree-sitter await_expression 的 call 是匿名子节点(无 'value' 字段名)
+            _named = [c for c in val.named_children] if hasattr(val, 'named_children') else []
+            val = _named[0] if _named else None
+        # Fix 49c (tree-sitter): __vue_props__(a, b) 标记调用
+        _val0 = nodes.child_by_field_name('value')
+        if _val0 is not None and _ts_node_type(_val0) == 'call_expression':
+            _fn0 = _val0.child_by_field_name('function')
+            if _fn0 is not None and hasattr(_fn0, 'text') and _fn0.text.decode('utf8', 'ignore') == '__vue_props__':
+                _argf = _val0.child_by_field_name('arguments')
+                if _argf is not None:
+                    for _ch in _argf.named_children:
+                        if _ts_node_type(_ch) == 'identifier':
+                            registry.file_scoped_source_vars.setdefault(_fp_hint, set()).add(
+                                _ch.text.decode('utf8', 'ignore'))
+
+        if val is not None and _ts_node_type(val) == 'call_expression':
+            fn = val.child_by_field_name('function')
+            fn_s = fn.text.decode('utf8', 'ignore') if fn is not None and hasattr(fn, 'text') else ''
+            host, _, method = fn_s.rpartition('.')
+            if method in _AXIOS_METHODS and (host in _AXIOS_HOST_CHAINS or host.split('.')[-1] in ('axios', '$axios')):
+                if name_node is not None:
+                    nt = _ts_node_type(name_node)
+                    if nt in ('identifier', 'shorthand_property_identifier_pattern'):
+                        registry.source_variables.add(name_node.text.decode('utf8', 'ignore'))
+                    elif nt == 'object_pattern':
+                        for ch in name_node.children:
+                            if _ts_node_type(ch) in ('shorthand_property_identifier_pattern', 'pair_pattern'):
+                                v = ch.child_by_field_name('value') if _ts_node_type(ch) == 'pair_pattern' else ch
+                                if v is not None and hasattr(v, 'text'):
+                                    registry.source_variables.add(v.text.decode('utf8', 'ignore'))
+
+    # Fix 49c (esprima): __vue_props__(a, b) 标记调用
+    if isinstance(nodes, jsnodes.CallExpression):
+        _c = nodes.callee
+        if isinstance(_c, jsnodes.Identifier) and _c.name == '__vue_props__':
+            for _a in (nodes.arguments or []):
+                if isinstance(_a, jsnodes.Identifier):
+                    registry.file_scoped_source_vars.setdefault(_fp_hint, set()).add(_a.name)
+
+    # esprima 分支(原逻辑)
+    if isinstance(nodes, jsnodes.VariableDeclarator):
+        init = getattr(nodes, 'init', None)
+        # 剥 await
+        if isinstance(init, jsnodes.AwaitExpression):
+            init = getattr(init, 'argument', None)
+        if init is not None and _is_axios_response_call(init):
+            pid = getattr(nodes, 'id', None)
+            if pid is None:
+                pass
+            elif isinstance(pid, jsnodes.Identifier):
+                registry.source_variables.add(pid.name)
+            elif isinstance(pid, jsnodes.ObjectPattern) and hasattr(pid, 'properties'):
+                for prop in pid.properties:
+                    v = getattr(prop, 'value', None)
+                    if isinstance(v, jsnodes.Identifier):
+                        registry.source_variables.add(v.name)
+
+    # tree-sitter 递归(children 是 list);esprima 节点有 .children 属性但为
+    # None,须用 vars() 走原逻辑 —— 用 child_count 区分两者。
+    if getattr(nodes, 'child_count', None) is not None and not isinstance(nodes, jsnodes.VariableDeclarator):
+        for ch in nodes.children:
+            _mark_axios_response_bindings(ch, registry, _fp_hint)
+        return
+
+    for attr_name, val in vars(nodes).items():
+        if attr_name in _METADATA_FIELDS:
+            continue
+        if isinstance(val, list):
+            _mark_axios_response_bindings(val, registry, _fp_hint)
+        elif hasattr(val, 'type'):
+            _mark_axios_response_bindings(val, registry, _fp_hint)
+
+
 def _walk_for_functions(nodes, filepath: str, registry: SourceRegistry):
     """Walk AST to find FunctionDeclaration / MethodDefinition that access sources."""
     if isinstance(nodes, list):
@@ -455,6 +608,10 @@ def discover_sources(project_dir: str, ast_object, controlled_list=None) -> Sour
                 continue
             try:
                 _walk_for_functions(ast_nodes, filepath, registry)
+                # Fix 49b: axios 响应解构 —— const { data } = await this.axios.get(...)
+                # 把 data(及裸 const resp = await axios.get)登记为源变量,
+                # 使 `return data` 能把仓库方法标记为源生产者。
+                _mark_axios_response_bindings(ast_nodes, registry, _fp_hint=filepath)
             except Exception as e:
                 logger.debug('[SourceDiscovery] Error processing {0}: {1}'.format(filepath, e))
 

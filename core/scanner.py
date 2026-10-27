@@ -729,7 +729,14 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # (e.g. identifier nodes that leaked into results)
                     _stype = sink.get('type', '')
                     if _stype and _stype not in ('call', 'method_call', 'static_call', 'new'):
-                        continue
+                        # Fix 49e: DOM property-assignment sinks (Vue v-html
+                        # synthesized as __vue_vhtml__.innerHTML = expr; raw
+                        # element.innerHTML = expr) are type='assign', not
+                        # calls.  Allow the HTML-injection property names.
+                        _sn_tail = str(_sn).rsplit('.', 1)[-1].lower()
+                        if not (_stype == 'assign' and _sn_tail in (
+                                'innerhtml', 'outerhtml', 'insertadjacenthtml')):
+                            continue
                     # Fix 25: sinks inside a never-called function are dead
                     # code — the function body only executes if something
                     # invokes it, and the call graph says nothing does.
@@ -925,6 +932,39 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 _is_concat_op = (
                                     _vattr(graph.vs[op_vid], "type", "") == "binary_op"
                                     and _vattr(graph.vs[op_vid], "name", "") == ".")
+                                # Fix 49f-v2: for a JS/TS member-chain
+                                # operator (name is a dotted path like
+                                # 'settings.dataset.name'), the chain's base
+                                # identifier is the data origin.  Consume the
+                                # enrich_taint file-scoped source annotation
+                                # (Vue props / axios bindings) BEFORE anything
+                                # else — ast leaf operands (the property
+                                # identifier 'name') never carry it.
+                                _opn49 = str(_vattr(graph.vs[op_vid], "name", ""))
+                                if "." in _opn49:
+                                    _mc49 = op_vid
+                                    for _ in range(10):
+                                        _mins49 = [
+                                            e for e in graph.es.select(
+                                                _target=_mc49, label="member")
+                                        ]
+                                        if not _mins49:
+                                            break
+                                        _mc49 = _mins49[0].source
+                                        _mv49 = graph.vs[_mc49]
+                                        if _vattr(_mv49, "label", "") == "identifier":
+                                            _bn49 = _vattr(_mv49, "name", "")
+                                            _bt49 = _vattr(_mv49, "taint_type", "")
+                                            if _bn49 and _bt49 == "source":
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=1,
+                                                    reason=f"annotated source variable '{_bn49}' (member-chain base, file-scoped)",
+                                                    chain=[{"step": "annotated_source",
+                                                            "vid": _mc49, "name": _bn49,
+                                                            "code": 1}],
+                                                    path=[op_vid, _mc49]), None
+                                            break
                                 # Check if this operator is a repair function —
                                 # if so, its output is safe, return repaired.
                                 _callee = analyzer._resolve_callee_name(op_vid)
@@ -1064,6 +1104,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                          or _vattr(e, "arg_index", None) in _bk_passthrough_idxs)
                                 ]
                                 if not sub_arg_vids:
+                                    # Fix 49f: JS/TS member-chain operator (e.g.
+                                    # 'settings.dataset.name' as a synthesized
+                                    # v-html RHS) has no AST arg children — its
+                                    # value flows from the chain's base
+                                    # identifier.  Walk incoming member edges to
+                                    # the base and consume enrich_taint's
+                                    # file-scoped source annotation (Vue props).
+                                    _mc49 = op_vid
+                                    for _ in range(10):
+                                        _mins49 = [
+                                            e for e in graph.es.select(
+                                                _target=_mc49, label="member")
+                                        ]
+                                        if not _mins49:
+                                            break
+                                        _mc49 = _mins49[0].source
+                                        _mv49 = graph.vs[_mc49]
+                                        if _vattr(_mv49, "label", "") == "identifier":
+                                            _bn49 = _vattr(_mv49, "name", "")
+                                            _bt49 = _vattr(_mv49, "taint_type", "")
+                                            if _bn49 and _bt49 == "source":
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=1,
+                                                    reason=f"annotated source variable '{_bn49}' (member-chain base, file-scoped)",
+                                                    chain=[{"step": "annotated_source",
+                                                            "vid": _mc49, "name": _bn49,
+                                                            "code": 1}],
+                                                    path=[op_vid, _mc49]), None
+                                            break
                                     # No AST children — try DFG sources as fallback.
                                     # This handles cases where the normalizer
                                     # connects operator operands via DFG edges

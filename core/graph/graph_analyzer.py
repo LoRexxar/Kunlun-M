@@ -2244,6 +2244,50 @@ class GraphAnalyzer:
                                     "name": _rhs_callee or "", "code": -1}],
                             path=path + [_rhs],
                             expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
+            # Fix 49d-v3: JS/TS member-chain operator (e.g. operator
+            # 'settings.dataset.name') typically has NO dfg in-edges — its
+            # value flows from the chain's base identifier.  When the BFS
+            # pops such an operator with no dfg upstream, seed the base
+            # identifier of the incoming member chain as an equivalent
+            # upstream node so the trace continues to the annotated source.
+            if not self._get_dfg_sources(cur_vid):
+                _cv = self.graph.vs[cur_vid]
+                if (_vattr(_cv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(_cv, "type", "") in ("method_call", "static_call")
+                        and "." in str(_vattr(_cv, "name", ""))):
+                    _mc = cur_vid
+                    for _ in range(10):
+                        _mins = list(self._edge_in(_mc, "member"))
+                        if not _mins:
+                            break
+                        _mc = _mins[0].source
+                        _mv = self.graph.vs[_mc]
+                        if (_vattr(_mv, "label", "") == NodeLabel.IDENTIFIER.value):
+                            # Fix 49d-v4: judge the base right here — the
+                            # queue's pop path never applies the up_vid rule
+                            # set to seeded nodes.  Annotated file-scoped
+                            # source (Vue props) or same-file same-name
+                            # annotated twin → controllable.
+                            _bn = _vattr(_mv, "name", "")
+                            _bt = _vattr(_mv, "taint_type", "")
+                            if _bn and _bt != "safe" and (
+                                    _bt == "source"
+                                    or self._file_scoped_source_named(_mc, _bn)):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"annotated source variable '{_bn}' (member-chain base, file-scoped)",
+                                    chain=[{"step": "annotated_source", "vid": _mc,
+                                            "name": _bn, "code": 1}],
+                                    path=path + [_mc],
+                                    expr_lineno=_vattr(_mv, "lineno", 0)))
+                            # Not a source — still enqueue for further dfg
+                            # tracing (e.g. base is a local var assigned
+                            # from a request somewhere).
+                            if _mc not in visited:
+                                visited.add(_mc)
+                                queue.append((_mc, depth + 1, path + [_mc]))
+                            break
+
             for up_vid in self._get_dfg_sources(cur_vid):
                 if up_vid in visited:
                     continue
@@ -2541,6 +2585,23 @@ class GraphAnalyzer:
                         return self._cached(cache_key, _r42b)
 
                 # Rule 1: superglobal
+                # Fix 49d: node-level source annotation (enrich_taint 3z) —
+                # file-scoped source variables (Vue props, JS/TS).  The BFS
+                # never consumed identifier taint_type, so a 'settings' prop
+                # standing right on the source node was reported Inconclusive.
+                # 49d-v2: sink 所指实例可能不是被标注的那个(文件内同名标识符
+                # 多个实例)—— 本节点无标注时回退查「同文件同名」的标注。
+                if ulabel == NodeLabel.IDENTIFIER.value and uname:
+                    _nt = _vattr(uv, "taint_type", "")
+                    if _nt == "safe":
+                        pass  # 显式安全标注优先
+                    elif _nt == "source" or self._file_scoped_source_named(up_vid, uname):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"annotated source variable '{uname}' (file-scoped)",
+                            chain=[{"step": "annotated_source", "vid": up_vid,
+                                    "name": uname, "code": 1}],
+                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                 if self._is_source_variable(uname):
                     # $_SERVER/$_FILES have mixed controllability per key — check if all
                     # member children in this file are non-source keys
@@ -7381,6 +7442,31 @@ class GraphAnalyzer:
             cur_vid = parent_vid
         return ""
 
+    def _file_scoped_source_named(self, vid: int, name: str) -> bool:
+        """Fix 49d-v2: 检查「同文件内是否存在同名 identifier 且带
+        taint_type='source' 标注」(enrich_taint 3z 的 file-scoped 源,
+        如 Vue props)。同名实例共享同一变量语义。
+        """
+        try:
+            cache = getattr(self, "_fssn_cache", None)
+            if cache is None:
+                cache = {}
+                self._fssn_cache = cache
+            key = (vid, name)
+            if key in cache:
+                return cache[key]
+            fp = _vattr(self.graph.vs[vid], "file_path", "")
+            found = False
+            if fp and name:
+                for ov in self.graph.vs.select(label=NodeLabel.IDENTIFIER.value, name=name):
+                    if _vattr(ov, "file_path", "") == fp and _vattr(ov, "taint_type", "") == "source":
+                        found = True
+                        break
+            cache[key] = found
+            return found
+        except Exception:
+            return False
+
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
         检查 source_registry / superglobals。
@@ -7413,6 +7499,11 @@ class GraphAnalyzer:
             parent_name = _vattr(parent_v, "name", "")
             if not parent_name:
                 break
+            # Fix 49d: 链顶 parent 若带 enrich_taint 3z 的节点级 source 标注
+            # (file-scoped 源变量,如 Vue props 'settings'),链上任意后代访问
+            # (settings.dataset.name)都源自它 —— 名字查询覆盖不到,必须消费标注。
+            if _vattr(parent_v, "taint_type", "") == "source":
+                return parent_name
             # Avoid double-counting when chain already starts with parent_name
             if chain.startswith(parent_name + "."):
                 # chain already has parent as prefix — the parent itself

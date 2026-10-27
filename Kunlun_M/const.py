@@ -72,7 +72,7 @@ ext_dict = {
     "javascript": ['.js'],
     "typescript": ['.ts', '.tsx'],
     "chromeext": ['.crx'],
-    "html": ['.html'],
+    "html": ['.html', '.vue'],  # Fix 49: .vue collected; pretreatment extracts script + v-html synth
     "python": ['.py'],
     "java": ['.java', '.jar', '.class', '.xml'],
     "go": ['.go'],

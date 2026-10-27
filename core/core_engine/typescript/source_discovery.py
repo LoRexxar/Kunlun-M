@@ -181,6 +181,14 @@ _FRAMEWORK_CONFIGS = {
             ('request', 'payload'),
         },
     },
+    # Fix 49b: SPA 前端(Vue/Nuxt/React)的 HTTP 客户端——存储型 XSS 的
+    # 污点入口是 API 响应体 (CVE-2026-116554: argilla DatasetRepository.ts
+    # 的 this.axios.get 解构 data → Dataset.name → v-html)。
+    'axios': {
+        'detect_package': ['axios', '@nuxtjs/axios'],
+        'source_members': set(),
+        'request_methods': set(),
+    },
 }
 
 
@@ -225,6 +233,56 @@ def detect_framework(project_dir):
 # ---------------------------------------------------------------------------
 # tree-sitter AST 遍历：source producer 发现
 # ---------------------------------------------------------------------------
+
+# Fix 49b: axios 实例宿主链 + 请求方法名
+_AXIOS_HOST_CHAINS = {
+    'axios', '$axios', 'this.axios', 'this.$axios',
+    'app.$axios', 'ctx.$axios', 'context.$axios', 'Vue.axios', 'http',
+}
+_AXIOS_METHODS = {'get', 'post', 'put', 'patch', 'delete', 'request', '$get', '$post', '$put', '$delete'}
+
+
+def _mark_axios_response_bindings(nodes, registry):
+    """遍历 tree-sitter AST,把 axios 响应绑定(含解构)登记为源变量。
+
+    形态: lexical_declaration > variable_declarator
+      (name: object_pattern 'data' | identifier,
+       value: await_expression > call_expression (this.axios.get ...))
+    """
+    if isinstance(nodes, list):
+        for node in nodes:
+            _mark_axios_response_bindings(node, registry)
+        return
+    if nodes is not None and hasattr(nodes, 'root_node') and not hasattr(nodes, 'type'):
+        nodes = nodes.root_node
+    if nodes is None or not hasattr(nodes, 'type'):
+        return
+
+    if nodes.type == 'variable_declarator':
+        val = nodes.child_by_field_name('value')
+        name_node = nodes.child_by_field_name('name')
+        while val is not None and val.type == 'await_expression':
+            _named = [c for c in val.named_children] if hasattr(val, 'named_children') else []
+            val = _named[0] if _named else None
+        if val is not None and val.type == 'call_expression':
+            fn = val.child_by_field_name('function')
+            fn_s = _node_text(fn) or ''
+            host, _, method = fn_s.rpartition('.')
+            if method in _AXIOS_METHODS and (host in _AXIOS_HOST_CHAINS or host.split('.')[-1] in ('axios', '$axios')):
+                if name_node is not None:
+                    nt = name_node.type
+                    if nt in ('identifier', 'shorthand_property_identifier_pattern'):
+                        registry.add_source_variable(_node_text(name_node))
+                    elif nt == 'object_pattern':
+                        for ch in name_node.children:
+                            if ch.type in ('shorthand_property_identifier_pattern', 'pair_pattern'):
+                                v = ch.child_by_field_name('value') if ch.type == 'pair_pattern' else ch
+                                if v is not None and hasattr(v, 'text'):
+                                    registry.add_source_variable(_node_text(v))
+
+    if hasattr(nodes, 'children'):
+        for ch in nodes.children:
+            _mark_axios_response_bindings(ch, registry)
 
 def _node_text(node):
     """将 tree-sitter 节点转为字符串"""
@@ -400,6 +458,22 @@ def discover_sources(project_dir, tree, file_path=None, extra_sources=None):
     # 3. 遍历 AST 发现用户自定义 source producer
     if tree and hasattr(tree, 'root_node'):
         _walk_for_functions(tree.root_node, file_path or project_dir, registry)
+
+    # Fix 49b: scanner 传入的是全局 ast_object(Pretreatment 单例,无 root_node)
+    # → 遍历其 pre_result 中所有 TS 文件的 tree-sitter Tree:标记 axios 响应
+    # 绑定为源变量,并把引用源变量的方法登记为源生产者。
+    if tree is not None and not hasattr(tree, 'root_node') and hasattr(tree, 'pre_result'):
+        for _fp, _info in (tree.pre_result or {}).items():
+            _nodes = _info.get('ast_nodes')
+            if not _nodes:
+                continue
+            try:
+                _mark_axios_response_bindings(_nodes, registry)
+                _root = _nodes.root_node if hasattr(_nodes, 'root_node') else None
+                if _root is not None:
+                    _walk_for_functions(_root, _fp, registry)
+            except Exception as e:
+                logger.debug('[SourceDiscovery][TypeScript] Error processing {0}: {1}'.format(_fp, e))
 
     if registry.user_source_functions:
         names = sorted(registry.user_source_functions.keys())

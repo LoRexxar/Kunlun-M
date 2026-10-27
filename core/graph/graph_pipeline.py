@@ -370,6 +370,13 @@ def build_ast_graph(
                 except OSError:
                     pass
 
+                # Fix 49: Vue SFC —— .vue 由 pretreatment 拆解为同目录 tmp.js
+                # (script 块 + v-html 合成的 .innerHTML 语句),graph 侧跳过
+                # .vue 本体(file-only), 由 tmp.js 承载全部语义。
+                if file_ext == ".vue":
+                    file_only_count += 1
+                    continue
+
                 detected_lang = code_ext_to_lang.get(file_ext)
 
                 content_hash = _compute_file_hash(abs_filepath)

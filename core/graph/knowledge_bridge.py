@@ -127,6 +127,34 @@ def enrich_taint(
     source_var_count = _enrich_source_variables(graph)
     count += source_var_count
 
+    # 3z. Fix 49c: 文件作用域源变量(Vue props)—— registry.file_scoped_source_vars
+    #     记录了「.vue 组件的 props 名 → 该组件 tmp.js 路径」。Vue props 是
+    #     父级传入的外部数据(组件边界输入),在该文件作用域内视作 source。
+    #     按 file_path 精准标注,不污染其他文件的同名标识符。
+    _fs = getattr(source_registry, 'file_scoped_source_vars', None) if source_registry is not None else None
+    if _fs:
+        _marked = 0
+        for v in graph.vs:
+            if _vattr(v, "taint_type"):
+                continue
+            if _vattr(v, "label") != "identifier":
+                continue
+            _fp = _vattr(v, "file_path", "")
+            _pname = _vattr(v, "name", "")
+            if not _fp or not _pname:
+                continue
+            _names = None
+            for _k, _v in _fs.items():
+                if _fp.endswith(_k) or _k.endswith(_fp):
+                    _names = _v
+                    break
+            if _names and _pname in _names:
+                graph.vs[v.index]["taint_type"] = "source"
+                _marked += 1
+        if _marked:
+            logger.info('[KnowledgeBridge] Fix 49c: marked %d Vue-prop source identifiers', _marked)
+            count += _marked
+
     # 3b. Mark superglobal use-site nodes as taint_type=safe when they were
     #     reassigned by a safe function (e.g. $_GET['x'] = strtr(...)).
     #     This directly annotates the graph so the analyzer doesn't need to
@@ -340,7 +368,11 @@ def _enrich_from_source_registry(
         graph.vs[func_vid]["taint_type"] = "source"
         # Encode origin in existing attribute to avoid igraph dynamic attr issues.
         # Format: "source" for framework/builtin, "source:user" for user_defined.
-        if info.type == "user_defined":
+        # Fix 49b: TypeScript SourceInfo 的字段名是 source_type(JS 是 type),
+        # 直接访问 .type 会 AttributeError → 整个语言的 taint enrichment
+        # 中断(argilla TS 25 个源生产者全部没上图)。
+        _info_type = getattr(info, "type", None) or getattr(info, "source_type", "")
+        if _info_type == "user_defined":
             graph.vs[func_vid]["taint_type"] = "source:user"
         return True
 

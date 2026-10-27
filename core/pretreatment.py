@@ -447,6 +447,62 @@ class Pretreatment:
                     tmp_path = os.path.join(os.path.dirname(filepath), "tmp.js")
                     fi2 = codecs.open(tmp_path, "a", encoding='utf-8', errors='ignore')
 
+                    # Fix 49: Vue SFC — extract <script> block verbatim and
+                    # synthesize `.innerHTML = EXPR;` statements from template
+                    # `v-html="EXPR"` directives so CVI_3005 (innerHTML sink)
+                    # can flag stored-XSS via v-html (CVE-2026-116554:
+                    # argilla SettingsInfo.vue:10 v-html="settings.dataset.name").
+                    if filepath.endswith(".vue"):
+                        try:
+                            _vm = re.search(
+                                r'<script[^>]*>(.*?)</script>', code_content, re.S | re.I)
+                            _vscript = _vm.group(1) if _vm else ""
+                            if _vscript.strip():
+                                fi2.write(" \n{}\n ".format(_vscript))
+                            # Fix 49c: Vue 组件 props 是父级传入的外部数据,
+                            # 等价于函数形参(组件实例化时由外部填充)。提取
+                            # props 名注入 __vue_props__ 标记调用,由
+                            # source_discovery 登记为该文件的源变量。
+                            _pm = re.search(r'props\s*:\s*\{', _vscript)
+                            if _pm:
+                                _body = _vscript[_pm.end():]
+                                _depth = 1
+                                _i = 0
+                                while _i < len(_body) and _depth > 0:
+                                    if _body[_i] == '{':
+                                        _depth += 1
+                                    elif _body[_i] == '}':
+                                        _depth -= 1
+                                    _i += 1
+                                _pblock = _body[:_i]
+                                _pnames = re.findall(
+                                    r'(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:\s*[{\'"]', _pblock)
+                                if _pnames:
+                                    fi2.write(" \n__vue_props__({});\n ".format(
+                                        ", ".join(_pnames)))
+                            for _vh in re.finditer(
+                                    r'v-html\s*=\s*"([^"\n]+)"', code_content):
+                                fi2.write(
+                                    " \n__vue_vhtml__.innerHTML = {};\n ".format(_vh.group(1)))
+                            fi2.close()
+                            if tmp_path not in script_list:
+                                script_list.append(tmp_path)
+                            self.target_queue.put(('.js', {'count': len(script_list), 'list': script_list}))
+                            self.file_list.append(('.js', {'count': len(script_list), 'list': script_list}))
+                        except:
+                            logger.warning('[AST][Vue] something error, {}'.format(traceback.format_exc()))
+                        finally:
+                            # Fix 49-v2: .vue 处理完毕后必须跳过下方 html 通用逻辑,
+                            # 否则 fi2 已关闭仍会被 html 分支再次 write →
+                            # ValueError: write to closed file → asyncio.gather 崩,
+                            # pre_result 全体残缺(9 轮扫描 0 源的根因)。
+                            try:
+                                if not fi2.closed:
+                                    fi2.close()
+                            except Exception:
+                                pass
+                        continue
+
                     try:
                         soup = BeautifulSoup(code_content, "html.parser")
 
