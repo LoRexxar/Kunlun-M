@@ -734,8 +734,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # element.innerHTML = expr) are type='assign', not
                         # calls.  Allow the HTML-injection property names.
                         _sn_tail = str(_sn).rsplit('.', 1)[-1].lower()
-                        if not (_stype == 'assign' and _sn_tail in (
-                                'innerhtml', 'outerhtml', 'insertadjacenthtml')):
+                        # Fix 50: React JSX 属性 sink(dangerouslySetInnerHTML
+                        # ={{__html: expr}})由 find_sinks Round 2b 产出,
+                        # type='jsx_attribute'。语义等价 innerHTML 赋值。
+                        if not ((_stype == 'assign' and _sn_tail in (
+                                'innerhtml', 'outerhtml', 'insertadjacenthtml'))
+                                or (_stype == 'jsx_attribute' and _sn_tail == 'dangerouslysetinnerhtml')):
                             continue
                     # Fix 25: sinks inside a never-called function are dead
                     # code — the function body only executes if something
@@ -1471,11 +1475,30 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             continue
                                         _visited.add(_svid)
                                         if _sl == 'const':
+                                            # Fix 50-12: a const whose only
+                                            # outgoing dfg edge feeds a CALL
+                                            # is a call argument (e.g.
+                                            # highlight(x, "bash")) — not
+                                            # this identifier's value. Only
+                                            # a const tied to an assignment
+                                            # LHS (value definition) counts.
+                                            _fv_type = _vattr(graph.vs[_fv], 'type', '')
+                                            if _fv_type in ('call', 'method_call', 'static_call', 'new'):
+                                                _next_frontier.append(_svid)
+                                                continue
                                             _resolved = _vattr(_sv, 'name', '')
                                             break
                                         # Also check ast children of operators
                                         # for embedded const (assignment RHS)
                                         if _sl == 'operator':
+                                            # Fix 50-12: call-type operators
+                                            # excluded — a const ARGUMENT
+                                            # (highlight(x, "bash")) is not
+                                            # the call's return value.
+                                            _sot = _vattr(_sv, 'type', '')
+                                            if _sot in ('call', 'method_call', 'static_call', 'new'):
+                                                _next_frontier.append(_svid)
+                                                continue
                                             for _ae in graph.es.select(_source=_svid, label='ast'):
                                                 _cv = graph.vs[_ae.target]
                                                 if _vattr(_cv, 'label', '') == 'const':

@@ -373,6 +373,17 @@ class Normalizer:
             return self._walk_ternary(node, add_node, add_edge,
                                       ctx_stack, file_path, depth)
 
+        # ---- JSX (React TSX) ----
+        # Fix 50: jsx_attribute = <p attr={expr}> 的属性节点。
+        # 属性名(dangerouslySetInnerHTML 等)与值表达式({{__html: expr}})
+        # 必须有 ast 边连接,find_sinks Round 2b 才能取到值表达式。
+        if ntype == "jsx_attribute":
+            return self._walk_jsx_attribute(node, add_node, add_edge,
+                                            ctx_stack, file_path, depth)
+        if ntype == "jsx_expression":
+            return self._walk_children(node, add_node, add_edge,
+                                       ctx_stack, file_path, depth)
+
         # ---- Container / fallback ----
         if ntype == "statement_block":
             return self._walk_block(node, add_node, add_edge,
@@ -1844,6 +1855,39 @@ class Normalizer:
     # ===================================================================
     # Identifier
     # ===================================================================
+
+    def _walk_jsx_attribute(self, node, add_node, add_edge,
+                            ctx_stack, file_path, depth) -> int:
+        """Fix 50: JSX 属性节点 — 建属性名与值表达式间的 ast 边。
+
+        (jsx_attribute (property_identifier) (jsx_expression ...))
+        形态: 属性名 emit 为 identifier,值子树正常 walk,然后以
+        ast[role=attr_value] 边连接(属性名 → 值)。dangerouslySetInnerHTML
+        的 {{__html: expr}} 会得到 attr-name → expr 的可回溯链。
+        """
+        # 属性名 = '=' 之前的第一个直接 child(property_identifier);
+        # '=' 之后的是值表达式({{__html: expr}} 的 object 等)。
+        attr_vid = None
+        value_vids: list[int] = []
+        seen_eq = False
+        for child in node.children:
+            if child.type == "=":
+                seen_eq = True
+                continue
+            if child.type in _SKIP_TYPES:
+                continue
+            cv = self._walk_node(child, add_node, add_edge,
+                                 ctx_stack, file_path, depth + 1)
+            if cv is None:
+                continue
+            if not seen_eq and child.type in _IDENTIFIER_TYPES and attr_vid is None:
+                attr_vid = cv
+            else:
+                value_vids.append(cv)
+        if attr_vid is not None:
+            for vv in value_vids:
+                self._ast_edge(add_edge, attr_vid, vv, "attr_value")
+        return attr_vid
 
     def _walk_identifier(self, node, add_node, add_edge,
                          ctx_stack, file_path, depth) -> int:

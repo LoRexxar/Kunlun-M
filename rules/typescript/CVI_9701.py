@@ -29,9 +29,11 @@ class CVI_9701(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"\.innerHTML\s*=|\.outerHTML\s*=|document\.write(?:ln)?\s*\(|\.insertAdjacentHTML\s*\("
+        self.match = r"\.innerHTML\s*=|\.outerHTML\s*=|document\.write(?:ln)?\s*\(|\.insertAdjacentHTML\s*\(|dangerouslySetInnerHTML"
 
-        self.vul_function = ["innerHTML", "outerHTML", "write", "writeln", "insertAdjacentHTML"]
+        # Fix 50: dangerouslySetInnerHTML = React JSX 属性形态的 HTML 注入,
+        # 语义等价 innerHTML 赋值({{__html: tainted}} 原始 HTML 直出)。
+        self.vul_function = ["innerHTML", "outerHTML", "write", "writeln", "insertAdjacentHTML", "dangerouslySetInnerHTML"]
 
     def main(self, regex_string, sink_args=None):
         """
@@ -70,6 +72,20 @@ class CVI_9701(SingleRuleMixin):
                 return False
             if re.match(r'^\"[^\"]*\"$', args) or re.match(r"^'[^']*'$", args) or re.match(r'^`[^`]*`$', args):
                 return False
+            return True
+
+        # Fix 50: dangerouslySetInnerHTML(React JSX 属性)
+        # {{__html: expr}} 内 expr 为纯字面量字符串 → 安全;其余(变量/
+        # 表达式)→ 需要污点判定。图路径由 scanner 的 pb 决定可控性,
+        # 这里只排除纯字面量。
+        dsi_match = re.search(r'__html\s*:\s*(.+)', regex_string, re.DOTALL)
+        if dsi_match:
+            expr = dsi_match.group(1).strip().rstrip('}').strip()
+            if re.match(r'^\"[^\"]*\"$', expr) or re.match(r"^'[^']*'$", expr) or re.match(r'^`[^`]*`$', expr):
+                return False
+            return True
+        if 'dangerouslySetInnerHTML' in regex_string and '{{' not in regex_string and '__html' not in regex_string:
+            # 属性名形态无值表达式片段 — 交给污点判定
             return True
 
         # 处理 insertAdjacentHTML

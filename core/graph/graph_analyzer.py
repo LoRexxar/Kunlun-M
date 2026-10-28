@@ -905,6 +905,47 @@ class GraphAnalyzer:
                 "type": _vattr(v, "type", ""),
                 "arg_vids": rhs_vids,
             })
+        # Round 2b: JSX 属性 sink（React dangerouslySetInnerHTML）。
+        # TSX 图形态: identifier 'dangerouslySetInnerHTML' ← jsx_expression
+        # (object (pair key:__html value: <expr>))。属性名 identifier 匹配
+        # name_set 时,取其值表达式(JSX expression 内的 identifier/operator)
+        # 作为 arg_vids。React 的 dangerouslySetInnerHTML 语义等价于
+        # innerHTML 赋值 — {{__html: tainted}} 直接注入原始 HTML。
+        for vid in self._nlbl.get(NodeLabel.IDENTIFIER.value, []):
+            v = self.graph.vs[vid]
+            vname = _vattr(v, "name", "")
+            if not isinstance(vname, str) or vname not in name_set:
+                continue
+            node_lang = _vattr(v, 'language', '')
+            if node_lang and self.language and node_lang != self.language:
+                continue
+            # Fix 50-4: 属性名 identifier 的值表达式沿【出边 attr_value】
+            # 直达(TS normalizer _walk_jsx_attribute 建 attr-name → value 边,
+            # 属性名节点无父 jsx_attribute 节点 — walker 不 emit 容器)。
+            # {{__html: expr}} 的 expr 可能是 identifier 或 operator;
+            # 嵌套对象下探一层 attr_value(如 {{__html: obj.prop}} 的
+            # member_expression operator)。
+            arg_vids: list[int] = []
+            for oe in self._edge_out(vid, "ast"):
+                if _vattr(oe, "role", "") != "attr_value":
+                    continue
+                _t = self.graph.vs[oe.target]
+                _tl = _vattr(_t, "label", "")
+                if _tl in ("identifier", "operator"):
+                    arg_vids.append(oe.target)
+                else:
+                    for oe2 in self._edge_out(oe.target, "ast"):
+                        _t2 = self.graph.vs[oe2.target]
+                        if _vattr(_t2, "label", "") in ("identifier", "operator"):
+                            arg_vids.append(oe2.target)
+            results.append({
+                "vid": vid,
+                "name": vname,
+                "lineno": _vattr(v, "lineno", 0),
+                "file_path": _vattr(v, "file_path", ""),
+                "type": "jsx_attribute",
+                "arg_vids": arg_vids,
+            })
         # 第四轮：前缀标志匹配（a: 注解, r: return 节点）
         annotation_sinks = {sn for sn in name_set if sn.startswith('a:')}
         return_sinks = {sn for sn in name_set if sn.startswith('r:')}
@@ -1739,6 +1780,29 @@ class GraphAnalyzer:
                     chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
+        # Fix 50-8: TS/TSX member_expression 基座判定。
+        # TS normalizer 把 toolCall.command 压成 name='command' 的 identifier
+        # (full_text 保留全名),并建 ast[operand] → 基座 identifier 的边。
+        # Vue/React props(file-scoped source 标注)打在基座上 — pb 到达
+        # member 节点时沿 operand 边查基座 taint_type。
+        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value and \
+                _vattr(sv, "raw_type", "") == "member_expression":
+            for _oe in self._edge_out(start_vid, "ast"):
+                if _vattr(_oe, "role", "") != "operand":
+                    continue
+                _bv = self.graph.vs[_oe.target]
+                if _vattr(_bv, "label") == NodeLabel.IDENTIFIER.value and \
+                        _vattr(_bv, "taint_type", "") == "source":
+                    return self._cached(cache_key, AnalysisResult(
+                        code=1,
+                        reason=f"annotated source variable '{_vattr(_bv, 'name', '')}' via member base (file-scoped props)",
+                        chain=[{"step": "source", "vid": _oe.target,
+                                "name": _vattr(_bv, "name", ""), "code": 1},
+                               {"step": "member", "vid": start_vid,
+                                "name": sname, "code": 1}],
+                        path=[start_vid, _oe.target],
+                        expr_lineno=_vattr(sv, "lineno", 0)))
+
         # Quick check: field/property full_text (e.g., "process.argv" for node named "argv")
         if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
             stype = _vattr(sv, "type", "")
@@ -2252,6 +2316,28 @@ class GraphAnalyzer:
             # upstream node so the trace continues to the annotated source.
             if not self._get_dfg_sources(cur_vid):
                 _cv = self.graph.vs[cur_vid]
+                # Fix 50-10: TS member_expression identifier(压平形态,
+                # raw_type=member_expression, ast operand → 基座)。
+                # 到达此节点且无 dfg 上游时,直接判基座标注(React/Vue
+                # file-scoped props 打在基座 identifier 上)。
+                if (_vattr(_cv, "label", "") == NodeLabel.IDENTIFIER.value
+                        and _vattr(_cv, "raw_type", "") == "member_expression"):
+                    for _oe in self._edge_out(cur_vid, "ast"):
+                        if _vattr(_oe, "role", "") != "operand":
+                            continue
+                        _bv = self.graph.vs[_oe.target]
+                        if (_vattr(_bv, "label", "") == NodeLabel.IDENTIFIER.value
+                                and _vattr(_bv, "taint_type", "") == "source"):
+                            _bn = _vattr(_bv, "name", "")
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"annotated source variable '{_bn}' via member base (file-scoped props)",
+                                chain=[{"step": "annotated_source", "vid": _oe.target,
+                                        "name": _bn, "code": 1},
+                                       {"step": "member", "vid": cur_vid,
+                                        "name": _vattr(_cv, "name", ""), "code": 1}],
+                                path=path + [_oe.target],
+                                expr_lineno=_vattr(_cv, "lineno", 0)))
                 if (_vattr(_cv, "label", "") == NodeLabel.OPERATOR.value
                         and _vattr(_cv, "type", "") in ("method_call", "static_call")
                         and "." in str(_vattr(_cv, "name", ""))):
@@ -3410,6 +3496,42 @@ class GraphAnalyzer:
                                     and not ret.reason.startswith("No return")):
                                 pass  # has return nodes but inconclusive — allow fallthrough
                             elif ret.code == 3 and func_vid is not None:
+                                # Fix 50-11: unresolved/empty-shell call —
+                                # check the call's own args first. A render/
+                                # transform helper (highlight, escaper...)
+                                # whose argument traces to a source returns
+                                # source-derived data (passthrough). Only
+                                # when some arg itself resolves code=1 do we
+                                # report controllable — keeps the 4d-2 FP
+                                # guard (find($id) etc.) since $id alone
+                                # rarely... actually $id IS tainted there.
+                                # Scope to XSS-ish sink flow: require the
+                                # arg's chain to hit an annotated file-scoped
+                                # source (React/Vue props) or superglobal,
+                                # decided by full pb() on the arg.
+                                _pt_hit = None
+                                try:
+                                    for _ae in self._edge_out(up_vid, "ast"):
+                                        if _vattr(_ae, "role", "") != "arg":
+                                            continue
+                                        _av = _ae.target
+                                        if _vattr(self.graph.vs[_av], "label", "") in (
+                                                NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
+                                            _pr = self.parameters_back(_av, context_vid=up_vid)
+                                            if _pr.code == 1:
+                                                _pt_hit = (_av, _pr)
+                                                break
+                                except Exception:
+                                    _pt_hit = None
+                                if _pt_hit is not None:
+                                    _av, _pr = _pt_hit
+                                    return self._cached(cache_key, AnalysisResult(
+                                        code=1,
+                                        reason=f"unresolved call passthrough: arg traces to source ({_pr.reason[:60]})",
+                                        chain=[{"step": "call_arg", "vid": _av,
+                                                "name": _vattr(self.graph.vs[_av], "name", ""), "code": 1}] + _pr.chain[:2],
+                                        path=new_path + [_av],
+                                        expr_lineno=_vattr(self.graph.vs[up_vid], "lineno", 0)))
                                 # Empty shell: no return, no params, no taint
                                 # annotation. Stop taint propagation through
                                 # this call's DFG upstream.

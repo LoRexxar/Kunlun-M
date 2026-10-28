@@ -686,7 +686,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # but its value does not become the result.
             if rhs_label == NodeLabel.BRANCH.value:
                 rhs_type = self._vtype[rhs_vid].lower()
-                if rhs_type == "ternary":
+                # Fix 50-9: TS normalizer 的 ternary emit 为 type='if' +
+                # raw_type='ternary_expression'(BranchType 无 ternary 枚举)。
+                # 按 raw_type 兼容识别。
+                _is_ternary = rhs_type == "ternary" or \
+                    self._vraw_type[rhs_vid] == "ternary_expression"
+                if _is_ternary:
                     # Only iftrue/iffalse children (skip condition) dfg to LHS
                     for branch_role in ("iftrue", "iffalse"):
                         for child_vid in self._ast_role_from.get((rhs_vid, branch_role), []):

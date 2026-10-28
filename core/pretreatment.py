@@ -943,7 +943,11 @@ class Pretreatment(object):
                             try:
                                 import tree_sitter_typescript as tsts
                                 from tree_sitter import Language, Parser
-                                TS_LANG = Language(tsts.language_typescript())
+                                # Fix 50: TSX 语法是 TS 的超集 — language_tsx()
+                                # 同时正确解析 .ts 与 .tsx(含 JSX 节点)。
+                                # 旧 language_typescript() 对 .tsx 整树 ERROR,
+                                # React 组件(GenericBody.tsx 等)完全不可见。
+                                TS_LANG = Language(tsts.language_tsx())
                                 ts_parser = Parser(TS_LANG)
                                 tree = ts_parser.parse(bytes(code_content, 'utf8'))
                                 self.pre_result[filepath]['ast_nodes'] = tree

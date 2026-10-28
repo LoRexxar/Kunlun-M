@@ -216,8 +216,13 @@ def _parse_tree_sitter(code: str, language: str):
         ts_mod = importlib.import_module(module_name)
         # TypeScript 模块拆分为 language_typescript / language_tsx，
         # 而非统一的 language()
+        # Fix 50: 统一用 language_tsx —— TSX 语法是 TS 的超集,.ts/.tsx
+        # 通吃;language_typescript() 对 .tsx 文件整树 ERROR,React 组件
+        # (dangerouslySetInnerHTML 等 JSX 形态)完全不可见。
         if language == "typescript":
-            lang_func = getattr(ts_mod, "language_typescript", None)
+            lang_func = getattr(ts_mod, "language_tsx", None)
+            if not lang_func:
+                lang_func = getattr(ts_mod, "language_typescript", None)
             if not lang_func:
                 lang_func = ts_mod.language
         else:
