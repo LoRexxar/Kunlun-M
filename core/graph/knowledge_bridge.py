@@ -447,14 +447,63 @@ def _propagate_safe_taint(graph: ig.Graph) -> int:
         if _vattr(graph.vs[lhs_vid], "taint_type", ""):
             continue
 
-        # 检查 RHS AST 子树中是否含 safe call 节点
-        if _rhs_has_safe_call(graph, rhs_vid):
+        # 检查 RHS AST 子树中是否含 safe call 节点。
+        # Fix 51d: concat(二元拼接)链 safe 是 per-operand 的 —
+        # "a".addslashes($x)."b".$tainted 只有一个操作数被 sanitize,
+        # 其余裸操作数仍可污染整个字符串。仅当 concat 树的【全部
+        # 数据操作数】safe(或字面量)时才传播 safe 到 LHS。
+        if _rhs_has_safe_call(graph, rhs_vid) and _rhs_concat_fully_safe(graph, rhs_vid):
             graph.vs[lhs_vid]["taint_type"] = "safe"
             count += 1
 
     if count:
         logger.debug("_propagate_safe_taint: marked %d LHS variables as safe", count)
     return count
+
+
+def _rhs_concat_fully_safe(graph: ig.Graph, root_vid: int) -> bool:
+    """Fix 51d: RHS concat 树的每个数据操作数都必须是 safe 的。
+
+    数据操作数 = identifier / const / call / member。
+    - concat/encapsulated binary 节点 → 递归检查全部操作数
+    - operator call 且 taint_type='safe' → 该操作数 safe
+    - const(字面量) → safe
+    - identifier 且 taint_type='safe' → safe
+    - 其余(identifier/operator 未标 safe) → 不 safe → 整链不传播
+    """
+    from core.graph.node_edge_schema import EdgeLabel
+
+    v = graph.vs[root_vid]
+    vlabel = _vattr(v, "label", "")
+    vtype = _vattr(v, "type", "")
+    raw_type = _vattr(v, "raw_type", "")
+
+    # concat / binary 拼接节点: 递归全部操作数
+    _is_concat = (
+        vlabel == NodeLabel.OPERATOR.value
+        and (vtype in ("binary_op", "assign")
+             or raw_type in ("BinaryOp", "encapsulated", "interpolated_string",
+                             "template_string", "binary_expression"))
+        and str(_vattr(v, "name", "")) in (".", "+", "concat", "")
+    ) or raw_type == "encapsulated"
+    if _is_concat:
+        operands = [
+            e.target for e in graph.es.select(_source=root_vid, label=EdgeLabel.AST.value)
+            if _vattr(e, "role", "") in ("operand", "lhs", "rhs", "value", "left", "right")
+        ]
+        if not operands:
+            return True
+        return all(_rhs_concat_fully_safe(graph, o) for o in operands)
+
+    # 单操作数形态
+    if vlabel == NodeLabel.CONST.value:
+        return True  # 字面量
+    if vlabel == NodeLabel.OPERATOR.value:
+        return _vattr(v, "taint_type", "") == "safe"
+    if vlabel == NodeLabel.IDENTIFIER.value:
+        return _vattr(v, "taint_type", "") == "safe"
+    # 其余(function 引用等)保守视为不 safe
+    return False
 
 
 def _rhs_has_safe_call(graph: ig.Graph, root_vid: int) -> bool:

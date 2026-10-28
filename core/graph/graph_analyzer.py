@@ -219,6 +219,7 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "usort", "uasort", "array_map", "array_filter",
     "echo", "print", "printf", "vprintf", "sprintf", "vsprintf", "print_r", "var_dump",
     "file_put_contents", "file_get_contents", "fopen", "readfile",
+    "fwrite", "fputs",
     "include", "require", "include_once", "require_once",
     "header", "setcookie", "mail", "mb_send_mail",
     "unlink", "rmdir", "mkdir", "rename", "copy", "move_uploaded_file",
@@ -911,6 +912,10 @@ class GraphAnalyzer:
         # name_set 时,取其值表达式(JSX expression 内的 identifier/operator)
         # 作为 arg_vids。React 的 dangerouslySetInnerHTML 语义等价于
         # innerHTML 赋值 — {{__html: tainted}} 直接注入原始 HTML。
+        # Fix 51c: JSX 只存在于 JS/TS — 其他语言的 identifier 重名
+        # (如 PHP 的 callee fputs identifier)不是 jsx_attribute sink。
+        if self.language not in ("javascript", "typescript"):
+            name_set = set()
         for vid in self._nlbl.get(NodeLabel.IDENTIFIER.value, []):
             v = self.graph.vs[vid]
             vname = _vattr(v, "name", "")
@@ -1124,10 +1129,24 @@ class GraphAnalyzer:
             fname = _vattr(self.graph.vs[fn_vids[0]], "name", "")
             if fname:
                 seen = set(fn_vids)
-                for sv2 in self.graph.vs.select(name=fname, label="function"):
-                    if sv2.index not in seen:
-                        seen.add(sv2.index)
-                        fn_vids.append(sv2.index)
+                # Fix 51h: one-shot (name → function vids) index instead of
+                # a whole-graph vs.select per call — 8023 sinks × N args
+                # after 51d's deeper pb recursion made this the hot path.
+                _fn_idx = getattr(self, "_fname_fn_index", None)
+                if _fn_idx is None:
+                    _fn_idx = {}
+                    try:
+                        for fv in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
+                            _nm = _vattr(fv, "name", "")
+                            if _nm:
+                                _fn_idx.setdefault(_nm, []).append(fv.index)
+                    except Exception:
+                        pass
+                    self._fname_fn_index = _fn_idx
+                for _fvid2 in _fn_idx.get(fname, ()):
+                    if _fvid2 not in seen:
+                        seen.add(_fvid2)
+                        fn_vids.append(_fvid2)
         for fvid in fn_vids:
             # walk the callee's own subtree for a sanitizing re-assign
             own_ids = [e.target for e in self.graph.es.select(
@@ -1156,8 +1175,19 @@ class GraphAnalyzer:
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # with a repair function in the function body) — no need to trace.
+        # Fix 51e: memoize the (expensive, whole-graph vs.select) verdict
+        # per start_vid — nested pb recursion re-enters this check for the
+        # same arg on every frame (51d removed the concat-safe short-circuit
+        # that previously pruned most of these recursions).
         try:
-            if self._arg_sanitized_inside_callee(start_vid):
+            _asc_cache = getattr(self, "_arg_sanitized_cache", None)
+            if _asc_cache is None:
+                _asc_cache = self._arg_sanitized_cache = {}
+            _asc = _asc_cache.get(start_vid)
+            if _asc is None:
+                _asc = self._arg_sanitized_inside_callee(start_vid)
+                _asc_cache[start_vid] = _asc
+            if _asc:
                 return self._cached(
                     "pb_sanitized_callee:%s" % start_vid,
                     AnalysisResult(
@@ -5333,25 +5363,50 @@ class GraphAnalyzer:
     def _classes_inherit(self, cls_a: str, cls_b: str) -> bool:
         """True when a and b are non-empty and equal, or linked by an
         extends crg edge / inherits_from chain (either direction)."""
+        # Fix 51f: memoize — body does whole-graph vs.select + crg scans;
+        # 51d-deepened pb recursion hits this at high frequency.
+        _ci_cache = getattr(self, "_classes_inherit_cache", None)
+        if _ci_cache is None:
+            _ci_cache = self._classes_inherit_cache = {}
+        _ck = (cls_a, cls_b)
+        if _ck in _ci_cache:
+            return _ci_cache[_ck]
+        _ci_res = self._classes_inherit_impl(cls_a, cls_b)
+        _ci_cache[_ck] = _ci_res
+        return _ci_res
+
+    def _classes_inherit_impl(self, cls_a: str, cls_b: str) -> bool:
         if not cls_a or not cls_b:
             return False
         if cls_a == cls_b:
             return True
+        # Fix 51g: one-shot extends/inherits index — per-call whole-graph
+        # vs/es selects exploded on large graphs (osticket: 369K nodes)
+        # after 51d deepened pb recursion.  Build once, answer O(1).
+        _idx = getattr(self, "_crg_extends_index", None)
+        if _idx is None:
+            _idx = {}
+            try:
+                for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
+                    inh = _vattr(v, "inherits_from", "")
+                    nm = _vattr(v, "name", "")
+                    if inh and nm:
+                        _idx.setdefault(nm, set()).add(inh)
+            except Exception:
+                pass
+            try:
+                for e in self.graph.es.select(label="crg"):
+                    if _vattr(e, "type", "") != "extends":
+                        continue
+                    _idx.setdefault(
+                        _vattr(self.graph.vs[e.source], "name", ""), set()).add(
+                        _vattr(self.graph.vs[e.target], "name", ""))
+            except Exception:
+                pass
+            self._crg_extends_index = _idx
         for base, other in ((cls_a, cls_b), (cls_b, cls_a)):
-            # direct attr check
-            for v in self.graph.vs.select(
-                    label=NodeLabel.CLASS.value, name=base):
-                if _vattr(v, "inherits_from", "") == other:
-                    return True
-            # crg extends edges
-            for e in self.graph.es.select(label="crg"):
-                if _vattr(e, "type", "") != "extends":
-                    continue
-                s = self.graph.vs[e.source]
-                t = self.graph.vs[e.target]
-                if (_vattr(s, "name", "") == base
-                        and _vattr(t, "name", "") == other):
-                    return True
+            if other in _idx.get(base, ()):
+                return True
         return False
 
     def _defchain_field_store_killed(self, cand_vid: int, sink_vid: int,
