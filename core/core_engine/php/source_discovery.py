@@ -206,6 +206,21 @@ FRAMEWORK_CONFIGS = {
         },
         'global_source_functions': set(),
     },
+    'wordpress': {
+        # WP REST callbacks: function(WP_REST_Request $request) — the
+        # request object exposes attacker-controlled data.
+        'request_object_names': {'request', '$request'},
+        'request_methods': {
+            'get_param', 'get_params', 'get_body', 'get_json_params',
+            'get_header', 'get_file_params', 'get_query_params',
+            'get_route_params', 'get_attributes',
+            # wp-kit / common plugin Request wrappers: attributes are
+            # seeded from $_GET/$_POST/JSON body — validate()/all()/get()
+            # return attacker-controlled data.
+            'validate', 'all', 'get', 'input', 'json', 'only', 'except',
+        },
+        'global_source_functions': set(),
+    },
     'symfony': {
         'request_object_names': {'request', '$request'},
         'request_methods': {
@@ -261,6 +276,24 @@ def detect_framework(project_dir: str) -> Optional[str]:
     if os.path.isdir(os.path.join(project_dir, 'application', 'controllers')):
         return 'codeigniter'
 
+    # Fix 52r: WordPress plugin detection — hooks entry files
+    # (add_action / register_rest_route / register_activation_hook)
+    # anywhere in the tree mark a WordPress plugin; framework sources
+    # then annotate REST/ajax callback parameters.
+    for _root, _dirs, _fs in os.walk(project_dir):
+        if 'vendor' in _root:
+            continue
+        for _f in _fs:
+            if not _f.endswith('.php'):
+                continue
+            try:
+                with open(os.path.join(_root, _f), 'r', encoding='utf-8', errors='ignore') as _fh:
+                    _head = _fh.read(200000)
+                if ('add_action(' in _head or 'register_rest_route(' in _head
+                        or 'register_activation_hook(' in _head):
+                    return 'wordpress'
+            except OSError:
+                continue
     return None
 
 

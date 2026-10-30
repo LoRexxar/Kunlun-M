@@ -52,6 +52,15 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "rawurlencode":         {"passthrough": [0], "safe": False},
         "html_entity_decode":   {"passthrough": [0], "safe": False},
         "json_encode":          {"passthrough": [0], "safe": False},
+        # Fix 52j: WordPress JSON wrappers (same params/semantics).
+        "wp_json_encode":        {"passthrough": [0], "safe": False},
+        "wp_json_decode":        {"passthrough": [0], "safe": False},
+        # 52j-2: vendor wrapper shells (filtered out of scan) — encode/
+        # maybeEncode ARE json_encode; decode IS json_decode (arg0).
+        "JSON.encode":            {"passthrough": [0], "safe": False},
+        "JSON.maybeEncode":       {"passthrough": [0], "safe": False},
+        "JSON.decode":            {"passthrough": [0], "safe": False},
+        "JSON.maybeDecode":       {"passthrough": [0], "safe": False},
         "json_decode":          {"passthrough": [0], "safe": False},
         "serialize":            {"passthrough": [0], "safe": False},
         "unserialize":          {"passthrough": [0], "safe": False},

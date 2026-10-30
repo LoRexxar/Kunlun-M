@@ -452,7 +452,19 @@ def _propagate_safe_taint(graph: ig.Graph) -> int:
         # "a".addslashes($x)."b".$tainted 只有一个操作数被 sanitize,
         # 其余裸操作数仍可污染整个字符串。仅当 concat 树的【全部
         # 数据操作数】safe(或字面量)时才传播 safe 到 LHS。
-        if _rhs_has_safe_call(graph, rhs_vid) and _rhs_concat_fully_safe(graph, rhs_vid):
+        _root = graph.vs[rhs_vid]
+        _root_is_call = (_vattr(_root, "label", "") == NodeLabel.OPERATOR.value
+                         and _vattr(_root, "type", "") in ("call", "method_call", "static_call"))
+        _root_safe = _vattr(_root, "taint_type", "") == "safe"
+        # Fix 52d: when the RHS root is itself a call, the safe verdict
+        # must come from the ROOT call (esc_attr-style).  A safe call
+        # nested inside a passthrough/unresolved call (e.g. trim() inside
+        # Utility::getFilePath — str_replace passthrough) does not decide
+        # the LHS: passthrough semantics propagate taint from args, so
+        # sanitizing one nested arg cannot sanitize the returned value.
+        _allow_subtree_safe = (not _root_is_call) or _root_safe
+        if (_rhs_has_safe_call(graph, rhs_vid) and _allow_subtree_safe
+                and _rhs_concat_fully_safe(graph, rhs_vid)):
             graph.vs[lhs_vid]["taint_type"] = "safe"
             count += 1
 

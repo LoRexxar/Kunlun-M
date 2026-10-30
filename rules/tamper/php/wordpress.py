@@ -107,6 +107,15 @@ EXTRA_SINKS = [
     ('->order_by(', [1004]),
     ('->SetDBOrder(', [1004]),
     ('->like(', [1004]),
+    # Fix 52x: WP_Filesystem 方法 —— get_contents 等价
+    # file_get_contents（任意文件读取原语, CVE-2026-110185 bit-pi
+    # ImageHelperTool fileToBase64: $wp_filesystem->get_contents($filePath)）
+    ('->get_contents(', [1017]),
+    ('->put_contents(', [1017]),
+    ('->delete(', [1017]),
+    ('->move(', [1017]),
+    ('->chmod(', [1017]),
+    ('->copy(', [1017]),
     # Fix 42c: Model 查询入口（跨文件调用边缺失，参数即污点终点——
     # $orderBy 直通 ORDER BY 拼接，$likefld/$likeValue 直通 LIKE 拼接）
     ('->SelectAllGridData(', [1004]),

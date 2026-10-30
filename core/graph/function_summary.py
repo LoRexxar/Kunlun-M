@@ -672,6 +672,68 @@ def _trace_return_value(
             # $this / self：链式调用或属性访问，返回对象实例，非外部输入
             container_name = _vattr(container, "name", "")
             if isinstance(container_name, str) and container_name in ("$this", "self"):
+                # Fix 52z-3: $this->prop is not inherently safe — the
+                # property is assigned in the class __construct
+                # ($this->data = JSON::decode($node['data'])).  Scan
+                # every __construct in the graph for an assign whose LHS
+                # resolves to this property name; trace its RHS.  Only
+                # fall back to safe when no such assign exists.
+                _prop_name = _vattr(v, "name", "")
+                if isinstance(_prop_name, str) and _prop_name:
+                    _pn = _prop_name.strip(chr(39) + chr(34))
+                    for _fv in graph.vs:
+                        if (_vattr(_fv, "label", "") == NodeLabel.FUNCTION.value
+                                and str(_vattr(_fv, "name", "")) == "__construct"):
+                            # Fix 52z-4: build the ctor's own param_idx —
+                            # the RHS references ctor parameters ($node),
+                            # invisible under the outer function's params.
+                            _ctor_pidx = {}
+                            for _cp, _ci in eidx["own_ch"].get(_fv.index, []):
+                                if (_vattr(graph.vs[_cp], "label", "") == NodeLabel.PARAMETER.value
+                                        and _ci not in (None, "")):
+                                    _ctor_pidx[_cp] = int(_ci)
+                            # BFS the ctor subtree (own + ast edges); an
+                            # assign node hangs off own, so check each
+                            # POPPED node itself (v2 fix: children of ast
+                            # edges are operands, never the assign).
+                            _stack = [_fv.index]
+                            _seen = set()
+                            _resolved = False
+                            while _stack and not _resolved:
+                                _x = _stack.pop()
+                                if _x in _seen:
+                                    continue
+                                _seen.add(_x)
+                                _xv = graph.vs[_x]
+                                _xl = _vattr(_xv, "label", "")
+                                if _xl == NodeLabel.FUNCTION.value and _x != _fv.index:
+                                    continue  # don't cross into siblings
+                                if (_xl == NodeLabel.OPERATOR.value
+                                        and _vattr(_xv, "type", "") in ("assign", "aug_assign")):
+                                    for _lt, _lr, _ in eidx["ast_ch"].get(_x, []):
+                                        if _lr in ("lhs", "left"):
+                                            _lname = str(_vattr(graph.vs[_lt], "name", ""))
+                                            if _pn and _pn == _lname.strip(chr(39) + chr(34)):
+                                                for _rt, _rr, _ in eidx["ast_ch"].get(_x, []):
+                                                    if _rr in ("rhs", "right"):
+                                                        _sub = _trace_return_value(
+                                                            graph, _rt, own_vids, _ctor_pidx,
+                                                            visited | {start_vid}, eidx, depth + 1)
+                                                        if _sub.get("origin_type") in ("source", "param"):
+                                                            return _sub
+                                                        if _sub.get("dep_params"):
+                                                            return _sub
+                                                _resolved = True
+                                                break
+                                # expand: ast children + own children
+                                for _t, _r, _ in eidx["ast_ch"].get(_x, []):
+                                    if _t not in _seen:
+                                        _stack.append(_t)
+                                for _t2 in eidx["out"].get("own", {}).get(_x, []):
+                                    if _t2 not in _seen:
+                                        _stack.append(_t2)
+                            if _resolved:
+                                break
                 return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             if container_taint == "source":
                 return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
@@ -703,6 +765,21 @@ def _trace_return_value(
             assign_found = _trace_assign_fallback(
                 graph, ret_name, start_vid, own_vids, param_idx, visited, eidx, depth
             )
+            # Fix 52z-2: same-name variables often have MULTIPLE assigns
+            # ($path = []; $path[$i] = str_replace(...)) — the fallback
+            # returns whichever assign iterates first (the array literal
+            # → safe), discarding a param dependency the DFG pass already
+            # established.  Mixed assigns are passthrough (46d rule):
+            # an established param verdict beats a fallback safe.
+            if all_dep_params:
+                _fb_type = (assign_found or {}).get("origin_type", "")
+                if _fb_type in ("param", "source"):
+                    return assign_found
+                return {
+                    "origin": vname, "origin_type": "param",
+                    "dep_params": list(dict.fromkeys(all_dep_params)),
+                    "has_unresolved_call": any_unresolved,
+                }
             if assign_found and assign_found["origin_type"] != "unknown":
                 return assign_found
             if assign_found and assign_found.get("dep_params"):

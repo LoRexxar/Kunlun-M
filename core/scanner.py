@@ -887,6 +887,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         pass
                     _active_svid = next(iter(_g_sink_svids)) if len(_g_sink_svids) == 1 else None
                     analyzer._set_sink_svid(_active_svid)
+                    _dbg52x = (_sn and os.environ.get("KUNLUN_GRAPH_DEBUG") == "1"
+                               and "get_contents" in str(_sn).lower())
+                    if _dbg52x:
+                        logger.warning("[DBG52X] sink vid=%s name=%s svids=%s active=%s args=%d",
+                                       sink.get('vid'), _sn, sorted(_g_sink_svids),
+                                       _active_svid, len(arg_vids))
                     for i, arg_vid in enumerate(arg_vids):
                         # Fix 23: curl_setopt(CURLOPT_URL, $url) — when the
                         # owning call is identified and the URL's defining
@@ -1247,6 +1253,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 any_arg_repaired = True
                                 continue
                         r = analyzer.parameters_back(arg_vid)
+                        if _dbg52x:
+                            logger.warning("[DBG52X] pb(arg i=%d vid=%d) -> code=%s reason=%s",
+                                           i, arg_vid,
+                                           getattr(r, 'code', None),
+                                           (str(r.reason)[:60] if r else None))
                         if r is not None:
                             if r.is_controllable:
                                 # callable_only sink: 检查 callable 参数是否有 null/空
@@ -1289,6 +1300,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # so receiver tracing is skipped (arg is sanitized).
                             if r.code == 2:
                                 any_arg_repaired = True
+                    if _dbg52x:
+                        logger.warning("[DBG52X] pb done: controllable=%s repaired=%s result=%s",
+                                       found_controllable, any_arg_repaired,
+                                       (result.reason[:70] if result else None))
                     if not found_controllable:
                         # unconfirm 模式：记录疑似漏洞
                         if found_unconfirmed and is_unconfirm:

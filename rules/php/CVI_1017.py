@@ -29,7 +29,7 @@ class CVI_1017(SingleRuleMixin):
         # 部分配置
         self.match_mode = "function-param-regex"
         self.match = r"copy\s*\(|rename\s*\(|unlink\s*\(|mkdir\s*\(|rmdir\s*\(|file_put_contents\s*\(|file_get_contents\s*\(|fopen\s*\(|fwrite\s*\(|fputs\s*\(|readfile\s*\(|file\s*\(|touch\s*\(|chmod\s*\(|chown\s*\(|link\s*\(|symlink\s*\("
-        self.vul_function = ["mkdir", "rmdir", "unlink", "rename", "copy", "file_put_contents", "fopen", "fwrite", "fputs", "chmod", "chown", "chgrp"]
+        self.vul_function = ["mkdir", "rmdir", "unlink", "rename", "copy", "file_put_contents", "fopen", "fwrite", "fputs", "chmod", "chown", "chgrp", "get_contents"]
 
     def main(self, regex_string, sink_args=None):
         """
