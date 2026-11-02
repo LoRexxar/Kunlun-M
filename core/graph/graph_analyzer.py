@@ -92,7 +92,13 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "mysql_real_escape_string", "mysqli_real_escape_string",
     "pg_escape_string", "pg_escape_bytea",
     "SQLite3::escapeString", "PDO::quote",
-    "trim", "stripslashes", "filter_var", "filter_input",
+    # NOTE: "trim" removed (Fix 52z-7, CVE-2026-110185) — trim only strips
+    # leading/trailing whitespace; it neutralizes NO injection class (path
+    # traversal, XSS, SQLi payloads carry no leading/trailing blanks).
+    # As a repair function it wrongly suppressed the whole
+    # Utility::getFilePath(trim($filePath)) chain → WP_Filesystem
+    # get_contents pre-auth LFI (bit-pi ImageHelperTool:492).
+    "stripslashes", "filter_var", "filter_input",
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
@@ -1733,7 +1739,21 @@ class GraphAnalyzer:
                 if not tgt_lang:
                     tgt_file = _vattr(tgt, "file_path", "") or _vattr(tgt, "path", "")
                     if not tgt_file:
-                        continue
+                        # Fix 52z-12 (CVE-2026-110185): language-less,
+                        # file-less STUB nodes still carry enrich-time
+                        # passthrough knowledge (e.g. builtin trim, tp=[0]).
+                        # The old hard continue skipped them, so the 52z-10
+                        # start-point passthrough mapping never ran for
+                        # stub-bound builtins and the chain mis-reported
+                        # "unresolved method 'trim'".  Fall through ONLY for
+                        # annotated passthrough stubs; unannotated stubs keep
+                        # being skipped (cross-language guard intact).
+                        _stub_tp = (_vattr(tgt, "taint_passthrough", [])
+                                    or _vattr(tgt, "func_summary_pt", []))
+                        _stub_taint = (tgt_taint
+                                       or _vattr(tgt, "func_summary_type", ""))
+                        if not (_stub_taint == "passthrough" and _stub_tp):
+                            continue
                 tgt_summary = _vattr(tgt, "func_summary_type", "")
                 if tgt_taint == "safe" or tgt_summary == "safe":
                     return self._cached(cache_key, AnalysisResult(
@@ -1742,6 +1762,35 @@ class GraphAnalyzer:
                         chain=[{"step": "safe_func_precheck", "vid": start_vid,
                                 "name": _vattr(tgt, "name", ""), "code": -1}],
                         path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+                # Fix 52z-10 (CVE-2026-110185): start node is a call whose
+                # callee is a builtin/annotated PASSTHROUGH (e.g. PHP trim —
+                # KNOWLEDGE passthrough=[0]; Utility::getFilePath(trim($x))).
+                # The generic BFS below never re-enters Rule 4c for the START
+                # node, so the chain dead-ends in a loop back to the LHS
+                # identifier and reports the wrong verdict.  The return value
+                # of a passthrough call IS its mapped argument — recurse on
+                # the positional args first.
+                _pt_idx = (_vattr(tgt, "taint_passthrough", [])
+                           or _vattr(tgt, "func_summary_pt", []))
+                _pt_taint = tgt_taint or tgt_summary
+                if _pt_taint == "passthrough" and _pt_idx:
+                    _args_by_idx: dict[int, int] = {}
+                    for _ae in self._edge_out(start_vid, "ast"):
+                        if _vattr(_ae, "role", "") != "arg":
+                            continue
+                        try:
+                            _ai = int(_vattr(_ae, "index", 0))
+                        except (TypeError, ValueError):
+                            _ai = 0
+                        _args_by_idx[_ai] = _ae.target
+                    for _pi in _pt_idx:
+                        if isinstance(_pi, int) and _pi in _args_by_idx:
+                            _sub = self.parameters_back(
+                                _args_by_idx[_pi], context_vid=context_vid,
+                                max_depth=max_depth - 1)
+                            if _sub is not None and _sub.is_controllable:
+                                _sub.path = [start_vid] + (_sub.path or [])
+                                return self._cached(cache_key, _sub)
                 break
 
         # Pre-check: branch constraint on start node
@@ -2698,11 +2747,20 @@ class GraphAnalyzer:
                             _is_ctor = (_nm == "__construct")
                             if _is_ctor:
                                 _ctor_fn = _own_in[0]
-                        if _ctor_fn is not None and not _is_ctor:
+                        # Fix 52z-11 (CVE-2026-110185): the 52t call-site
+                        # bridge below must run for NON-ctor functions, but
+                        # this guard read _ctor_fn — which is only assigned
+                        # for ctors — so the bridge was dead code and every
+                        # static-call formal (FlowToolsFactory::createFlowTool
+                        # $currentNodeInfo ← FlowNodeTestController L146
+                        # $nodeData) dead-ended as "unresolved entry
+                        # parameter".  Use the owning function node directly.
+                        _bridge_fn = _ctor_fn if _is_ctor else (_own_in[0] if _own_in else None)
+                        if _bridge_fn is not None and not _is_ctor:
                             # 52t: regular function/method — call-site bridge.
                             _fparams = [
                                 pe.target for pe in
-                                sorted(self._edge_out(_ctor_fn, "own"), key=lambda e: e.target)
+                                sorted(self._edge_out(_bridge_fn, "own"), key=lambda e: e.target)
                                 if _vattr(self.graph.vs[pe.target], "label", "")
                                 == NodeLabel.PARAMETER.value]
                             try:
@@ -2710,11 +2768,11 @@ class GraphAnalyzer:
                             except ValueError:
                                 _fpos = -1
                             if _fpos >= 0:
-                                _sites = [ue.source for ue in self._edge_in(_ctor_fn, "use")]
+                                _sites = [ue.source for ue in self._edge_in(_bridge_fn, "use")]
                                 if not _sites:
                                     # 52t-2: static calls have no use edges —
                                     # scan same-name call nodes (memoized).
-                                    _short = str(_vattr(self.graph.vs[_ctor_fn], "name", "")
+                                    _short = str(_vattr(self.graph.vs[_bridge_fn], "name", "")
                                                  ).rsplit(".", 1)[-1].strip(chr(39) + chr(34))
                                     _memo2 = getattr(self, "_callsite_memo", None)
                                     if _memo2 is None:
@@ -2767,6 +2825,42 @@ class GraphAnalyzer:
                             for _ue5 in self._edge_in(_ctor_fn2, "use"):
                                 if _ue5.source not in _sites52s:
                                     _sites52s.append(_ue5.source)
+                            # Fix 52z-14 (CVE-2026-110185): the
+                            # "call_of_ctor" edge label does not exist in the
+                            # graph schema — _sites52s was empty for every
+                            # project whose new-calls bind use → QUOTED
+                            # dual-node class stub (e.g. new ImageHelperTool:
+                            # use → "'ImageHelperTool'"), never to the ctor.
+                            # Fall back to a memoized scan: new-call
+                            # operators whose use-target name (quotes
+                            # stripped) equals the ctor's class name have
+                            # matching actuals.
+                            if not _sites52s:
+                                _cls_short = _cname.strip(chr(39) + chr(34))
+                                _memo3 = getattr(self, "_newcall_memo", None)
+                                if _memo3 is None:
+                                    _memo3 = {}
+                                    self._newcall_memo = _memo3
+                                if _cls_short in _memo3:
+                                    _sites52s = list(_memo3[_cls_short])
+                                else:
+                                    _found = []
+                                    for v2 in self._nlbl.get(
+                                            NodeLabel.OPERATOR.value, []):
+                                        v2n = _vattr(self.graph.vs[v2], "type", "")
+                                        if v2n != "new":
+                                            continue
+                                        for _ue6 in self._edge_out(v2, "use"):
+                                            _t6 = self.graph.vs[_ue6.target]
+                                            if _vattr(_t6, "label", "") != NodeLabel.FUNCTION.value:
+                                                continue
+                                            _t6n = str(_vattr(_t6, "name", "")) \
+                                                .strip(chr(39) + chr(34))
+                                            if _t6n == _cls_short:
+                                                _found.append(v2)
+                                                break
+                                    _memo3[_cls_short] = list(_found)
+                                    _sites52s = list(_found)
                             for _nv in _sites52s:
                                 for _ae in self._edge_out(_nv, "ast"):
                                     if _vattr(_ae, "role", "") != "arg":
@@ -3269,6 +3363,9 @@ class GraphAnalyzer:
                                 if sv_lang and sv_lang != self.language:
                                     continue
                                 if _vattr(sv, "func_summary_type", "") == "safe" or _vattr(sv, "taint_type", "") == "safe":
+                                    if os.environ.get("KUNLUN_SAFE_DBG"):
+                                        with open("/tmp/kunlun_safe_dbg.log", "a") as _f:
+                                            _f.write("SAMENAME up=%d fn=%s\n" % (up_vid, tgt_name))
                                     return self._cached(cache_key, AnalysisResult(
                                         code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
                                         chain=[{"step": "dfg", "vid": up_vid,
@@ -4963,7 +5060,7 @@ class GraphAnalyzer:
             if not cand_fp:
                 continue
             same_file = (cand_fp == reader_fp)
-            # G1: cross-file is the primary (SSA-split) case.  Fix 42i:
+            # G1: cross-file is the primary (SSO-split) case.  Fix 42i:
             # same-file reader/writer pairs (store in LoadPayload L58,
             # read in GetPayload L83 — both inside Apbd_Wps_APIBase.php)
             # are EQUALLY valid property flows; the dfg builder skips
@@ -4973,7 +5070,19 @@ class GraphAnalyzer:
             # would be vacuous inside one file).
             if same_file and not self._classes_inherit(
                     reader_class, self._get_enclosing_class_name(cand)):
-                continue  # G1'
+                # Fix 52z-13 (CVE-2026-110185): property READ nodes created
+                # by the member-chain normalizer (e.g. ImageHelperTool L38
+                # $this->nodeInfoProvider->getData()) have NO ast/own edges
+                # — only a member edge from $this — so
+                # _get_enclosing_class_name returns '' and same-file stores
+                # were rejected.  When the reader class could not be
+                # resolved but the writer class is declared in this very
+                # file, the write happens inside this file's main class:
+                # accept it (same-file contract is already the strict one).
+                _writer_cls_52z13 = self._get_enclosing_class_name(cand)
+                if not (reader_class == "" and _writer_cls_52z13
+                        and _writer_cls_52z13 in reader_file_classes):
+                    continue  # G1'
             # must be a WRITE: has an assign parent via ast[lhs]
             is_write = False
             rhs_vid = None

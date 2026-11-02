@@ -681,6 +681,7 @@ def _trace_return_value(
                 _prop_name = _vattr(v, "name", "")
                 if isinstance(_prop_name, str) and _prop_name:
                     _pn = _prop_name.strip(chr(39) + chr(34))
+                    _unknown_origin = None  # Fix 52z-8
                     for _fv in graph.vs:
                         if (_vattr(_fv, "label", "") == NodeLabel.FUNCTION.value
                                 and str(_vattr(_fv, "name", "")) == "__construct"):
@@ -723,6 +724,19 @@ def _trace_return_value(
                                                             return _sub
                                                         if _sub.get("dep_params"):
                                                             return _sub
+                                                        # Fix 52z-8 (CVE-2026-110185): the
+                                                        # property IS assigned in a ctor but
+                                                        # its RHS origin is unknown (e.g.
+                                                        # GlobalNodes::$this->nodeData =
+                                                        # fetchNodeData() → FlowNode::where()
+                                                        # ->all() ORM read).  "origin
+                                                        # unresolved" is NOT evidence of
+                                                        # safety — an ORM/DB read returns
+                                                        # stored user input.  Record the
+                                                        # unresolved origin and fall through
+                                                        # to unknown instead of safe.
+                                                        if _unknown_origin is None:
+                                                            _unknown_origin = _sub
                                                 _resolved = True
                                                 break
                                 # expand: ast children + own children
@@ -734,6 +748,13 @@ def _trace_return_value(
                                         _stack.append(_t2)
                             if _resolved:
                                 break
+                # Fix 52z-8: a ctor assign WAS found but its RHS origin is
+                # unknown — report unknown (unresolved ≠ safe).  Only when no
+                # ctor assigns this property at all does the historic safe
+                # fallback stand (plain fluent-API state object).
+                if _unknown_origin is not None:
+                    return {"origin": vname, "origin_type": "unknown",
+                            "dep_params": [], "has_unresolved_call": True}
                 return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             if container_taint == "source":
                 return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
@@ -952,6 +973,57 @@ def _get_short_name_index(graph: "ig.Graph") -> dict[str, list[int]]:
     return idx
 
 
+# Fix 52z-9 (CVE-2026-110185): ORM query-chain terminator methods.  A call
+# like ``FlowNode::where('flow_id', $id)->all()`` / ``->get()`` / ``->first()``
+# terminates a static ORM query chain — its return value is DB row data, i.e.
+# STORED user input (second-order/stored XSS/LFI/SQLi sink feed).  The
+# historical KNOWLEDGE entries (added for a Laravel baseline) mark these
+# safe=True ("DB records, not user input directly"), which silently kills
+# every stored-taint chain (bit-pi: FlowController::store writes
+# $request->validated() into FlowNode rows; GlobalNodes::fetchNodeData reads
+# them back through where()->all() and feeds ImageHelperTool get_contents).
+# Discriminator: ONLY treat these as DB reads when the call's receiver chain
+# comes from a ``where``/``select`` method call (static ORM chain shape,
+# Model::where(...)->get()).  A bare ``$collection->all()`` / ``$http->get()``
+# keeps its old verdict — no regression for accessor-style calls (osTicket
+# has 714 bare ->get() calls that are NOT ORM reads).
+_ORM_QUERY_CHAIN_STARTS = frozenset({"where", "select"})
+_ORM_QUERY_TERMINATORS = frozenset({
+    "all", "get", "first", "firstOrFail", "find", "findMany",
+    "findOrFail", "pluck", "whereKey", "value", "lists",
+})
+
+
+def _is_orm_query_chain_terminator(graph, call_vid: int, eidx: dict) -> bool:
+    """True when call_vid ends a static ORM query chain
+    (X::where(...)->terminator()).  The chain shape is detected on the graph:
+    the terminator's callee identifier's incoming member edge originates from
+    a where/select CALL operator (not a plain identifier receiver)."""
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    short = _vattr(graph.vs[call_vid], "name", "")
+    if not isinstance(short, str) or not short:
+        return False
+    for sep in ("::", "."):
+        if sep in short:
+            short = short.rsplit(sep, 1)[-1]
+    if short not in _ORM_QUERY_TERMINATORS:
+        return False
+    # callee identifier (ast/callee) → member in-edge source = chain upstream
+    for callee_vid, role, _ in eidx["ast_ch"].get(call_vid, []):
+        if role != "callee":
+            continue
+        for upstream_vid in eidx["in"].get("member", {}).get(callee_vid, []):
+            uv = graph.vs[upstream_vid]
+            if (_vattr(uv, "label", "") == NodeLabel.OPERATOR.value
+                    and _vattr(uv, "type", "") in ("method_call", "static_call")
+                    and str(_vattr(uv, "name", "")).rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+                    in _ORM_QUERY_CHAIN_STARTS):
+                return True
+    return False
+
+
 def _trace_call_to_function(
     graph: ig.Graph,
     call_vid: int,
@@ -980,6 +1052,15 @@ def _trace_call_to_function(
     from utils.igraph_compat import _vattr
 
     call_vname = _vattr(graph.vs[call_vid], "name", "")
+
+    # Fix 52z-9: ORM query-chain terminator — where/select chain ends in
+    # all/get/first/... whose KNOWLEDGE entry says safe.  That verdict is a
+    # Laravel-baseline shortcut ("DB records ≠ user input") that kills stored
+    # taint.  When the graph shape proves a static ORM chain, the return is
+    # DB row data = stored user input → source (second-order taint).
+    if _is_orm_query_chain_terminator(graph, call_vid, eidx):
+        return {"origin": call_vname, "origin_type": "source",
+                "dep_params": [], "has_unresolved_call": False}
 
     targets = [t for t in eidx["out"].get("use", {}).get(call_vid, [])
                if _vattr(graph.vs[t], "label") == NodeLabel.FUNCTION.value]

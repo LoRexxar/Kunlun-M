@@ -301,6 +301,18 @@ def _is_regex_sanitize_safe(graph, func_vid: int) -> bool:
     return False
 
 
+# Fix 52z-9: names whose KNOWLEDGE safe=True entry is an ORM query-chain
+# terminator verdict; re-verified against the graph chain shape before use.
+_ORM_TERMINATOR_NAMES = frozenset({
+    "all", "get", "first", "firstOrFail", "find", "findMany",
+    "findOrFail", "pluck", "whereKey", "value", "lists",
+})
+# per-graph edge-index cache for the ORM chain-shape check: id(graph) ->
+# (vcount_at_build, edge_index).  vcount guard cheaply invalidates when the
+# graph is rebuilt (same id reuse across loads is possible only after GC).
+_ORM_EIDX_CACHE: dict = {}
+
+
 def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache) -> bool:
     """从 TraceCache 内置知识库标注。先短名查，再完整名查。"""
     knowledge = trace_cache.lookup_builtin(short_name)
@@ -320,6 +332,34 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     if knowledge.get("source") and not safe:
         graph.vs[func_vid]["taint_type"] = "source"
         return True
+
+    # Fix 52z-9 (CVE-2026-110185): ORM query-chain terminators carry a
+    # historical safe=True KNOWLEDGE entry (Laravel baseline: "DB records
+    # are not user input").  When the graph shape proves a static ORM chain
+    # (X::where(...)->all()/get()/first()...), the return is DB row data —
+    # stored user input — annotate as source instead of safe.  Bare
+    # accessor calls ($collection->all(), $http->get()) keep safe.
+    if safe and _get_simple_name(short_name) in _ORM_TERMINATOR_NAMES:
+        from core.graph.function_summary import (
+            _build_edge_index as _fs_build_edge_index,
+            _is_orm_query_chain_terminator as _fs_is_orm_term,
+        )
+        # per-graph edge-index cache (enrich_taint visits every safe call)
+        _gkey = id(graph)
+        _now = graph.vcount()
+        _c = _ORM_EIDX_CACHE.get(_gkey)
+        if _c is not None and _c[0] == _now:
+            _eidx = _c[1]
+        else:
+            try:
+                _eidx = _fs_build_edge_index(graph)
+                _ORM_EIDX_CACHE[_gkey] = (_now, _eidx)
+            except Exception:
+                _eidx = None
+        if _eidx is not None and _fs_is_orm_term(graph, func_vid, _eidx):
+            graph.vs[func_vid]["taint_type"] = "source"
+            graph.vs[func_vid]["taint_origin"] = "orm_db_read"
+            return True
 
     # 分离 receiver passthrough ("this"/"self") 和位置参数 passthrough (int 索引)
     receiver_pt = any(isinstance(x, str) and x in _RECEIVER_PT_NAMES for x in passthrough)
