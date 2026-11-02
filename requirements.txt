@@ -6,7 +6,10 @@ django>=4.2,<6
 Werkzeug>=3.0.6
 
 # Parser / analysis stack
-lphply>=2.2.0
+# >=2.2.2: Fix 52 grammar productions (closure return types, 'match' as
+# method name, destructuring holes, trailing call comma) — previously only
+# hot-patched inside the scan venv; now a real release (CVE-2026-110185)
+lphply>=2.2.2
 lesprima>=2.0.0
 pyjsparser>=2.7.1
 jsbeautifier>=1.15.1
