@@ -272,6 +272,23 @@ _FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
     "ApplicationContext", "Environment", "WebGoatUser",
 })
 
+# Fix 53 (CVE-2026-15564, WFLY-22156): Java stream-typed entry parameters
+# that carry REMOTE peer data are sources.  The CORBA IIOP request stream
+# (org.omg.CORBA[_2_3].portable.InputStream) arrives straight off the
+# network socket — EjbCorbaServant._invoke(opName, InputStream in, handler)
+# unmarshals it into Java objects (readParams) BEFORE authentication.
+# Deliberately EXCLUDES file streams (FileInputStream/FileReader/...) and
+# in-JVM streams (ByteArrayInputStream/StringReader/...) — those are not
+# remote peer input.  Mirrors the legacy matcher's 'InputStream in
+# param_type' heuristic but restricted to network-facing stream types.
+_JAVA_STREAM_SOURCE_TYPES: frozenset[str] = frozenset({
+    "InputStream",                   # org.omg.CORBA.portable.InputStream (IIOP)
+    "ObjectInput",                   # RMI/IIOP unmarshalling
+    "Reader",                        # servlet-style char streams (rare, network)
+    "Socket", "DatagramSocket",      # raw network endpoints
+    "Channel", "SocketChannel", "ServerSocketChannel", "DatagramChannel",
+})
+
 # Go types that carry user-controlled HTTP request data.
 # Parameters with these types in Go handler functions are SOURCES (controllable),
 # unlike Java where HttpServletRequest is framework-injected (uncontrollable).
@@ -2602,6 +2619,22 @@ class GraphAnalyzer:
                                 code=1,
                                 reason=f"user-controlled annotation on '{uname}'",
                                 chain=[{"step": "source", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Fix 53: network stream-typed entry parameters are
+                        # remote-peer sources (IIOP InputStream → readParams
+                        # pre-auth deserialization, CVE-2026-15564).
+                        _stream_t53 = _vattr(uv, "java_type", "")
+                        if _stream_t53 in _JAVA_STREAM_SOURCE_TYPES:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (network stream type '%s', controllable)",
+                                uname, up_vid, _stream_t53,
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"network stream parameter '{uname}' (type: {_stream_t53})",
+                                chain=[{"step": "source_type", "vid": up_vid,
                                         "name": uname, "code": 1}],
                                 path=new_path,
                                 expr_lineno=_vattr(uv, "lineno", 0)))
