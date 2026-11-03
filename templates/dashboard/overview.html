@@ -81,32 +81,84 @@
               <a href="{% url 'dashboard:projects_list' %}" class="text-muted" style="font-size:13px;">查看全部 <i class="fa fa-arrow-circle-right"></i></a>
             </div>
             <div class="card-body table-responsive p-0">
+              <style>
+                /* km-pill 统一药丸 (与 vuls_list/project_detail 同一套) */
+                .km-pill { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; font-weight:500; line-height:1.6; font-family:inherit; vertical-align:middle; white-space:nowrap; }
+                .km-pill-red { background:#fee2e2; color:#b91c1c; }
+                .km-pill-green { background:#dcfce7; color:#15803d; }
+                .km-pill-amber { background:#fef3c7; color:#b45309; }
+                .km-pill-blue { background:#dbeafe; color:#1d4ed8; }
+                .km-pill-gray { background:#f3f4f6; color:#4b5563; }
+                .km-pill-solid-red { background:#b91c1c; color:#fff; font-weight:600; }
+                .ov-sev-bar { display:flex; gap:3px; margin-top:3px; height:5px; border-radius:3px; overflow:hidden; }
+                .ov-sev-bar i { display:block; height:100%; }
+                .ov-proj-name { font-weight:600; color:#1f2937; text-decoration:none; }
+                .ov-proj-name:hover { text-decoration:underline; }
+                .ov-sub { font-size:11.5px; color:#6c757d; margin-top:2px; }
+                .ov-num { font-size:17px; font-weight:700; line-height:1.1; }
+                .ov-num-sub { font-size:11px; color:#6c757d; }
+                .ov-cve-link { color:#6d28d9; text-decoration:none; font-weight:600; }
+                .ov-cve-link:hover { text-decoration:underline; }
+              </style>
               <table class="table table-hover km-table mb-0">
                 <thead>
                   <tr>
-                    <th style="width:64px;">ID</th>
                     <th>项目</th>
-                    <th style="width:90px;">状态</th>
-                    <th style="width:140px;">最近扫描</th>
-                    <th style="width:90px;text-align:center;">漏洞数</th>
-                    <th style="width:90px;text-align:center;">已定性</th>
-                    <th style="width:90px;">操作</th>
+                    <th style="width:64px;">状态</th>
+                    <th style="width:96px;">最高严重度</th>
+                    <th style="width:110px;">发现</th>
+                    <th style="width:120px;">人工定性</th>
+                    <th style="width:130px;">最近扫描</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for p in latest_projects %}
                   <tr>
-                    <td class="km-td-nowrap"><a href="{% url 'dashboard:project_detail' p.id %}">{{ p.id }}</a></td>
-                    <td><a href="{% url 'dashboard:project_detail' p.id %}" style="text-decoration:none;">{{ p.project_name }}</a></td>
-                    <td class="km-td-nowrap">{{ p.status }}</td>
-                    <td class="km-td-nowrap">{{ p.last_scan_time|localtime|date:'Y-m-d H:i' }}</td>
-                    <td style="width:90px;" class="km-td-nowrap">
-                      <span>{{ p.result_count }}</span>
+                    <td>
+                      <a class="ov-proj-name" href="{% url 'dashboard:project_detail' p.id %}">{{ p.project_name }}</a>
+                      <div class="ov-sub">
+                        {% for lang in p.languages %}<span class="km-pill km-pill-gray" style="font-size:10px;padding:0 5px;">{{ lang }}</span> {% endfor %}
+                        {% if p.cve_count %}<a class="ov-cve-link" href="{% url 'dashboard:vuls_list' %}?q=" title="已关联 CVE 的发现">{{ p.cve_count }} 条关联CVE</a>{% endif %}
+                      </div>
                     </td>
-                    <td style="width:90px;text-align:center;" class="km-td-nowrap">
-                      <span>{{ p.verified_count }}</span>
+                    <td class="km-td-nowrap">
+                      {% if p.status_raw == 1 %}<span class="km-pill km-pill-green">完成</span>
+                      {% elif p.status_raw == 2 %}<span class="km-pill km-pill-amber">运行中</span>
+                      {% elif p.status_raw == 0 or p.status_raw == -1 %}<span class="km-pill km-pill-red">失败</span>
+                      {% else %}<span class="km-pill km-pill-gray">队列中</span>{% endif %}
                     </td>
-                    <td><a class="btn btn-primary btn-sm" href="{% url 'dashboard:project_detail' p.id %}">查看</a></td>
+                    <td class="km-td-nowrap">
+                      {% if p.top_sev == 'critical' %}<span class="km-pill km-pill-solid-red">严重 ×{{ p.top_sev_n }}</span>
+                      {% elif p.top_sev == 'high' %}<span class="km-pill km-pill-red">高危 ×{{ p.top_sev_n }}</span>
+                      {% elif p.top_sev == 'medium' %}<span class="km-pill km-pill-amber">中危 ×{{ p.top_sev_n }}</span>
+                      {% elif p.top_sev == 'low' %}<span class="km-pill km-pill-blue">低危 ×{{ p.top_sev_n }}</span>
+                      {% elif p.result_count == 0 %}<span class="ov-num-sub">无发现</span>
+                      {% else %}<span class="ov-num-sub">未分级</span>{% endif %}
+                      {% if p.result_count %}
+                      <div class="ov-sev-bar" title="严重 {{ p.sev_count.critical }} / 高危 {{ p.sev_count.high }} / 中危 {{ p.sev_count.medium }} / 低危 {{ p.sev_count.low }}{% if p.unclassified %} / 未分级 {{ p.unclassified }}{% endif %}">
+                        {% if p.sev_count.critical %}<i style="flex:{{ p.sev_count.critical }};background:#b91c1c;" title="严重"></i>{% endif %}
+                        {% if p.sev_count.high %}<i style="flex:{{ p.sev_count.high }};background:#f87171;" title="高危"></i>{% endif %}
+                        {% if p.sev_count.medium %}<i style="flex:{{ p.sev_count.medium }};background:#fbbf24;" title="中危"></i>{% endif %}
+                        {% if p.sev_count.low %}<i style="flex:{{ p.sev_count.low }};background:#60a5fa;" title="低危"></i>{% endif %}
+                        {% if p.unclassified %}<i style="flex:{{ p.unclassified }};background:#e5e7eb;" title="未分级"></i>{% endif %}
+                      </div>
+                      {% endif %}
+                    </td>
+                    <td class="km-td-nowrap">
+                      <div class="ov-num">{{ p.result_count }}</div>
+                      <div class="ov-num-sub">条发现</div>
+                    </td>
+                    <td class="km-td-nowrap">
+                      {% if p.tp_count or p.fp_count %}
+                      <span style="color:#15803d;font-weight:600;">TP {{ p.tp_count }}</span>
+                      <span style="color:#9ca3af;">/</span>
+                      <span style="color:#b91c1c;font-weight:600;">FP {{ p.fp_count }}</span>
+                      {% if p.pending_count > 0 %}<div class="ov-num-sub">待审 {{ p.pending_count }} 条</div>{% endif %}
+                      {% else %}
+                      <span class="ov-num-sub">未开始</span>
+                      {% endif %}
+                    </td>
+                    <td class="km-td-nowrap" style="font-size:12.5px;color:#4b5563;">{{ p.last_scan_time|localtime|date:'m-d H:i' }}</td>
                   </tr>
                   {% endfor %}
                 </tbody>

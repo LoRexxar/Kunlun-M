@@ -352,6 +352,16 @@ def overview(req):
     latest_projects_data = []
     status_count = {"success": 0, "running": 0, "error": 0, "other": 0}
     status_map = {0: '失败', 1: '完成', 2: '运行中', 3: '队列中'}
+    # Fix overview-2: 等级/规则信息一次预取 (原来只给两个死数字, 不知道扫描'干了啥')
+    from web.index.models import Rules
+    from Kunlun_M.const import VUL_LEVEL
+    rules_level = {}
+    for r in Rules.objects.all().only('id', 'svid', 'level'):
+        try:
+            rules_level[str(r.svid)] = int(r.level)
+        except (TypeError, ValueError):
+            continue
+
     for pid in project_ids[:10]:
         project = Project.objects.filter(id=pid).first()
         if not project:
@@ -367,16 +377,49 @@ def overview(req):
         else:
             status_count["other"] += 1
 
-        result_count = ScanResultTask.objects.filter(scan_project_id=pid, is_active=1).count()
-        verified_count = ScanResultTask.objects.filter(
-            scan_project_id=pid, is_active=1, verification_status__in=['tp', 'fp']).count()
+        vulns = ScanResultTask.objects.filter(
+            scan_project_id=pid, is_active=1).only(
+            'id', 'cvi_id', 'language', 'verification_status', 'linked_cve')
+        result_count = len(vulns)
+        tp_count = fp_count = cve_count = 0
+        lang_set = set()
+        # VUL_LEVEL 是英文枚举: low/medium/high/critical
+        sev_count = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+        for r in vulns:
+            lang_set.add(r.language or '?')
+            if r.verification_status == 'tp':
+                tp_count += 1
+            elif r.verification_status == 'fp':
+                fp_count += 1
+            if r.linked_cve:
+                cve_count += 1
+            lv = rules_level.get(str(r.cvi_id))
+            if lv is not None and lv < len(VUL_LEVEL):
+                key = VUL_LEVEL[lv]
+                if key in sev_count:
+                    sev_count[key] += 1
+        top_sev = None
+        for name in ('critical', 'high', 'medium', 'low'):
+            if sev_count[name]:
+                top_sev = (name, sev_count[name])
+                break
         latest_projects_data.append({
             'id': pid,
             'project_name': project.project_name,
             'status': status_map.get(t_status, str(t_status)),
+            'status_raw': t_status,
             'last_scan_time': t.last_scan_time,
             'result_count': result_count,
-            'verified_count': verified_count,
+            'verified_count': tp_count + fp_count,
+            'tp_count': tp_count,
+            'fp_count': fp_count,
+            'pending_count': result_count - tp_count - fp_count,
+            'cve_count': cve_count,
+            'unclassified': result_count - sum(sev_count.values()),
+            'languages': sorted(lang_set),
+            'sev_count': sev_count,
+            'top_sev': top_sev[0] if top_sev else '',
+            'top_sev_n': top_sev[1] if top_sev else 0,
         })
 
     context = {
