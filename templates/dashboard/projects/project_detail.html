@@ -260,10 +260,21 @@
 
 <!-- 扫描记录卡片（不重要，移至页面底部，默认折叠） -->
 <div class="card">
-<div class="box-header with-border" style="display:flex;align-items:center;gap:8px;cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#scanRecordsBody" aria-expanded="false" role="button" onclick="this.querySelector('.km-scan-caret').classList.toggle('km-caret-open')">
-  <h3 class="card-title">扫描记录</h3>
-  <span style="font-size:12px;color:#6c757d;">({{ scan_records|length }})</span>
-  <i class="fa fa-caret-right km-scan-caret" style="margin-left:auto;color:#9ca3af;transition:transform .15s;"></i>
+<div class="box-header with-border km-scan-toggle" data-bs-toggle="collapse" data-bs-target="#scanRecordsBody" aria-expanded="false" role="button">
+  <h3 class="card-title"><i class="fa fa-history" style="margin-right:6px;color:#6c757d;"></i>扫描记录</h3>
+  {% if scan_records %}
+  <span class="badge bg-light text-secondary" style="font-size:12px;font-weight:500;">{{ scan_records|length }} 次</span>
+  {% with rec=scan_records|first %}
+  <span style="font-size:12px;color:#6c757d;">· 最近 {{ rec.last_scan_time|localtime|date:'Y-m-d H:i' }}
+    {% if rec.status == 1 %}<span class="badge bg-success" style="font-size:11px;">完成</span>
+    {% elif rec.status == 2 %}<span class="badge bg-warning" style="font-size:11px;">运行中</span>
+    {% else %}<span class="badge bg-danger" style="font-size:11px;">失败</span>{% endif %}
+  </span>
+  {% endwith %}
+  {% else %}
+  <span style="font-size:12px;color:#adb5bd;">暂无记录</span>
+  {% endif %}
+  <i class="fa fa-chevron-down km-scan-caret" aria-hidden="true"></i>
 </div>
 <!-- /.box-header -->
 <div class="box-body table-responsive collapse" id="scanRecordsBody">
@@ -321,6 +332,30 @@
 {% endblock %}
 
 {% block script %}
+
+<style>
+/* 扫描记录折叠条: 视觉上是完整的信息条, 不是空白标题 */
+.km-scan-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  padding: 12px 15px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  transition: background .15s;
+  user-select: none;
+}
+.km-scan-toggle:hover { background: #eef1f4; }
+.km-scan-toggle .card-title { margin: 0; font-size: 15px; }
+.km-scan-caret {
+  margin-left: auto;
+  color: #6c757d;
+  transition: transform .2s ease;
+}
+.km-scan-toggle[aria-expanded="true"] .km-scan-caret { transform: rotate(180deg); }
+</style>
 
 <link rel="stylesheet" href="{% static 'css/chain-panel.css' %}?v=40">
 <link rel="stylesheet" href="{% static 'css/prism.css' %}?v=39">
