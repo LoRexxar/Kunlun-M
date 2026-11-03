@@ -307,6 +307,9 @@ class ScanResultTask(models.Model):
     verified_by = models.CharField(max_length=100, default='')
     verified_at = models.DateTimeField(null=True, blank=True)
     verification_notes = models.TextField(default='')
+    # CVE 关联（人工/AI 复盘标记）: 形如 CVE-2026-110185，空串=未关联
+    linked_cve = models.CharField(max_length=40, default='', blank=True, db_index=True)
+    linked_cve_by = models.CharField(max_length=100, default='', blank=True)
 
     def save(self, *args, **kwargs):
 

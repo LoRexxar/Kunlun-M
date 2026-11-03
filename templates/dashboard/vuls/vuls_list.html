@@ -17,6 +17,22 @@
 .vul-table col.vc-lang   { width: 55px; }
 .vul-table col.vc-task   { width: 110px; }
 .vul-table col.vc-file   { width: 260px; }
+/* CVE 徽标 (列表行 + 详情面板) */
+.km-cve-badge, .km-cve-badge-inline {
+  display: inline-block;
+  background: #d9534f;
+  color: #fff !important;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  text-decoration: none;
+  margin-left: 4px;
+}
+.km-cve-badge:hover { background: #c9302c; color: #fff !important; }
+.km-cve-badge-inline { background: #c9302c; margin-left: 0; }
+
 .vul-table col.vc-chain  { width: auto; }
 .vul-table col.vc-level  { width: 60px; }
 .vul-table col.vc-type   { width: 90px; }
@@ -396,7 +412,7 @@
         <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row vp-click" onclick="toggleVulDetail(this)" tabindex="-1">
           <td onclick="event.stopPropagation();"><input type="checkbox" class="vul-sel" value="{{ r.id }}"></td>
           <td>{{ r.id }}</td>
-          <td><code class="vp-code-chip">CVI-{{ r.cvi_id }}</code></td>
+          <td><code class="vp-code-chip">CVI-{{ r.cvi_id }}</code>{% if r.linked_cve %} <a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name={{ r.linked_cve }}" target="_blank" rel="noopener" class="km-cve-badge" onclick="event.stopPropagation();" title="已关联 {{ r.linked_cve }}（{{ r.linked_cve }} 点击查看 CVE 详情）">{{ r.linked_cve }}</a>{% endif %}</td>
           <td>{{ r.language }}</td>
           <td title="{{ r.project_name|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.project_name|truncatechars:12 }}</a></td>
           <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.vulfile_path|truncatechars:46 }}</a></td>
@@ -456,6 +472,13 @@
                 <div class="meta-row"><span class="meta-label">触发代码</span><code title="{{ r.source_code|escape }}">{{ r.source_code|escape }}</code></div>
                 <div class="meta-row"><span class="meta-label">项目</span><span class="meta-value">{{ r.project_name }}</span></div>
                 <div class="meta-row"><span class="meta-label">分析</span><span class="meta-value" title="{{ r.result_type|escape }}">{{ r.result_type }}</span></div>
+                <div class="meta-row"><span class="meta-label">CVE 关联</span>
+                  <span class="meta-value">
+                    <code id="cveBadge_{{ r.id }}" class="{% if r.linked_cve %}km-cve-badge-inline{% else %}vp-muted{% endif %}">{{ r.linked_cve|default:'未关联' }}</code>
+                    <button class="btn btn-default btn-xs" onclick="markCve({{ r.id }})" title="标记/修改 CVE 编号"><i class="fa fa-tag"></i> 标记CVE</button>
+                    {% if r.linked_cve %}<button class="btn btn-default btn-xs" onclick="unmarkCve({{ r.id }})" title="取消 CVE 关联"><i class="fa fa-times"></i></button>{% endif %}
+                  </span>
+                </div>
               </div>
               <div class="km-vul-chain-sidebar" id="chainSidebar_{{ r.id }}"></div>
               <div class="km-vul-chain-code" id="chainCode_{{ r.id }}"></div>
@@ -1097,6 +1120,49 @@ function aiAnalyzeVul(vulId, el){
   }).catch(function(e){
     body.innerHTML = '<div class="alert alert-danger">请求失败: ' + e + '</div>';
   });
+}
+
+/* CVE 关联标记 (Fix: cve-tagging) */
+function markCve(vulId) {
+  var cur = (document.getElementById('cveBadge_' + vulId) || {}).textContent || '';
+  if (cur === '未关联') cur = '';
+  var cve = prompt('输入要关联的 CVE 编号（留空=取消关联）：\n格式 CVE-YYYY-NNNN，如 CVE-2026-110185', cur.trim());
+  if (cve === null) return;
+  postCveMark(vulId, cve.trim());
+}
+function unmarkCve(vulId) { postCveMark(vulId, ''); }
+function postCveMark(vulId, cve) {
+  var fd = new FormData();
+  fd.append('vul_id', vulId);
+  fd.append('cve', cve);
+  var m = document.cookie.match(/csrftoken=([^;]+)/);
+  var headers = m ? {'X-CSRFToken': m[1]} : {};
+  fetch("{% url 'dashboard:vul_cve_mark' %}", {method: 'POST', body: fd, credentials: 'same-origin', headers: headers})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) { alert(d.msg || '标记失败'); return; }
+      var badge = document.getElementById('cveBadge_' + vulId);
+      if (badge) {
+        badge.textContent = d.cve || '未关联';
+        badge.className = d.cve ? 'km-cve-badge-inline' : 'vp-muted';
+      }
+      // 列表行内徽标: 无刷新就地补一个/删掉
+      var row = document.querySelector('tr.km-vul-row[data-vul-id="' + vulId + '"] td:nth-child(3)');
+      if (row) {
+        var old = row.querySelector('.km-cve-badge');
+        if (d.cve && !old) {
+          var a = document.createElement('a');
+          a.href = 'https://cve.mitre.org/cgi-bin/cvename.cgi?name=' + d.cve;
+          a.target = '_blank'; a.rel = 'noopener'; a.className = 'km-cve-badge';
+          a.onclick = function(e){ e.stopPropagation(); };
+          a.textContent = d.cve;
+          row.appendChild(document.createTextNode(' '));
+          row.appendChild(a);
+        } else if (!d.cve && old) { old.remove(); }
+        else if (d.cve && old) { old.textContent = d.cve; old.href = 'https://cve.mitre.org/cgi-bin/cvename.cgi?name=' + d.cve; }
+      }
+    })
+    .catch(function(e){ alert('请求失败: ' + e); });
 }
 </script>
 {% endblock %}
