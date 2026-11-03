@@ -17,6 +17,14 @@
   .km-stat-card .card-title { font-size: 1.5rem; font-weight: 600; line-height: 1.2; }
   .km-stat-card .card-footer { padding: 0.5rem 1.25rem; font-size: 0.8rem; }
   .km-stat-card .card-footer a:hover { text-decoration: none; }
+  /* 统一标签(药丸)体系 — 与 vuls_list/project_detail/overview 同一套 */
+  .km-pill { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; font-weight:500; line-height:1.6; font-family:inherit; vertical-align:middle; white-space:nowrap; }
+  .km-pill-red { background:#fee2e2; color:#b91c1c; }
+  .km-pill-green { background:#dcfce7; color:#15803d; }
+  .km-pill-amber { background:#fef3c7; color:#b45309; }
+  .km-pill-blue { background:#dbeafe; color:#1d4ed8; }
+  .km-pill-gray { background:#f3f4f6; color:#4b5563; }
+  .km-pill-solid-red { background:#b91c1c; color:#fff; font-weight:600; }
 </style>
 {% endblock %}
 {% block body %}
@@ -249,11 +257,11 @@
         <thead>
         <tr>
           <th class="km-col-project">项目</th>
-          <th class="km-col-time">最近扫描</th>
           <th class="km-col-status">状态</th>
-          <th class="km-col-results">漏洞数</th>
-          <th class="km-td-nowrap">确认</th>
-          <th class="km-td-nowrap">误报</th>
+          <th class="km-td-nowrap">最高严重度</th>
+          <th class="km-col-results">发现</th>
+          <th class="km-td-nowrap">人工定性</th>
+          <th class="km-col-time">最近扫描</th>
         </tr>
         </thead>
         <tbody>
@@ -262,26 +270,57 @@
           <td>
             <div class="km-cell-title">
               <a class="km-link-strong" href="{% url 'dashboard:project_detail' project.id %}">
-                <span class="km-td-nowrap">#{{ project.id }}</span>
-                <span class="km-muted">{{ project.project_name }}</span>
+                <span class="km-td-nowrap">{{ project.project_name }}</span>
               </a>
             </div>
+            <div style="font-size:11.5px;color:#6c757d;margin-top:2px;">
+              {% for lang in project.languages %}<span class="km-pill km-pill-gray" style="font-size:10px;padding:0 5px;">{{ lang }}</span> {% endfor %}
+              {% if project.cve_count %}<a href="{% url 'dashboard:vuls_list' %}?q=" style="color:#6d28d9;text-decoration:none;font-weight:600;" title="已关联 CVE 的发现">{{ project.cve_count }} 条关联CVE</a>{% endif %}
+            </div>
           </td>
-          <td class="km-td-time" data-time="{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
           <td class="km-td-nowrap">
           {% if project.last_scan_status == 0 or project.last_scan_status == -1 %}
-          <span class="badge bg-danger status-label">失败</span>
+          <span class="km-pill km-pill-red">失败</span>
           {% elif project.last_scan_status == 2 %}
-          <span class="badge bg-warning status-label">运行中</span>
+          <span class="km-pill km-pill-amber">运行中</span>
           {% elif project.last_scan_status == 1 %}
-          <span class="badge bg-success status-label">完成</span>
+          <span class="km-pill km-pill-green">完成</span>
           {% else %}
-          <span class="badge bg-secondary status-label">队列中</span>
+          <span class="km-pill km-pill-gray">队列中</span>
           {% endif %}
           </td>
-          <td class="km-td-nowrap">{{ project.results_count }}</td>
-          <td class="km-td-nowrap">{{ project.tp_count }}</td>
-          <td class="km-td-nowrap">{{ project.fp_count }}</td>
+          <td class="km-td-nowrap">
+            {% if project.top_sev == 'critical' %}<span class="km-pill km-pill-solid-red">严重 ×{{ project.top_sev_n }}</span>
+            {% elif project.top_sev == 'high' %}<span class="km-pill km-pill-red">高危 ×{{ project.top_sev_n }}</span>
+            {% elif project.top_sev == 'medium' %}<span class="km-pill km-pill-amber">中危 ×{{ project.top_sev_n }}</span>
+            {% elif project.top_sev == 'low' %}<span class="km-pill km-pill-blue">低危 ×{{ project.top_sev_n }}</span>
+            {% elif project.results_count == 0 %}<span style="font-size:11px;color:#6c757d;">无发现</span>
+            {% else %}<span style="font-size:11px;color:#6c757d;">未分级</span>{% endif %}
+            {% if project.results_count %}
+            <div style="display:flex;gap:3px;margin-top:3px;height:5px;border-radius:3px;overflow:hidden;" title="严重 {{ project.sev_count.critical }} / 高危 {{ project.sev_count.high }} / 中危 {{ project.sev_count.medium }} / 低危 {{ project.sev_count.low }}{% if project.unclassified %} / 未分级 {{ project.unclassified }}{% endif %}">
+              {% if project.sev_count.critical %}<i style="flex:{{ project.sev_count.critical }};background:#b91c1c;" title="严重"></i>{% endif %}
+              {% if project.sev_count.high %}<i style="flex:{{ project.sev_count.high }};background:#f87171;" title="高危"></i>{% endif %}
+              {% if project.sev_count.medium %}<i style="flex:{{ project.sev_count.medium }};background:#fbbf24;" title="中危"></i>{% endif %}
+              {% if project.sev_count.low %}<i style="flex:{{ project.sev_count.low }};background:#60a5fa;" title="低危"></i>{% endif %}
+              {% if project.unclassified %}<i style="flex:{{ project.unclassified }};background:#e5e7eb;" title="未分级"></i>{% endif %}
+            </div>
+            {% endif %}
+          </td>
+          <td class="km-td-nowrap">
+            <div style="font-size:17px;font-weight:700;line-height:1.1;">{{ project.results_count }}</div>
+            <div style="font-size:11px;color:#6c757d;">条发现</div>
+          </td>
+          <td class="km-td-nowrap">
+            {% if project.tp_count or project.fp_count %}
+            <span style="color:#15803d;font-weight:600;">TP {{ project.tp_count }}</span>
+            <span style="color:#9ca3af;">/</span>
+            <span style="color:#b91c1c;font-weight:600;">FP {{ project.fp_count }}</span>
+            {% if project.pending_count > 0 %}<div style="font-size:11px;color:#6c757d;">待审 {{ project.pending_count }} 条</div>{% endif %}
+            {% else %}
+            <span style="font-size:11px;color:#6c757d;">未开始</span>
+            {% endif %}
+          </td>
+          <td class="km-td-time" data-time="{{ project.last_scan_time|localtime|date:'Y-m-d H:i:s' }}" style="font-size:12.5px;color:#4b5563;">{{ project.last_scan_time|localtime|date:'m-d H:i' }}</td>
         </tr>
         {% endfor %}
         </tbody>

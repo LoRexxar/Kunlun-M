@@ -37,17 +37,53 @@ def index(req):
             project_meta[t.project_id] = t
 
     projects = []
+    # Fix index-2: 与 overview 同款聚合 — 语言/严重度/CVE/待审, 让首页表格"知道干了啥"
+    from web.index.models import Rules
+    from Kunlun_M.const import VUL_LEVEL
+    rules_level = {}
+    for _r in Rules.objects.all().only('id', 'svid', 'level'):
+        try:
+            rules_level[str(_r.svid)] = int(_r.level)
+        except (TypeError, ValueError):
+            continue
     for pid in project_ids[:20]:
         project = Project.objects.filter(id=pid).first()
         if not project:
             continue
         t = project_meta[pid]
-        results_qs = ScanResultTask.objects.filter(scan_project_id=pid, is_active=1)
+        vulns = ScanResultTask.objects.filter(
+            scan_project_id=pid, is_active=1).only(
+            'id', 'cvi_id', 'language', 'verification_status', 'linked_cve')
         project.last_scan_time = t.last_scan_time
         project.last_scan_status = int(t.is_finished)
-        project.results_count = results_qs.count()
-        project.tp_count = results_qs.filter(verification_status='tp').count()
-        project.fp_count = results_qs.filter(verification_status='fp').count()
+        project.results_count = len(vulns)
+        project.tp_count = project.fp_count = project.cve_count = 0
+        lang_set = set()
+        sev_count = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+        for r in vulns:
+            lang_set.add(r.language or '?')
+            if r.verification_status == 'tp':
+                project.tp_count += 1
+            elif r.verification_status == 'fp':
+                project.fp_count += 1
+            if r.linked_cve:
+                project.cve_count += 1
+            lv = rules_level.get(str(r.cvi_id))
+            if lv is not None and lv < len(VUL_LEVEL):
+                key = VUL_LEVEL[lv]
+                if key in sev_count:
+                    sev_count[key] += 1
+        project.languages = sorted(lang_set)
+        project.sev_count = sev_count
+        project.unclassified = project.results_count - sum(sev_count.values())
+        project.pending_count = project.results_count - project.tp_count - project.fp_count
+        top_sev = None
+        for name in ('critical', 'high', 'medium', 'low'):
+            if sev_count[name]:
+                top_sev = (name, sev_count[name])
+                break
+        project.top_sev = top_sev[0] if top_sev else ''
+        project.top_sev_n = top_sev[1] if top_sev else 0
         projects.append(project)
 
     # 摘要统计（基于项目维度）
