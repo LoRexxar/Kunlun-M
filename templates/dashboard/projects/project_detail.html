@@ -53,43 +53,6 @@
 </div>
 
 <div class="card">
-<div class="box-header with-border">
-  <h3 class="card-title">扫描记录</h3>
-</div>
-<!-- /.box-header -->
-<div class="box-body table-responsive">
-  <table class="table table-hover km-table">
-    <thead>
-      <tr>
-        <th class="km-col-time">扫描时间</th>
-        <th class="km-col-status">状态</th>
-        <th class="km-td-nowrap">新增结果</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for rec in scan_records %}
-      <tr>
-        <td class="km-td-time" data-time="{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
-        <td class="km-td-nowrap">
-          {% if rec.status == 0 or rec.status == -1 %}
-          <span class="badge bg-danger status-label">失败</span>
-          {% elif rec.status == 2 %}
-          <span class="badge bg-warning status-label">运行中</span>
-          {% elif rec.status == 1 %}
-          <span class="badge bg-success status-label">完成</span>
-          {% else %}
-          <span class="badge bg-secondary status-label">队列中</span>
-          {% endif %}
-        </td>
-        <td class="km-td-nowrap">{{ rec.results_count }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-</div>
-
-<div class="card">
 <div class="box-header with-border" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
   <h3 class="card-title">结果</h3>
   <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
@@ -294,6 +257,46 @@
 <!-- /.box-body -->
 </div>
     {% endif %}
+
+<!-- 扫描记录卡片（不重要，移至页面底部，默认折叠） -->
+<div class="card">
+<div class="box-header with-border" style="display:flex;align-items:center;gap:8px;cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#scanRecordsBody" aria-expanded="false" role="button" onclick="this.querySelector('.km-scan-caret').classList.toggle('km-caret-open')">
+  <h3 class="card-title">扫描记录</h3>
+  <span style="font-size:12px;color:#6c757d;">({{ scan_records|length }})</span>
+  <i class="fa fa-caret-right km-scan-caret" style="margin-left:auto;color:#9ca3af;transition:transform .15s;"></i>
+</div>
+<!-- /.box-header -->
+<div class="box-body table-responsive collapse" id="scanRecordsBody">
+  <table class="table table-hover km-table">
+    <thead>
+      <tr>
+        <th class="km-col-time">扫描时间</th>
+        <th class="km-col-status">状态</th>
+        <th class="km-td-nowrap">新增结果</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rec in scan_records %}
+      <tr>
+        <td class="km-td-time" data-time="{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
+        <td class="km-td-nowrap">
+          {% if rec.status == 0 or rec.status == -1 %}
+          <span class="badge bg-danger status-label">失败</span>
+          {% elif rec.status == 2 %}
+          <span class="badge bg-warning status-label">运行中</span>
+          {% elif rec.status == 1 %}
+          <span class="badge bg-success status-label">完成</span>
+          {% else %}
+          <span class="badge bg-secondary status-label">队列中</span>
+          {% endif %}
+        </td>
+        <td class="km-td-nowrap">{{ rec.results_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div>
 
 
 <!-- AI 抽屉（单漏洞） + 报告面板（项目级） -->
