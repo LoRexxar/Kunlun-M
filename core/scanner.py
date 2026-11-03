@@ -34,7 +34,7 @@ except ImportError:
     ts_find_sinks = None
 from Kunlun_M import const
 from Kunlun_M.const import VulnerabilityResult
-from utils.utils import show_context
+from utils.utils import show_context, quiet_context
 from utils.file import FileParseAll, file_list_parse
 from utils.log import logger
 from utils.status import get_scan_id
@@ -1901,8 +1901,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    # Fix 43m: context printing deferred — console logging of every chain node dominated scan time; result rows already carry file/line.
-                    node_source = ""
+                    # Fix 43m-2: restore per-node source context for the web
+                    # dataflow panel. Fix 43m blanked it for scan speed; the
+                    # real cost was per-line console logging + uncached file
+                    # reads. quiet_context is silent + per-file cached, so
+                    # persistence keeps its speed while chains regain context.
+                    node_source = quiet_context(chain[2], chain[3])
                     node_vid = chain[4] if len(chain) >= 5 else None
                     tc = TaintChain(
                         scan_task=int(a_sid),
@@ -2066,8 +2070,13 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
             step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    # Fix 43m: context printing deferred — console logging of every chain node dominated scan time; result rows already carry file/line.
-                    node_source = ""
+                    # Fix 43m-2: restore per-node source context for the web
+                    # dataflow panel. Fix 43m blanked it for scan speed; the
+                    # real cost was per-line console logging + uncached file
+                    # reads. quiet_context is silent + per-file cached, so
+                    # persistence keeps its speed while chains regain context.
+                    node_source = quiet_context(chain[2], chain[3])
+                    node_vid = chain[4] if len(chain) >= 5 else None
                     tc = TaintChain(
                         scan_task=int(a_sid),
                         vul_result=sr.id,
@@ -2077,6 +2086,7 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
                         node_name=chain[1],
                         file_path=chain[2],
                         lineno=int(float(chain[3])) if chain[3] else 0,
+                        vid=node_vid,
                         source_code=node_source,
                     )
                     tc.save()

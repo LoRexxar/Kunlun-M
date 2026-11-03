@@ -704,8 +704,59 @@ def file_output_format(content):
         return 'None'
 
 
-def show_context(filename, line_number, show_line=3, is_back=False):
+def _context_file_cache():
+    """Fix 43m-2: per-scan file-content cache so taint-chain node contexts
+    don't re-read the same file hundreds of times (the original perf problem
+    behind Fix 43m, which over-corrected by dropping node contexts entirely)."""
+    cache = getattr(show_context, "_file_cache", None)
+    if cache is None:
+        cache = {}
+        show_context._file_cache = cache
+    return cache
 
+
+def quiet_context(filename, line_number, show_line=3):
+    """Fix 43m-2: silent, cached variant of show_context for DB persistence.
+
+    Returns the same "%4d: line" text block as show_context(is_back=True)
+    but with no console logging, one cached read per file, and full fault
+    tolerance (missing file / bad lineno -> empty string, never an exception
+    that could break scan persistence)."""
+    try:
+        if not line_number:
+            return ""
+        try:
+            _lineno = int(line_number)
+        except (ValueError, TypeError):
+            try:
+                _lineno = int(float(line_number))
+            except (ValueError, TypeError):
+                return ""
+        if _lineno <= 0:
+            return ""
+        path = check_filepath(PROJECT_DIRECTORY, filename)
+        if not path:
+            return ""
+        cache = _context_file_cache()
+        if path not in cache:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    cache[path] = f.readlines()
+            except OSError:
+                cache[path] = None
+        lines = cache.get(path)
+        if not lines:
+            return ""
+        line_start = max(1, _lineno - show_line)
+        line_end = min(len(lines), _lineno + show_line)
+        return "".join(
+            "%4d: %s" % (i, lines[i - 1]) for i in range(line_start, line_end + 1)
+        )
+    except Exception:
+        return ""
+
+
+def show_context(filename, line_number, show_line=3, is_back=False):
     if not show_line:
         return ""
 
