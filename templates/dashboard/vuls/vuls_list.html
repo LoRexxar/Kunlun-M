@@ -17,21 +17,23 @@
 .vul-table col.vc-lang   { width: 55px; }
 .vul-table col.vc-task   { width: 110px; }
 .vul-table col.vc-file   { width: 260px; }
-/* CVE 徽标 (列表行 + 详情面板) */
-.km-cve-badge, .km-cve-badge-inline {
+/* CVE 徽标 → 统一药丸 (violet=漏洞编号体系; 行内链接态) */
+.km-cve-badge, .km-cve-badge:visited {
   display: inline-block;
-  background: #d9534f;
-  color: #fff !important;
-  border-radius: 3px;
-  padding: 1px 6px;
-  font-size: 11px;
+  background: #ede9fe;
+  color: #6d28d9 !important;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10.5px;
   font-weight: 600;
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-decoration: none;
   margin-left: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
 }
-.km-cve-badge:hover { background: #c9302c; color: #fff !important; }
-.km-cve-badge-inline { background: #c9302c; margin-left: 0; }
+.km-cve-badge:hover { background: #ddd6fe; color: #5b21a6 !important; }
+.km-cve-badge-inline { margin-left: 0; }
 
 .vul-table col.vc-chain  { width: auto; }
 .vul-table col.vc-level  { width: 60px; }
@@ -231,6 +233,28 @@
 .vuls-page .vp-stat-card { flex: 1; padding: 10px; border-radius: 8px; background: #f8fafc; border: 1px solid #e5e7eb; }
 .vuls-page .vp-sub { font-size: 11px; color: #6c757d; margin-bottom: 4px; }
 .vuls-page .vp-code-chip { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+/* ===== 统一标签(药丸)体系: 全平台一套 ===== */
+.km-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  font-family: inherit;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.km-pill-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.km-pill-red    { background: #fee2e2; color: #b91c1c; }
+.km-pill-green  { background: #dcfce7; color: #15803d; }
+.km-pill-amber  { background: #fef3c7; color: #b45309; }
+.km-pill-blue   { background: #dbeafe; color: #1d4ed8; }
+.km-pill-gray   { background: #f3f4f6; color: #4b5563; }
+.km-pill-violet { background: #ede9fe; color: #6d28d9; }
+/* 高危/严重需要强提醒, 用实色(全平台唯二的实色药丸) */
+.km-pill-solid-red    { background: #b91c1c; color: #fff; font-weight: 600; }
+.km-pill-solid-amber  { background: #b45309; color: #fff; font-weight: 600; }
 .vuls-page .vp-pill { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 11px; cursor: pointer; }
 .vuls-page .vp-pill-green { background: #dcfce7; color: #15803d; }
 .vuls-page .vp-pill-red { background: #fee2e2; color: #b91c1c; }
@@ -418,16 +442,16 @@
           <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.vulfile_path|truncatechars:46 }}</a></td>
           <td class="vc-chain-cell" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
           <td>
-            {% if r.level_lower == 'critical' %}<span class="badge vp-sev-red-deep">严重</span>
-            {% elif r.level_lower == 'high' %}<span class="badge bg-danger">高危</span>
-            {% elif r.level_lower == 'medium' %}<span class="badge bg-warning">中危</span>
-            {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
-            {% else %}<span class="badge bg-light text-dark border">{{ r.level }}</span>{% endif %}
+            {% if r.level_lower == 'critical' %}<span class="km-pill km-pill-solid-red">严重</span>
+            {% elif r.level_lower == 'high' %}<span class="km-pill km-pill-red">高危</span>
+            {% elif r.level_lower == 'medium' %}<span class="km-pill km-pill-amber">中危</span>
+            {% elif r.level_lower == 'low' %}<span class="km-pill km-pill-blue">低危</span>
+            {% else %}<span class="km-pill km-pill-gray">{{ r.level }}</span>{% endif %}
           </td>
           <td title="{{ r.result_type|escape }} · 规则: {{ r.rule_name|escape }}">
             {{ r.rule_name|truncatechars:16 }}
-            {% if r.cred and r.cred.0 == 2 %}<span class="badge bg-light text-muted border" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 {{ r.cred.1|floatformat:0 }}% 为FP——历史结论回馈，优先级已沉底">FP热</span>
-            {% elif r.cred and r.cred.0 == 0 %}<span class="badge bg-danger" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
+            {% if r.cred and r.cred.0 == 2 %}<span class="km-pill km-pill-gray" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 {{ r.cred.1|floatformat:0 }}% 为FP——历史结论回馈，优先级已沉底">FP热</span>
+            {% elif r.cred and r.cred.0 == 0 %}<span class="km-pill km-pill-red" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
           </td>
           <td>
             {% if r.row_contested %}<span class="vp-pill vp-pill-amber" style="opacity:.8;font-size:.62em"

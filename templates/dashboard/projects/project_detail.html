@@ -105,18 +105,18 @@
                     {% endif %}
                     <td class="km-td-nowrap">
                       {% if taskresult.level|lower == 'critical' %}
-                      <span class="badge bg-danger" style="background:#a00 !important; color:#fff !important;">严重</span>
+                      <span class="km-pill km-pill-solid-red">严重</span>
                       {% elif taskresult.level|lower == 'high' %}
-                      <span class="badge bg-danger">高危</span>
+                      <span class="km-pill km-pill-red">高危</span>
                       {% elif taskresult.level|lower == 'medium' %}
-                      <span class="badge bg-warning">中危</span>
+                      <span class="km-pill km-pill-amber">中危</span>
                       {% elif taskresult.level|lower == 'low' %}
-                      <span class="badge bg-info">低危</span>
+                      <span class="km-pill km-pill-blue">低危</span>
                       {% else %}
-                      {{ taskresult.level }}
+                      <span class="km-pill km-pill-gray">{{ taskresult.level }}</span>
                       {% endif %}
                     </td>
-                    <td><span class="badge bg-light text-dark border" title="{{ taskresult.result_type|escape }}">{{ taskresult.rule_name|default:taskresult.cvi_id }}</span></td>
+                    <td><span class="km-pill km-pill-gray km-pill-mono" title="{{ taskresult.result_type|escape }}">{{ taskresult.rule_name|default:taskresult.cvi_id }}</span></td>
 
                     <td class="km-td-nowrap">
                       {% if taskresult.verification_status == 'tp' %}确认
@@ -124,9 +124,9 @@
                       {% elif taskresult.verification_status == 'stale' %}<span style="color:#adb5bd;">过期</span>
                       {% else %}未确认
                       {% endif %}
-                      {% if taskresult.ai_verdict == 'tp' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" style="display:inline-block;padding:0 5px;border-radius:8px;background:#dcfce7;color:#15803d;font-size:11px;">AI:TP</span>
-                      {% elif taskresult.ai_verdict == 'fp' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" style="display:inline-block;padding:0 5px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;">AI:FP</span>
-                      {% elif taskresult.ai_verdict == 'uncertain' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" style="display:inline-block;padding:0 5px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;">AI:?</span>
+                      {% if taskresult.ai_verdict == 'tp' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" class="km-pill km-pill-green">AI:TP</span>
+                      {% elif taskresult.ai_verdict == 'fp' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" class="km-pill km-pill-red">AI:FP</span>
+                      {% elif taskresult.ai_verdict == 'uncertain' %} <span title="AI 置信度: {{ taskresult.ai_confidence }}" class="km-pill km-pill-amber">AI:?</span>
                       {% endif %}
                     </td>
                     <td class="km-col-actions">
@@ -242,11 +242,11 @@
             <td><div class="km-cell-config" title="{{ newevilfunc.origin_func_name|escape }}">{{ newevilfunc.origin_func_name }}</div></td>
             <td class="km-td-nowrap">
               {% if newevilfunc.is_active %}
-              <span class="badge bg-success">是</span>
+              <span class="km-pill km-pill-green">是</span>
               {% elif not newevilfunc.is_active %}
-              <span class="badge bg-danger">否</span>
+              <span class="km-pill km-pill-red">否</span>
               {% else %}
-              <span class="badge bg-success">{{ newevilfunc.is_active }}</span>
+              <span class="km-pill km-pill-gray">{{ newevilfunc.is_active }}</span>
               {% endif %}
             </td>
           </tr>
@@ -263,12 +263,12 @@
 <div class="box-header with-border km-scan-toggle" data-bs-toggle="collapse" data-bs-target="#scanRecordsBody" aria-expanded="false" role="button">
   <h3 class="card-title"><i class="fa fa-history" style="margin-right:6px;color:#6c757d;"></i>扫描记录</h3>
   {% if scan_records %}
-  <span class="badge bg-light text-secondary" style="font-size:12px;font-weight:500;">{{ scan_records|length }} 次</span>
+  <span class="km-pill km-pill-gray">{{ scan_records|length }} 次</span>
   {% with rec=scan_records|first %}
   <span style="font-size:12px;color:#6c757d;">· 最近 {{ rec.last_scan_time|localtime|date:'Y-m-d H:i' }}
-    {% if rec.status == 1 %}<span class="badge bg-success" style="font-size:11px;">完成</span>
-    {% elif rec.status == 2 %}<span class="badge bg-warning" style="font-size:11px;">运行中</span>
-    {% else %}<span class="badge bg-danger" style="font-size:11px;">失败</span>{% endif %}
+    {% if rec.status == 1 %}<span class="km-pill km-pill-green">完成</span>
+    {% elif rec.status == 2 %}<span class="km-pill km-pill-amber">运行中</span>
+    {% else %}<span class="km-pill km-pill-red">失败</span>{% endif %}
   </span>
   {% endwith %}
   {% else %}
@@ -292,13 +292,13 @@
         <td class="km-td-time" data-time="{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}">{{ rec.last_scan_time|localtime|date:'Y-m-d H:i:s' }}</td>
         <td class="km-td-nowrap">
           {% if rec.status == 0 or rec.status == -1 %}
-          <span class="badge bg-danger status-label">失败</span>
+          <span class="km-pill km-pill-red">失败</span>
           {% elif rec.status == 2 %}
-          <span class="badge bg-warning status-label">运行中</span>
+          <span class="km-pill km-pill-amber">运行中</span>
           {% elif rec.status == 1 %}
-          <span class="badge bg-success status-label">完成</span>
+          <span class="km-pill km-pill-green">完成</span>
           {% else %}
-          <span class="badge bg-secondary status-label">队列中</span>
+          <span class="km-pill km-pill-gray">队列中</span>
           {% endif %}
         </td>
         <td class="km-td-nowrap">{{ rec.results_count }}</td>
@@ -334,6 +334,28 @@
 {% block script %}
 
 <style>
+/* 统一标签(药丸)体系 — 与 vuls_list 同一套 */
+.km-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  font-family: inherit;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.km-pill-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.km-pill-red    { background: #fee2e2; color: #b91c1c; }
+.km-pill-green  { background: #dcfce7; color: #15803d; }
+.km-pill-amber  { background: #fef3c7; color: #b45309; }
+.km-pill-blue   { background: #dbeafe; color: #1d4ed8; }
+.km-pill-gray   { background: #f3f4f6; color: #4b5563; }
+.km-pill-violet { background: #ede9fe; color: #6d28d9; }
+.km-pill-solid-red   { background: #b91c1c; color: #fff; font-weight: 600; }
+.km-pill-solid-amber { background: #b45309; color: #fff; font-weight: 600; }
+
 /* 扫描记录折叠条: 视觉上是完整的信息条, 不是空白标题 */
 .km-scan-toggle {
   display: flex;
