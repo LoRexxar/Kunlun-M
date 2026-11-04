@@ -38,6 +38,9 @@ logger = logging.getLogger("KunlunLog")
 # BFS 递归深度上限
 _MAX_TRACE_DEPTH = 15
 
+# Fix 53-perf: per-graph __construct node index (52z-3 scan cache)
+_CTOR_NODES_CACHE: dict[int, list[int]] = {}
+
 # 迭代轮数上限（解决 A→B→A 递归调用）
 _MAX_ITERATIONS = 5
 
@@ -666,6 +669,11 @@ def _trace_return_value(
     #    e.g. $_COOKIE['theme'] → member ← $_COOKIE (source)
     #    e.g. $array[array_rand($array)] → member ← $array (parameter)
     if vlabel == NodeLabel.IDENTIFIER.value:
+        _unknown_origin = None  # Fix 53-scope: hoisted — de-indent moved the
+        # 52z-8 consumer (L772) outside the `if isinstance(_prop_name...)`
+        # block while its init stayed inside → UnboundLocalError killed
+        # build_function_summaries on osticket (whole summaries silently
+        # skipped).  Initialize at the identifier branch top instead.
         for container_vid in eidx["in"].get("member", {}).get(start_vid, []):
             container = graph.vs[container_vid]
             container_taint = _vattr(container, "taint_type", "")
@@ -682,80 +690,94 @@ def _trace_return_value(
                 if isinstance(_prop_name, str) and _prop_name:
                     _pn = _prop_name.strip(chr(39) + chr(34))
                     _unknown_origin = None  # Fix 52z-8
-                    for _fv in graph.vs:
-                        if (_vattr(_fv, "label", "") == NodeLabel.FUNCTION.value
-                                and str(_vattr(_fv, "name", "")) == "__construct"):
-                            # Fix 52z-4: build the ctor's own param_idx —
-                            # the RHS references ctor parameters ($node),
-                            # invisible under the outer function's params.
-                            _ctor_pidx = {}
-                            for _cp, _ci in eidx["own_ch"].get(_fv.index, []):
-                                if (_vattr(graph.vs[_cp], "label", "") == NodeLabel.PARAMETER.value
-                                        and _ci not in (None, "")):
-                                    _ctor_pidx[_cp] = int(_ci)
-                            # BFS the ctor subtree (own + ast edges); an
-                            # assign node hangs off own, so check each
-                            # POPPED node itself (v2 fix: children of ast
-                            # edges are operands, never the assign).
-                            _stack = [_fv.index]
-                            _seen = set()
-                            _resolved = False
-                            while _stack and not _resolved:
-                                _x = _stack.pop()
-                                if _x in _seen:
-                                    continue
-                                _seen.add(_x)
-                                _xv = graph.vs[_x]
-                                _xl = _vattr(_xv, "label", "")
-                                if _xl == NodeLabel.FUNCTION.value and _x != _fv.index:
-                                    continue  # don't cross into siblings
-                                if (_xl == NodeLabel.OPERATOR.value
-                                        and _vattr(_xv, "type", "") in ("assign", "aug_assign")):
-                                    for _lt, _lr, _ in eidx["ast_ch"].get(_x, []):
-                                        if _lr in ("lhs", "left"):
-                                            _lname = str(_vattr(graph.vs[_lt], "name", ""))
-                                            if _pn and _pn == _lname.strip(chr(39) + chr(34)):
-                                                for _rt, _rr, _ in eidx["ast_ch"].get(_x, []):
-                                                    if _rr in ("rhs", "right"):
-                                                        _sub = _trace_return_value(
-                                                            graph, _rt, own_vids, _ctor_pidx,
-                                                            visited | {start_vid}, eidx, depth + 1)
-                                                        if _sub.get("origin_type") in ("source", "param"):
-                                                            return _sub
-                                                        if _sub.get("dep_params"):
-                                                            return _sub
-                                                        # Fix 52z-8 (CVE-2026-110185): the
-                                                        # property IS assigned in a ctor but
-                                                        # its RHS origin is unknown (e.g.
-                                                        # GlobalNodes::$this->nodeData =
-                                                        # fetchNodeData() → FlowNode::where()
-                                                        # ->all() ORM read).  "origin
-                                                        # unresolved" is NOT evidence of
-                                                        # safety — an ORM/DB read returns
-                                                        # stored user input.  Record the
-                                                        # unresolved origin and fall through
-                                                        # to unknown instead of safe.
-                                                        if _unknown_origin is None:
-                                                            _unknown_origin = _sub
-                                                _resolved = True
-                                                break
-                                # expand: ast children + own children
-                                for _t, _r, _ in eidx["ast_ch"].get(_x, []):
-                                    if _t not in _seen:
-                                        _stack.append(_t)
-                                for _t2 in eidx["out"].get("own", {}).get(_x, []):
-                                    if _t2 not in _seen:
-                                        _stack.append(_t2)
-                            if _resolved:
-                                break
-                # Fix 52z-8: a ctor assign WAS found but its RHS origin is
-                # unknown — report unknown (unresolved ≠ safe).  Only when no
-                # ctor assigns this property at all does the historic safe
-                # fallback stand (plain fluent-API state object).
-                if _unknown_origin is not None:
-                    return {"origin": vname, "origin_type": "unknown",
-                            "dep_params": [], "has_unresolved_call": True}
-                return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
+                    # Fix 53-perf: the 52z-3 full-graph __construct scan ran
+                    # per property-hit inside _trace_return_value — on
+                    # osticket (370k nodes) that's a 370k-node linear scan
+                    # fired thousands of times (quadratic blowup, scan stuck
+                    # >20min in build_function_summaries).  Index all
+                    # __construct function nodes once per graph (id() keyed).
+                    _gk = id(graph)
+                    _ctors = _CTOR_NODES_CACHE.get(_gk)
+                    if _ctors is None:
+                        _ctors = [
+                            _fv2.index for _fv2 in graph.vs
+                            if (_vattr(_fv2, "label", "") == NodeLabel.FUNCTION.value
+                                and str(_vattr(_fv2, "name", "")) == "__construct")
+                        ]
+                        _CTOR_NODES_CACHE[_gk] = _ctors
+                    for _fv_idx in _ctors:
+                        _fv = graph.vs[_fv_idx]
+                        # Fix 52z-4: build the ctor's own param_idx —
+                        # the RHS references ctor parameters ($node),
+                        # invisible under the outer function's params.
+                        _ctor_pidx = {}
+                        for _cp, _ci in eidx["own_ch"].get(_fv.index, []):
+                            if (_vattr(graph.vs[_cp], "label", "") == NodeLabel.PARAMETER.value
+                                    and _ci not in (None, "")):
+                                _ctor_pidx[_cp] = int(_ci)
+                        # BFS the ctor subtree (own + ast edges); an
+                        # assign node hangs off own, so check each
+                        # POPPED node itself (v2 fix: children of ast
+                        # edges are operands, never the assign).
+                        _stack = [_fv.index]
+                        _seen = set()
+                        _resolved = False
+                        while _stack and not _resolved:
+                            _x = _stack.pop()
+                            if _x in _seen:
+                                continue
+                            _seen.add(_x)
+                            _xv = graph.vs[_x]
+                            _xl = _vattr(_xv, "label", "")
+                            if _xl == NodeLabel.FUNCTION.value and _x != _fv.index:
+                                continue  # don't cross into siblings
+                            if (_xl == NodeLabel.OPERATOR.value
+                                    and _vattr(_xv, "type", "") in ("assign", "aug_assign")):
+                                for _lt, _lr, _ in eidx["ast_ch"].get(_x, []):
+                                    if _lr in ("lhs", "left"):
+                                        _lname = str(_vattr(graph.vs[_lt], "name", ""))
+                                        if _pn and _pn == _lname.strip(chr(39) + chr(34)):
+                                            for _rt, _rr, _ in eidx["ast_ch"].get(_x, []):
+                                                if _rr in ("rhs", "right"):
+                                                    _sub = _trace_return_value(
+                                                        graph, _rt, own_vids, _ctor_pidx,
+                                                        visited | {start_vid}, eidx, depth + 1)
+                                                    if _sub.get("origin_type") in ("source", "param"):
+                                                        return _sub
+                                                    if _sub.get("dep_params"):
+                                                        return _sub
+                                                    # Fix 52z-8 (CVE-2026-110185): the
+                                                    # property IS assigned in a ctor but
+                                                    # its RHS origin is unknown (e.g.
+                                                    # GlobalNodes::$this->nodeData =
+                                                    # fetchNodeData() → FlowNode::where()
+                                                    # ->all() ORM read).  "origin
+                                                    # unresolved" is NOT evidence of
+                                                    # safety — an ORM/DB read returns
+                                                    # stored user input.  Record the
+                                                    # unresolved origin and fall through
+                                                    # to unknown instead of safe.
+                                                    if _unknown_origin is None:
+                                                        _unknown_origin = _sub
+                                            _resolved = True
+                                            break
+                            # expand: ast children + own children
+                            for _t, _r, _ in eidx["ast_ch"].get(_x, []):
+                                if _t not in _seen:
+                                    _stack.append(_t)
+                            for _t2 in eidx["out"].get("own", {}).get(_x, []):
+                                if _t2 not in _seen:
+                                    _stack.append(_t2)
+                        if _resolved:
+                            break
+            # Fix 52z-8: a ctor assign WAS found but its RHS origin is
+            # unknown — report unknown (unresolved ≠ safe).  Only when no
+            # ctor assigns this property at all does the historic safe
+            # fallback stands (plain fluent-API state object).
+            if _unknown_origin is not None:
+                return {"origin": vname, "origin_type": "unknown",
+                        "dep_params": [], "has_unresolved_call": True}
+            return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             if container_taint == "source":
                 return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
             # 容器直接是函数参数 → 返回值与该参数关联

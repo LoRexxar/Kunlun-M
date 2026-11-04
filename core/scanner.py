@@ -1664,6 +1664,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # confirmed taint we still report -- the rule author
                     # accepted the FP surface by opting in.
                     if not found_controllable and getattr(matched_rule, 'require_taint', True) is False:
+                        # Fix 53b: presence mode only for the sink names the
+                        # rule explicitly nominated.  require_taint=False used
+                        # to apply to EVERY sink of the rule — for CVI_1011
+                        # (RCE) that turned classic exec/shell_exec/proc_open
+                        # calls in build-tooling (osticket cli modules running
+                        # `git describe` with literal strings) into 9 presence
+                        # FPs.  When the rule declares method_sinks, presence
+                        # reporting is limited to those bare names (library-
+                        # boundary statics); classic global sinks keep full
+                        # taint semantics.
+                        _ms_gate = getattr(matched_rule, 'method_sinks', None)
+                        if _ms_gate:
+                            _sn_bare_p = sink_name.lower().replace('::', '.').rsplit('.', 1)[-1]
+                            _ms_lower = {str(_m).lower() for _m in _ms_gate}
+                            if _sn_bare_p not in _ms_lower:
+                                matched_rule = None
+                                continue
                         _arg_desc = ", ".join(
                             filter(None, (
                                 (sa.get('name') or '') + ((' (' + sa['type'] + ')') if sa.get('type') else '')

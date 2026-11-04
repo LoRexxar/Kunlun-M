@@ -1195,6 +1195,26 @@ class GraphAnalyzer:
                         max_depth: int = 50) -> AnalysisResult:
         """Public entry — runs the BFS impl, then applies Fix 20b two-pass
         redirect resolution."""
+        # Fix 53-perf (v2): hard frame cap at the PUBLIC ENTRY.  The 52k/52s
+        # internal caps can be bypassed when other call sites (analyze_function_return
+        # at 4893, Rule 4c passthrough, etc.) recurse through this entry with
+        # their own budgets — osticket still hit 1000+ frames.  A single
+        # counter here bounds the whole mutual-recursion cluster.
+        _pd = getattr(self, "_pb_frame_depth", 0)
+        if _pd >= 24:
+            return AnalysisResult(
+                code=3,
+                reason="pb frame-depth cap (Fix 53-perf v2)",
+                chain=[{"step": "frame_cap", "vid": start_vid, "code": 3}],
+                path=[start_vid])
+        self._pb_frame_depth = _pd + 1
+        try:
+            return self._parameters_back_entry(start_vid, context_vid, max_depth)
+        finally:
+            self._pb_frame_depth = _pd
+
+    def _parameters_back_entry(self, start_vid: int, context_vid: int | None,
+                               max_depth: int) -> AnalysisResult:
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # with a repair function in the function body) — no need to trace.
@@ -2795,9 +2815,21 @@ class GraphAnalyzer:
                                         if _vattr(ae, "role", "") == "arg"]
                                     if len(_cargs) <= _fpos:
                                         continue
-                                    _res = self.parameters_back(
-                                        _cargs[_fpos], context_vid=None,
-                                        max_depth=max_depth - depth)
+                                    # Fix 53-perf: same frame-cap as the 52k
+                                    # dep recursion — the 52s callsite bridge
+                                    # recursed with max_depth-depth which does
+                                    # not shrink across frames; osticket hit
+                                    # 900+ frames here.  Reuse _pb_dep_depth.
+                                    _pd52s = getattr(self, "_pb_dep_depth", 0)
+                                    if _pd52s > 4:
+                                        continue
+                                    self._pb_dep_depth = _pd52s + 1
+                                    try:
+                                        _res = self.parameters_back(
+                                            _cargs[_fpos], context_vid=None,
+                                            max_depth=max_depth - depth)
+                                    finally:
+                                        self._pb_dep_depth = _pd52s
                                     if _res is not None and _res.is_controllable:
                                         return self._cached(cache_key, _res)
                         if _own_in and _is_ctor and _ctor_fn is not None:
@@ -3358,7 +3390,11 @@ class GraphAnalyzer:
                         # node has summary=safe, treat as safe.
                         tgt_name = _vattr(tgt, "name", "")
                         if tgt_name and tgt_summary != "safe" and tgt_taint != "safe":
-                            for sv in self.graph.vs.select(name=tgt_name, label=NodeLabel.FUNCTION.value):
+                            # Fix 53-perf: graph.vs.select(name=...) is a full
+                            # O(V) scan fired per call-edge check; use the
+                            # _nname index bucket instead.
+                            for sv_vid in self._nname.get((NodeLabel.FUNCTION.value, tgt_name), []):
+                                sv = self.graph.vs[sv_vid]
                                 sv_lang = _vattr(sv, "language", "")
                                 if sv_lang and sv_lang != self.language:
                                     continue
@@ -3850,8 +3886,25 @@ class GraphAnalyzer:
                                     if dep_vid is None and _ctx52k is not None:
                                         dep_vid = self._find_identifier_by_name(dep_name, None)
                                     if dep_vid is not None:
-                                        dep_res = self.parameters_back(
-                                            dep_vid, _ctx52k, max_depth - depth)
+                                        # Fix 53-perf: hard frame cap.  This
+                                        # dep-chasing recursion (52k) computes
+                                        # max_depth - depth, but `depth` is the
+                                        # BFS hop count which resets per frame
+                                        # — the budget did NOT shrink across
+                                        # recursive frames and hm115534 hit
+                                        # 2400+ stack frames (mutual pb↔pb via
+                                        # deps).  Cap by an explicit frame
+                                        # counter instead: each nested dep
+                                        # resolution consumes 6 frames of the
+                                        # budget, bottoming out at 6.
+                                        _dep_budget = max(6, (max_depth - depth) - 6 * getattr(self, "_pb_dep_depth", 0))
+                                        _pd = getattr(self, "_pb_dep_depth", 0)
+                                        self._pb_dep_depth = _pd + 1
+                                        try:
+                                            dep_res = self.parameters_back(
+                                                dep_vid, _ctx52k, _dep_budget)
+                                        finally:
+                                            self._pb_dep_depth = _pd
                                         if dep_res.is_controllable:
                                             return self._cached(cache_key, dep_res)
                             # Rule 4d-2: if analyze_function_return returned
@@ -5041,6 +5094,26 @@ class GraphAnalyzer:
     def _cross_file_property_source(self, start_vid: int, prop_name: str):
         if not prop_name:
             return None
+        # Fix 53-perf: recursion brake.  _cross_file_property_source calls
+        # parameters_back (52u) which re-enters _cross_file_property_source
+        # at BFS property nodes (Fix 42b, L2965) — mutual recursion with NO
+        # in-progress guard exploded to 478+ frames on hm115534 (Fix 43's
+        # own depth-2 brake covered the db-bridge, not this path).  Skip
+        # re-entry entirely: an outer cross-file search for the same
+        # property is already running; its G1-G4 candidate scan subsumes
+        # anything the inner call would find via this same property.
+        _xfp = getattr(self, "_xfp_active_props", None)
+        if _xfp is None:
+            _xfp = self._xfp_active_props = set()
+        if prop_name in _xfp:
+            return None
+        _xfp.add(prop_name)
+        try:
+            return self._cross_file_property_source_impl(start_vid, prop_name)
+        finally:
+            _xfp.discard(prop_name)
+
+    def _cross_file_property_source_impl(self, start_vid: int, prop_name: str):
         sv = self.graph.vs[start_vid]
         reader_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
         if not reader_fp:
@@ -7697,9 +7770,15 @@ class GraphAnalyzer:
             seen_vars.add(v_name)
             all_defs_ok = None  # None = no definitions found
             any_encoded = False
-            for ve in self.graph.vs:
-                if (_vattr(ve, "type", "") != "assign"
-                        or _vattr(ve, "name", "") != v_name):
+            # Fix 53-perf: full-graph scan (`for ve in self.graph.vs`) ran
+            # per candidate variable per guard call — osticket (370k nodes)
+            # burned minutes here on repeated linear scans.  Use the
+            # existing _nname index: assign operators are labeled
+            # "operator" with name = assigned variable name.
+            _cand_vids = self._nname.get(("operator", v_name), [])
+            for ve_vid in _cand_vids:
+                ve = self.graph.vs[ve_vid]
+                if (_vattr(ve, "type", "") != "assign"):
                     continue
                 ve_file = _vattr(ve, "file_path", "") or _vattr(ve, "path", "")
                 ve_line = int(_vattr(ve, "lineno", 0) or 0)
@@ -8053,7 +8132,12 @@ class GraphAnalyzer:
             fp = _vattr(self.graph.vs[vid], "file_path", "")
             found = False
             if fp and name:
-                for ov in self.graph.vs.select(label=NodeLabel.IDENTIFIER.value, name=name):
+                # Fix 53-perf: graph.vs.select(label=..., name=...) is a
+                # full-node linear scan (O(V) per call, igraph seq select).
+                # The _nname index already buckets identifiers by name —
+                # iterate only same-name candidates instead.
+                for ov_vid in self._nname.get((NodeLabel.IDENTIFIER.value, name), []):
+                    ov = self.graph.vs[ov_vid]
                     if _vattr(ov, "file_path", "") == fp and _vattr(ov, "taint_type", "") == "source":
                         found = True
                         break
