@@ -50,7 +50,7 @@ class VulListView(TemplateView):
 
         qs = ScanResultTask.objects.filter(is_active=True).only(
             'id', 'scan_task_id', 'cvi_id', 'language', 'vulfile_path',
-            'source_code', 'result_type', 'is_unconfirm',
+            'source_code', 'result_type', 'is_unconfirm', 'linked_cve',
             'verification_status', 'ai_verdict', 'ai_confidence',
         )
 
@@ -96,6 +96,7 @@ class VulListView(TemplateView):
                 Q(vulfile_path__icontains=search)
                 | Q(source_code__icontains=search)
                 | Q(cvi_id__icontains=search)
+                | Q(linked_cve__icontains=search)
             )
 
         # 等级筛选
