@@ -1681,6 +1681,24 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             if _sn_bare_p not in _ms_lower:
                                 matched_rule = None
                                 continue
+                        # Fix 53c: optional per-rule presence_filter regex on
+                        # the sink source line.  CVI_7002 nominates bare
+                        # 'execute' (Path C) to reach library-attribute chains
+                        # (cls._db.aql.execute, CVE-2026-63489), but presence
+                        # must only fire on AQL sites — the same bare name
+                        # also matches every cursor/requests .execute() in
+                        # the corpus (75 presence FPs on yeti).  Declaring
+                        # presence_filter='aql' keeps classic execute sinks
+                        # under full taint semantics while AQL execution
+                        # sites report on presence.
+                        _pf = getattr(matched_rule, 'presence_filter', None)
+                        if _pf:
+                            try:
+                                if not re.search(_pf, main_input or ''):
+                                    matched_rule = None
+                                    continue
+                            except re.error:
+                                pass
                         _arg_desc = ", ".join(
                             filter(None, (
                                 (sa.get('name') or '') + ((' (' + sa['type'] + ')') if sa.get('type') else '')
