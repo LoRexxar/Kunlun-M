@@ -792,29 +792,51 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # dispatch invisible to the call graph).  Global
                         # functions (fullname without '.') keep the strict
                         # check — they are only reachable via direct calls.
-                        _fn_fullname = (_dead_func_vid and _vattr(
-                            analyzer.graph.vs[_dead_func_vid],
-                            "fullname", "")) or ""
-                        _fn_type = (_dead_func_vid and _vattr(
-                            analyzer.graph.vs[_dead_func_vid],
-                            "type", "")) or ""
-                        _is_class_method = ("." in _fn_fullname
-                                            or "::" in _fn_fullname
-                                            or _fn_type == "method")
-                        if (_dead_func_vid is not None and not _is_class_method
-                                and not any(
-                                    True for _ in analyzer.graph.es.select(
-                                        _target=_dead_func_vid, label="cg"))):
-                            # Fix 58b (observability): count dead-code skips
-                            # per scan — quantifies how much the gate removes
-                            # (input for the opt-in/marking decision) without
-                            # changing behavior.
-                            _DEAD_CODE_SKIP_COUNTS[0] += 1
-                            logger.debug(
-                                "sink '%s' skipped: owning function vid=%d "
-                                "has no callers (dead code)",
-                                _sn, _dead_func_vid)
-                            continue
+                        # Fix 59: CLOSURES passed as values are exempt too —
+                        # they are framework dispatch entries, the PHP analog
+                        # of Java servlet doGet (Fix 30).  A route closure
+                        # `$app->get('/x', function(){...})` is referenced by
+                        # the call node (ast in-edge from `operator get`) and
+                        # invoked by the router at request time — the absence
+                        # of a cg in-edge is the NORM for closures, not a
+                        # death signal.  Verified blind before this fix: a
+                        # `system($_GET['cmd'])` inside a Slim route closure
+                        # produced 0 findings (AzuraCast follow-up: 177
+                        # uncalled closures, 35 in api_station.php alone).
+                        _fn_type_attr = (_dead_func_vid and _vattr(
+                            analyzer.graph.vs[_dead_func_vid], "type", "")) or ""
+                        _is_closure = (_fn_type_attr == "lambda"
+                                       or "<Closure>" in ((_dead_func_vid and _vattr(
+                                           analyzer.graph.vs[_dead_func_vid], "name", "")) or ""))
+                        _closure_referenced = _is_closure and any(
+                            True for _ in analyzer.graph.es.select(
+                                _target=_dead_func_vid, label="ast"))
+                        if _closure_referenced:
+                            pass  # closure passed as a value → framework entry
+                        else:
+                            _fn_fullname = (_dead_func_vid and _vattr(
+                                analyzer.graph.vs[_dead_func_vid],
+                                "fullname", "")) or ""
+                            _fn_type = (_dead_func_vid and _vattr(
+                                analyzer.graph.vs[_dead_func_vid],
+                                "type", "")) or ""
+                            _is_class_method = ("." in _fn_fullname
+                                                or "::" in _fn_fullname
+                                                or _fn_type == "method")
+                            if (_dead_func_vid is not None and not _is_class_method
+                                    and not any(
+                                        True for _ in analyzer.graph.es.select(
+                                            _target=_dead_func_vid, label="cg"))):
+                                # Fix 58b (observability): count dead-code skips
+                                # per scan — quantifies how much the gate removes
+                                # (input for the opt-in/marking decision) without
+                                # changing behavior.
+                                _DEAD_CODE_SKIP_COUNTS[0] += 1
+                                logger.debug(
+                                    "sink '%s' skipped: owning function vid=%d "
+                                    "has no callers (dead code)",
+                                    _sn, _dead_func_vid)
+                                continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False

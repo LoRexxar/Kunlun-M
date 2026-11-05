@@ -221,13 +221,23 @@ FRAMEWORK_CONFIGS = {
         },
         'global_source_functions': set(),
     },
+    'slim': {
+        # Fix 59: Slim Framework — route closures receive ($request, $response, $args)
+        # via DI; PSR-7 ServerRequestInterface methods return attacker data.
+        'request_object_names': {'request', '$request'},
+        'request_methods': {
+            'getQueryParams', 'getParsedBody', 'getAttribute', 'getAttributes',
+            'getCookieParams', 'getServerParams', 'getUploadedFiles',
+            'getBody', 'getHeader', 'getHeaderLine', 'getHeaders',
+        },
+        'global_source_functions': set(),
+    },
     'symfony': {
         'request_object_names': {'request', '$request'},
         'request_methods': {
             'get', 'query', 'request', 'getContent', 'getPayload',
             'toArray', 'getBasePath', 'getBaseUrl', 'getRequestUri',
         },
-        # ParameterBag 方法：$request->query->get(), $request->request->all() 等
         # 这些通过链式调用（query→get）使用，需要特殊处理
         'parameter_bag_methods': {'get', 'all', 'has', 'set', 'remove'},
         'global_source_functions': set(),
@@ -255,6 +265,8 @@ def detect_framework(project_dir: str) -> Optional[str]:
             deps.update(data.get('require-dev', {}))
 
             for dep in deps:
+                if dep == 'slim/slim' or dep.startswith('slim/'):
+                    return 'slim'
                 if dep == 'laravel/framework':
                     return 'laravel'
                 if dep.startswith('topthink/'):

@@ -33,6 +33,10 @@ EXPECTATIONS = {
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},
+    # Fix 59: Slim route closures are framework dispatch entries (ast
+    # in-edge), NOT dead code; $request->getQueryParams() is a source.
+    # Blind before Fix 59 (dead-code gate + no slim framework config).
+    'Fix59_slim_route_closure.php': {'1011': 1},
 }
 
 
