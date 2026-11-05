@@ -643,6 +643,14 @@ def _trace_return_value(
                 return result
 
     # Second pass: trace into own-vid sources
+    # CVE-2026-62007: when multiple DFG sources feed a use (e.g. a variable
+    # that was initialized from a literal AND later received an array-item
+    # write-back `$arr['k'] = $param`), a safe source must NOT short-circuit
+    # a param source.  "safe wins" is only correct when ALL sources are
+    # safe/literal.  Generalizes Fix 46d (which fixed this for concat only)
+    # to any operator: collect safe/literal flags, keep scanning for
+    # source/param, and only conclude safe when nothing stronger was found.
+    _second_safe_seen = False
     for src_vid in dfg_src_list:
         if src_vid not in own_vids:
             continue
@@ -655,13 +663,18 @@ def _trace_return_value(
             if _is_concat:
                 dfg_has_safe_source = True
                 continue  # safe operand doesn't erase other operands
-            return sub  # safe 立即返回（阻断）
+            _second_safe_seen = True
+            dfg_has_safe_source = True
+            continue  # keep scanning — another source may be param/source
         if sub["origin_type"] == "literal":
             dfg_has_safe_source = True
             continue  # 字面量不传播污点，忽略此 DFG 源
         all_dep_params.extend(sub.get("dep_params", []))
         if sub.get("has_unresolved_call"):
             any_unresolved = True
+    if not all_dep_params and not any_unresolved and _second_safe_seen:
+        # every own-vid source resolved safe/literal → safe
+        return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     # ── 5. Member 边检查（$obj[$key] / obj.prop 等成员访问） ──
     #    identifier 通过 member 边连接到容器对象，如果容器是 source，

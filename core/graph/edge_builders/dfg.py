@@ -680,6 +680,30 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 NodeLabel.OPERATOR.value,
             ):
                 self._add_dfg_edge(rhs_vid, lhs_vid, DfgType.FORWARD_SLICE.value)
+                # CVE-2026-62007 (Unlimited Elements ≤2.0.26): array-item
+                # write-back blind spot.  For `$arr['k'] = $tainted; return
+                # $arr;` the LHS node is the compound `$arr['k']` operator
+                # whose identifier child is the CONTAINER.  Rule #1 above
+                # links RHS→item-op, but the container variable's later
+                # read-only uses link back only to its ORIGINAL initializer
+                # (`$arr = array()`), so the taint never reaches `return
+                # $arr` — getSuggestion was summarized 'safe' and the safe-
+                # passthrough cleanup severed the echo chain.  Mirror
+                # container writes: also link RHS → container identifier so
+                # backward traces from any later `$arr` use see the item's
+                # taint.  Same-edge (not forward_slice) so the analyzer
+                # treats it as a name-flow, not a re-assignment.
+                _cont_vid = None
+                if lhs_label == NodeLabel.IDENTIFIER.value:
+                    _cont_vid = lhs_vid
+                else:
+                    for _ch_vid in self._get_ast_children(lhs_vid):
+                        if self._vlabel[_ch_vid] in (
+                            NodeLabel.IDENTIFIER.value, NodeLabel.CONST.value):
+                            _cont_vid = _ch_vid
+                            break
+                if _cont_vid is not None and _cont_vid != lhs_vid:
+                    self._add_dfg_edge(rhs_vid, _cont_vid, DfgType.SAME.value)
 
             # TernaryOp (branch type): iftrue/iffalse values flow to LHS.
             # The condition must NOT flow — it controls which branch is taken,
@@ -1387,6 +1411,20 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                 found = True
                                 break
                             elem_write_seen = True
+                            # CVE-2026-62007: whole-var read AFTER an
+                            # element write must see the element's taint —
+                            # `$arr['original'] = $search; return $arr;`
+                            # previously kept tracing to the array's
+                            # literal initializer and the function got
+                            # summarized 'safe'.  A same-edge from the
+                            # element-write LHS to the whole-var use lets
+                            # backward traces see the item write-back
+                            # (paired with the RHS→container mirror edge
+                            # in _analyze_assignments), while the loop
+                            # continues searching so an intervening
+                            # whole-var sanitize re-assign still wins.
+                            if use_offset is None:
+                                self._add_dfg_edge(cand, vid, DfgType.SAME.value)
                             continue
                         self._add_dfg_edge(cand, vid, DfgType.SAME.value)
                         found = True
