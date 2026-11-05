@@ -75,7 +75,18 @@ class CallGraphBuilder(BaseEdgeBuilder):
 
         cg_edges: dict[tuple[int, int], dict] = {}  # (caller, callee) → attrs
 
-        for func_vid in func_vids:
+        # Fix 55: file-level (top-priority/global) code is an implicit caller.
+        # PHP entry scripts call helper functions directly at the top level
+        # (own parent of the call operator is the file node, not a function);
+        # those calls previously produced no cg edge, so the callee was judged
+        # dead code by the Fix 25 gate and its sinks were skipped
+        # (CVE-2026-121429 mini repro: classic($_GET['c']) at top level).
+        file_vids: set[int] = set()
+        for v in graph.vs:
+            if _vattr(v, "label") == NodeLabel.FILE.value:
+                file_vids.add(v.index)
+
+        for func_vid in func_vids | file_vids:
             # Fix 34b: full own subtree, not just direct own children
             for op_vid in _iter_own_subtree(func_vid):
                 ov = graph.vs[op_vid]

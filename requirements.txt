@@ -12,7 +12,7 @@ Werkzeug>=3.0.6
 # >=2.2.3: Fix 53 grammar (CVE-2026-118755 PMS corpus): readonly ctor
 # promotion, soft-reserved namespace segments (Enum/Trait), reserved method
 # names (new/echo/print), multi-line PHP 8 attributes. PMS 365/365 parse.
-lphply>=2.2.3
+lphply>=2.2.5
 lesprima>=2.0.0
 pyjsparser>=2.7.1
 jsbeautifier>=1.15.1
