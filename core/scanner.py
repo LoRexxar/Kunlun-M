@@ -1431,9 +1431,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # this gate -- bare 'get' is deliberately
                                 # NOT in its method_sinks (HashMap.get).
                                 _sn_gate = sink.get('name', '').lower().replace("::", ".")
+                                # Fix 60: nomination check must include names
+                                # parsed from the rule's match regex
+                                # (_get_rule_sink_names), not only the
+                                # vul_function list — CVI_7004 nominates
+                                # requests.get via its match pattern and has
+                                # no vul_function attribute at all.
+                                def _pt_nominations(_r):
+                                    _names = [str(_x).lower() for _x in (getattr(_r, 'vul_function', None) or [])]
+                                    try:
+                                        _names += [str(_n).lower().replace("::", ".")
+                                                   for _n in _get_rule_sink_names(_r)]
+                                    except Exception:
+                                        pass
+                                    return _names
                                 _has_pt_rule = any(
                                     getattr(_r, 'require_taint', True) is False
-                                    and _sn_gate in [str(_x).lower() for _x in (getattr(_r, 'vul_function', None) or [])]
+                                    and _sn_gate in _pt_nominations(_r)
                                     for _r in lang_rule_list)
                                 if not _has_pt_rule and not _sink_has_method_sink_rule(sink, lang_rule_list):
                                     continue
@@ -1716,11 +1730,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # reporting is limited to those bare names (library-
                         # boundary statics); classic global sinks keep full
                         # taint semantics.
+                        # Fix 60: the 53b gate was killing EXACT qualified
+                        # matches too.  Its job is to stop bare-suffix
+                        # (Path C) noise — receiver-agnostic 'get' matching
+                        # any obj.get().  A sink whose FULL qualified name
+                        # ('requests.get') is an explicit rule nomination
+                        # (vul_function entry or exact match of the parsed
+                        # sink-name list) is not suffix noise and must keep
+                        # presence rights.  Regression this fixed: yeti 2.5.0
+                        # passive_total.py requests.get (CVI-7004, ground
+                        # truth task 4811) went dark from task 4813 onward —
+                        # 53b (CVE-2026-118755 campaign) silently broke the
+                        # CVE-2026-63489 campaign's rule.
                         _ms_gate = getattr(matched_rule, 'method_sinks', None)
                         if _ms_gate:
-                            _sn_bare_p = sink_name.lower().replace('::', '.').rsplit('.', 1)[-1]
+                            _sn_norm_p = sink_name.lower().replace('::', '.')
+                            _sn_bare_p = _sn_norm_p.rsplit('.', 1)[-1]
                             _ms_lower = {str(_m).lower() for _m in _ms_gate}
-                            if _sn_bare_p not in _ms_lower:
+                            # Fix 60 (refined): only QUALIFIED nominations
+                            # ('requests.get', a receiver-qualified API the
+                            # rule author named explicitly) keep presence
+                            # rights.  A bare GLOBAL name ('exec') in the
+                            # parsed list is a wildcard signature, not a
+                            # nomination — classic globals keep full taint
+                            # semantics (53b's osticket FPs stay dead).
+                            _rule_nominated = {str(_n).lower().replace('::', '.')
+                                               for _n in _get_rule_sink_names(matched_rule)}
+                            _qualified_nomination = (
+                                '.' in _sn_norm_p
+                                and (_sn_norm_p in _rule_nominated or _sn_norm_p in _ms_lower))
+                            if not _qualified_nomination and _sn_bare_p not in _ms_lower:
                                 matched_rule = None
                                 continue
                         # Fix 53c: optional per-rule presence_filter regex on
