@@ -37,6 +37,20 @@ from Kunlun_M.const import VulnerabilityResult
 from utils.utils import show_context, quiet_context
 from utils.file import FileParseAll, file_list_parse
 from utils.log import logger
+
+# Fix 58b (observability): dead-code gate skip counters per process.
+# [0] = taint-arg sinks skipped by the main gate, [1] = presence sinks.
+_DEAD_CODE_SKIP_COUNTS = [0, 0]
+
+
+def _report_dead_code_skips() -> None:
+    taint_skips, presence_skips = _DEAD_CODE_SKIP_COUNTS
+    if taint_skips or presence_skips:
+        logger.info(
+            "[SCAN] Dead-code gate: skipped %d taint-arg sinks + %d "
+            "presence sinks in uncalled PHP functions", taint_skips, presence_skips)
+        _DEAD_CODE_SKIP_COUNTS[0] = 0
+        _DEAD_CODE_SKIP_COUNTS[1] = 0
 from utils.status import get_scan_id
 
 from Kunlun_M.settings import RUNNING_PATH
@@ -791,6 +805,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 and not any(
                                     True for _ in analyzer.graph.es.select(
                                         _target=_dead_func_vid, label="cg"))):
+                            # Fix 58b (observability): count dead-code skips
+                            # per scan — quantifies how much the gate removes
+                            # (input for the opt-in/marking decision) without
+                            # changing behavior.
+                            _DEAD_CODE_SKIP_COUNTS[0] += 1
                             logger.debug(
                                 "sink '%s' skipped: owning function vid=%d "
                                 "has no callers (dead code)",
@@ -1314,6 +1333,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     )
                                 )
                                 if not has_callers:
+                                    _DEAD_CODE_SKIP_COUNTS[1] += 1  # Fix 58b
                                     logger.debug(
                                         "presence-of-sink skipped: '%s' in "
                                         "uncalled function vid=%d",
@@ -1976,6 +1996,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 'target_directory': target_directory
             }
         })
+    _report_dead_code_skips()  # Fix 58b: scan() end-of-scan summary
     return True
 
 
