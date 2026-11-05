@@ -356,25 +356,34 @@ class Pretreatment(object):
 
                         # 合并字典
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        # Fix 58 (observability): explicit parse status so the
+                        # pipeline can report coverage instead of silently
+                        # dropping files the parser cannot handle.
+                        self.pre_result[filepath]['parse_status'] = 'ok' if not self.is_unprecom else 'unprecom'
                         continue  # 解析成功，跳过 repair 逻辑
 
                     except (SyntaxError, AssertionError) as e:
                         if isinstance(e, AssertionError):
                             logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                            self.pre_result[filepath]['parse_status'] = 'assertion_error'
                             continue
                         if self.is_unprecom:
                             logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            self.pre_result[filepath]['parse_status'] = 'syntax_error_unprecom'
                             continue
+                        self.pre_result[filepath]['parse_status'] = 'syntax_error'
 
                     try:
                         repaired_code_content = self._repair_php_code_for_parser(code_content)
                     except Exception:
                         logger.warning('[AST] [ERROR] lexer repair failed for {}'.format(filepath))
+                        self.pre_result[filepath]['parse_status'] = 'repair_failed'
                         continue
 
                     # repair 成功后，尝试用修复后的代码重新解析
                     if repaired_code_content == code_content:
                         logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        self.pre_result[filepath]['parse_status'] = 'repair_noop'
                         continue
 
                     try:
@@ -382,14 +391,18 @@ class Pretreatment(object):
                         all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
                         logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        self.pre_result[filepath]['parse_status'] = 'ok_repaired'
                     except AssertionError:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                        self.pre_result[filepath]['parse_status'] = 'assertion_error'
                         continue
                     except Exception:
                         logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        self.pre_result[filepath]['parse_status'] = 'syntax_error_after_repair'
                         continue
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+                        self.pre_result[filepath]['parse_status'] = 'unknown_error'
                         continue
 
                     # 搜索所有的常量

@@ -197,10 +197,35 @@ def _parse_source(filepath: str, language: str):
 
     except Exception as e:
         import traceback
+        # Fix 58 (observability): count parse failures per language so the
+        # build summary can report parse coverage — a corpus silently going
+        # dark (parser regression, new syntax) must be visible per scan.
+        _PARSE_FAILURE_COUNTS[language] = _PARSE_FAILURE_COUNTS.get(language, 0) + 1
         logger.debug("[GraphPipeline] Parse error for %s (%s): %s\n%s", filepath, language, e, traceback.format_exc())
         return None
 
     return None
+
+
+# Fix 58: per-language parse-failure counters (see _parse_source above).
+_PARSE_FAILURE_COUNTS: dict[str, int] = {}
+
+
+def _report_parse_coverage(processed_ok: int) -> None:
+    """Emit a parse-coverage summary line. Call once per build after the
+    file loop; failure counters are global per process, so reset them
+    after reporting to keep per-scan semantics for long-lived workers."""
+    if not _PARSE_FAILURE_COUNTS:
+        return
+    failed = sum(_PARSE_FAILURE_COUNTS.values())
+    total = processed_ok + failed
+    if total <= 0:
+        return
+    detail = ', '.join(f'{k}={v}' for k, v in sorted(_PARSE_FAILURE_COUNTS.items()))
+    logger.warning(
+        "[GraphPipeline] Parse coverage: %d/%d files parsed OK (%.1f%%) — parse failures by language: %s",
+        processed_ok, total, 100.0 * processed_ok / total, detail)
+    _PARSE_FAILURE_COUNTS.clear()
 
 
 def _parse_tree_sitter(code: str, language: str):
@@ -532,6 +557,13 @@ def build_ast_graph(
     except Exception as e:
         logger.warning("[GraphPipeline] Edge builders 失败，跳过: %s", e)
 
+    # Fix 58 (observability): parse-coverage line right before the summary
+    # (covers both the new files path and the legacy pretreatment path).
+    try:
+        _report_parse_coverage(processed_count)
+    except Exception as _cov_e:
+        logger.debug("[GraphPipeline] coverage report failed: %s", _cov_e)
+
     logger.info(
         "[GraphPipeline] Build complete: %d processed, %d file-only, "
         "%d no normalizer, %d empty AST, %d special, %d large, %d errors. "
@@ -628,6 +660,36 @@ def build_ast_graph(
             )
             logger.info("[GraphPipeline] Graph saved to %s (%d nodes, %d edges)",
                        scan_dir, graph.vcount(), graph.ecount())
+
+            # Fix 58 (observability): parse-coverage report. Files the parser
+            # could not handle used to disappear with only a warning log;
+            # surface the loss as an explicit coverage summary so a corpus
+            # silently going dark (e.g. a parser regression) is visible in
+            # every scan's output.
+            try:
+                status_counts = {}
+                for file_data in getattr(pretreatment, 'pre_result', {}).values() \
+                        if pretreatment is not None else []:
+                    st = file_data.get('parse_status')
+                    if st:
+                        status_counts[st] = status_counts.get(st, 0) + 1
+                if status_counts:
+                    total = sum(status_counts.values())
+                    bad = {k: v for k, v in status_counts.items()
+                           if not k.startswith('ok')}
+                    if bad:
+                        logger.warning(
+                            "[GraphPipeline] Parse coverage: %d/%d files parsed "
+                            "OK (%.1f%%) — unparsed: %s",
+                            total - sum(bad.values()), total,
+                            100.0 * (total - sum(bad.values())) / total,
+                            ', '.join(f'{k}={v}' for k, v in sorted(bad.items())))
+                    else:
+                        logger.info(
+                            "[GraphPipeline] Parse coverage: %d/%d files parsed OK (100%%)",
+                            total, total)
+            except Exception as cov_e:
+                logger.debug("[GraphPipeline] coverage report failed: %s", cov_e)
         except Exception as e:
             logger.warning("[GraphPipeline] Failed to save graph: %s", e)
 
