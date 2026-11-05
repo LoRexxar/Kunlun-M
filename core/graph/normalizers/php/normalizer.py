@@ -374,6 +374,17 @@ class Normalizer:
         name = getattr(param_node, "name", "")
         if not name:
             return None
+        # Fix 57 (shape contract): Parameter.name must be a plain string.
+        # lphply 2.2.4 once emitted a Constant AST node here (grammar fix
+        # changed the AST shape silently); the normalizer then built a
+        # poisoned graph node whose name was an object repr, breaking the
+        # scanner far away from the root cause. Fail loud at the boundary
+        # instead of producing a corrupt graph.
+        if not isinstance(name, str):
+            raise TypeError(
+                f"phply Parameter.name must be str, got {type(name).__name__} "
+                f"({name!r:.60}) — parser/normalizer AST shape mismatch; "
+                "refusing to emit a corrupt parameter node")
         lineno = getattr(param_node, "lineno", 0)
         type_hint = getattr(param_node, "type", None) or ""
         default = getattr(param_node, "default", None)
