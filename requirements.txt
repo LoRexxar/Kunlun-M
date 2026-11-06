@@ -30,7 +30,7 @@ rarfile>=4.2
 # >=2.1.1: contextual keywords 'to'/'with' no longer reserved — required for
 # Fix 53 (CVE-2026-15564): 'with' reservation broke whole-file parsing of
 # Elytron AuthenticationContext..with(..) call sites (EjbCorbaServant.java)
-ljavalang>=2.1.1,<3
+ljavalang>=2.1.2,<3
 
 # Graph engine
 python-igraph>=1.0,<2
