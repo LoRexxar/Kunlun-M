@@ -819,6 +819,17 @@ class Pretreatment(object):
                     self.pre_result[filepath]['language'] = 'java'
                     self.pre_result[filepath]['ast_nodes'] = []
 
+                    # Fix 62: .xml is collected with the java family (pom.xml /
+                    # web.xml are project-structure files, original Kunlun
+                    # design), but it is NOT Java source — feeding it to
+                    # javalang only produced JavaSyntaxError noise that dented
+                    # parse-coverage stats (ureport anchor: 197/198). Keep the
+                    # file registered (rules like component detection still see
+                    # it), skip AST parsing.
+                    if filepath.endswith('.xml'):
+                        self.pre_result[filepath]['parse_status'] = 'file_only'
+                        continue
+
                     try:
                         fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
                         code_content = fi.read()
