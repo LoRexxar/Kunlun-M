@@ -601,7 +601,39 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # callee into its own sinks (register -> addNewUser
                     # INSERT, CVE-2026-108970).
                     
+                    if os.environ.get('KM_SAFE_NO_DELETE'):
+                        # Fix 61b experiment arm: keep edges (marking semantics)
+                        logger.info('[SCAN] [GRAPH] Fix 61b experiment: kept %d DFG edges (KM_SAFE_NO_DELETE)', len(edges_to_delete))
+                        edges_to_delete = []
                     if edges_to_delete:
+                        # Fix 61b (observability, marking-vs-deleting input):
+                        # record the semantic coordinates of every deleted
+                        # edge BEFORE removal — sink-side node, its file/line,
+                        # and the safe call it flowed into.  Dump on demand
+                        # via KM_SAFE_EDGE_DUMP=<path>; counts always logged.
+                        _dump_path = os.environ.get('KM_SAFE_EDGE_DUMP')
+                        _detail = []
+                        if _dump_path:
+                            for _ei in edges_to_delete:
+                                try:
+                                    _e = graph.es[_ei]
+                                    _sv, _tv = graph.vs[_e.source], graph.vs[_e.target]
+                                    _detail.append({
+                                        'edge': _ei, 'label': _e['label'],
+                                        'src': {'vid': _e.source, 'name': _vattr(_sv, 'name', ''),
+                                                'file': _vattr(_sv, 'file_path', ''), 'line': _vattr(_sv, 'lineno', 0)},
+                                        'dst': {'vid': _e.target, 'name': _vattr(_tv, 'name', ''),
+                                                'file': _vattr(_tv, 'file_path', ''), 'line': _vattr(_tv, 'lineno', 0)},
+                                    })
+                                except Exception:
+                                    pass
+                            try:
+                                import json as _json
+                                with open(_dump_path, 'a', encoding='utf-8') as _f:
+                                    _json.dump(_detail, _f, ensure_ascii=False)
+                                    _f.write('\n')
+                            except Exception:
+                                pass
                         graph.delete_edges(edges_to_delete)
                         logger.info('[SCAN] [GRAPH] Removed %d DFG edges from safe function calls', len(edges_to_delete))
             except Exception as e:
