@@ -94,6 +94,9 @@ tests/*
 !tests/nodejs/
 !tests/c/
 !tests/python/
+# JS frozen-corpus parse gate (tests/corpus_gate): corpus + gate must ship
+!tests/corpus_gate/
+!tests/corpus_gate/**
 !tests/go/
 !tests/java/
 !tests/php/
