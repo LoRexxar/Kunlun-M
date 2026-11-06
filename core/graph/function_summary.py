@@ -40,6 +40,13 @@ _MAX_TRACE_DEPTH = 15
 
 # Fix 53-perf: per-graph __construct node index (52z-3 scan cache)
 _CTOR_NODES_CACHE: dict[int, list[int]] = {}
+# Fix 63b (perf): memoize the per-(ctor, property) assign lookup. The 53-perf
+# fix cached the __construct node LIST, but every property hit still BFS-walked
+# every ctor's subtree — on osticket that BFS body was ~88% of self time in
+# the summaries phase (py-spy). The lookup result (assign vid or None) depends
+# only on the immutable graph + eidx, so it is safely memoizable per graph.
+_CTOR_ASSIGN_CACHE: dict[tuple[int, int, str], int | None] = {}
+_CTOR_MISS = object()  # sentinel: distinguish "cached None" from "not cached"
 
 # 迭代轮数上限（解决 A→B→A 递归调用）
 _MAX_ITERATIONS = 5
@@ -728,6 +735,25 @@ def _trace_return_value(
                             if (_vattr(graph.vs[_cp], "label", "") == NodeLabel.PARAMETER.value
                                     and _ci not in (None, "")):
                                 _ctor_pidx[_cp] = int(_ci)
+                        # Fix 63b: memoized per-(ctor, prop) assign lookup
+                        # (BFS result depends only on graph+eidx).
+                        _assign_key = (id(graph), _fv.index, _pn)
+                        _memo_assign = _CTOR_ASSIGN_CACHE.get(_assign_key, _CTOR_MISS)
+                        if _memo_assign is not _CTOR_MISS:
+                            if _memo_assign is not None:
+                                for _rt, _rr, _ in eidx["ast_ch"].get(_memo_assign, []):
+                                    if _rr in ("rhs", "right"):
+                                        _sub = _trace_return_value(
+                                            graph, _rt, own_vids, _ctor_pidx,
+                                            visited | {start_vid}, eidx, depth + 1)
+                                        if _sub.get("origin_type") in ("source", "param"):
+                                            return _sub
+                                        if _sub.get("dep_params"):
+                                            return _sub
+                                        if _unknown_origin is None:
+                                            _unknown_origin = _sub
+                            _resolved = True
+                            break
                         # BFS the ctor subtree (own + ast edges); an
                         # assign node hangs off own, so check each
                         # POPPED node itself (v2 fix: children of ast
@@ -772,6 +798,7 @@ def _trace_return_value(
                                                     # to unknown instead of safe.
                                                     if _unknown_origin is None:
                                                         _unknown_origin = _sub
+                                            _CTOR_ASSIGN_CACHE[_assign_key] = _x
                                             _resolved = True
                                             break
                             # expand: ast children + own children
@@ -781,6 +808,10 @@ def _trace_return_value(
                             for _t2 in eidx["out"].get("own", {}).get(_x, []):
                                 if _t2 not in _seen:
                                     _stack.append(_t2)
+                        if not _resolved:
+                            # BFS exhausted: this ctor never assigns the
+                            # property — memoize the miss too (Fix 63b).
+                            _CTOR_ASSIGN_CACHE[_assign_key] = None
                         if _resolved:
                             break
             # Fix 52z-8: a ctor assign WAS found but its RHS origin is
