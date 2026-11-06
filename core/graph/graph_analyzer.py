@@ -3398,6 +3398,14 @@ class GraphAnalyzer:
                                 sv_lang = _vattr(sv, "language", "")
                                 if sv_lang and sv_lang != self.language:
                                     continue
+                                # Fix 61: language-less EXTERNAL stubs (e.g. JS
+                                # express `app.get` synthesized into a mixed
+                                # graph) must never contribute a safe verdict
+                                # to another language's backtrace via the
+                                # same-name shortcut. Only same-language
+                                # definitions may declare a name "safe".
+                                if not sv_lang and _vattr(sv, "is_external", False):
+                                    continue
                                 if _vattr(sv, "func_summary_type", "") == "safe" or _vattr(sv, "taint_type", "") == "safe":
                                     if os.environ.get("KUNLUN_SAFE_DBG"):
                                         with open("/tmp/kunlun_safe_dbg.log", "a") as _f:

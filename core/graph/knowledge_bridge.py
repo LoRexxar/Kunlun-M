@@ -79,6 +79,19 @@ def enrich_taint(
         node_lang = _vattr(v, "language", "")
         if node_lang and node_lang != language:
             continue
+        # Fix 61 (callee-hijack family, CI regression of 70cd5ce9): synthesized
+        # EXTERNAL function stubs (is_external=True, e.g. JS `app.get`) carry
+        # no language attribute, so the guard above passed them through and
+        # the PHP pass annotated the JS express-route stub `get` as
+        # taint_type=safe. Downstream, graph_analyzer's same-name safe lookup
+        # then poisoned every Python `request.GET.get(...)` backtrace
+        # (code=2 safe) — one foreign stub silenced a whole language's
+        # findings in mixed-directory scans. An external stub's semantics are
+        # those of ITS OWN library, not of the user-code language whose
+        # builtin table happens to share the short name — so never annotate
+        # language-less external stubs from any per-language pass.
+        if not node_lang and _vattr(v, "is_external", False):
+            continue
 
         func_vid = v.index
         func_name = _vattr(v, "name", "")
