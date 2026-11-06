@@ -454,12 +454,24 @@ class GraphAnalyzer:
         self._nlbl: dict[str, list[int]] = {}
         # 节点索引: (label, name) → [vid, ...]
         self._nname: dict[tuple[str, str], list[int]] = {}
+        # Fix 63 (perf): function-node lookup indexes for find_function_def —
+        # exact fullname bucket and namespace-tail bucket ('\'-separated,
+        # matching the legacy endswith('\' + name) arm exactly).
+        self._ffull: dict[str, list[int]] = {}
+        self._ftail: dict[str, list[int]] = {}
         for v in graph.vs:
             vl = _vattr(v, 'label', '') or ''
             vn = _vattr(v, 'name', '') or ''
             self._nlbl.setdefault(vl, []).append(v.index)
             if vn:
                 self._nname.setdefault((vl, vn), []).append(v.index)
+            if vl == NodeLabel.FUNCTION.value:
+                vf = _vattr(v, 'fullname', '') or ''
+                if vf:
+                    self._ffull.setdefault(vf, []).append(v.index)
+                    tail = vf.rsplit('\\', 1)[-1]
+                    if tail and tail != vf:
+                        self._ftail.setdefault(tail, []).append(v.index)
 
         # _nfile 索引延迟构建：只在 _find_identifier_by_name 首次调用时构建
         self._nfile: dict[tuple[str, str, str], list[int]] | None = None
@@ -4597,14 +4609,27 @@ class GraphAnalyzer:
             scope_path = _vattr(self.graph.vs[from_vid], "file_path", None)
 
         results: list[int] = []
-        for vid in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+        # Fix 63 (perf): this loop was a full O(F) scan over every function
+        # node per call, and it sits on the parameters_back hot path —
+        # 25% of wall time on the osticket anchor (py-spy: lines 4601-4604
+        # dominated self time). All three match arms are bucket lookups:
+        #   vn == func_name            → _nname[(function, name)]
+        #   vf == func_name            → _ffull[fullname]
+        #   vf.endswith('\'+func_name) → tail segment of fullname == func_name
+        #                                  → _ftail[tail]
+        # (PHP fullnames are Class\method, so the tail segment IS the
+        # short name; javalang/esprima normalizers follow the same shape.)
+        candidates: dict[int, None] = {}
+        for vid in self._nname.get((NodeLabel.FUNCTION.value, func_name), []):
+            candidates[vid] = None
+        for vid in self._ffull.get(func_name, []):
+            candidates[vid] = None
+        for vid in self._ftail.get(func_name, []):
+            candidates[vid] = None
+        for vid in candidates:
             v = self.graph.vs[vid]
-            vn = _vattr(v, "name", "") or ""
-            vf = _vattr(v, "fullname", "") or ""
-            if not (vn == func_name or vf.endswith("\\" + func_name) or vf == func_name):
-                continue
             if scope_path:
-                fp = _vattr(v, "file_path") or ""
+                fp = _vattr(v, "file_path", "") or ""
                 if fp == scope_path:
                     results.insert(0, vid)
                 else:
