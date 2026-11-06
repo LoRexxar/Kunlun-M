@@ -217,6 +217,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # 避免在 _resolve_function 中对每个函数调用做 O(V) 全图遍历
         self._func_name_index = {}
         self._func_fullname_index = {}
+        # Fix 63c (perf): _resolve_function / _has_function_body / parent
+        # lookup are pure functions of the own/ast subgraph, frozen for the
+        # whole dfg build (this builder only appends DFG edges, one batch at
+        # the end). py-spy on the osticket build phase: _resolve_function's
+        # incident() scans = 53% of SELF time, same func_vids re-resolved
+        # from multiple call sites. Memoize.
+        self._resolve_fn_memo: dict[int, int] = {}
+        self._has_body_memo: dict[int, bool] = {}
+        self._parent_memo: dict[int, int | None] = {}
         for v in self.graph.vs:
             if self._vlabel[v.index] != NodeLabel.FUNCTION.value:
                 continue
@@ -2118,11 +2127,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
         本方法检查任意 own/ast 子节点——参数、body 语句、return 节点等。
         这样可正确识别无参函数，以及 own 边缺少 index 属性的函数。
         """
+        got = self._has_body_memo.get(vid)
+        if got is not None:
+            return got
+        result = False
         for eid in self.graph.incident(vid, mode="out"):
             e = self.graph.es[eid]
             if self._elabel[e.index] in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
-                return True
-        return False
+                result = True
+                break
+        self._has_body_memo[vid] = result
+        return result
 
     def _get_cg_target(self, vid: int) -> Optional[int]:
         """获取从调用 operator 出发的 use/callee 边的目标函数顶点。
@@ -2252,6 +2267,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
         Returns:
             解析后的函数定义节点索引。若无法解析，返回原始 func_vid。
         """
+        # Fix 63c: memoized top level.
+        got = self._resolve_fn_memo.get(func_vid)
+        if got is not None:
+            return got
+        result = self._resolve_function_uncached(func_vid)
+        self._resolve_fn_memo[func_vid] = result
+        return result
+
+    def _resolve_function_uncached(self, func_vid: int) -> int:
         # 检查是否已有 own 子节点（有则已经是真正的定义）
         if self._has_function_body(func_vid):
             return func_vid
@@ -2260,14 +2284,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
         func_fullname = self._vfullname[node.index]
         func_name = self._vname[node.index]
 
-        # 查找 func_vid 所在的父作用域
-        parent_vid = None
-        for eid in self.graph.incident(func_vid, mode="in"):
-            e = self.graph.es[eid]
-            elabel = self._elabel[e.index]
-            if elabel in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
-                parent_vid = e.source
-                break
+        # 查找 func_vid 所在的父作用域（memoized: Fix 63c — use `in`,
+        # a cached None means "no parent", not "not queried"）
+        if func_vid in self._parent_memo:
+            parent_vid = self._parent_memo[func_vid]
+        else:
+            parent_vid = None
+            for eid in self.graph.incident(func_vid, mode="in"):
+                e = self.graph.es[eid]
+                elabel = self._elabel[e.index]
+                if elabel in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                    parent_vid = e.source
+                    break
+            self._parent_memo[func_vid] = parent_vid
 
         # 优先 fullname 精确匹配
         if func_fullname:
