@@ -5,11 +5,12 @@ the engine's python frontend is the stdlib `ast` module (graph_pipeline
 _parse_source), so this gate pins the *runtime's* parse capability over a
 frozen corpus + edge-syntax golden set.
 
-Known runtime boundary (measured 2026-11-07): CPython 3.11 cannot parse
-PEP 695 syntax (type X = ..., def f[T], class C[T]) — files using it fail
-whole-file and every finding in them is silently dropped. Locked as
-KNOWN_312_GAPS below; when the runtime is upgraded to 3.12+, move these
-into GOLDEN_SYNTAX and extend the corpus.
+Runtime note (2026-11-08): the engine moved to CPython 3.12 — PEP 695
+syntax (type X = ..., def f[T], class C[T]) and nested f-strings now
+parse (previously whole-file drops on 3.11; that boundary was measured
+and locked in Fix 64, promoted here after the 3.12 upgrade passed the
+full anchor matrix). KNOWN_312_GAPS is retained (empty-able) for future
+boundary discoveries.
 """
 
 import ast
@@ -32,17 +33,15 @@ GOLDEN_SYNTAX = {
     "annotated-assign": "x: int = 1",
     "lambda-default": "f = lambda a, b=2: a+b",
     "try-star": "try:\n pass\nexcept* TypeError: pass",
-}
-
-# PEP 695 + nested f-strings: parseable on 3.12+, NOT on 3.11.
-# Reverse-pinned: if these start passing, the runtime moved to 3.12+ —
-# promote them to GOLDEN_SYNTAX and re-extend the corpus.
-KNOWN_312_GAPS = {
     "type-alias": "type Alias = int | str",
     "type-params": "def f[T](x: T) -> T: return x",
     "generic-class": "class C[T, U]: pass",
     "f-string-nested": 'x = f"{f"{y}"}"',
 }
+
+# Future runtime boundaries get reverse-pinned here (pattern proven by
+# the PEP 695 lock on 3.11).
+KNOWN_312_GAPS = {}
 
 import sys
 
@@ -76,7 +75,7 @@ def test_edge_syntax_supported(name, code):
     ast.parse(code)
 
 
-@pytest.mark.parametrize("name,code", sorted(KNOWN_312_GAPS.items()))
+@pytest.mark.parametrize("name,code", sorted(KNOWN_312_GAPS.items()) or [("none", "pass")])
 def test_known_gap_stays_pinned(name, code):
     """On 3.11 these must FAIL; on 3.12+ they must PASS and be promoted."""
     try:
