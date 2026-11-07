@@ -39,10 +39,10 @@ jobs:
           "
       - name: Run KunLun CI scan
         run: python tools/ci_scan.py --target ci_cases --language all --output artifacts/kunlun-ci.json
-      - name: JS corpus gate
+      - name: JS + Python corpus gates
         run: |
           python -m pip install -q pytest
-          python -m pytest tests/corpus_gate/test_js_corpus_gate.py -q
+          python -m pytest tests/corpus_gate/test_js_corpus_gate.py tests/corpus_gate/test_python_corpus_gate.py -q
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
