@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Install system dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y default-libmysqlclient-dev build-essential pkg-config
       - name: Install dependencies
