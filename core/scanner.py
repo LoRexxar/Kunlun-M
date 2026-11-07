@@ -173,6 +173,98 @@ def score2level(score):
 #  in new code. Will be removed in a future cleanup pass.
 # ══════════════════════════════════════════════════════════════
 
+# ── Sink argument-role tables (Fix 63d: hoisted from the sink loop) ──────
+# Format-string functions: only the format string argument is dangerous if
+# user-controlled (format string vulnerability).  Value arguments (%s
+# expansion) are NOT dangerous regardless of controllability.
+#   printf(fmt, ...)       → arg 0 is format string
+#   fprintf(fp, fmt, ...)  → arg 1 is format string
+#   sprintf(dst, fmt, ...) → arg 1 is format string
+#   snprintf(dst, sz, fmt, ...) → arg 2 is format string
+_FMT_SINK_FMT_INDEX = {
+    "printf": 0, "vprintf": 0,
+    "fprintf": 1, "vfprintf": 1,
+    "sprintf": 1, "vsprintf": 1,
+    "snprintf": 2, "vsnprintf": 2,
+}
+
+# Path-only sinks: only the path argument is dangerous for Path Traversal
+# (CVI-1017).  The content/data argument is user input but does not control
+# WHERE the file is written.
+#   file_put_contents(path, data)  → arg 0 is path
+_PATH_SINK_INDEX = {
+    "file_put_contents": 0,
+    # Django/Flask redirect: only first arg is the URL target.
+    # Subsequent args are URL reverse parameters.
+    "redirect": 0,
+    "HttpResponseRedirect": 0,
+    "RedirectResponse": 0,
+    # Java Files.write(path, content): only arg0 (path)
+    # is relevant to Path Traversal. Content (arg1) is
+    # user data but does not control WHERE it's written.
+    "files.write": 0,
+    # Java Files.copy(source, target): target is arg1.
+    # Source is a file path (read) not write destination.
+    "files.copy": 1,
+    # Java Files.move(source, target): target is arg1.
+    "files.move": 1,
+}
+
+
+def _match_sink_arg_index(table, sink_name_lower):
+    """Return the dangerous-argument index for sink_name_lower from table,
+    or -1 when the sink (by bare name or .-qualified tail) is absent."""
+    for _fn, _idx in table.items():
+        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
+            return _idx
+    return -1
+
+
+def _match_rules_for_sink(sink_name, lang_rule_list, _get_rule_sink_names):
+    """Collect every rule matching this sink.
+
+    Two passes: exact (bare/qualified name in the rule sink list, or the
+    rule's receiver-agnostic method_sinks), then suffix/fallback — only for
+    short-name sinks, since qualified-name sinks already matched in the
+    exact pass.  The caller tries each matched rule's main() in order;
+    first to pass gets to report.
+    """
+    matched_rules = []
+    sn_lower = sink_name.lower().replace("::", ".")
+    _sn_bare = sn_lower.rsplit(".", 1)[-1]
+    for pass_name in ("exact", "suffix"):
+        for rule in lang_rule_list:
+            # Rule-declared method sinks (receiver-agnostic,
+            # mirrors find_sinks Path C): bare method name match.
+            _rms = [str(_x).lower() for _x in (getattr(rule, 'method_sinks', None) or [])]
+            if _rms and _sn_bare in _rms:
+                matched_rules.append(rule)
+                continue
+            rule_sink_names = _get_rule_sink_names(rule)
+            if not rule_sink_names:
+                continue
+            rsn = [n.lower() for n in rule_sink_names]
+            if pass_name == "exact":
+                # Exact match or qualified-name match
+                if sn_lower in rsn:
+                    matched_rules.append(rule)
+                    continue
+                if "." in sn_lower and any("." in n and sn_lower == n for n in rsn):
+                    matched_rules.append(rule)
+                    continue
+            else:
+                # Suffix/fallback match — only for short-name sinks
+                # (qualified-name sinks already matched in exact pass)
+                if "." in sn_lower:
+                    continue
+                if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
+                    matched_rules.append(rule)
+                    continue
+        if matched_rules:
+            break  # exact pass found matches, skip suffix pass
+    return matched_rules
+
+
 def scan_single(target_directory, single_rule, files=None, language=None, tamper_name=None, is_unconfirm=False,
                 newcore_function_list=None):
     raise RuntimeError(
@@ -771,6 +863,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             for sink in sinks:
                 try:
                     _sn = sink.get('name', '')
+                    # ════════ sink-loop segment 1/6: ADMISSION ════════
+                    # (call-type check · Fix 25 dead-code · Fix 30 framework
+                    #  entries · closure refs · callable-only table · arg_vids)
                     # Skip sinks that are not actual call nodes
                     # (e.g. identifier nodes that leaked into results)
                     _stype = sink.get('type', '')
@@ -891,48 +986,27 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     #   fprintf(fp, fmt, ...)  → arg 1 is format string
                     #   sprintf(dst, fmt, ...) → arg 1 is format string
                     #   snprintf(dst, sz, fmt, ...) → arg 2 is format string
-                    _FMT_SINK_FMT_INDEX = {
-                        "printf": 0, "vprintf": 0,
-                        "fprintf": 1, "vfprintf": 1,
-                        "sprintf": 1, "vsprintf": 1,
-                        "snprintf": 2, "vsnprintf": 2,
-                    }
-                    fmt_only_idx = -1
-                    for _fn, _idx in _FMT_SINK_FMT_INDEX.items():
-                        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
-                            fmt_only_idx = _idx
-                            break
+                    # ════════ sink-loop segment 2/6: ARG-ROLE CONFIG ════════
+                    # (fmt-only / path-only dangerous-arg indexes — tables
+                    #  hoisted to module level in Fix 63d)
+                    fmt_only_idx = _match_sink_arg_index(
+                        _FMT_SINK_FMT_INDEX, sink_name_lower)
 
                     # Path-only sinks: only the path argument is dangerous for
                     # Path Traversal (CVI-1017). The content/data argument is
                     # user input but does not control WHERE the file is written.
                     #   file_put_contents(path, data)  → arg 0 is path
-                    _PATH_SINK_INDEX = {
-                        "file_put_contents": 0,
-                        # Django/Flask redirect: only first arg is the URL target.
-                        # Subsequent args are URL reverse parameters.
-                        "redirect": 0,
-                        "HttpResponseRedirect": 0,
-                        "RedirectResponse": 0,
-                        # Java Files.write(path, content): only arg0 (path)
-                        # is relevant to Path Traversal. Content (arg1) is
-                        # user data but does not control WHERE it's written.
-                        "files.write": 0,
-                        # Java Files.copy(source, target): target is arg1.
-                        # Source is a file path (read) not write destination.
-                        "files.copy": 1,
-                        # Java Files.move(source, target): target is arg1.
-                        "files.move": 1,
-                    }
-                    path_only_idx = -1
-                    for _fn, _idx in _PATH_SINK_INDEX.items():
-                        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
-                            path_only_idx = _idx
-                            break
+                    path_only_idx = _match_sink_arg_index(
+                        _PATH_SINK_INDEX, sink_name_lower)
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
                     unconfirmed_result = None
+                    # ════════ sink-loop segment 3/6: ARG BACKTRACE ════════
+                    # (repair context · receiver resolution · per-arg
+                    #  parameters_back — the 500-line hot semantic core;
+                    #  see also graph_analyzer.parameters_back)
+
                     # Fix 48j: per-svid repair context for the GRAPH path.
                     # Resolve the sink name against lang_rule_list right
                     # here (the AST-path matched_rules variable doesn't
@@ -1529,6 +1603,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     if not matched_rules:
                         continue
 
+                    # ════════ sink-loop segment 5/6: RULE EXECUTION ════════
+                    # (try each matched rule's main() · structured arg
+                    #  extraction · source-line pre-read fallback)
+
                     # Try each matched rule; first whose main() passes reports
                     # rule.main() 二次筛选 — build structured sink context from graph
                     sink_file = _vattr(graph.vs[sink['vid']], 'file_path', '') or _vattr(graph.vs[sink['vid']], 'path', '')
@@ -1702,6 +1780,9 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             pass
 
                     matched_rule = None
+                    # ════════ sink-loop segment 6/6: PRESENCE RULES ════════
+                    # (require_taint=False family · Fix 35d/60 gating)
+
                     # Fix 35d: presence-opted rules (require_taint=False,
                     # library-boundary sinks) must win the candidate race
                     # over taint-proving rules that happen to share the
