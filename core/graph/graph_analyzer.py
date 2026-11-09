@@ -3162,6 +3162,25 @@ class GraphAnalyzer:
                 # variable (the object being indexed/called).  DFG only flows
                 # from the operator to its result; the indexed/called object is
                 # connected via ast edges, not dfg.
+                # Fix 68: framework method-call sources (Java) — the call's
+                # own dotted name (request.getInputStream) IS the source.
+                # Rule 2b below (a) only fires for binary_op/subscript/call
+                # types (static_call misses it) and (b) only checks ast
+                # children (the receiver identifier 'request'), so bare
+                # receiver names miss member-registered sources.  Check the
+                # call node's own name first, for every call form.
+                if (self.language == 'java'
+                        and ulabel == NodeLabel.OPERATOR.value
+                        and utype in _CALL_TYPES):
+                    _c68 = _vattr(self.graph.vs[up_vid], "name", "")
+                    if _c68 and "." in _c68 and self._is_java_call_source(_c68):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"framework call source '{_c68}' (Fix 68)",
+                            chain=[{"step": "call_source", "vid": up_vid,
+                                    "name": _c68, "code": -1}],
+                            path=[start_vid, up_vid],
+                            expr_lineno=_vattr(sv, "lineno", 0)))
                 if (ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
                 )):
@@ -6158,6 +6177,25 @@ class GraphAnalyzer:
     _PHP_REQUEST_WRAPPERS: frozenset[str] = frozenset({
         "$POST", "$GET", "$REQUEST", "$COOKIE",
     })
+
+    def _is_java_call_source(self, name: str) -> bool:
+        """Fix 68: Java framework call-source check.
+
+        The Java SourceRegistry has no ``is_source_member`` (that is the PHP
+        registry API) — ``_is_source_variable``'s registry consults raise
+        AttributeError and swallow to False for every Java query.  Use the
+        Java registry's real query API: ``is_source_producer`` already
+        implements bare-name + qualified-name matching with the request-
+        prefix guard (request.getInputStream → Servlet API source;
+        tree.getInputStream → None).
+        """
+        if self._source_registry is None:
+            return False
+        try:
+            info = self._source_registry.is_source_producer(name)
+            return info is not None
+        except Exception:
+            return False
 
     def _is_source_variable(self, name: str) -> bool:
         if not name:

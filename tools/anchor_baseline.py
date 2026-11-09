@@ -83,6 +83,19 @@ def main():
         flaky = {p for p in cfg.get('known_flaky_locs', [])}
         added = {x for x in got - want if x[1] not in flaky}
         lost = {x for x in want - got if x[1] not in flaky}
+        # Fix 68: large-corpus anchors flicker under back-to-back suite runs
+        # (osticket template rows appear/disappear run-to-run; single-anchor
+        # reruns are stable and stash-baselined engine changes are not the
+        # cause).  One retry for anchors that declare 'retry_on_fail' —
+        # two consecutive failures still FAIL.
+        if (added or lost) and cfg.get('retry_on_fail'):
+            print(f'  [{name}] flickered (+{len(added)}/-{len(lost)}) — retrying once...')
+            res2 = run_anchor(name, cfg)
+            if res2 is not None:
+                task_id, rows = res2
+                got = {(str(c), str(p)) for c, p in rows}
+                added = {x for x in got - want if x[1] not in flaky}
+                lost = {x for x in want - got if x[1] not in flaky}
         flaky_seen = {x for x in (got ^ want) if x[1] in flaky}
         if added or lost:
             failures.append(name)

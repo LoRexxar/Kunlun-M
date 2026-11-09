@@ -33,6 +33,10 @@ EXPECTATIONS = {
     # Fix 67: symfony 1.x form proxy — $form->bind($request->getParameter(...))
     # taints the form object; $form['x']->getValue() reads are sources.
     'CVE-2020-7246_sf1_form_unlink.php': {'1017': 1},
+    # Fix 68: Java deserialization chain — request.getInputStream() → new
+    # ObjectInputStream(...) → readObject(); and IIOP SkeletonStrategy
+    # .readParams before auth (CVE-2026-15564, WildFly EjbCorbaServant).
+    'CVE-2026-15564_iiop_readparams.java': {'6035': 1},
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},
@@ -80,10 +84,15 @@ def main() -> int:
     task_ids = []
     for scan_dir in scan_dirs:
         print(f'[cve-repro-gate] scanning {scan_dir} ...')
+        # Fix 68: repros span languages (php root + java repros) — scan all
+        # languages so java cases enter the graph; php-file semantics are
+        # unchanged (their rules are php-scoped).  Root dir only; framework
+        # subdirs (symfony1/) stay php-scoped as before.
+        _lang68 = 'all' if scan_dir == CASES_DIR else 'php'
         proc = subprocess.run(
             [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
-             '-t', scan_dir, '--yes', '-lan', 'php', '--no-cache'],
-            cwd=REPO, capture_output=True, text=True, env=env, timeout=600)
+             '-t', scan_dir, '--yes', '-lan', _lang68, '--no-cache'],
+            cwd=REPO, capture_output=True, text=True, env=env, timeout=900)
         m = None
         for line in (proc.stdout + '\n' + proc.stderr).splitlines():
             if 'TaskID' in line:

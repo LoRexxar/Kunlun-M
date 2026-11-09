@@ -52,6 +52,13 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "reverse":          {"passthrough": [0], "safe": False},
 
         # ===== 安全过滤 =====
+        # Fix 68: JDK deserialization stream constructors pass their stream
+        # argument's taint onto the constructed reader object — the standard
+        # shape is new ObjectInputStream(request.getInputStream()) then
+        # .readObject() on it (CVE-2026-15564 campaign).  Without this the
+        # constructor is an unresolved empty shell and the chain dies code=3.
+        "ObjectInputStream.ObjectInputStream": {"passthrough": [0], "safe": False},
+        "XMLDecoder.XMLDecoder":               {"passthrough": [0], "safe": False},
         "StringEscapeUtils.escapeHtml4":        {"passthrough": [0], "safe": True},
         "StringEscapeUtils.escapeHtml3":        {"passthrough": [0], "safe": True},
         "StringEscapeUtils.escapeXml":          {"passthrough": [0], "safe": True},

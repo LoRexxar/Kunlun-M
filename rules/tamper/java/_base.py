@@ -109,14 +109,15 @@ IS_REPAIR = {
     "escapeLDAPSearchFilter": [6013],
 
     # ---- 反序列化防御 ----
+    # Fix 68: the deserialization SINKS themselves (ObjectInputStream,
+    # ObjectMapper, JSONObject, JSON.parseObject, Gson, fromJson) were
+    # registered as repair/sanitizers bound to the deserialization svids
+    # (6005/6035...) — the registry-first semantics (Fix 48a) then vetoed
+    # EVERY taint verdict on the sink's own class, so rule 6035 could never
+    # fire.  Sinks are not sanitizers.  Real deserialization defenses are
+    # ObjectInputFilter (JEP 290) and a custom resolveClass allowlist.
     "ObjectInputFilter": [6005, 6035],
     "resolveClass": [6005, 6035],
-    "ObjectInputStream": [6005, 6035],
-    "ObjectMapper": [6005, 6035, 6037, 6040, 6045, 6047, 6061, 6062, 6063, 6066],
-    "JSONObject": [6005, 6035],
-    "JSON.parseObject": [6005, 6035, 6037, 6040, 6045, 6061, 6062, 6063],
-    "Gson": [6005, 6035, 6040, 6047, 6066],
-    "fromJson": [6005, 6035, 6040, 6047, 6066],
 
     # ---- 开放重定向防御 ----
     "URI.create": [6015],

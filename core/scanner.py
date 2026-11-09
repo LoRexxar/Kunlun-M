@@ -1487,11 +1487,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     parent_func_vid = oe.source
                                     break
                             if parent_func_vid is not None:
-                                has_callers = any(
-                                    True for _ in analyzer.graph.es.select(
-                                        _target=parent_func_vid, label="cg"
+                                # Fix 68: container-dispatched entry methods
+                                # (Java servlet doGet/doPost/service) have no
+                                # cg in-edges by design — same rationale as
+                                # Fix 30's other gate.  A readObject sink
+                                # inside doPost is alive.  Java-only and a
+                                # strict name list: 'handle' was initially
+                                # included and broke php anchors (+171 rows
+                                # on osticket) — generic verb names must NOT
+                                # bypass the dead-code gate.
+                                _pf_name68 = str(_vattr(
+                                    analyzer.graph.vs[parent_func_vid], "name", "")).lower()
+                                if lang == "java" and _pf_name68 in (
+                                        "doget", "dopost", "doservice", "service",
+                                        "doput", "dodelete", "dohead", "dooptions",
+                                        "dotrace", "onmessage"):
+                                    has_callers = True
+                                else:
+                                    has_callers = any(
+                                        True for _ in analyzer.graph.es.select(
+                                            _target=parent_func_vid, label="cg"
+                                        )
                                     )
-                                )
                                 if not has_callers:
                                     _DEAD_CODE_SKIP_COUNTS[1] += 1  # Fix 58b
                                     logger.debug(
