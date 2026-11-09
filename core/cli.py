@@ -277,7 +277,15 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
                         ','.join(detected_languages), main_language[0] if main_language else 'none')
         else:
             main_language = pa.language
-            main_framework = pa.language
+            # Fix 67: explicit-language mode previously echoed the language
+            # as the "framework" (always ['php'] for -lan php) — run the
+            # real Detection so the STATISTIC line matches what the engine's
+            # source_discovery line detected (e.g. symfony for qdPM 9.1).
+            try:
+                main_framework = Detection(target_directory, files).framework
+            except Exception as _det_e:
+                logger.debug('[CLI] framework detection failed: %s', _det_e)
+                main_framework = pa.language
 
         logger.info('[CLI] [STATISTIC] Language: {l} Framework: {f}'.format(l=",".join(main_language), f=main_framework))
         print('[CI] DEBUG: Detected languages: {}'.format(','.join(main_language)))

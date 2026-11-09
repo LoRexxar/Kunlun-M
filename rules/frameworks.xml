@@ -53,6 +53,10 @@
         <folder value="WebServerBundle/Command"/>
         <folder value="BrowserKit/Tests"/>
         <folder value="Config/DependencyInjection"/>
+        <!-- Fix 67: symfony 1.x (1.4-era) vendored framework trees -->
+        <folder value="lib/vendor/symfony/lib"/>
+        <folder value="core/lib/vendor/symfony/lib"/>
+        <folder value="lib/symfony/util"/>
     </framework>
     <framework name="Phalcon" language="php" code="https://github.com/phalcon/cphalcon">
         <file value="tests/_ci/phaIcon.ini"/>
