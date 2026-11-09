@@ -1217,6 +1217,38 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     except Exception:
                                         pass
 
+                                # Fix 67c: framework source-member method call —
+                                # e.g. symfony 1.x $form['x']->getValue() where the
+                                # form is bound to request params ($form->bind(
+                                # $request->getParameter(...))).  The callee has no
+                                # local definition (empty-shell use targets), but the
+                                # SourceRegistry knows the dotted chain
+                                # ($form.getValue / request.getParameter) is a
+                                # user-input producer.  Consume BEFORE the
+                                # empty-shell bailout so framework sources win.
+                                if _callee:
+                                    _obj67 = None
+                                    for _me in graph.es.select(_target=op_vid, label="member"):
+                                        _ov67 = graph.vs[_me.source]
+                                        if _vattr(_ov67, "label", "") in ("identifier", "parameter"):
+                                            _obj67 = _vattr(_ov67, "name", "")
+                                            break
+                                    for _cand67 in filter(None, (
+                                            f"{_obj67}.{_callee}" if _obj67 else None,
+                                            f"${_obj67}.{_callee}" if _obj67 and not _obj67.startswith('$') else None,
+                                            _callee.lstrip('$'))):
+                                        try:
+                                            if (analyzer._source_registry is not None
+                                                    and analyzer._source_registry.is_source_member(_cand67)):
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=1,
+                                                    reason=f"framework source member '{_cand67}' (Fix 67c)",
+                                                    chain=[{"step": "framework_source_member",
+                                                            "vid": op_vid, "name": _cand67, "code": 1}],
+                                                    path=[op_vid]), None
+                                        except Exception:
+                                            pass
                                 _all_use_targets_empty = True
                                 for _ue in graph.es.select(_source=op_vid, label="use"):
                                     _fv = graph.vs[_ue.target]

@@ -30,6 +30,9 @@ EXPECTATIONS = {
     # Fix 55: top-level (file-scope) calls must produce cg edges so the
     # callee escapes the dead-code gate. Was 0 rows before Fix 55.
     'CVE-2026-121429_top_level_cg.php': {'1011': 1},
+    # Fix 67: symfony 1.x form proxy — $form->bind($request->getParameter(...))
+    # taints the form object; $form['x']->getValue() reads are sources.
+    'CVE-2020-7246_sf1_form_unlink.php': {'1017': 1},
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},
@@ -50,36 +53,56 @@ def main() -> int:
     django.setup()
     from web.index.models import ScanTask, ScanResultTask
 
-    missing = [f for f in EXPECTATIONS if not os.path.exists(os.path.join(CASES_DIR, f))]
+    def _case_exists(fname: str) -> bool:
+        if os.path.exists(os.path.join(CASES_DIR, fname)):
+            return True
+        # Fix 67: framework-scoped subdirs
+        for d in os.listdir(CASES_DIR):
+            sub = os.path.join(CASES_DIR, d, fname)
+            if os.path.isdir(os.path.join(CASES_DIR, d)) and os.path.exists(sub):
+                return True
+        return False
+
+    missing = [f for f in EXPECTATIONS if not _case_exists(f)]
     if missing:
         print('GATE FAIL: expectation references missing case files:', missing)
         return 2
 
-    print(f'[cve-repro-gate] scanning {CASES_DIR} ...')
+    # Fix 67: framework-scoped repros live in framework subdirectories
+    # (e.g. symfony1/ carries its own core/lib/symfony marker so
+    # detect_framework resolves per-subdir, not per-mixed-root).  Scan the
+    # root (framework-agnostic repros) plus each framework subdir.
+    scan_dirs = [CASES_DIR] + sorted(
+        os.path.join(CASES_DIR, d) for d in os.listdir(CASES_DIR)
+        if os.path.isdir(os.path.join(CASES_DIR, d)) and not d.startswith(('.'))
+    )
     env = dict(os.environ, PYTHONPATH=REPO)
-    proc = subprocess.run(
-        [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
-         '-t', CASES_DIR, '--yes', '-lan', 'php', '--no-cache'],
-        cwd=REPO, capture_output=True, text=True, env=env)
-    m = None
-    for line in (proc.stdout + '\n' + proc.stderr).splitlines():
-        if 'TaskID' in line:
-            m = line.split('TaskID:')[1].strip().split()[0]
-            m = m.replace('\x1b[0m', '').strip()
-    if not m:
-        print('GATE FAIL: could not read TaskID from scan output')
-        print(proc.stdout[-800:], proc.stderr[-400:])
-        return 2
-    task_id = int(m)
+    task_ids = []
+    for scan_dir in scan_dirs:
+        print(f'[cve-repro-gate] scanning {scan_dir} ...')
+        proc = subprocess.run(
+            [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
+             '-t', scan_dir, '--yes', '-lan', 'php', '--no-cache'],
+            cwd=REPO, capture_output=True, text=True, env=env, timeout=600)
+        m = None
+        for line in (proc.stdout + '\n' + proc.stderr).splitlines():
+            if 'TaskID' in line:
+                m = line.split('TaskID:')[1].strip().split()[0]
+                m = m.replace('\x1b[0m', '').strip()
+        if not m:
+            print('GATE FAIL: could not read TaskID from scan output for', scan_dir)
+            print(proc.stdout[-800:], proc.stderr[-400:])
+            return 2
+        task_ids.append(int(m))
 
-    rows = ScanResultTask.objects.filter(scan_task_id=task_id)
     by_file = {}
-    for r in rows:
-        # vulfile_path may be stored relative AND suffixed ':lineno'
-        # (e.g. 'CVE-...php:17') — strip both before basename matching.
-        base = os.path.basename(str(r.vulfile_path).split(':')[0])
-        by_file.setdefault(base, {}).setdefault(str(r.cvi_id), 0)
-        by_file[base][str(r.cvi_id)] += 1
+    for task_id in task_ids:
+        for r in ScanResultTask.objects.filter(scan_task_id=task_id):
+            # vulfile_path may be stored relative AND suffixed ':lineno'
+            # (e.g. 'CVE-...php:17') — strip both before basename matching.
+            base = os.path.basename(str(r.vulfile_path).split(':')[0])
+            by_file.setdefault(base, {}).setdefault(str(r.cvi_id), 0)
+            by_file[base][str(r.cvi_id)] += 1
 
     failures = []
     for fname, expect in sorted(EXPECTATIONS.items()):

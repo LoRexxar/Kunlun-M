@@ -151,6 +151,19 @@ class SourceRegistry:
                 if obj != clean:
                     self.source_members.add(f'{obj}.{method}')
 
+        # Fix 67: symfony 1.x form proxy — the form object is bound to
+        # request params ($form->bind($request->getParameter(...))), so
+        # field reads are user-input-backed: $form['field'] (base[] form)
+        # and $form['field']->getValue() / $form->getValue() (dotted form).
+        if config.get('form_bind_propagates_taint'):
+            for obj in ('$form', 'form', '$this->form', 'this.form'):
+                clean = obj.lstrip('$')
+                self.source_members.add(f'{clean}.getValue')
+                self.source_members.add(f'{clean}[]')
+                if obj != clean:
+                    self.source_members.add(f'{obj}.getValue')
+                    self.source_members.add(f'{obj}[]')
+
         for func in config.get('global_source_functions', set()):
             self.framework_global_functions[func] = SourceInfo(
                 type='framework',
@@ -237,7 +250,11 @@ FRAMEWORK_CONFIGS = {
         'request_methods': {
             'get', 'query', 'request', 'getContent', 'getPayload',
             'toArray', 'getBasePath', 'getBaseUrl', 'getRequestUri',
+            'getParameter', 'getParameterHolder', 'getFiles',
         },
+        # Fix 67: symfony 1.x form proxy — bind(tainted, ...) taints the
+        # form object; $form['field'] / ->getValue() reads become sources.
+        'form_bind_propagates_taint': True,
         # 这些通过链式调用（query→get）使用，需要特殊处理
         'parameter_bag_methods': {'get', 'all', 'has', 'set', 'remove'},
         'global_source_functions': set(),
@@ -281,6 +298,12 @@ def detect_framework(project_dir: str) -> Optional[str]:
             pass
 
     # Fallback: directory structure
+    # Fix 67: symfony 1.x (1.4-era) — vendored framework tree inside the
+    # project (qdPM: core/lib/symfony; classic apps: lib/symfony)
+    for _sf in (('core', 'lib', 'vendor', 'symfony'), ('core', 'lib', 'symfony'),
+                ('lib', 'symfony'), ('lib', 'vendor', 'symfony')):
+        if os.path.isdir(os.path.join(project_dir, *_sf)):
+            return 'symfony'
     if os.path.isdir(os.path.join(project_dir, 'app', 'Http', 'Controllers')):
         return 'laravel'
     if os.path.isdir(os.path.join(project_dir, 'app', 'controller')):
