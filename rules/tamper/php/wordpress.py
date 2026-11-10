@@ -82,6 +82,11 @@ CONTROLLED_SOURCES = [
 ]
 
 EXTRA_SINKS = [
+    # Fix 69: esc_like is a LIKE-wildcard escaper, NOT an SQL string escaper —
+    # its result concatenated into SQL (typical: "... LIKE '%" . $wpdb->esc_like($t) . "%'")
+    # is the canonical WP blind-SQLi pattern (CVE-2026-114189).  Presence of a
+    # tainted esc_like arg inside string concatenation = injection site.
+    ('->esc_like(', [1006]),
     ('$wpdb->query', [1004]),
     ('$wpdb->get_results', [1004]),
     ('$wpdb->get_var', [1004]),

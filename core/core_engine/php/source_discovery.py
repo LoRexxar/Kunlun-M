@@ -222,7 +222,11 @@ FRAMEWORK_CONFIGS = {
     'wordpress': {
         # WP REST callbacks: function(WP_REST_Request $request) — the
         # request object exposes attacker-controlled data.
-        'request_object_names': {'request', '$request'},
+        # Fix 69: WP_Query objects too — plugin code feeds $_REQUEST into
+        # new WP_Query($params) and reads it back in a posts_where filter
+        # callback via $wp_query->get('...'); the query vars are attacker
+        # data (CVE-2026-114189 Anywhere Elementor 'search_post_title').
+        'request_object_names': {'request', '$request', 'wp_query', '$wp_query'},
         'request_methods': {
             'get_param', 'get_params', 'get_body', 'get_json_params',
             'get_header', 'get_file_params', 'get_query_params',
@@ -325,7 +329,11 @@ def detect_framework(project_dir: str) -> Optional[str]:
                 with open(os.path.join(_root, _f), 'r', encoding='utf-8', errors='ignore') as _fh:
                     _head = _fh.read(200000)
                 if ('add_action(' in _head or 'register_rest_route(' in _head
-                        or 'register_activation_hook(' in _head):
+                        or 'register_activation_hook(' in _head
+                        # Fix 69: add_filter registers filter callbacks the same
+                        # way add_action registers action callbacks (WP unifies
+                        # them); posts_where/preview filters carry request data.
+                        or 'add_filter(' in _head):
                     return 'wordpress'
             except OSError:
                 continue

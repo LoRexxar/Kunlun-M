@@ -37,6 +37,9 @@ EXPECTATIONS = {
     # ObjectInputStream(...) → readObject(); and IIOP SkeletonStrategy
     # .readParams before auth (CVE-2026-15564, WildFly EjbCorbaServant).
     'CVE-2026-15564_iiop_readparams.java': {'6035': 1},
+    # Fix 69: WP posts_where filter SQLi — $_REQUEST → WP_Query param →
+    # $wp_query->get() source → $wpdb->esc_like() concat (CVE-2026-114189).
+    'CVE-2026-114189_wp_posts_where.php': {'1006': 1},
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},

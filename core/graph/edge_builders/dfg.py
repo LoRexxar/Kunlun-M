@@ -682,7 +682,20 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 if rhs_type in _CALL_TYPES_DFG:
                     callee = self._get_callee_name(rhs_vid)
                     if callee and self._is_safe_callee(callee, self._language):
-                        continue  # skip DFG edge
+                        # Fix 69: a BARE safe method name ('get') on a
+                        # receiver is framework-ambiguous — Laravel ->get()
+                        # (collection fetch, safe) vs WP $wp_query->get()
+                        # (query-var read, SOURCE).  dfg-time there is no
+                        # source registry, so severing the edge decides the
+                        # question globally and blinds framework sources.
+                        # Keep the edge for bare receiver-form calls; the
+                        # analyzer's registry-aware repair check (Fix 69
+                        # veto) still marks Laravel getters safe there.
+                        _bare69 = ('.' not in callee and '::' not in callee
+                                   and not callee.startswith('$')
+                                   and rhs_type in ('method_call', 'member_call'))
+                        if not _bare69:
+                            continue  # skip DFG edge
             if rhs_label in (
                 NodeLabel.IDENTIFIER.value,
                 NodeLabel.CONST.value,

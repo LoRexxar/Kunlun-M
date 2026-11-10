@@ -182,7 +182,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Format.input",  # osTicket Format::input — alias of Format::htmlchars
     #    (NEVER add bare "input": it would match Laravel $request->input etc.)
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
-    "sanitize_file_name", "sanitize_title", "sanitize_text_field",  # WordPress
+    "sanitize_file_name", "sanitize_title",  # WordPress (sanitize_text_field: Fix 69 — tags only, quotes survive; XSS verdict via tamper registry per-svid)
     "sanitize_url",  # WordPress (alias of esc_url since WP 5.3)
     "wp_kses", "wp_filter_post_kses", "wp_kses_post",  # WordPress
     # Java type conversions — numeric/hash output cannot carry payload
@@ -3169,6 +3169,36 @@ class GraphAnalyzer:
                 # children (the receiver identifier 'request'), so bare
                 # receiver names miss member-registered sources.  Check the
                 # call node's own name first, for every call form.
+                # Fix 69: PHP framework method-call sources too.  A bare
+                # method-call op node ('get') never carries the receiver; the
+                # registry knows '$wp_query.get'.  Reconstruct $recv.method
+                # from the ast callee + dfg receiver and consult the registry.
+                if (ulabel == NodeLabel.OPERATOR.value
+                        and utype in _CALL_TYPES
+                        and self.language == 'php'):
+                    _meth69 = ""
+                    for _e69 in self._edge_out(up_vid, "ast"):
+                        if _vattr(_e69, "role", "") == "callee":
+                            _meth69 = _vattr(self.graph.vs[_e69.target], "name", "")
+                            break
+                    if _meth69:
+                        _recv69 = ""
+                        for _e69r in self._edge_in(up_vid, "dfg"):
+                            _rv = self.graph.vs[_e69r.source]
+                            if (_vattr(_rv, "label", "") == NodeLabel.IDENTIFIER.value
+                                    and str(_vattr(_rv, "name", "")).startswith("$")):
+                                _recv69 = _vattr(_rv, "name", "")
+                                break
+                        if _recv69:
+                            _n69 = f"{_recv69}.{_meth69}"
+                            if self._is_source_variable(_n69):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"framework call source '{_n69}' (Fix 69)",
+                                    chain=[{"step": "call_source", "vid": up_vid,
+                                            "name": _n69, "code": -1}],
+                                    path=[start_vid, up_vid],
+                                    expr_lineno=_vattr(sv, "lineno", 0)))
                 if (self.language == 'java'
                         and ulabel == NodeLabel.OPERATOR.value
                         and utype in _CALL_TYPES):
@@ -8499,6 +8529,24 @@ class GraphAnalyzer:
         # _preg_replace_whitelist_pattern before trusting this name.
         # Also check builtin_knowledge for this language — any function
         # marked safe=True is a repair/sanitizer function.
+        # Fix 69: a name the source registry explicitly registered as a
+        # framework source member is NOT a repair, even when a builtin
+        # generic-getter entry ('get' => safe) matches by tail.  One name,
+        # two meanings: Laravel ->get() (collection fetch, safe) vs
+        # WP $wp_query->get() (query-var read, source).  The registry is
+        # framework-aware and wins.
+        if self._source_registry is not None and "." in clean:
+            try:
+                _sr_set = getattr(self._source_registry, 'source_members',
+                                  getattr(self._source_registry, '_source_members', None))
+                if _sr_set:
+                    _base = clean.lstrip('$').split('.')[0]
+                    _member = clean.rsplit('.', 1)[-1]
+                    for _cand in (clean, _base + '.' + _member, '$' + _base + '.' + _member):
+                        if _cand in _sr_set:
+                            return False
+            except Exception:
+                pass
         bk = self._load_builtin_knowledge()
         if bk:
             entry = bk.get(clean)

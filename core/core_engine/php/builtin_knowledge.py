@@ -212,7 +212,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "esc_textarea":         {"passthrough": [0], "safe": True},
         "wp_kses":              {"passthrough": [0], "safe": True},
         "wp_kses_post":         {"passthrough": [0], "safe": True},
-        "sanitize_text_field":  {"passthrough": [0], "safe": True},
+        "sanitize_text_field":  {"passthrough": [0], "safe": False}, # Fix 69: strips tags only; quotes/punctuation survive — NOT an SQLi sanitizer. XSS per-svid verdict via tamper registry.
         "sanitize_email":       {"passthrough": [0], "safe": True},
         "sanitize_title":       {"passthrough": [0], "safe": True},
         "sanitize_file_name":   {"passthrough": [0], "safe": True},
