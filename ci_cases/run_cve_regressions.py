@@ -40,6 +40,9 @@ EXPECTATIONS = {
     # Fix 69: WP posts_where filter SQLi — $_REQUEST → WP_Query param →
     # $wp_query->get() source → $wpdb->esc_like() concat (CVE-2026-114189).
     'CVE-2026-114189_wp_posts_where.php': {'1006': 1},
+    # Fix 70: sprintf SQL-literal-concat sentinel — craft.search term value
+    # interpolated unescaped into '%s' (CVE-2026-115934 Craft CMS).
+    'CVE-2026-115934_craft_sprintf_sql.php': {'1006': 1},
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},

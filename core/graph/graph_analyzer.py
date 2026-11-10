@@ -496,6 +496,33 @@ class GraphAnalyzer:
 
     # --- Sink discovery ---------------------------------------------------
 
+    # Fix 70c: does the sprintf call at vid use a CONSTANT first argument
+    # (the template literal) that carries a SQL-quote-interpolation shape?
+    # Used by the scanner's fmt-only exception: PHP sprintf with a SQL-shaped
+    # const template is the SQL literal-concat sentinel — its VALUE args are
+    # the injection carriers and must remain taint-checkable.
+    # Fix 70q: strongly-SQL shapes only (see find_sinks Path E) — the bare
+    # "= '%s'" form matched HTML attribute templates and produced FPs.
+    _SQL_TMPL_RE = re.compile(
+        r"""%s[\s,]*'%s'|"""
+        r"""(?:LIKE|SIMILAR\s+TO|POSIX|~)\s*'?%s'?|"""
+        r"""VALUES?\s*\(\s*[^)]*'%s'|"""
+        r"""MATCH\s*\([^)]*\)\s*AGAINST\s*\(\s*'%s'""", re.IGNORECASE)
+
+    def _sprintf_sql_template_guard(self, vid: int) -> bool:
+        try:
+            args = [e.target for e in self._edge_out(vid, "ast")
+                    if _vattr(e, "role", "") == "arg"]
+            if not args:
+                return False
+            tmpl = str(_vattr(self.graph.vs[args[0]], "name", "") or "")
+            # Fix 70e: phply stores string literals WITHOUT their quotes
+            # ('"(%s %s \'%s\')"'), so a startswith-quote requirement never
+            # holds; the SQL-shape regex alone discriminates.
+            return ("%s" in tmpl and bool(self._SQL_TMPL_RE.search(tmpl)))
+        except Exception:
+            return False
+
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
         """Locate sink operator nodes (call/static_call/method_call matching
         *sink_names*, defaulting to built-in _SINK_FUNCTIONS).
@@ -847,6 +874,73 @@ class GraphAnalyzer:
                 "type": _vattr(v, "type", ""),
                 "arg_vids": arg_vids,
             })
+
+        # Fix 70 (Path E): sprintf SQL-literal-concat sentinel (PHP).
+        # CVE-2026-115934 (Craft CMS craft.search): sprintf("(%s %s '%s')",
+        # $key, $oper, $val) builds a SQL WHERE fragment with the value
+        # interpolated inside single quotes with NO escaping — the classic
+        # SQL string-literal concatenation shape, hidden inside a printf
+        # template instead of a '.' concat.  Name-based matching can't see
+        # it (sprintf is everywhere); the TEMPLATE carries the SQL shape.
+        # Only fire when the 1006 (SQLi) sink set is requested and the
+        # template literal matches a strong SQL-quote-interpolation
+        # pattern; taint analysis on the non-template args filters
+        # harmless sprintf uses (i18n/log formatting).
+        if (self.language == "php"
+                and any(_s in name_set or _s in normalized_set
+                        for _s in ("sprintf", "sprintf#sql-sentinel", "1006"))):
+            # Fix 70q: tightened shapes.  The bare "= '%s'" alternative
+            # matched HTML attribute templates (sprintf("class='%s'", ...) —
+            # osticket tasks-actions.tmpl FP).  Keep only strongly-SQL
+            # shapes: printf double-interpolation (%s...'%s'), LIKE/= after
+            # a SQL keyword context, VALUES(...), and MATCH...AGAINST.
+            _sql_tmpl = re.compile(
+                r"""%s[\s,]*'%s'|"""
+                r"""(?:LIKE|SIMILAR\s+TO|POSIX|~)\s*'?%s'?|"""
+                r"""VALUES?\s*\(\s*[^)]*'%s'|"""
+                r"""MATCH\s*\([^)]*\)\s*AGAINST\s*\(\s*'%s'""", re.IGNORECASE)
+            for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                v = self.graph.vs[vid]
+                if _vattr(v, "type") not in (OperatorType.CALL.value,
+                                             OperatorType.STATIC_CALL.value):
+                    continue
+                node_lang = _vattr(v, 'language', '')
+                if node_lang and self.language and node_lang != self.language:
+                    continue
+                if _vattr(v, "name", "") not in ("sprintf", "\\sprintf"):
+                    # sentinel probe mode: name arg is the sentinel
+                    # pseudo-name; node filtering already handled by
+                    # the caller's real-name knowledge.  Accept any
+                    # sprintf call and let the template check decide.
+                    if "sprintf#sql-sentinel" not in (sink_names or []):
+                        continue
+                arg_vids = [
+                    e.target for e in self._edge_out(vid, "ast")
+                    if _vattr(e, "role") == "arg"
+                ]
+                if not arg_vids:
+                    continue
+                tmpl_v = self.graph.vs[arg_vids[0]]
+                tmpl = str(_vattr(tmpl_v, "name", "") or "")
+                # Fix 70e: literal nodes are stored unquoted — no
+                # startswith-quote check (see _sprintf_sql_template_guard).
+                if "%s" not in tmpl:
+                    continue
+                if not _sql_tmpl.search(tmpl):
+                    continue
+                # Taint-relevant args = everything after the template.
+                # rule_hint binds this sentinel sink directly to the SQLi rule
+                # (1006) — no rule's vul_function lists 'sprintf', so the
+                # scanner's name-based rule matching would drop it (Fix 42e
+                # pattern: the sink fires only via this dedicated path).
+                results.append({
+                    "vid": vid, "name": "sprintf",
+                    "lineno": _vattr(v, "lineno", 0),
+                    "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                    "type": _vattr(v, "type", ""),
+                    "arg_vids": arg_vids[1:],
+                    "rule_hint": "1006",
+                })
 
         # 第三轮：查找 import 类型节点（PHP include/require）
         # import 节点的 type 就是 include/require/include_once/require_once

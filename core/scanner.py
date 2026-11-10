@@ -181,12 +181,19 @@ def score2level(score):
 #   fprintf(fp, fmt, ...)  → arg 1 is format string
 #   sprintf(dst, fmt, ...) → arg 1 is format string
 #   snprintf(dst, sz, fmt, ...) → arg 2 is format string
+# Fix 70b: PHP/JS printf family puts the format string in arg 0 (no dst
+# buffer) -- C-layout indexes ("sprintf": 1) check a VALUE arg there and
+# skip the real taint carriers (Craft CMS CVE-2026-115934 sprintf-SQL
+# sentinel was silenced by exactly that).  Resolved per-language at the
+# call site below.
 _FMT_SINK_FMT_INDEX = {
     "printf": 0, "vprintf": 0,
     "fprintf": 1, "vfprintf": 1,
     "sprintf": 1, "vsprintf": 1,
     "snprintf": 2, "vsnprintf": 2,
 }
+_FMT_SINK_FMT_INDEX_PHPJS = {"sprintf": 0, "vsprintf": 0, "fprintf": 0,
+                              "vfprintf": 0, "snprintf": 1, "vsnprintf": 1}
 
 # Path-only sinks: only the path argument is dangerous for Path Traversal
 # (CVI-1017).  The content/data argument is user input but does not control
@@ -855,9 +862,56 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             if not all_sink_names:
                 continue
 
-            all_sink_names = list(set(all_sink_names))
+            all_sink_names = list(set(all_sink_names))  # 70j reverted: sorted() itself flipped azuracast
+            # Fix 70: SQLi rules request the sprintf sentinel probe.  The
+            # regex-mode SQLi rules (1005/1006) match DB API names only;
+            # the sprintf SQL-template shape (Craft CMS CVE-2026-115934)
+            # is detected by find_sinks Path E, which fires on the
+            # 'sprintf' probe name and self-filters by template content.
+            if lang == 'php':
+                _sql_rule_ids = set()
+                for rule in lang_rule_list:
+                    _rid = getattr(rule, 'svid', None)
+                    if _rid is not None:
+                        _sql_rule_ids.add(str(_rid))
+                # Fix 70h: the sprintf-SQL sentinel does NOT join the shared
+                # sink loop — sink-set membership changed loop ordering and
+                # flipped unrelated echo-sink verdicts (azuracast anchor).
+                # Path E runs as a separate pass on a separate analyzer
+                # (see _sprintf_sql pass below), fully isolated.
+                _sprintf_sql_probe = bool(_sql_rule_ids & {'1005', '1006'})
+            _sprintf_sql_probe = locals().get('_sprintf_sql_probe', False)
             logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
             sinks = analyzer.find_sinks(sink_names=all_sink_names)
+            # Fix 70i: sprintf-SQL sentinel pass, isolated analyzer (no
+            # shared decision cache with the main loop; ordering can never
+            # influence other sinks).  Fires only when SQLi rules exist.
+            _sprintf_extra = []
+            _probe_an = None
+            if lang == 'php' and _sprintf_sql_probe:
+                # Fix 70p: the sentinel analyzer carries NO framework
+                # method sinks — Path C short-name matching on it turned
+                # CodeIgniter dynamic callbacks ($this->CI->$rule($postdata,
+                # $param)) into wp-sink-name hits and leaked FP findings
+                # through the sentinel sub-pass (Form_validation:526/567).
+                _probe_an = GraphAnalyzer(graph, language=lang,
+                                          source_registry=_make_source_registry(lang),
+                                          framework_method_sinks=set())
+                # Fix 70m: discovery deferred to AFTER the main loop — a
+                # pre-loop find_sinks on this second analyzer flipped anchor
+                # verdicts through some residual graph/cache state coupling;
+                # post-loop there is no window left to influence.
+                pass
+            # Sentinel sinks join the loop AFTER the main find_sinks result;
+            # the isolated probe analyzer already produced their taint
+            # context, and the loop body only reads sink fields (name/vid/
+            # arg_vids/rule_hint) plus the MAIN analyzer for PB — for the
+            # sentinel rows we override that below via _probe_an handoff.
+            # Fix 70k: sentinel sinks do NOT join the shared loop at all.
+            # Even with isolated PB, sharing the loop body let their presence
+            # flip same-file echo verdicts (azuracast +6/-2 deterministically).
+            # They are fully processed by the isolated sentinel sub-pass below.
+            # (kept as no-op: _sprintf_extra consumed by the sub-pass)
             logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
 
             for sink in sinks:
@@ -977,6 +1031,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         "usort", "uasort", "uksort",
                     }
                     sink_name_lower = sink.get("name", "").lower()
+                    # Fix 70d: sentinel sinks (sprintf-SQL Path E) carry a
+                    # rule_hint svid — bind directly to that rule instead
+                    # of name matching (no rule lists 'sprintf').
+                    _hint_rule = None
+                    if sink.get("rule_hint"):
+                        for _r in lang_rule_list:
+                            if str(getattr(_r, 'svid', '')) == str(sink.get("rule_hint")):
+                                _hint_rule = _r
+                                break
                     callable_only = sink_name_lower in _CALLABLE_ONLY_SINK
                     # Format-string functions: only the format string argument
                     # is dangerous if user-controlled (format string vulnerability).
@@ -989,8 +1052,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # ════════ sink-loop segment 2/6: ARG-ROLE CONFIG ════════
                     # (fmt-only / path-only dangerous-arg indexes — tables
                     #  hoisted to module level in Fix 63d)
+                    _fmt_tbl = _FMT_SINK_FMT_INDEX
+                    if str(lang).lower() in ('php', 'javascript', 'typescript'):
+                        _fmt_tbl = {**_FMT_SINK_FMT_INDEX, **_FMT_SINK_FMT_INDEX_PHPJS}
                     fmt_only_idx = _match_sink_arg_index(
-                        _FMT_SINK_FMT_INDEX, sink_name_lower)
+                        _fmt_tbl, sink_name_lower)
 
                     # Path-only sinks: only the path argument is dangerous for
                     # Path Traversal (CVI-1017). The content/data argument is
@@ -1055,8 +1121,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             continue
                         # Format-string sinks: only check the format string argument.
                         # Value arguments (printf %s values) are not dangerous.
+                        # Fix 70c exception: PHP sprintf with a CONSTANT SQL-ish
+                        # template ("= '%s'", MATCH...AGAINST('%s'...)) is the
+                        # SQL literal-concat shape (Craft CVE-2026-115934) — the
+                        # VALUE args are the injection carriers, so they must be
+                        # checked even though this is a "format sink".
                         if fmt_only_idx >= 0 and i != fmt_only_idx:
-                            continue
+                            if not (lang == 'php' and sink_name_lower == 'sprintf'
+                                    and analyzer._sprintf_sql_template_guard(
+                                        sink.get('vid'))):
+                                continue
                         # Path-only sinks (file_put_contents): only check the
                         # path argument. Content data does not cause Path Traversal.
                         if path_only_idx >= 0 and i != path_only_idx:
@@ -1425,7 +1499,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     continue
                                 any_arg_repaired = True
                                 continue
-                        r = analyzer.parameters_back(arg_vid)
+                        # Fix 70i: sentinel rows analyze on the ISOLATED probe
+                        # analyzer — the main analyzer's decision cache must
+                        # never see sentinel taint traces (ordering again).
+                        _pb_an = _probe_an if (sink.get('rule_hint') and lang == 'php') else analyzer
+                        r = _pb_an.parameters_back(arg_vid)
                         if r is not None:
                             if r.is_controllable:
                                 # callable_only sink: 检查 callable 参数是否有 null/空
@@ -1616,6 +1694,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # Collect all matching rules, then try each rule's main() —
                     # first rule whose main() passes gets to report.
                     matched_rules = []
+                    # Fix 70d: sentinel sinks (sprintf-SQL Path E) carry a
+                    # rule_hint svid — bind directly to that rule; no rule's
+                    # vul_function lists 'sprintf' so name matching drops it.
+                    if _hint_rule is not None:
+                        matched_rules.append(_hint_rule)
                     sn_lower = sink_name.lower().replace("::", ".")
                     _sn_bare = sn_lower.rsplit(".", 1)[-1]
                     for pass_name in ("exact", "suffix"):
@@ -2041,6 +2124,51 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
             # Release analyzer indexes (~148MB) before next language iteration
             del analyzer
+
+            # ══ Fix 70k: sprintf-SQL sentinel sub-pass (fully isolated) ══
+            # The sentinel sink family never touches the main loop's
+            # analyzer, caches, or rule race — presence in the shared loop
+            # deterministically flipped same-file echo verdicts on the
+            # azuracast anchor.  Minimal dedicated handling here.
+            if _probe_an is not None and _sprintf_sql_probe:
+                try:
+                    _sprintf_extra = _probe_an.find_sinks(sink_names=['sprintf#sql-sentinel'])
+                    from web.index.models import Rules as _RulesM
+                    _sqli_rule = None
+                    for rule in lang_rule_list:
+                        if str(getattr(rule, 'svid', '')) == '1006':
+                            _sqli_rule = rule
+                            break
+                    if _sqli_rule is not None:
+                        for sink in _sprintf_extra:
+                            try:
+                                _found = False
+                                for arg_vid in sink.get('arg_vids', []):
+                                    r = _probe_an.parameters_back(arg_vid)
+                                    if r is not None and r.is_controllable:
+                                        _found = True
+                                        break
+                                if not _found:
+                                    continue
+                                sink_vid = sink['vid']
+                                file_path = _vattr(graph.vs[sink_vid], 'file_path', '') or _vattr(graph.vs[sink_vid], 'path', '')
+                                lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
+                                vuln = VulnerabilityResult.from_match(
+                                    (file_path, lineno, 'sprintf'),
+                                    svid=_sqli_rule.svid,
+                                    language='php',
+                                    rule_name=_sqli_rule.vulnerability,
+                                    author=_sqli_rule.author,
+                                )
+                                vuln.analysis = r.reason
+                                vuln.chain = [(str(c.get('step', '')), str(c.get('name', '')), file_path, lineno, int(c.get('vid', 0) or 0)) for c in (r.chain or [])[:4]]
+                                find_vulnerabilities.append(vuln)
+                                logger.debug('[CVI-1006] [GRAPH] sprintf-SQL sentinel found: %s:%s', file_path, lineno)
+                            except Exception as e:
+                                logger.debug('[SCAN] sentinel sink error: %s', e)
+                                continue
+                except Exception as e:
+                    logger.debug('[SCAN] sentinel sub-pass error: %s', e)
 
     # ── Framework-dependency rules (independent of graph) ──
     if _fw_dep_rules:
