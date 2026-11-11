@@ -43,6 +43,11 @@ EXPECTATIONS = {
     # Fix 70: sprintf SQL-literal-concat sentinel — craft.search term value
     # interpolated unescaped into '%s' (CVE-2026-115934 Craft CMS).
     'CVE-2026-115934_craft_sprintf_sql.php': {'1006': 1},
+    # Fix 71: PDO generic DB layer — $_GET['id'] interpolated into
+    # $dbh->query("... id=$id") (CVE-2026-93997 SourceCodester Drug
+    # Recommendation System /Admin/edit_symptom.php). Safe contrast in the
+    # same file (prepare+bound execute) must NOT fire.
+    'CVE-2026-93997_pdo_query_sqli.php': {'1005': 1},
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},

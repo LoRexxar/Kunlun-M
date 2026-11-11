@@ -247,6 +247,14 @@ def _match_rules_for_sink(sink_name, lang_rule_list, _get_rule_sink_names):
             if _rms and _sn_bare in _rms:
                 matched_rules.append(rule)
                 continue
+            # Fix 71b: generic PHP DB execution methods (->query/->exec) are
+            # rule-driven probes injected into find_sinks (Fix 71) — bind them
+            # back to the SQLi rule family here, same as tamper method_sinks
+            # but for the framework-independent PDO/mysqli layer.
+            if (pass_name == "exact" and _sn_bare in ("query", "exec")
+                    and str(getattr(rule, 'svid', '')) in ('1005', '1006')):
+                matched_rules.append(rule)
+                continue
             rule_sink_names = _get_rule_sink_names(rule)
             if not rule_sink_names:
                 continue
@@ -847,8 +855,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             _framework_method_sinks.add(str(_ms).lower())
                 except Exception:
                     continue
+            # Fix 71: PDO/mysqli generic DB execution methods.  These are the
+            # framework-INDEPENDENT PHP database layer — ->query()/->exec()
+            # execute raw SQL strings regardless of any framework detection,
+            # so they must not depend on a wordpress/laravel tamper hit.
+            # Rule-driven probe: only when a SQLi rule (1005/1006 family) is
+            # in play, mirroring the Fix 70 sprintf sentinel gating.  PB taint
+            # analysis on the SQL string arg filters safe call sites
+            # (constant queries, prepared+bound usage).
+            _sqli_rules_present = any(
+                str(getattr(rule, 'svid', '')) in ('1005', '1006')
+                for rule in lang_rule_list)
+            _db_probe_methods = {'query', 'exec'} if (lang == 'php' and _sqli_rules_present) else set()
             analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang),
-                                     framework_method_sinks=_framework_method_sinks)
+                                     framework_method_sinks=_framework_method_sinks,
+                                     db_probe_methods=_db_probe_methods)
 
             # 收集该语言所有规则的 sink 函数名
             all_sink_names = []
@@ -1502,6 +1523,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # Fix 70i: sentinel rows analyze on the ISOLATED probe
                         # analyzer — the main analyzer's decision cache must
                         # never see sentinel taint traces (ordering again).
+                        # Fix 70i: sentinel rows analyze on the ISOLATED probe
+                        # analyzer — the main analyzer's decision cache must
+                        # never see sentinel taint traces (ordering again).
+                        # (71g tried extending this to db-probe sinks too, but
+                        # the probe analyzer is only built in the sprintf
+                        # sentinel context — everywhere else it is None and PB
+                        # collapsed to zero findings.  Reverted.)
                         _pb_an = _probe_an if (sink.get('rule_hint') and lang == 'php') else analyzer
                         r = _pb_an.parameters_back(arg_vid)
                         if r is not None:
@@ -1529,6 +1557,24 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         found_unconfirmed = True
                                         unconfirmed_result = r
                                         continue
+                                # Fix 71c: rule-driven generic-DB probes
+                                # (->query/->exec, Fix 71) require a
+                                # SUPERGLOBAL-origin chain.  DB wrapper
+                                # entry params (db_query($query) passing
+                                # straight to $__db->query) are taint-true
+                                # but semantically neutral — the safety
+                                # decision lives at each caller, and
+                                # reporting the wrapper itself is a
+                                # structural FP (osticket mysqli.php).
+                                _is_db_probe = (
+                                    lang == 'php'
+                                    and not sink.get('rule_hint')
+                                    and str(_sn).lower().rsplit('.', 1)[-1] in ('query', 'exec'))
+                                if _is_db_probe and 'superglobal' not in str(getattr(r, 'reason', '')).lower():
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
                                 found_controllable = True
                                 result = r
                                 break
@@ -1702,7 +1748,21 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     sn_lower = sink_name.lower().replace("::", ".")
                     _sn_bare = sn_lower.rsplit(".", 1)[-1]
                     for pass_name in ("exact", "suffix"):
+                        # Fix 71h: probe-originated sinks (via_db_probe) bind
+                        # EXCLUSIVELY to the SQLi family — checked BEFORE any
+                        # tamper method_sinks match.  In mixed-root scans the
+                        # wordpress tamper is active (subdir marker) and its
+                        # 'query' short name captured the drs probe sink as
+                        # CVI 1004 before the 1005/1006 binding ran, flipping
+                        # the CVE-gate expectation.
+                        _probe_sink71h = (pass_name == "exact"
+                                          and _sn_bare in ("query", "exec")
+                                          and bool(sink.get('via_db_probe')))
                         for rule in lang_rule_list:
+                            if _probe_sink71h:
+                                if str(getattr(rule, 'svid', '')) in ('1005', '1006'):
+                                    matched_rules.append(rule)
+                                continue
                             # Rule-declared method sinks (receiver-agnostic,
                             # mirrors find_sinks Path C): bare method name match.
                             _rms = [str(_x).lower() for _x in (getattr(rule, 'method_sinks', None) or [])]

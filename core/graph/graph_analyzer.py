@@ -422,7 +422,8 @@ class GraphAnalyzer:
     """
 
     def __init__(self, graph: ig.Graph, language: str = "php",
-                 source_registry=None, framework_method_sinks: set[str] | None = None) -> None:
+                 source_registry=None, framework_method_sinks: set[str] | None = None,
+                 db_probe_methods: set[str] | None = None) -> None:
         self.graph = graph
         self.language = language
         # Fix 48a: per-svid repair context (None = svid-blind legacy mode)
@@ -439,6 +440,13 @@ class GraphAnalyzer:
         # These are receiver-type-agnostic: any ->raw() / ->query() call is a
         # potential sink regardless of the object's resolved type.
         self._framework_method_sinks: set[str] = framework_method_sinks or set()
+        # Fix 71d: rule-driven generic-DB probes (PHP ->query/->exec), kept
+        # SEPARATE from framework_method_sinks: Path C admits them (static
+        # receiver method calls) but Path D dynamic-dispatch expansion must
+        # NOT use them — `$this->CI->$rule($postdata, $param)` CodeIgniter
+        # validator callbacks exploded into 4 FPs when 'query' entered the
+        # framework whitelist (hm Form_validation anchor).
+        self._db_probe_methods: set[str] = db_probe_methods or set()
 
         # --- 预构建 O(1) 索引 ---
         # 边索引: label → {src_vid: [tgt_vid, ...]}
@@ -460,6 +468,7 @@ class GraphAnalyzer:
         self._ffull: dict[str, list[int]] = {}
         self._ftail: dict[str, list[int]] = {}
         for v in graph.vs:
+            _via_db_probe = False
             vl = _vattr(v, 'label', '') or ''
             vn = _vattr(v, 'name', '') or ''
             self._nlbl.setdefault(vl, []).append(v.index)
@@ -480,6 +489,7 @@ class GraphAnalyzer:
         # 用于 _has_function_level_guard 等函数的快速局部查找
         self._nfile_lineno: dict[tuple[str, str], list[tuple[int, int]]] = {}
         for v in graph.vs:
+            _via_db_probe = False
             vl = _vattr(v, 'label', '') or ''
             vf = _vattr(v, 'file_path', '') or _vattr(v, 'path', '')
             vln = int(_vattr(v, 'lineno', 0) or 0)
@@ -712,7 +722,7 @@ class GraphAnalyzer:
             # ->query(), ->raw(), ->render() that are receiver-type-agnostic.
             # These cannot be resolved via use-edge (no user-defined function
             # node), so they need an explicit short-name match path.
-            if not matched_name and self._framework_method_sinks:
+            if not matched_name and (self._framework_method_sinks or self._db_probe_methods):
                 # Short-name match: compare the BARE method name (last
                 # dotted segment).  _resolve_callee_name returns the
                 # receiver-qualified form ("_session.fetch_token"), and a
@@ -720,7 +730,30 @@ class GraphAnalyzer:
                 # miss the whitelist.  The whitelist's contract is
                 # receiver-agnostic ("any .fetch_token(...) call").
                 _short_lower = normalized_callee.lower().rsplit(".", 1)[-1]
-                if _short_lower in self._framework_method_sinks:
+                # Fix 71e: db probes are FILE-SCOPE only.  The generic-DB
+                # probe targets application pages calling their DB handle
+                # directly ($dbh->query("... $id") in a top-level script —
+                # CVE-2026-93997 edit_symptom.php).  Inside library code
+                # (CI mysql_driver::query($sql), osticket db_query wrapper)
+                # the SQL arg is a pass-through parameter whose safety is
+                # decided at each CALLER — reporting the wrapper itself is a
+                # structural FP (hm/osticket anchors, both 'query' family).
+                # Walk the OWN chain upward — the owning function may sit
+                # several levels above (call > branch > branch > function).
+                _in_function = False
+                _ow = v.index
+                for _ in range(24):
+                    _ins = self._edge_in(_ow, "own")
+                    if not _ins:
+                        break
+                    _ow = _ins[0].source
+                    if _vattr(self.graph.vs[_ow], "label") in ("function", "method"):
+                        _in_function = True
+                        break
+                _via_db_probe = (_short_lower in self._db_probe_methods
+                                 and _short_lower not in self._framework_method_sinks
+                                 and not _in_function)
+                if (_short_lower in self._framework_method_sinks or _via_db_probe):
                     matched_name = normalized_callee
                     _is_qualified_match = False
 
@@ -831,6 +864,10 @@ class GraphAnalyzer:
 
             if not matched_name:
                 continue
+            # Fix 71f: db-probe provenance rides on the sink dict so the
+            # scanner-side matcher (71b) binds ONLY probe-originated sinks
+            # to the SQLi rules — framework-whitelist hits (CodeIgniter
+            # '->query(' CVI 1004) keep their own rule binding.
 
             # Skip sinks inside dead-code branches (e.g. if (false) { ... })
             if self._is_in_dead_code(v.index):
@@ -873,6 +910,13 @@ class GraphAnalyzer:
                 "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
                 "type": _vattr(v, "type", ""),
                 "arg_vids": arg_vids,
+                # Fix 71f: probe provenance — True only when Path C admitted
+                # this sink via the db-probe channel (not the framework
+                # whitelist, not a rule-name match).  try/except instead of
+                # a bare local: Path C sits in a sibling branch, so the name
+                # is NOT always bound here (UnboundLocalError killed every
+                # find_sinks call in subprocess scans when unbound).
+                "via_db_probe": _via_db_probe if "_via_db_probe" in dir() else False,
             })
 
         # Fix 70 (Path E): sprintf SQL-literal-concat sentinel (PHP).
@@ -7582,6 +7626,7 @@ class GraphAnalyzer:
         setopt_line = int(_vattr(self.graph.vs[setopt_vid], "lineno", 0)
                           or 0)
         for v in self.graph.vs:
+            _via_db_probe = False
             if (_vattr(v, "type", "") == "assign"
                     and _vattr(v, "name", "") == url_name):
                 vf = _vattr(v, "file_path", "") or _vattr(v, "path", "")

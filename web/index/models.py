@@ -387,6 +387,7 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
 
     sr = ScanResultTask.objects.filter(vul_hash=vul_hash).first()
     if sr:
+        _orig_task = sr.scan_task_id
         logger.debug("[Database] Scan Result id {} exist. update.".format(sr.id))
 
         sr.scan_task_id = scan_task_id
@@ -397,13 +398,24 @@ def check_update_or_new_scanresult(scan_task_id, cvi_id, language, vulfile_path,
         sr.result_type = result_type
         sr.is_active = is_active
         # 过期状态重置为未确认（新扫描重新发现了这个漏洞）
-        if sr.verification_status == 'stale':
+        _was_stale = sr.verification_status == 'stale'
+        if _was_stale:
             sr.verification_status = ''
 
         try:
             sr.save()
         except IntegrityError:
             logger.warn("[Model Save] Model param not changed")
+        # Fix 71i: the re-discovery MOVE (task reassignment + stale reset)
+        # MUST persist even when save() hit an IntegrityError or the model
+        # save dedup path skipped the write.  CVE-gate runs scan the same
+        # repros repeatedly; a silently dropped move left the row on a dead
+        # task with status=stale and the gate read 0 findings.
+        if sr.scan_task_id != _orig_task or _was_stale:
+            ScanResultTask.objects.filter(id=sr.id).update(
+                scan_task_id=sr.scan_task_id,
+                verification_status=sr.verification_status,
+                is_active=sr.is_active)
 
         return sr
 
