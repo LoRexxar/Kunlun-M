@@ -509,6 +509,86 @@ def _trace_return_value(
             pt = _vattr(v, "taint_passthrough", [])
             return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
 
+        # Fix 72d: subscript reads are CONTAINER accesses, not function
+        # calls.  `self.cfg['k']` normalizes to a 'call' operator whose name
+        # embeds the bracket ('...config[...]'), and 3b's fallback then
+        # concluded 'safe' from the literal KEY — hiding the container's
+        # config-file origin entirely (CVE-2026-109830).  For bracket-named
+        # calls, trace the CONTAINER child (the ast object operand) instead.
+        _nm = vname or ''
+        if vtype == 'call' and ('[' in _nm or _nm.endswith('[]')):
+            _container_result = None
+            for _cv, _role, _ in eidx['ast_ch'].get(start_vid, []):
+                if _role in ('object', 'callee', 'arg0', 'arg', 'value'):
+                    _sub = _trace_return_value(graph, _cv, own_vids, param_idx, visited, eidx, depth + 1)
+                    if _sub and _sub.get('origin_type') in ('source', 'param'):
+                        return _sub
+                    if _sub and _sub.get('origin_type') == 'unknown':
+                        _container_result = _sub
+                    # Fix 72e: an EMPTY-flow 'safe' on the container means the
+                    # trace hit a DFG break (per-occurrence property nodes are
+                    # not linked) — not a proven-sanitized value.  A property
+                    # container with no own flows must not certify the whole
+                    # subscript read as safe.
+                    if (_sub and _sub.get('origin_type') == 'safe'
+                            and not eidx['in'].get('dfg', {}).get(_cv)):
+                        _container_result = _sub
+            # Fix 72d-2: container-origin unknown must NOT fall into 3b's
+            # call-summary path — the literal subscript KEY would conclude
+            # 'safe' and bury the container's config-file origin.  Before
+            # giving up, run the 72c cross-method property union BFS from the
+            # container (same-name property nodes carry the __init__ chain:
+            # prop ← self.config[...] ← getConfig() summary=source).
+            if _container_result is not None:
+                for _cv, _role, _ in eidx['ast_ch'].get(start_vid, []):
+                    if _role in ('object', 'callee', 'arg0', 'arg', 'value'):
+                        _cnode = graph.vs[_cv]
+                        _cname = _vattr(_cnode, "name", "")
+                        if not _cname:
+                            continue
+                        _seeds = {v3.index for v3 in graph.vs
+                                  if _vattr(v3, "type", "") == "property"
+                                  and _vattr(v3, "name", "") == _cname}
+                        _stack, _seen = list(_seeds), set()
+                        _hop = 0
+                        while _stack and _hop < 12:
+                            cur = _stack.pop()
+                            if cur in _seen:
+                                continue
+                            _seen.add(cur)
+                            _hop += 1
+                            if _vattr(graph.vs[cur], "taint_type", "") == "source":
+                                return {"origin": vname, "origin_type": "source",
+                                        "dep_params": [], "has_unresolved_call": False}
+                            cur_node = graph.vs[cur]
+                            if (_vattr(cur_node, "label", "") == NodeLabel.OPERATOR.value
+                                    and _vattr(cur_node, "type", "") in _CALL_TYPES):
+                                for uv in eidx["out"].get("use", {}).get(cur, []):
+                                    if _vattr(graph.vs[uv], "func_summary_type", "") == "source":
+                                        return {"origin": vname, "origin_type": "source",
+                                                "dep_params": [], "has_unresolved_call": False}
+                                # Fix 72g: a subscript call ('self.config[...]')
+                                # carries its container on the ast callee/object
+                                # role — dfg edges alone never cross it.  Jump
+                                # to the container AND union its same-name
+                                # property occurrences (L25 read vs L18 store).
+                                _cur_nm = _vattr(cur_node, "name", "") or ""
+                                if _cur_nm and ("[" in _cur_nm or _cur_nm.endswith("[]")):
+                                    for _c2, _r2, _ in eidx["ast_ch"].get(cur, []):
+                                        if _r2 in ("object", "callee", "arg0"):
+                                            _c2n = _vattr(graph.vs[_c2], "name", "")
+                                            if _c2n:
+                                                for v4 in graph.vs:
+                                                    if (_vattr(v4, "type", "") == "property"
+                                                            and _vattr(v4, "name", "") == _c2n):
+                                                        _stack.append(v4.index)
+                                                _stack.append(_c2)
+                            for pv in eidx["in"].get("dfg", {}).get(cur, []):
+                                _stack.append(pv)
+                return {"origin": vname, "origin_type": "unknown",
+                        "dep_params": [], "has_unresolved_call": True}
+            # container literal-only → fall to generic DFG below
+
         # 3b. call operator → 尝试 use → function（用户自定义函数的摘要）
         if vtype in _CALL_TYPES:
             result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, eidx, depth)
@@ -648,6 +728,63 @@ def _trace_return_value(
             result = _trace_call_to_function(graph, src_vid, own_vids, param_idx, visited, eidx, depth)
             if result and result.get("origin_type") in ("safe", "source"):
                 return result
+
+    # Fix 72c: cross-method self-property reachability.  `return
+    # self.external_db9_serial_config['k']` in a getter cannot see the
+    # assignment in __init__ (it lives outside own_vids), so the flow ends
+    # 'unknown' and the whole config-file → getter → sink chain dies
+    # (CVE-2026-109830 board-conf-tools).  For identifier/property nodes,
+    # follow dfg in-edges ONE hop past the function boundary: if the
+    # out-of-function dfg source (the __init__ assign) has any own dfg
+    # ancestry annotated 'source', treat this flow as source-origin.
+    _own_dfg_srcs = [s for s in dfg_src_list if s in own_vids]
+    _foreign_dfg_srcs = [s for s in dfg_src_list if s not in own_vids]
+    if (not _own_dfg_srcs and _foreign_dfg_srcs
+            and vlabel in (NodeLabel.IDENTIFIER.value,)):
+        # Fix 72c-2: python properties of the same attribute are separate
+        # nodes per occurrence (L25 store vs L37 load, no dfg edge between)
+        # — union all same-name property nodes before the bounded BFS.
+        _prop_seed = set()
+        for fv in _foreign_dfg_srcs:
+            fnode = graph.vs[fv]
+            if _vattr(fnode, "type", "") not in ("property", "variable"):
+                continue
+            _prop_seed.add(fv)
+        if _prop_seed:
+            _seed_names = {_vattr(graph.vs[fv], "name", "") for fv in _prop_seed}
+            for v2 in graph.vs:
+                if (_vattr(v2, "type", "") == "property"
+                        and _vattr(v2, "name", "") in _seed_names):
+                    _prop_seed.add(v2.index)
+            for fv in _prop_seed:
+                fnode = graph.vs[fv]
+            # BFS the foreign node's dfg ancestry (bounded) for a source
+            # annotation — the __init__ chain: prop ← config ← json.load.
+            _stack, _seen = [fv], set()
+            _hop = 0
+            while _stack and _hop < 12:
+                cur = _stack.pop()
+                if cur in _seen:
+                    continue
+                _seen.add(cur)
+                _hop += 1
+                if _vattr(graph.vs[cur], "taint_type", "") == "source":
+                    return {"origin": vname, "origin_type": "source",
+                            "dep_params": [], "has_unresolved_call": False}
+                # Fix 72c-3: a call node's summary lives on its use-target
+                # function (func_summary_type) — the static taint_type of a
+                # method_call node stays empty even when the callee is a
+                # known source producer (self.getConfig() → source).
+                cur_node = graph.vs[cur]
+                if (_vattr(cur_node, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(cur_node, "type", "") in _CALL_TYPES):
+                    for uv in eidx["out"].get("use", {}).get(cur, []):
+                        if _vattr(graph.vs[uv], "func_summary_type", "") == "source":
+                            return {"origin": vname, "origin_type": "source",
+                                    "dep_params": [], "has_unresolved_call": False}
+                for pv in eidx["in"].get("dfg", {}).get(cur, []):
+                    _stack.append(pv)
+        # fall through to normal handling below
 
     # Second pass: trace into own-vid sources
     # CVE-2026-62007: when multiple DFG sources feed a use (e.g. a variable

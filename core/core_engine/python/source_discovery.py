@@ -109,6 +109,19 @@ _BUILTIN_SOURCE_MEMBERS = {
     # NOTE: 'input', 'sys.argv', 'os.environ' removed — CLI-only
     # sources that cause FP in web scans. Environment variables are
     # server-side config, not HTTP-client controllable.
+    # Fix 72 (CVE-2026-109830 Siemens meta-iot2050): config-FILE read
+    # sources.  Distinct threat model from env vars: the config file is a
+    # trusted-boundary artifact (device/app settings); an attacker who can
+    # manipulate it (local write, MITM'd provisioning, synced volume) makes
+    # the service execute attacker strings.  board-bootup-conf.py:
+    # json.load(open(cfg)) → getExternalDB9InitMode() → subprocess.call(
+    # "switchserialmode -m " + initMode, shell=True).  Registered as call-form
+    # members — matched by _node_contains_source(ast.Call) on the callee
+    # string, so only the PARSE call taints, not every file open.
+    'json.load',
+    'json.loads',
+    'yaml.load',
+    'yaml.safe_load',
 }
 
 # ---------------------------------------------------------------------------

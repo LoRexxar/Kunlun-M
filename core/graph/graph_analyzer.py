@@ -5161,6 +5161,16 @@ class GraphAnalyzer:
                                   reason=f"Return depends on caller vars: {caller_deps}",
                                   deps=caller_deps,
                                   expr_lineno=_vattr(call_v, "lineno", 0))
+        # Fix 72h: callee carries a computed function summary — a 'source'
+        # summary (config-file read getters, CVE-2026-109830) certifies the
+        # call return value as controllable WITHOUT any caller-side evidence.
+        if func_vid is not None:
+            _sum72h = _vattr(self.graph.vs[func_vid], "func_summary_type", "")
+            if _sum72h == "source":
+                return AnalysisResult(
+                    code=1,
+                    reason=f"return of source-summary function '{_vattr(self.graph.vs[func_vid], 'name', '')}'",
+                    expr_lineno=_vattr(call_v, "lineno", 0))
         return AnalysisResult(code=3,
                               reason=f"Return inconclusive (call={call_vid}, func={func_vid})",
                               expr_lineno=_vattr(call_v, "lineno", 0))

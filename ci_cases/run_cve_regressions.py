@@ -19,6 +19,7 @@ the expected rows below, commit both. NEVER weaken an expectation to make
 a failing engine pass — investigate instead.
 """
 import os
+import glob
 import subprocess
 import sys
 
@@ -48,6 +49,11 @@ EXPECTATIONS = {
     # Recommendation System /Admin/edit_symptom.php). Safe contrast in the
     # same file (prepare+bound execute) must NOT fire.
     'CVE-2026-93997_pdo_query_sqli.php': {'1005': 1},
+    # Fix 72: config-file source chain (Siemens meta-iot2050,
+    # CVE-2026-109830) — json.load → getConfig summary → getter summary →
+    # subprocess.call("... " + initMode, shell=True). Safe contrast
+    # (argument-list reboot, no config input) must NOT fire.
+    'board-bootup-conf.py': {'7000': 1},
     # Engine array-writeback fix (getSuggestion array item write-back):
     # taint must survive through array store → return → consumer.
     'CVE-2026-62007_array_writeback.php': {'1000': 1},
@@ -100,6 +106,10 @@ def main() -> int:
         # unchanged (their rules are php-scoped).  Root dir only; framework
         # subdirs (symfony1/) stay php-scoped as before.
         _lang68 = 'all' if scan_dir == CASES_DIR else 'php'
+        # Fix 72: python repro subdirs (iot2050 config-file chain) scan as
+        # python — the php default silently skipped them and the gate read 0.
+        if scan_dir != CASES_DIR and glob.glob(os.path.join(scan_dir, '**', '*.py'), recursive=True):
+            _lang68 = 'python'
         proc = subprocess.run(
             [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
              '-t', scan_dir, '--yes', '-lan', _lang68, '--no-cache'],

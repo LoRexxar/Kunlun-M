@@ -437,6 +437,24 @@ def _enrich_from_source_registry(
         graph.vs[func_vid]["taint_type"] = "source"
         return True
 
+    # Fix 72b: import-qualified fallback.  Module-attribute calls
+    # (json.load, yaml.safe_load, os.system...) reach enrich_taint with
+    # func_name='load' — the short attribute name — while the import
+    # normalizer wrote a fully-qualified stub ('json.load') linked via
+    # use → short-stub → alias edges.  Follow that two-hop chain before
+    # giving up so qualified builtin sources (CVE-2026-109830 config-file
+    # read) taint.
+    if hasattr(source_registry, 'is_source_member'):
+        for ue in graph.es.select(_source=func_vid, label="use"):
+            stub = graph.vs[ue.target]
+            candidates = [_vattr(stub, "name", "")]
+            for ae in graph.es.select(_source=stub.index, label="alias"):
+                candidates.append(_vattr(graph.vs[ae.target], "name", ""))
+            for cand in candidates:
+                if "." in cand and source_registry.is_source_member(cand):
+                    graph.vs[func_vid]["taint_type"] = "source"
+                    return True
+
     return False
 
 
