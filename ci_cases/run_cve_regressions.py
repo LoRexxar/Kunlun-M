@@ -49,6 +49,10 @@ EXPECTATIONS = {
     # Recommendation System /Admin/edit_symptom.php). Safe contrast in the
     # same file (prepare+bound execute) must NOT fire.
     'CVE-2026-93997_pdo_query_sqli.php': {'1005': 1},
+    # Fix 73: PHP include/require language-construct sinks (SuiteCRM,
+    # CVE-2026-71550) — $_REQUEST['aow_action'] concat → require_once
+    # dynamic file inclusion.  Both the custom/ and modules/ branches.
+    'CVE-2026-71550_aow_require_once.php': {'1007': 2},
     # Fix 72: config-file source chain (Siemens meta-iot2050,
     # CVE-2026-109830) — json.load → getConfig summary → getter summary →
     # subprocess.call("... " + initMode, shell=True). Safe contrast

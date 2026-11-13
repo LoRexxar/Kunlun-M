@@ -953,9 +953,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         # Fix 50: React JSX 属性 sink(dangerouslySetInnerHTML
                         # ={{__html: expr}})由 find_sinks Round 2b 产出,
                         # type='jsx_attribute'。语义等价 innerHTML 赋值。
+                        # Fix 73: PHP include/require 语言构造 sink（find_sinks
+                        # Round 3 产出的 import 节点，type 即关键字本身）。
+                        # CVE-2026-71550 SuiteCRM: require_once 拼接路径包含
+                        # 被此门静默吞掉（sink 找到了但 type 不在白名单）。
                         if not ((_stype == 'assign' and _sn_tail in (
                                 'innerhtml', 'outerhtml', 'insertadjacenthtml'))
-                                or (_stype == 'jsx_attribute' and _sn_tail == 'dangerouslysetinnerhtml')):
+                                or (_stype == 'jsx_attribute' and _sn_tail == 'dangerouslysetinnerhtml')
+                                or _stype in ('include', 'require',
+                                              'include_once', 'require_once')):
                             continue
                     # Fix 25: sinks inside a never-called function are dead
                     # code — the function body only executes if something
@@ -1040,6 +1046,50 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     _sn, _dead_func_vid)
                                 continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
+                    # Fix 73b/73c: PHP include/require 语言构造 sink 的起源闸——
+                    # 只报直连请求源（superglobal/framework source）的链；
+                    # 入口参数中介（库工厂形态）与 unresolved-call passthrough
+                    # 幻影链（osticket pear/Mail.php:79、class.plugin.php:289，
+                    # 单文件隔离扫描 0 检出实证）一律降级 unconfirmed。
+                    _is_import_sink = (lang == 'php' and _stype in (
+                        'include', 'require', 'include_once', 'require_once'))
+
+                    def _import_gate(r_):
+                        if not _is_import_sink:
+                            return False
+                        _rr = str(getattr(r_, 'reason', '')).lower()
+                        if not ('superglobal' in _rr or 'framework source' in _rr):
+                            return True   # no request-origin claim → downgrade
+                        # Fix 73c path-evidence check: reason strings alone can
+                        # claim a superglobal that the walk never touches.
+                        # Phantom form A (offline): path holds NO request node
+                        # at all (Mail.php:79 → $driver/strtolower, reason
+                        # still says $_POST).  Phantom form B (live scan):
+                        # path is a single ORPHAN $_POST node in an unrelated
+                        # file (ajax.users.php:199) with no connecting hops.
+                        # Real chains (scp/settings.php:56) walk ≥2 hops AND
+                        # pass through an actual $_ request-source node.
+                        _pv_list = list(getattr(r_, 'path', None) or [])
+                        if len(_pv_list) < 2:
+                            return True
+                        # cheap prefix scan across the whole path
+                        for _pv in _pv_list:
+                            if str(_vattr(graph.vs[_pv], 'name', '') or '').strip().startswith('$_'):
+                                return False
+                        # engine-native source check on the TERMINAL node only
+                        # (the walk ends at the source side; mid-path nodes are
+                        # never the origin claim, and the member-chain walk is
+                        # too costly to run per node on large graphs)
+                        try:
+                            _tv = _pv_list[-1]
+                            _tn = str(_vattr(graph.vs[_tv], 'name', '') or '').strip()
+                            if analyzer._is_source_variable(_tn):
+                                return False
+                            if analyzer._is_source_via_member_chain(_tv, _tn):
+                                return False
+                        except Exception:
+                            pass
+                        return True
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
                     # call_user_func / call_user_func_array: RCE 风险仅存在于
@@ -1504,6 +1554,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             r, u = _deep_trace_args(arg_vid)
                             if r is not None:
                                 if r.is_controllable:
+                                    if _import_gate(r):
+                                        if not found_unconfirmed:
+                                            found_unconfirmed = True
+                                            unconfirmed_result = r
+                                        continue
                                     found_controllable = True
                                     result = r
                                     break
@@ -1566,6 +1621,25 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # decision lives at each caller, and
                                 # reporting the wrapper itself is a
                                 # structural FP (osticket mysqli.php).
+                                # Fix 73b: PHP include/require language-
+                                # construct sinks (Fix 73 admission) require
+                                # a request-origin chain.  Library factory
+                                # entry params (PEAR Mail::factory($driver)
+                                # → include_once 'Mail/'.$driver) are
+                                # taint-true but semantically neutral — the
+                                # driver choice belongs to callers/config
+                                # (osticket include/pear/Mail.php:79).
+                                # Same structural-FP family as Fix 71c.
+                                # Fix 73c refined the gate into _import_gate
+                                # (defined before the arg loop) so BOTH PB
+                                # paths — _deep_trace_args (concat operators
+                                # land here) and _pb_an.parameters_back —
+                                # apply the same origin requirement.
+                                if _import_gate(r):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
                                 _is_db_probe = (
                                     lang == 'php'
                                     and not sink.get('rule_hint')
@@ -1648,11 +1722,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # find content data flow, not path flow.
                             if callable_only or path_only_idx >= 0:
                                 continue
+                            # Fix 73d: import sinks (include/require family)
+                            # are language constructs with NO receiver object
+                            # — receiver tracing is pure waste here and the
+                            # per-sink parameters_back(sink_vid) call made
+                            # repo-scale scans blow past 2h. The arg walk is
+                            # the whole story for include/require.
+                            if _is_import_sink:
+                                continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
-                                found_controllable = True
-                                result = recv_result
-                                sink_vid = sink['vid']
+                                # Fix 73c: receiver fallback respects the
+                                # import origin gate — arg-loop downgraded
+                                # phantom chains must not resurrect here
+                                # (osticket pear/Mail.php:79).
+                                if _import_gate(recv_result):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = recv_result
+                                else:
+                                    found_controllable = True
+                                    result = recv_result
+                                    sink_vid = sink['vid']
                             else:
                                 # Rule-declared method sinks (require_taint
                                 # opt-in) must survive this gate: their vuln
@@ -1692,11 +1783,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # the sink output is safe even if receiver chain is controllable.
                             if any_arg_repaired and not _sink_has_method_sink_rule(sink, lang_rule_list):
                                 continue
+                            # Fix 73d: same import-sink receiver skip on the
+                            # args-present fallback (no receiver object on a
+                            # language construct).
+                            if _is_import_sink:
+                                continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
-                                found_controllable = True
-                                result = recv_result
-                                sink_vid = sink['vid']
+                                # Fix 73c: same import origin gate on the
+                                # args-present receiver fallback.
+                                if _import_gate(recv_result):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = recv_result
+                                else:
+                                    found_controllable = True
+                                    result = recv_result
+                                    sink_vid = sink['vid']
                             else:
                                 # Fix 35e: also pass the gate when a rule
                                 # with an EXACT qualified sink-name match
