@@ -2582,6 +2582,68 @@ class GraphAnalyzer:
             # upstream node so the trace continues to the annotated source.
             if not self._get_dfg_sources(cur_vid):
                 _cv = self.graph.vs[cur_vid]
+                # Fix 76: PHP $this->property LOAD with no dfg upstream —
+                # bridge to same-file writer assignments (constructor or
+                # method writes $this->prop = rhs).  PHP counterpart of the
+                # java Fix 37a field-load propagation.  CVE-2026-41229:
+                # froxlor ApiParameter::__construct stores $params into
+                # $this->cmd_params; getParam() reads it back — without the
+                # bridge every API getParam chain dead-ends at the property
+                # read.  Scoped: same file, same property name, $this-rooted
+                # read, and the read must not itself be an assign LHS.
+                if (self.language == "php"
+                        and _vattr(_cv, "label", "") == NodeLabel.IDENTIFIER.value
+                        and _vattr(_cv, "type", "") in ("field", "property")):
+                    _this_read = any(
+                        (_vattr(self.graph.vs[_me.source], "name", "") or "") == "$this"
+                        for _me in self._edge_in(cur_vid, "member"))
+                    _is_lhs = any(
+                        _vattr(_le, "role", "") == "lhs"
+                        for _le in self._edge_in(cur_vid, "ast"))
+                    if _this_read and not _is_lhs:
+                        _reader_cls76 = self._php_enclosing_class_name(cur_vid)
+                        for _rhs_vid, _wctx in self._php_property_store_sources(cur_vid):
+                            # Fix 76d: when the stored RHS is a formal
+                            # parameter of a __construct writer, the generic
+                            # parameters_back entry-param resolution binds
+                            # `new` sites of EVERY subclass of the writer's
+                            # class — but sibling instances never execute the
+                            # reader's code (osticket: new
+                            # AttachmentChunkedData($f) polluted OneSix
+                            # Attachments' $this->meta reads).  Route ctor-
+                            # param stores exclusively through the closure-
+                            # restricted resolver; when the reader's instance
+                            # set has no qualifying `new` site, the store is
+                            # untainted FOR THIS READER — no generic fallback.
+                            if (_wctx is not None
+                                    and self._php_is_ctor_param_store(_rhs_vid, _wctx)):
+                                _r76 = self._resolve_php_ctor_param_deps(
+                                    _wctx, max(max_depth - depth - 1, 12),
+                                    reader_class_name=_reader_cls76)
+                                if _r76 is not None and _r76.is_controllable:
+                                    _r76.path = (path or []) + [cur_vid] + (_r76.path or [])
+                                    return self._cached(cache_key, _r76)
+                                continue
+                            _sub = self.parameters_back(
+                                _rhs_vid, context_vid=_wctx,
+                                max_depth=max(max_depth - depth - 1, 12))
+                            if _sub is not None and _sub.is_controllable:
+                                _sub.path = (path or []) + [cur_vid] + (_sub.path or [])
+                                return self._cached(cache_key, _sub)
+                            # Fix 76b: the stored value is the writer's own
+                            # (constructor) parameter — resolve it through
+                            # `new` call sites of the writer class or any
+                            # subclass (froxlor: new MysqlServer(...) feeds
+                            # ApiParameter::__construct's $params).
+                            if (_sub is not None and _wctx is not None
+                                    and _sub.code == -1
+                                    and "entry parameter" in (_sub.reason or "")):
+                                _r76 = self._resolve_php_ctor_param_deps(
+                                    _wctx, max(max_depth - depth - 1, 12),
+                                    reader_class_name=self._php_enclosing_class_name(cur_vid))
+                                if _r76 is not None and _r76.is_controllable:
+                                    _r76.path = (path or []) + [cur_vid] + (_r76.path or [])
+                                    return self._cached(cache_key, _r76)
                 # Fix 50-10: TS member_expression identifier(压平形态,
                 # raw_type=member_expression, ast operand → 基座)。
                 # 到达此节点且无 dfg 上游时,直接判基座标注(React/Vue
@@ -3543,6 +3605,28 @@ class GraphAnalyzer:
                                 _nested_arg = True
                                 break
                         if not _nested_arg:
+                            # Fix 74: a repair verdict on ONE operand of a
+                            # multi-source merge (concat operand, or an
+                            # identifier with several assignments) must not
+                            # decide the whole trace — sibling routes may
+                            # still reach a source.  CVE-2026-41228:
+                            # dirname(__DIR__, 2) . sprintf(..., $iso) —
+                            # dirname was judged repair and returned code=2
+                            # for the entire concat before the sprintf/$iso
+                            # side was ever visited.  Record the proof and
+                            # CONTINUE (same semantics as Fix 34c for
+                            # assign-RHS repair); it only becomes the result
+                            # at exhaustion, when every route ends clean.
+                            _sib_sources = [
+                                s for s in self._get_dfg_sources(cur_vid)
+                                if s != up_vid]
+                            if _sib_sources:
+                                if repaired_result is None:
+                                    repaired_result = AnalysisResult(
+                                        code=2, reason=f"repair '{callee}' (sibling operands present)",
+                                        chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
+                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                                continue
                             return self._cached(cache_key, AnalysisResult(
                                 code=2, reason=f"repair '{callee}'",
                                 chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
@@ -4875,6 +4959,253 @@ class GraphAnalyzer:
         return results
 
 
+    def _php_exec_target_in_subtree(self, vid: int) -> bool:
+        """Fix 77: True when a const string leaf in this (path) subtree
+        names a PHP file — ends with ``.php`` after quote stripping
+        (matches ``userdata.inc.php``; the leading dir part of the literal
+        is irrelevant).  Depth-limited AST walk, no graph-wide scans."""
+        stack = [(vid, 0)]
+        seen: set[int] = set()
+        while stack:
+            cur, d = stack.pop()
+            if cur in seen or d > 8:
+                continue
+            seen.add(cur)
+            cv = self.graph.vs[cur]
+            if _vattr(cv, "label", "") == "const":
+                raw = str(_vattr(cv, "name", "") or _vattr(cv, "value", "") or "")
+                raw = raw.strip().strip("'\"").lower()
+                if raw.endswith(".php"):
+                    return True
+                continue
+            for e in self._edge_out(cur, "ast"):
+                stack.append((e.target, d + 1))
+        return False
+
+    def _php_class_closure(self, class_name: str) -> set[str]:
+        """Fix 76c: class_name plus all TRANSITIVE subclass names
+        (``inherits_from`` records the direct parent only).  Memoized per
+        analyzer."""
+        _memo = getattr(self, "_php_class_closure_memo", None)
+        if _memo is None:
+            _memo = {}
+            self._php_class_closure_memo = _memo
+        if class_name in _memo:
+            return _memo[class_name]
+        children: dict[str, set[str]] = {}
+        for cv in self.graph.vs:
+            if (_vattr(cv, "label", "") == "class"
+                    and _vattr(cv, "type", "") == "class"):
+                _parent = _vattr(cv, "inherits_from", "")
+                _cn = _vattr(cv, "name", "")
+                if _parent and _cn:
+                    children.setdefault(_parent, set()).add(_cn)
+        result = {class_name}
+        frontier = [class_name]
+        while frontier:
+            cur = frontier.pop()
+            for child in children.get(cur, ()):
+                if child not in result:
+                    result.add(child)
+                    frontier.append(child)
+        _memo[class_name] = result
+        return result
+
+    def _php_enclosing_class_name(self, vid: int) -> str:
+        """Fix 76c: name of the class whose method (transitively) encloses
+        ``vid``, via own edges; '' when the node is not inside a class
+        (file-scope function / top level).
+
+        Fix 76c-2: expression-level nodes (property reads created by the
+        member-chain normalizer) often have NO own/ast parent edges — only
+        a member edge from ``$this`` — so the structural walk bottoms out
+        immediately.  Fall back to same-file class declaration order: the
+        enclosing class is the last class declared at or before the node's
+        line (PHP classes are sequential and non-nested).  External stub
+        classes carry lineno 0 and are skipped."""
+        cur = vid
+        seen: set[int] = set()
+        while cur not in seen:
+            seen.add(cur)
+            cv = self.graph.vs[cur]
+            if _vattr(cv, "type", "") == "class":
+                return _vattr(cv, "name", "") or ""
+            nxt = None
+            for oe in self._edge_in(cur, "own"):
+                nxt = oe.source
+                break
+            if nxt is None:
+                return self._php_class_by_lineorder(vid)
+            cur = nxt
+        return ""
+
+    def _php_class_by_lineorder(self, vid: int) -> str:
+        """Fix 76c-2 line-order fallback for _php_enclosing_class_name."""
+        cv = self.graph.vs[vid]
+        fkey = _vattr(cv, "file_path", "") or _vattr(cv, "path", "")
+        lno = _vattr(cv, "lineno", 0) or 0
+        if not fkey or not lno:
+            return ""
+        _memo = getattr(self, "_php_file_class_order_memo", None)
+        if _memo is None:
+            _memo = {}
+            self._php_file_class_order_memo = _memo
+        if fkey not in _memo:
+            lst = []
+            for clsv in self.graph.vs:
+                if (_vattr(clsv, "label", "") == "class"
+                        and _vattr(clsv, "type", "") == "class"
+                        and (_vattr(clsv, "file_path", "") or _vattr(clsv, "path", "")) == fkey):
+                    _cl = _vattr(clsv, "lineno", 0) or 0
+                    _cn = _vattr(clsv, "name", "") or ""
+                    if _cl > 0 and _cn:
+                        lst.append((_cl, _cn))
+            lst.sort()
+            _memo[fkey] = lst
+        best = ""
+        for _cl, _cn in _memo[fkey]:
+            if _cl <= lno:
+                best = _cn
+            else:
+                break
+        return best
+
+    def _php_property_store_sources(self, read_vid: int) -> list[tuple[int, int]]:
+        """Fix 76: given a PHP ``$this->prop`` READ identifier, return
+        [(rhs_vid, writer_func_vid), ...] for every same-file assignment
+        ``$this->prop = rhs``.  Writers are located through the name-bucket
+        index (no graph-wide scans); scope is same file + same property
+        name to avoid cross-class name collisions."""
+        v = self.graph.vs[read_vid]
+        pname = _vattr(v, "name", "")
+        if not pname:
+            return []
+        pfile = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+        results: list[tuple[int, int]] = []
+        for sib in self._nname.get(("identifier", pname), []):
+            sv = self.graph.vs[sib]
+            if _vattr(sv, "type", "") not in ("field", "property"):
+                continue
+            sfile = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+            if pfile and sfile and sfile != pfile:
+                continue
+            for le in self._edge_in(sib, "ast"):
+                if _vattr(le, "role", "") != "lhs":
+                    continue
+                assign_vid = le.source
+                if _vattr(self.graph.vs[assign_vid], "type", "") not in ("assign", "aug_assign"):
+                    continue
+                wfunc = None
+                for oe in self._edge_in(assign_vid, "own"):
+                    pn = self.graph.vs[oe.source]
+                    if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
+                        wfunc = oe.source
+                        break
+                for re_ in self._edge_out(assign_vid, "ast"):
+                    if _vattr(re_, "role", "") == "rhs":
+                        results.append((re_.target, wfunc if wfunc is not None else assign_vid))
+        return results
+
+    def _php_is_ctor_param_store(self, rhs_vid: int, writer_func_vid: int) -> bool:
+        """Fix 76d: True when the stored RHS identifier is a use of a formal
+        parameter of the writer function AND that writer is a PHP
+        ``__construct``.  Name-based: the RHS use node and the formal
+        parameter node are distinct graph nodes."""
+        if writer_func_vid is None:
+            return False
+        wf = self.graph.vs[writer_func_vid]
+        if _vattr(wf, "label", "") != NodeLabel.FUNCTION.value:
+            return False
+        if (_vattr(wf, "name", "") or "").rsplit("\\", 1)[-1] != "__construct":
+            return False
+        rv = self.graph.vs[rhs_vid]
+        if _vattr(rv, "label", "") != NodeLabel.IDENTIFIER.value:
+            return False
+        rname = _vattr(rv, "name", "") or ""
+        if not rname:
+            return False
+        for pvid in self._find_own_children(writer_func_vid, child_label=NodeLabel.PARAMETER.value):
+            if _vattr(self.graph.vs[pvid], "name", "") == rname:
+                return True
+        return False
+
+    def _resolve_php_ctor_param_deps(self, writer_func_vid: int,
+                                     max_depth: int,
+                                     reader_class_name: str = "") -> "AnalysisResult | None":
+        """Fix 76b: the writer is a constructor whose params are entry
+        points.  Resolve them through ``new CLASS(...)`` call sites of the
+        writer's class or any subclass (PHP ctor inheritance: froxlor's
+        ``new MysqlServer([], $request['params'])`` binds
+        ApiParameter::__construct's $params).  Returns the first
+        controllable arg trace, else None.
+
+        Fix 76c: when the property READ site's enclosing class is known,
+        only ``new`` sites of THAT class (or its subclasses) may bind —
+        instances of a sibling subclass never execute the reader's code,
+        so binding their ctor args polluted sibling property reads
+        (osticket: new AttachmentChunkedData($f) tainting
+        OneSixAttachments' $this->meta)."""
+        import re as _re76
+        wclass = None
+        for oe in self._edge_in(writer_func_vid, "own"):
+            pn = self.graph.vs[oe.source]
+            if _vattr(pn, "type", "") == "class":
+                wclass = pn
+                break
+        if wclass is None:
+            return None
+        wname = _vattr(wclass, "name", "")
+        if not wname:
+            return None
+        # class + direct subclass names (memoized per analyzer)
+        _memo = getattr(self, "_php_subclass_names", None)
+        if _memo is None:
+            _memo = {}
+            self._php_subclass_names = _memo
+        if wname in _memo:
+            names = _memo[wname]
+        else:
+            names = {wname}
+            for cv in self.graph.vs:
+                if (_vattr(cv, "label", "") == "class"
+                        and _vattr(cv, "type", "") == "class"
+                        and _vattr(cv, "inherits_from", "") == wname):
+                    _cn = _vattr(cv, "name", "")
+                    if _cn:
+                        names.add(_cn)
+            _memo[wname] = names
+        # Fix 76c: restrict to the reader's own instance set when known.
+        if reader_class_name:
+            _allowed = self._php_class_closure(reader_class_name)
+            names = {n for n in names if n in _allowed}
+            if not names:
+                return None
+        # new-expression sites by class name bucket
+        new_vids: list[int] = []
+        for cn in names:
+            for nv in self._nname.get(("operator", cn), []):
+                if _vattr(self.graph.vs[nv], "type", "") == "new":
+                    new_vids.append(nv)
+        if not new_vids:
+            return None
+        # writer formal params, positional
+        param_list: list[int] = []
+        for pvid in self._find_own_children(writer_func_vid, child_label=NodeLabel.PARAMETER.value):
+            param_list.append(pvid)
+        for nv in new_vids:
+            arg_counter = 0
+            for ae in self._edge_out(nv, "ast"):
+                if _vattr(ae, "role", "") != "arg":
+                    continue
+                idx = _vattr(ae, "index", "")
+                aidx = int(idx) if str(idx) not in ("", "None") else arg_counter
+                if 0 <= aidx < len(param_list):
+                    r = self.parameters_back(ae.target, max_depth=max_depth)
+                    if r is not None and r.is_controllable:
+                        return r
+                arg_counter += 1
+        return None
+
     def _resolve_java_param_deps(self, dep_names: list[str], writer_func_vid: int,
                                  max_depth: int) -> "AnalysisResult | None":
         """Fix 37a-2: dep names that are the writer function's formal
@@ -5417,6 +5748,32 @@ class GraphAnalyzer:
                     or (reader_class and reader_class in writer_file_classes)
                 )
                 if not linked:
+                    continue
+            # Fix 76d-2: constructor-param stores must resolve ONLY through
+            # the reader-class-closure-restricted resolver.  The generic
+            # parameters_back pass (52u) below binds `new` sites of EVERY
+            # subclass of the writer's class — sibling instances never
+            # execute the reader's code (osticket: new
+            # AttachmentChunkedData($f) polluted OneSixAttachments'
+            # $this->meta reads).  When the reader's instance set has no
+            # qualifying `new` site the store is untainted FOR THIS READER.
+            if self.language == "php":
+                _wfn76d = None
+                for _e76d in self._edge_in(cand, "ast"):
+                    if _vattr(_e76d, "role", "") != "lhs":
+                        continue
+                    for _oe76d in self._edge_in(_e76d.source, "own"):
+                        if _vattr(self.graph.vs[_oe76d.source], "label", "") == NodeLabel.FUNCTION.value:
+                            _wfn76d = _oe76d.source
+                            break
+                    break
+                if (_wfn76d is not None
+                        and self._php_is_ctor_param_store(rhs_vid, _wfn76d)):
+                    _r76 = self._resolve_php_ctor_param_deps(
+                        _wfn76d, 24,
+                        reader_class_name=self._php_enclosing_class_name(start_vid))
+                    if _r76 is not None and _r76.is_controllable:
+                        return _r76
                     continue
             # G4: does the stored value derive from a controllable source?
             # Three passes:
@@ -6040,6 +6397,11 @@ class GraphAnalyzer:
         for _ in range(12):
             own_sel = list(self._edge_in(cur, "own"))
             if not own_sel:
+                # Fix 76c-2: expression-level property reads (member-chain
+                # normalizer) have neither ast nor own parents — fall back
+                # to same-file class declaration order for PHP.
+                if self.language == "php":
+                    return self._php_class_by_lineorder(vid)
                 return ""
             parent = self.graph.vs[own_sel[0].source]
             if _vattr(parent, "label", "") == NodeLabel.CLASS.value:
@@ -6048,7 +6410,15 @@ class GraphAnalyzer:
         return ""
 
     def _file_class_names(self, file_path: str) -> set[str]:
-        """Class names declared in a file (via class-node file_path attr)."""
+        """Class names declared in a file (via class-node file_path attr).
+
+        NOTE (Fix 76d-3 REVERTED 2026-11-13): an earlier variant skipped
+        ``is_external`` stub classes here to kill one sibling-FP, but the
+        stub-inclusion is what carries ~43 legitimate osticket cross-file
+        property-store detections (reader file imports the writer's class
+        → sound linkage).  Removing stubs nuked them all (anchor -43).
+        Sibling FPs are handled by the reader-class-closure restriction
+        (Fix 76d-2) instead, not by dropping stubs here."""
         _ck = ("_fcls", file_path)
         if _ck in self._decision_cache:
             return self._decision_cache[_ck]

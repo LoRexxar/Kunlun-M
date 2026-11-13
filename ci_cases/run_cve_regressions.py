@@ -65,6 +65,17 @@ EXPECTATIONS = {
     # in-edge), NOT dead code; $request->getQueryParams() is a source.
     # Blind before Fix 59 (dead-code gate + no slim framework config).
     'Fix59_slim_route_closure.php': {'1011': 1},
+    # Fix 74: a repair verdict on ONE concat operand must not kill the
+    # whole trace — dirname(__DIR__,2) judged repair, sprintf($iso) side
+    # never visited.  $_SERVER['HTTP_ACCEPT_LANGUAGE'] → sprintf →
+    # require (CVE-2026-41228, froxlor 2.3.5 Language.php RFI).
+    'CVE-2026-41228_lang_accept_require.php': {'1007': 1},
+    # Fix 75/76/76b/77 chain: php://input literal source → ApiParameter
+    # ctor $this->prop store → getParam read bridge → new-site ctor arg →
+    # file_put_contents path-literal-.php content traced (CVE-2026-41229,
+    # froxlor API writes lib/userdata.inc.php).  3-file repro in
+    # php-generic/ (helpers renamed to avoid bare-callee hijack).
+    'CVE-2026-41229_froxlor_mysqlserver.php': {'1017': 1},
 }
 
 

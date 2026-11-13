@@ -9,18 +9,19 @@
   "target": "/tmp/t-osticket",
   "known_flaky_locs": [
    "include/class.forms.php:4546",
+   "include/pear/Net/DNS2/Cache/File.php:87",
+   "include/pear/Net/DNS2/Cache/Shm.php:154",
+   "include/pear/Net/DNS2/Cache/Shm.php:91",
    "include/staff/templates/schedule-add.tmpl.php:19",
    "include/staff/ticket-open.inc.php:428",
    "include/staff/ticket-view.inc.php:1083",
-   "include/staff/ticket-view.inc.php:1174",
-   "include/pear/Net/DNS2/Cache/File.php:87",
-   "include/pear/Net/DNS2/Cache/Shm.php:91"
+   "include/staff/ticket-view.inc.php:1174"
   ],
-  "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence",
+  "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs).",
   "_flaky_note": "pear Net/DNS2 cache rows flicker with engine-external nondeterminism; Fix 68 baseline run: -2 (vs -23 without Fix 68)",
   "retry_on_fail": true,
   "task_id": 5497,
-  "count": 96,
+  "count": 100,
   "findings": [
    {
     "cvi": "1000",
@@ -65,6 +66,18 @@
    {
     "cvi": "1000",
     "loc": "include/class.export.php:282"
+   },
+   {
+    "cvi": "1002",
+    "loc": "include/class.file.php:790"
+   },
+   {
+    "cvi": "1009",
+    "loc": "include/class.forms.php:1514"
+   },
+   {
+    "cvi": "1009",
+    "loc": "include/class.forms.php:1616"
    },
    {
     "cvi": "1000",
@@ -117,6 +130,14 @@
    {
     "cvi": "1000",
     "loc": "include/class.forms.php:4668"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.forms.php:4765"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.forms.php:4777"
    },
    {
     "cvi": "1000",
@@ -179,6 +200,10 @@
     "loc": "include/class.http.php:47"
    },
    {
+    "cvi": "1009",
+    "loc": "include/class.knowledgebase.php:73"
+   },
+   {
     "cvi": "1000",
     "loc": "include/class.schedule.php:1336"
    },
@@ -195,8 +220,20 @@
     "loc": "include/cli/modules/file.php:70"
    },
    {
+    "cvi": "1017",
+    "loc": "include/cli/modules/unpack.php:132"
+   },
+   {
     "cvi": "1000",
     "loc": "include/client/accesslink.inc.php:36"
+   },
+   {
+    "cvi": "1014",
+    "loc": "include/client/header.inc.php:128"
+   },
+   {
+    "cvi": "1014",
+    "loc": "include/client/header.inc.php:74"
    },
    {
     "cvi": "1000",
@@ -211,8 +248,52 @@
     "loc": "include/client/tickets.inc.php:193"
    },
    {
+    "cvi": "1017",
+    "loc": "include/laminas-mail/src/Protocol/AbstractProtocol.php:264"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/laminas-mail/src/Protocol/Imap.php:321"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/laminas-mail/src/Protocol/Smtp.php:196"
+   },
+   {
+    "cvi": "1002",
+    "loc": "include/pear/Mail/mime.php:480"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Mail/mimePart.php:441"
+   },
+   {
+    "cvi": "1011",
+    "loc": "include/pear/Mail/sendmail.php:123"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Mail/sendmail.php:128"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Mail/sendmail.php:130"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Net/DNS2/Cache/Shm.php:154"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Net/DNS2/Socket/Streams.php:225"
+   },
+   {
     "cvi": "1000",
     "loc": "include/pear/Net/SMTP.php:214"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Net/Socket.php:383"
    },
    {
     "cvi": "1000",
@@ -339,72 +420,8 @@
     "loc": "scp/ajax.php:323"
    },
    {
-    "cvi": "1002",
-    "loc": "include/class.file.php:790"
-   },
-   {
-    "cvi": "1002",
-    "loc": "include/pear/Mail/mime.php:480"
-   },
-   {
     "cvi": "1007",
     "loc": "scp/settings.php:56"
-   },
-   {
-    "cvi": "1009",
-    "loc": "include/class.forms.php:1514"
-   },
-   {
-    "cvi": "1009",
-    "loc": "include/class.forms.php:1616"
-   },
-   {
-    "cvi": "1009",
-    "loc": "include/class.knowledgebase.php:73"
-   },
-   {
-    "cvi": "1011",
-    "loc": "include/pear/Mail/sendmail.php:123"
-   },
-   {
-    "cvi": "1014",
-    "loc": "include/client/header.inc.php:128"
-   },
-   {
-    "cvi": "1014",
-    "loc": "include/client/header.inc.php:74"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/cli/modules/unpack.php:132"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/AbstractProtocol.php:264"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/Imap.php:321"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/Smtp.php:196"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/pear/Mail/sendmail.php:128"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/pear/Mail/sendmail.php:130"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/pear/Net/DNS2/Socket/Streams.php:225"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/pear/Net/Socket.php:383"
    }
   ]
  }

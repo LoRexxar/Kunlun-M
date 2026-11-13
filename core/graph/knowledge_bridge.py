@@ -140,6 +140,10 @@ def enrich_taint(
     source_var_count = _enrich_source_variables(graph)
     count += source_var_count
 
+    # 3p. Fix 75: php://input raw-request-body reads are taint sources.
+    _pinput_count = _enrich_php_input_sources(graph, language)
+    count += _pinput_count
+
     # 3z. Fix 49c: 文件作用域源变量(Vue props)—— registry.file_scoped_source_vars
     #     记录了「.vue 组件的 props 名 → 该组件 tmp.js 路径」。Vue props 是
     #     父级传入的外部数据(组件边界输入),在该文件作用域内视作 source。
@@ -665,6 +669,66 @@ def _enrich_source_variables(graph: ig.Graph) -> int:
 _SUPERGLOBAL_SUBSCRIPT_PARENTS: frozenset[str] = frozenset({
     "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES",
 })
+
+
+# PHP stream wrappers that read the raw HTTP request body. Reading them
+# returns fully attacker-controlled data — same trust level as $_POST.
+# (CVE-2026-41229: froxlor API reads php://input, json_decodes it and lets
+# params flow into userdata.inc.php via file_put_contents.)
+_PHP_INPUT_READ_FUNCS: frozenset[str] = frozenset({
+    "file_get_contents", "file", "fopen", "stream_get_contents", "readfile",
+})
+
+
+def _enrich_php_input_sources(graph: ig.Graph, language: str) -> int:
+    """Fix 75: mark ``file_get_contents('php://input')``-style call nodes
+    (first argument is the literal stream wrapper) as taint sources.
+
+    Only fires on the exact php://input literal — reading a VARIABLE path
+    stays unannotated (its taint flows via the builtin passthrough[0]
+    entry).  Runs after the builtin pass so the generic passthrough
+    annotation on these calls is overridden to ``source``.
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    if language != "php":
+        return 0
+    marked = 0
+    for v in graph.vs:
+        if _vattr(v, "label", "") != NodeLabel.OPERATOR.value:
+            continue
+        if _vattr(v, "type", "") not in ("call", "method_call"):
+            continue
+        name = (_vattr(v, "name", "") or "").rsplit(".", 1)[-1]
+        if name not in _PHP_INPUT_READ_FUNCS:
+            continue
+        if _vattr(v, "taint_type", "") == "source":
+            continue
+        # First positional argument must be a string const naming the wrapper
+        arg0_vid: int | None = None
+        for eid in graph.incident(v.index, mode="out"):
+            e = graph.es[eid]
+            if _vattr(e, "label", "") != "ast" or _vattr(e, "role", "") != "arg":
+                continue
+            idx = _vattr(e, "index", "")
+            aidx = _vattr(e, "arg_index", "")
+            if str(idx) in ("", "0") or str(aidx) in ("", "0"):
+                arg0_vid = e.target
+                break
+        if arg0_vid is None:
+            continue
+        av = graph.vs[arg0_vid]
+        if _vattr(av, "label", "") != NodeLabel.CONST.value:
+            continue
+        raw = str(_vattr(av, "name", "") or _vattr(av, "value", "") or "").strip().strip("'\"")
+        if "php://input" not in raw.lower():
+            continue
+        graph.vs[v.index]["taint_type"] = "source"
+        graph.vs[v.index]["taint_origin"] = "php_input"
+        marked += 1
+    if marked:
+        logger.info('[KnowledgeBridge] Fix 75: marked %d php://input source calls', marked)
+    return marked
 
 
 def _find_enclosing_function(graph: ig.Graph, vid: int) -> int | None:

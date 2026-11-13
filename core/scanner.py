@@ -1204,7 +1204,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 continue
                         # Path-only sinks (file_put_contents): only check the
                         # path argument. Content data does not cause Path Traversal.
-                        if path_only_idx >= 0 and i != path_only_idx:
+                        # Fix 77: EXCEPTION — when the path side is a literal
+                        # PHP file (const leaf ending .php, possibly inside a
+                        # concat like dirname(...).'/lib/userdata.inc.php'),
+                        # attacker-controlled CONTENT is code/config injection
+                        # into an executable file (CVE-2026-41229: froxlor
+                        # writes API params into lib/userdata.inc.php). The
+                        # content arg must be traced in that case.
+                        if (path_only_idx >= 0 and i != path_only_idx
+                                and not (lang == 'php'
+                                         and sink_name_lower == 'file_put_contents'
+                                         and i == 1
+                                         and path_only_idx < len(arg_vids)
+                                         and analyzer._php_exec_target_in_subtree(
+                                             arg_vids[path_only_idx]))):
                             continue
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
