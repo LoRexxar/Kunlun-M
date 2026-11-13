@@ -1256,6 +1256,20 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool, Dict]]] = {
     "toLocaleUpperCase": {"passthrough": ["this"], "safe": False},
     "toPrecision": {"passthrough": ["this"], "safe": True},
     "values": {"passthrough": ["this"], "safe": True},
+
+    # ===== Object.* 静态方法（Fix 78k, CVE-2026-41478） =====
+    # Object.entries/keys/values/fromEntries 返回值派生自【参数 0】
+    # （argument passthrough），与 receiver 无关。它们的短名与
+    # Array.prototype 的 entries/keys/values（receiver passthrough）撞名：
+    # 短名查找先命中原型条目会把 Object.entries(tainted) 标成
+    # taint_type=safe，`for (const [k, v] of Object.entries(req.body 派生
+    # 对象))` 的整条污点链在迭代调用处断裂。限定名条目 + 限定名优先
+    # 查找（knowledge_bridge._enrich_from_builtin）共同修复。
+    "Object.entries": {"passthrough": [0], "safe": False},
+    "Object.keys": {"passthrough": [0], "safe": False},
+    "Object.values": {"passthrough": [0], "safe": False},
+    "Object.fromEntries": {"passthrough": [0], "safe": False},
+    "Object.getOwnPropertyNames": {"passthrough": [0], "safe": False},
 }
 
 

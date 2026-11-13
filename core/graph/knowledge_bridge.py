@@ -331,10 +331,21 @@ _ORM_EIDX_CACHE: dict = {}
 
 
 def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache) -> bool:
-    """从 TraceCache 内置知识库标注。先短名查，再完整名查。"""
-    knowledge = trace_cache.lookup_builtin(short_name)
-    if not knowledge and full_name != short_name:
+    """从 TraceCache 内置知识库标注。先完整名查，再短名查。
+
+    Fix 78k (CVE-2026-41478): 限定名优先。JS 的 Object.entries 与
+    Array.prototype.entries 撞名——短名先查会让静态方法命中原型方法条目
+    （receiver passthrough + safe），Object.entries(tainted) 被标
+    taint_type=safe，for-of-over-Object.entries 的污点链在迭代处断裂。
+    限定名条目语义更具体，必须赢过短名条目（与 sink 匹配的 qualified
+    fullname 纪律一致）。lookup() 内部对带点名的短名回退保留：receiver
+    形态（x.entries()）仍能落到原型条目。
+    """
+    knowledge = None
+    if full_name and full_name != short_name:
         knowledge = trace_cache.lookup_builtin(full_name)
+    if not knowledge:
+        knowledge = trace_cache.lookup_builtin(short_name)
     if not knowledge:
         return False
 

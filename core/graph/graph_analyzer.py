@@ -768,7 +768,11 @@ class GraphAnalyzer:
             # FRAMEWORK-WHITELISTED method that actually exists in the
             # graph.  Downstream taint analysis (pb on arg_vids) filters
             # harmless cases, exactly like Path C.
-            _is_dyn_expr_name = bool(callee_name) and (
+            # Fix 78g (CVE-2026-41478): JS method-chain names like
+            # 'res.status().json' contain '(' from the INNER CALL, but they
+            # are static chains, not dynamic-dispatch expression strings.
+            # A '()' segment marks a call in the chain — exclude it.
+            _is_dyn_expr_name = bool(callee_name) and "()" not in callee_name and (
                 "(" in callee_name or ")" in callee_name or " " in callee_name.strip())
             if (not matched_name and _is_dyn_expr_name
                     and self._framework_method_sinks
@@ -2259,7 +2263,7 @@ class GraphAnalyzer:
 
         if _vattr(sv, "label") == NodeLabel.OPERATOR.value \
                 and _vattr(sv, "type") in _CALL_TYPES:
-            callee = self._resolve_callee_name(start_vid)
+            callee = self._qualify_callee(start_vid, self._resolve_callee_name(start_vid))
             if callee and self._is_repair_function(callee):
                 return self._cached(cache_key, AnalysisResult(
                     code=2, reason=f"calls repair '{callee}'",
@@ -2541,7 +2545,8 @@ class GraphAnalyzer:
                     and not self._get_dfg_sources(cur_vid)):
                 _rhs = self._find_assign_rhs_call(cur_vid)
                 if _rhs is not None:
-                    _rhs_callee = self._resolve_callee_name(_rhs)
+                    _rhs_callee = self._qualify_callee(
+                        _rhs, self._resolve_callee_name(_rhs))
                     if _rhs_callee and self._is_repair_function(_rhs_callee):
                         # Fix 34c: record the sanitation proof and CONTINUE
                         # the BFS instead of returning immediately.  This
@@ -3586,9 +3591,36 @@ class GraphAnalyzer:
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
+                # Fix 78j (CVE-2026-41478): JS/TS property READ.  The JS
+                # normalizer folds every MemberExpression into an operator
+                # typed method_call — including pure reads like
+                # `syncInfo.maxLoadedId` (no call parens).  Distinguisher:
+                # a real call carries ast[arg] children, a read does not.
+                # Without this guard the call rules (3/3b/4) treat the read
+                # as an unresolved method call, record an inconclusive
+                # fallback and skip its DFG upstream — every
+                # tainted-property-read chain died at the read site.  Reads
+                # must fall through to the generic BFS continuation and
+                # Rule 5 member handling (base object via member edge).
+                _js_prop_read = (
+                    ulabel == NodeLabel.OPERATOR.value
+                    and utype in _CALL_TYPES
+                    and not any(
+                        _vattr(_ae, "role", "") == "arg"
+                        for _ae in self._edge_out(up_vid, "ast"))
+                    and (_vattr(uv, "language", "")
+                         or self.language or "") in (
+                        "javascript", "typescript", "nodejs", "js")
+                    and _vattr(uv, "raw_type", "") in (
+                        "MemberExpression", "StaticMemberExpression",
+                        "ComputedMemberExpression")
+                )
+
                 # Rule 3: repair function
-                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
-                    callee = self._resolve_callee_name(up_vid)
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES \
+                        and not _js_prop_read:
+                    callee = self._qualify_callee(
+                        up_vid, self._resolve_callee_name(up_vid))
                     # Fix 52g: a repair call nested as an ARG of a non-safe
                     # outer call does not decide the outer return value
                     # (same semantics as the 52f safe short-circuit veto).
@@ -3633,7 +3665,8 @@ class GraphAnalyzer:
                                 path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 3b: superglobal method call (e.g., request.GET.get() in Python)
-                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES \
+                        and not _js_prop_read:
                     # Rule 3a2: call to function with func_summary_type="safe"
                     # or taint_type="safe" on the function definition node.
                     # This catches user-defined sanitizer functions (e.g.,
@@ -3740,7 +3773,8 @@ class GraphAnalyzer:
                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 4: function call — cg → function(taint_type) → parameter(passthrough_arg)
-                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES \
+                        and not _js_prop_read:
                     callee = self._resolve_callee_name(up_vid)
 
                     # Count actual args at the call site for overload resolution.
@@ -3844,12 +3878,26 @@ class GraphAnalyzer:
                                 _nested_arg = True
                                 break
                         if not _nested_arg:
-                            return self._cached(cache_key, AnalysisResult(
-                                code=-1, reason=f"taint safe '{callee}'",
-                                chain=[{"step": "taint_safe", "vid": func_vid,
-                                        "name": callee, "code": -1}],
-                                path=new_path,
-                                expr_lineno=_vattr(uv, "lineno", 0)))
+                            # Fix 78i (CVE-2026-41478): a safe verdict on ONE
+                            # branch must not decide the whole trace — the
+                            # branch may be a single sanitized PART of a
+                            # multi-part container (JS template literal:
+                            # `...${db.sqlsanitize(tblName)}...${syncInfo.
+                            # maxLoadedId}...` — the sqlsanitize part is
+                            # safe, the maxLoadedId part is attacker SQL).
+                            # Mirror Fix 34c: record the proof and CONTINUE
+                            # so sibling routes keep tracing; the proof only
+                            # becomes the verdict at exhaustion (all routes
+                            # clean).  A genuinely-controllable sibling still
+                            # returns immediately at its own rule hit.
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=-1, reason=f"taint safe '{callee}'",
+                                    chain=[{"step": "taint_safe", "vid": func_vid,
+                                            "name": callee, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
 
                     # Fix 46e-6: passthrough stub without a body carries no
                     # taint_passthrough/func_summary_pt (empty pt list below).
@@ -9007,6 +9055,25 @@ class GraphAnalyzer:
             return True
         return False
 
+    def _qualify_callee(self, op_vid: int, callee: str) -> str:
+        """Fix 78e (CVE-2026-41478): prefer the receiver-qualified operator
+        name when the resolved callee is only its bare tail.
+
+        An ``Object.entries(...)`` call whose use edge resolved to the
+        short name 'entries' would otherwise hit the Array.prototype
+        'entries' builtin entry (safe) inside _is_repair_function and be
+        misjudged as a sanitizer, killing the taint chain at the binding.
+        """
+        if not callee or "." in callee or "::" in callee:
+            return callee
+        try:
+            uname = _vattr(self.graph.vs[op_vid], "name", "") or ""
+        except Exception:
+            return callee
+        if uname.endswith("." + callee):
+            return uname
+        return callee
+
     def _is_repair_function(self, name: str) -> bool:
         if not name:
             return False
@@ -9069,8 +9136,13 @@ class GraphAnalyzer:
         bk = self._load_builtin_knowledge()
         if bk:
             entry = bk.get(clean)
-            if entry and entry.get("safe"):
-                return True
+            if entry is not None:
+                # Fix 78e (CVE-2026-41478): a QUALIFIED builtin_knowledge
+                # entry is authoritative — "Object.entries" (safe: False)
+                # must not be overridden by the bare tail "entries" (Array
+                # prototype iterator, safe: True).  Mirror of the dfg
+                # builder's _is_safe_callee qualified precedence (Fix 78).
+                return bool(entry.get("safe"))
             if tail != clean:
                 entry = bk.get(tail)
                 if entry and entry.get("safe"):
@@ -9766,6 +9838,19 @@ class GraphAnalyzer:
         - re.match anchored regex, Python str.isdigit etc.
         """
         btype = _vattr(self.graph.vs[branch_vid], "type", "")
+        # Fix 78i (CVE-2026-41478): a foreach loop head is NOT a guard.  The
+        # "condition" of a foreach branch is the iterable expression
+        # (`for (const [k, v] of Object.entries(tainted))`, PHP `foreach ($t
+        # as $k => $v)`); entering the loop body proves nothing about any
+        # variable's value.  Running the iterable through the guard logic
+        # (esp. the Fix 20a safe-predicate path, whose _subtree_contains_name
+        # follows dfg edges from the tainted argument) made the foreach
+        # "constrain" EVERY variable name reachable from the iterable —
+        # observed live returning True for unrelated loop-body vars
+        # ('table', 'Error', …) and hiding the syncInfos → for-of →
+        # db.query SQLi chain.  Gate the branch type, not the var name.
+        if btype == "foreach":
+            return False
         # Fix 34f: fast fail -- if the branch condition text is known and
         # does not mention var_name, it cannot constrain it.  CVE-2026-108970:
         # "if ($database->addNewUser(...))" was treated as constraining

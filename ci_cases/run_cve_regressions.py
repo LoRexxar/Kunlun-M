@@ -76,6 +76,11 @@ EXPECTATIONS = {
     # froxlor API writes lib/userdata.inc.php).  3-file repro in
     # php-generic/ (helpers renamed to avoid bare-callee hijack).
     'CVE-2026-41229_froxlor_mysqlserver.php': {'1017': 1},
+    # Fix 78 chain (CVE-2026-41478 Saltcorn sync.js): req.body →
+    # ObjectPattern destructure → closure capture → for-of
+    # ArrayPattern over Object.entries → helper call arg → param →
+    # template literal → db.query.  Three GT sinks (L53/L80/L173).
+    'sync.js': {'3104': 3},
 }
 
 
@@ -97,6 +102,9 @@ def main() -> int:
             sub = os.path.join(CASES_DIR, d, fname)
             if os.path.isdir(os.path.join(CASES_DIR, d)) and os.path.exists(sub):
                 return True
+        # Fix 78: deep repro trees (nodejs/CVE-…/packages/server/routes/)
+        if glob.glob(os.path.join(CASES_DIR, '**', fname), recursive=True):
+            return True
         return False
 
     missing = [f for f in EXPECTATIONS if not _case_exists(f)]
@@ -125,6 +133,14 @@ def main() -> int:
         # python — the php default silently skipped them and the gate read 0.
         if scan_dir != CASES_DIR and glob.glob(os.path.join(scan_dir, '**', '*.py'), recursive=True):
             _lang68 = 'python'
+        # Fix 78 (CVE-2026-41478): nodejs repro subdir scans as js — same
+        # silent-skip trap as python above (php default → 0 rows → the
+        # saltcorn expectation would read as an engine regression).
+        if (scan_dir != CASES_DIR
+                and not glob.glob(os.path.join(scan_dir, '**', '*.php'), recursive=True)
+                and not glob.glob(os.path.join(scan_dir, '**', '*.py'), recursive=True)
+                and glob.glob(os.path.join(scan_dir, '**', '*.js'), recursive=True)):
+            _lang68 = 'js'
         proc = subprocess.run(
             [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
              '-t', scan_dir, '--yes', '-lan', _lang68, '--no-cache'],

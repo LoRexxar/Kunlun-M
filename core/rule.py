@@ -61,6 +61,13 @@ class Rule(object):
         else:
             lans = list(lans)
 
+        # Fix 78b (CVE-2026-41478): CLI accepts `-lan js` but the rules
+        # directory is rules/javascript/ — without this alias a 'js' scan
+        # silently loaded ONLY the 3 base rules (Saltcorn mini task 5600:
+        # 0 SQLi findings because CVI_3104 never entered the rule set).
+        _lan_norm = {"js": "javascript", "node": "javascript"}
+        lans = [_lan_norm.get(l, l) for l in lans]
+
         self.lans = list(lans)
         origin_lans = ["base"]
         origin_lans.extend(self.lans)
@@ -121,6 +128,10 @@ class Rule(object):
         _lan_aliases = {
             "javascript": ["nodejs"],
         }
+
+        # Fix 78b: same js→javascript alias as __init__ (see there).
+        _lan_norm = {"js": "javascript", "node": "javascript"}
+        self.lans = [_lan_norm.get(l, l) for l in self.lans]
 
         origin_lans = ["base"]
         origin_lans.extend(self.lans)

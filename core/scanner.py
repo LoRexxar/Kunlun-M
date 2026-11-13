@@ -748,6 +748,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
 
+
         # 对每种语言使用 GraphAnalyzer 扫描
         from core.graph.graph_analyzer import GraphAnalyzer
         from core.graph.graph_analyzer import _FORMAT_STRING_SANITIZERS, AnalysisResult

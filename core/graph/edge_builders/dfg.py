@@ -615,7 +615,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             # 变体：rhs 子节点是 identifier 且有 value 子边（JS VariableDeclaration）
             # 此时 rhs 就是 lhs（被声明的变量），value 是赋值来源
+            # Fix 78 (CVE-2026-41478): 解构声明（const {a, b} = src）与
+            # for-of/for-in 循环变量为同一个 assign operator 挂多个
+            # rhs 声明 identifier——旧逻辑只处理 rhs_nodes[0]，第二个
+            # 之后的绑定全部丢 dfg 边。主对走下方正常流（含 safe-callee
+            # 检查），其余绑定在此补边（同样跳过安全 callee 调用源）。
             if not lhs_nodes and rhs_nodes:
+                _fix78_extra: list[tuple[int, int]] = []
+                for _r78 in rhs_nodes[1:]:
+                    if self._vlabel[_r78] == NodeLabel.IDENTIFIER.value:
+                        _v78 = self._get_ast_children(_r78, role="value")
+                        if _v78:
+                            _fix78_extra.append((_r78, _v78[0]))
                 rhs_vid = rhs_nodes[0]
                 rhs_label = self._vlabel[rhs_vid]
                 if rhs_label == NodeLabel.IDENTIFIER.value:
@@ -623,6 +634,32 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     if value_nodes:
                         lhs_nodes = [rhs_vid]
                         rhs_nodes = value_nodes
+                        for _lhs78, _src78 in _fix78_extra:
+                            _sl78 = self._vlabel[_src78]
+                            if _sl78 not in (
+                                NodeLabel.IDENTIFIER.value,
+                                NodeLabel.CONST.value,
+                                NodeLabel.OPERATOR.value,
+                            ):
+                                continue
+                            if _sl78 == NodeLabel.OPERATOR.value:
+                                # same safe-callee gate as the main pair:
+                                # a sanitizer call as init must not taint
+                                # the binding (bare receiver-form kept,
+                                # per Fix 69).
+                                if self._vtype[_src78] in _CALL_TYPES_DFG:
+                                    _c78 = self._get_callee_name(_src78)
+                                    _bare78 = ('.' not in (_c78 or '')
+                                               and '::' not in (_c78 or '')
+                                               and not (_c78 or '').startswith('$')
+                                               and self._vtype[_src78] in (
+                                                   'method_call', 'member_call'))
+                                    if (_c78 and not _bare78
+                                            and self._is_safe_callee(
+                                                _c78, self._language)):
+                                        continue
+                            self._add_dfg_edge(_src78, _lhs78,
+                                               DfgType.FORWARD_SLICE.value)
 
             # 变体：穿透 type_cast / subscript_expression
             # type_cast: TS as-expression, C cast 等 — identity
@@ -1353,6 +1390,31 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     continue
             for name, vids in name_groups.items():
                 if len(vids) < 2:
+                    # Fix 78f2 (CVE-2026-41478): a use ALONE in its scope
+                    # (e.g. `Object.entries(syncInfos)` inside a
+                    # withTransaction callback that captures the outer
+                    # route's binding) previously hit this `continue` and
+                    # could never reach the closure-capture fallback — the
+                    # cross-closure use stayed an orphan.  Run the closure
+                    # fallback for singleton non-LHS uses too.
+                    vid = vids[0]
+                    if (vid in assign_lhs_vids
+                            or self._vlabel[vid] == NodeLabel.PARAMETER.value
+                            or self._has_edge_to(vid, "dfg")):
+                        continue
+                    for _scope78 in self._closure_scope_iter(vid):
+                        if not self._closure_capture_allowed(
+                                _scope78, name):
+                            break
+                        _defs78 = self._closure_defs_in_scope(
+                            _scope78, name, assign_lhs_vids)
+                        if _defs78:
+                            _best78 = max(
+                                _defs78,
+                                key=lambda d: (self._vlineno[d], d))
+                            self._add_dfg_edge(
+                                _best78, vid, DfgType.SAME.value)
+                            break
                     continue
                 # Fix 17a: composite sort key.  phply emits lineno=0 for most
                 # nodes, so plain lineno sort degenerates to vid order, in
@@ -1474,6 +1536,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     # Fix 21b-1: NOT when a whole-var re-assign of the same
                     # name exists earlier in the scope ($d = array_map(hsc,$d)
                     # dominates — the param value no longer reaches this use).
+                    _linked_78f = found
                     for j in range(i - 1, -1, -1):
                         cand = vids_sorted[j]
                         if cand in assign_lhs_vids and self._array_offset_key(cand) is None:
@@ -1484,7 +1547,37 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             self._add_dfg_edge(
                                 cand, vid, DfgType.SAME.value
                             )
+                            _linked_78f = True
                             break
+                    # 回退2（前移记录）：如果没有任何 same-scope 链接成功，
+                    # 走闭包捕获（Fix 78f）。
+                    if not _linked_78f:
+                        # Fix 78f (CVE-2026-41478): closure capture.  A use
+                        # inside a nested function/closure reads variables
+                        # from ENCLOSING lexical scopes
+                        # (`db.withTransaction(async () => { ... for (const
+                        # [tblName, syncInfo] of Object.entries(syncInfos))
+                        # ... })` with syncInfos destructured from req.body
+                        # in the OUTER route callback).  The same-scope
+                        # passes above never cross the closure boundary, so
+                        # such uses were orphans and the taint chain died.
+                        # Walk the own/ast ancestor chain outward (this IS
+                        # the lexical nesting relation) and link to the
+                        # nearest same-name definition in each enclosing
+                        # scope.
+                        for _scope78 in self._closure_scope_iter(vid):
+                            if not self._closure_capture_allowed(
+                                    _scope78, name):
+                                break
+                            _defs78 = self._closure_defs_in_scope(
+                                _scope78, name, assign_lhs_vids)
+                            if _defs78:
+                                _best78 = max(
+                                    _defs78,
+                                    key=lambda d: (self._vlineno[d], d))
+                                self._add_dfg_edge(
+                                    _best78, vid, DfgType.SAME.value)
+                                break
 
     def _array_offset_key(self, vid: int) -> str | None:
         """Fix 21b-1: element offset for identifier `$d['title']` → 'title';
@@ -2240,6 +2333,102 @@ class DataFlowBuilder(BaseEdgeBuilder):
             return self._path_to_file_vid.get(node_path)
         return None
 
+    def _closure_capture_allowed(self, scope_vid: int, name: str) -> bool:
+        """Fix 78f (CVE-2026-41478): language gate for closure capture.
+
+        Lexical capture holds for JS/TS, Python, Java (lambdas / anonymous
+        classes capture effectively-final locals) and Go closures.  PHP is
+        excluded: nested functions see nothing, and closures only capture
+        variables listed in an explicit ``use (...)`` clause which the graph
+        does not track — linking would fabricate DFG edges (FP risk).
+        FILE-scope capture additionally requires JS/TS module semantics
+        (PHP functions need ``global $x``; Python/Java file scope is not a
+        function nesting level anyway).
+        """
+        lang = (self._language or "").lower()
+        if lang in ("php",):
+            return False
+        if self._vlabel[scope_vid] == NodeLabel.FILE.value \
+                and lang not in ("javascript", "typescript", "nodejs"):
+            return False
+        return True
+
+    def _closure_scope_iter(self, vid: int):
+        """Fix 78f (CVE-2026-41478): yield enclosing lexical scopes, innermost
+        first.
+
+        Walks the own/ast ancestor chain — in the normalized graph the own
+        tree IS the lexical nesting relation, so each function/file node
+        met on the way out is one closure level.  ``_get_scope_parent``
+        cannot be reused here: it stops at the FIRST scope, while closure
+        capture (a use inside ``db.withTransaction(async () => ...)`` reading
+        an outer-route variable) needs every enclosing level.
+        Bounded to 32 levels of nesting.
+        """
+        cur = vid
+        seen = {cur}
+        for _ in range(32):
+            nxt = None
+            for lbl in ("own", "ast"):
+                parents = self._edges_to(cur, lbl)
+                if parents:
+                    nxt = parents[0]
+                    break
+            if nxt is None or nxt in seen:
+                return
+            seen.add(nxt)
+            cur = nxt
+            if self._vlabel[cur] in (NodeLabel.FUNCTION.value,
+                                     NodeLabel.FILE.value):
+                yield cur
+
+    def _closure_defs_in_scope(self, scope_vid: int, name: str,
+                               assign_lhs_vids: set[int]) -> list[int]:
+        """Fix 78f (CVE-2026-41478): definition vids of ``name`` declared
+        DIRECTLY in ``scope_vid`` (not in deeper nested functions — a
+        sibling closure's locals are invisible to the capturing use).
+
+        A candidate qualifies when (a) it names ``name``, (b) it is a
+        definition site (assign LHS / declarator binding / parameter —
+        i.e. member of ``assign_lhs_vids``), and (c) walking its own/ast
+        ancestors, the first function/file node reached IS ``scope_vid``.
+        """
+        # lazy name → identifier-vid index (built once per builder run)
+        idx = getattr(self, "_name_vids_idx", None)
+        if idx is None:
+            assert self.graph is not None
+            idx = defaultdict(list)
+            for v in self.graph.vs:
+                if self._vlabel[v.index] in (
+                        NodeLabel.IDENTIFIER.value,
+                        NodeLabel.PARAMETER.value):
+                    nm = self._vname[v.index]
+                    if nm:
+                        idx[nm].append(v.index)
+            self._name_vids_idx = idx = dict(idx)
+        out: list[int] = []
+        for cand in idx.get(name, ()):
+            if cand == scope_vid or cand not in assign_lhs_vids:
+                continue
+            cur = cand
+            for _ in range(32):
+                nxt = None
+                for lbl in ("own", "ast"):
+                    parents = self._edges_to(cur, lbl)
+                    if parents:
+                        nxt = parents[0]
+                        break
+                if nxt is None:
+                    break
+                cur = nxt
+                lbl_val = self._vlabel[cur]
+                if lbl_val in (NodeLabel.FUNCTION.value,
+                               NodeLabel.FILE.value):
+                    if cur == scope_vid:
+                        out.append(cand)
+                    break
+        return out
+
     def _scope_from_node(self, vid: int, seen: set[int]) -> int | None:
         """Resume scope search from a node reached via member/dfg edges."""
         cur = vid
@@ -2395,8 +2584,14 @@ class DataFlowBuilder(BaseEdgeBuilder):
     def _is_safe_callee(self, callee: str, language: str) -> bool:
         """Check whether a callee is marked safe in builtin_knowledge.
 
-        Queries the per-language builtin_knowledge dict.  Both the exact
-        callee name and the tail segment (after '::' or '.') are tried.
+        Queries the per-language builtin_knowledge dict.  The exact callee
+        name is authoritative: when a QUALIFIED entry exists (e.g.
+        "Object.entries", safe: False), the bare tail segment ("entries",
+        Array.prototype iterator, safe: True) must NOT override it —
+        short-name fallback only applies when no qualified entry exists
+        (Fix 78, CVE-2026-41478: `for (const [k, v] of Object.entries(
+        req.body.x))` lost its DFG edge because the tail lookup marked the
+        call safe and severed source→binding).
         A function is "safe" when its knowledge entry has safe: True,
         meaning its return value is not user-controlled (sanitizer, type
         cast to non-string, framework config reader, etc.).
@@ -2405,8 +2600,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
         if not bk:
             return False
         entry = bk.get(callee)
-        if entry and entry.get("safe"):
-            return True
+        if entry is not None:
+            return bool(entry.get("safe"))
         callee_tail = callee.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
         if callee_tail != callee:
             entry = bk.get(callee_tail)

@@ -537,7 +537,8 @@ class Normalizer:
     # ===================================================================
 
     def _walk_function(self, node, add_node, add_edge,
-                       ctx_stack, file_path, depth) -> int:
+                       ctx_stack, file_path, depth,
+                       name_override=None) -> int:
         lineno, end_lineno = self._loc(node)
         node_type = node.type
         func_id = getattr(node, "id", None)
@@ -549,6 +550,18 @@ class Normalizer:
         elif node_type == "ClassMethod":
             key = getattr(node, "key", None)
             name = key.name if key and hasattr(key, "name") else "<anonymous>"
+        elif name_override:
+            # Fix 78h (CVE-2026-41478): `const getSyncRows = async (...) =>
+            # {...}` — the arrow function node was named '<ArrowFunction>',
+            # so the use/alias/cg builders' name indexes (keyed on the
+            # function node's own name) never resolved call sites to it and
+            # created an is_external stub instead: cg edges landed on the
+            # stub, the real function's parameters had no callers, and every
+            # interprocedural taint chain through the helper died at the
+            # parameter.  Binding the variable name (JS semantics: the
+            # initializer expression takes the binding's name) fixes all
+            # three builders at once.
+            name = name_override
         elif node_type in ("ArrowFunctionExpression",
                            "AsyncArrowFunctionExpression"):
             name = "<ArrowFunction>"
@@ -1197,17 +1210,25 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        if left is not None:
-            left_pos = self._walk_node(left, add_node, add_edge, ctx_stack,
-                                        file_path, 0)
-            if left_pos is not None:
-                self._ast_edge(add_edge, pos, left_pos, AstRole.LHS.value)
-
+        # Fix 78: walk the iterable FIRST so destructured/plain loop-variable
+        # bindings can value-link to it (init_pos_override).
+        right_pos = None
         if right is not None:
             right_pos = self._walk_node(right, add_node, add_edge, ctx_stack,
-                                         file_path, 0)
+                                        file_path, 0)
             if right_pos is not None:
                 self._ast_edge(add_edge, pos, right_pos, AstRole.RHS.value)
+
+        if left is not None:
+            if getattr(left, "type", "") == "VariableDeclaration":
+                left_pos = self._walk_var_decl(
+                    left, add_node, add_edge, ctx_stack, file_path, 0,
+                    init_pos_override=right_pos)
+            else:
+                left_pos = self._walk_node(left, add_node, add_edge, ctx_stack,
+                                           file_path, 0)
+            if left_pos is not None:
+                self._ast_edge(add_edge, pos, left_pos, AstRole.LHS.value)
 
         ctx_stack.append((pos, NodeLabel.BRANCH.value))
         if body is not None:
@@ -1248,17 +1269,24 @@ class Normalizer:
 
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
-        if left is not None:
-            left_pos = self._walk_node(left, add_node, add_edge, ctx_stack,
-                                        file_path, 0)
-            if left_pos is not None:
-                self._ast_edge(add_edge, pos, left_pos, AstRole.LHS.value)
-
+        # Fix 78: iterable first, then left bindings value-linked to it.
+        right_pos = None
         if right is not None:
             right_pos = self._walk_node(right, add_node, add_edge, ctx_stack,
-                                         file_path, 0)
+                                        file_path, 0)
             if right_pos is not None:
                 self._ast_edge(add_edge, pos, right_pos, AstRole.RHS.value)
+
+        if left is not None:
+            if getattr(left, "type", "") == "VariableDeclaration":
+                left_pos = self._walk_var_decl(
+                    left, add_node, add_edge, ctx_stack, file_path, 0,
+                    init_pos_override=right_pos)
+            else:
+                left_pos = self._walk_node(left, add_node, add_edge, ctx_stack,
+                                           file_path, 0)
+            if left_pos is not None:
+                self._ast_edge(add_edge, pos, left_pos, AstRole.LHS.value)
 
         ctx_stack.append((pos, NodeLabel.BRANCH.value))
         if body is not None:
@@ -2049,7 +2077,8 @@ class Normalizer:
     # ===================================================================
 
     def _walk_var_decl(self, node, add_node, add_edge,
-                       ctx_stack, file_path, depth) -> int:
+                       ctx_stack, file_path, depth,
+                       init_pos_override=None) -> int:
         """VariableDeclaration — walk declarators."""
         declarations = getattr(node, "declarations", []) or []
         kind = getattr(node, "kind", "var")
@@ -2072,21 +2101,103 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         for idx, decl in enumerate(declarations):
+            # Fix 78: destructured declarators attach their binding
+            # identifiers to `pos` (parent_pos) themselves and return None;
+            # init_pos_override (for-of/for-in) links bindings to the
+            # iterable instead of a (nonexistent) init expression.
             decl_pos = self._walk_var_declarator(
                 decl, add_node, add_edge, ctx_stack, file_path, idx,
+                parent_pos=pos, init_pos_override=init_pos_override,
             )
             if decl_pos is not None:
                 self._ast_edge(add_edge, pos, decl_pos, AstRole.RHS.value)
 
         return pos
 
+    def _collect_pattern_identifiers(self, pattern_node) -> list:
+        """Collect leaf Identifier AST nodes from a destructuring pattern.
+
+        Recurses ObjectPattern/ArrayPattern/AssignmentPattern/RestElement.
+        Used by _walk_var_declarator to emit one identifier node per bound
+        variable (CVE-2026-41478: `const { syncInfos } = req.body` previously
+        collapsed the whole pattern into a single "{...pattern}" node, so no
+        binding ever received a dfg edge from the init expression).
+        """
+        out: list = []
+        if pattern_node is None:
+            return out
+        ptype = getattr(pattern_node, "type", "")
+        if ptype == "Identifier":
+            out.append(pattern_node)
+        elif ptype == "ObjectPattern":
+            for prop in getattr(pattern_node, "properties", []) or []:
+                # Property → value; RestElement/SpreadElement → argument
+                val = getattr(prop, "value", None)
+                if val is not None:
+                    out.extend(self._collect_pattern_identifiers(val))
+                else:
+                    out.extend(self._collect_pattern_identifiers(prop))
+        elif ptype == "ArrayPattern":
+            for elem in getattr(pattern_node, "elements", []) or []:
+                out.extend(self._collect_pattern_identifiers(elem))
+        elif ptype == "AssignmentPattern":
+            out.extend(self._collect_pattern_identifiers(
+                getattr(pattern_node, "left", None)))
+        elif ptype == "RestElement":
+            out.extend(self._collect_pattern_identifiers(
+                getattr(pattern_node, "argument", None)))
+        return out
+
     def _walk_var_declarator(self, node, add_node, add_edge,
-                             ctx_stack, file_path, depth) -> int:
-        """VariableDeclarator — emit identifier for the declared name."""
+                             ctx_stack, file_path, depth,
+                             parent_pos=None, init_pos_override=None) -> int | None:
+        """VariableDeclarator — emit identifier for the declared name.
+
+        Fix 78 (CVE-2026-41478): when the declared id is a destructuring
+        pattern (ObjectPattern/ArrayPattern), emit ONE identifier node per
+        leaf binding, each carrying an ast[value] edge to the init
+        expression (or to init_pos_override — used by for-of/for-in to link
+        loop bindings to the iterable).  Each binding is attached to the
+        parent VariableDeclaration assign operator via ast[RHS] so the dfg
+        builder's JS declarator variant picks them all up.  Returns the
+        first binding pos (bindings are attached to parent_pos internally).
+        """
         ident = getattr(node, "id", None)
         init = getattr(node, "init", None)
 
         lineno, end_lineno = self._loc(node)
+        ident_type = getattr(ident, "type", "")
+        if ident_type in ("ObjectPattern", "ArrayPattern"):
+            first_pos = None
+            # resolve the data source: explicit init, or override pos
+            init_pos = init_pos_override
+            if init_pos is None and init is not None:
+                init_pos = self._walk_node(init, add_node, add_edge,
+                                           ctx_stack, file_path, 0)
+            for leaf in self._collect_pattern_identifiers(ident):
+                leaf_line, _ = self._loc(leaf)
+                bpos = add_node({
+                    "label": NodeLabel.IDENTIFIER.value,
+                    "name": getattr(leaf, "name", "") or "<destructured>",
+                    "lineno": leaf_line,
+                    "end_lineno": leaf_line,
+                    "language": self.language,
+                    "attrs": {
+                        "type": IdentifierType.VARIABLE.value,
+                        "raw_type": "VariableDeclarator",
+                        "destructured": True,
+                    },
+                })
+                if init_pos is not None:
+                    self._ast_edge(add_edge, bpos, init_pos,
+                                   AstRole.VALUE.value)
+                if parent_pos is not None:
+                    self._ast_edge(add_edge, parent_pos, bpos,
+                                   AstRole.RHS.value)
+                if first_pos is None:
+                    first_pos = bpos
+            return first_pos
+
         name = self._expr_text(ident) if ident else "<unknown>"
 
         pos = add_node({
@@ -2102,10 +2213,29 @@ class Normalizer:
         })
 
         if init is not None:
-            init_pos = self._walk_node(init, add_node, add_edge, ctx_stack,
-                                        file_path, 0)
+            # Fix 78h (CVE-2026-41478): function-expression initializer bound
+            # to a variable (`const getSyncRows = async () => {...}`) — pass
+            # the variable name down so the function node is nameable for the
+            # use/alias/cg builders (see _walk_function name_override).
+            if (getattr(init, "type", "") in (
+                    "ArrowFunctionExpression", "AsyncArrowFunctionExpression",
+                    "FunctionExpression", "AsyncFunctionExpression")
+                    and ident is not None
+                    and getattr(ident, "type", "") == "Identifier"):
+                init_pos = self._walk_function(
+                    init, add_node, add_edge, ctx_stack, file_path, 0,
+                    name_override=getattr(ident, "name", None))
+            else:
+                init_pos = self._walk_node(init, add_node, add_edge,
+                                           ctx_stack, file_path, 0)
             if init_pos is not None:
                 self._ast_edge(add_edge, pos, init_pos, AstRole.VALUE.value)
+        elif init_pos_override is not None:
+            # Fix 78: plain for-of/for-in loop variable (`const v of arr`)
+            # has no init expression — value-link the binding to the
+            # iterable position supplied by the for-of walker.
+            self._ast_edge(add_edge, pos, init_pos_override,
+                           AstRole.VALUE.value)
 
         return pos
 
@@ -2287,7 +2417,7 @@ class Normalizer:
     # ===================================================================
 
     def _walk_pattern(self, node, add_node, add_edge,
-                      ctx_stack, file_path, depth) -> int:
+                      ctx_stack, file_path, depth) -> int | None:
         """Walk destructuring patterns — extract identifier children."""
         node_type = getattr(node, "type", "")
 
@@ -2311,6 +2441,7 @@ class Normalizer:
 
         if node_type == "ObjectPattern":
             properties = getattr(node, "properties", []) or []
+            first_pos = None
             for prop in properties:
                 if hasattr(prop, "value"):
                     # ObjectProperty-like: key + value
@@ -2322,12 +2453,15 @@ class Normalizer:
                     if value is not None:
                         pos = self._walk_pattern(value, add_node, add_edge,
                                                   ctx_stack, file_path, depth)
-                        if pos is not None:
-                            return pos
+                        # Fix 78: walk EVERY property — returning after the
+                        # first binding dropped all later bindings of
+                        # `const { a, b, c } = src` from the graph.
+                        if pos is not None and first_pos is None:
+                            first_pos = pos
                 elif hasattr(prop, "type"):
                     self._walk_node(prop, add_node, add_edge, ctx_stack,
                                    file_path, 0)
-            return None
+            return first_pos
 
         if node_type == "ArrayPattern":
             elements = getattr(node, "elements", []) or []
