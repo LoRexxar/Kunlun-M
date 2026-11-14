@@ -525,6 +525,62 @@ class GraphAnalyzer:
         r"""VALUES?\s*\(\s*[^)]*'%s'|"""
         r"""MATCH\s*\([^)]*\)\s*AGAINST\s*\(\s*'%s'""", re.IGNORECASE)
 
+    def _db_probe_arg_has_internal_source(self, call_vid: int,
+                                          max_hops: int = 14) -> bool:
+        """Fix 84 (CVE-2026-30530): in-function generic-DB probe gate.
+
+        Fix 71e restricted the ->query()/->exec() probes to file scope
+        because library wrappers (CI mysql_driver::query($sql), osticket
+        db_query) would report the wrapper itself — there the SQL arg is an
+        entry parameter whose safety is decided at each CALLER (structural
+        FP).  But application action methods (sourcecodester
+        Actions::save_customer: foreach($_POST) -> $data -> $this->query())
+        hold the WHOLE chain inside the method body: taint originates from
+        a superglobal INSIDE the same function, not from an entry
+        parameter.  Semantic gate replaces the scope gate for in-function
+        call sites: bind the probe only when a bounded backward dfg walk
+        from the call's argument(s) reaches        a source node (superglobal /
+        registry source).  Fix 84b: the walk must TERMINATE at entry
+        'parameter' nodes — dfg arg-binding edges cross the call graph
+        (caller $_POST → Installer.$vars → db_create_database($database)
+        → query), and without the boundary the osticket wrapper anchors
+        light up again exactly like Fix 71e's original FPs.  An entry
+        parameter's safety is decided at each CALLER.
+        """
+        try:
+            arg_vids = [e.target for e in self._edge_out(call_vid, "ast")
+                        if _vattr(e, "role") == "arg"]
+            if not arg_vids:
+                arg_vids = [de.source
+                            for de in self._edge_in(call_vid, "dfg")]
+            seen: set[int] = set()
+            frontier = list(arg_vids)
+            for _hop in range(max_hops):
+                if not frontier:
+                    return False
+                nxt: list[int] = []
+                for vid in frontier:
+                    if vid in seen:
+                        continue
+                    seen.add(vid)
+                    nv = self.graph.vs[vid]
+                    if _vattr(nv, "label") == NodeLabel.IDENTIFIER.value:
+                        nm = _vattr(nv, "name", "")
+                        if nm and (self._is_source_variable(nm)
+                                   or self._is_source_via_member_chain(vid, nm)):
+                            return True
+                    # Fix 84b: entry parameters end this path — taint from
+                    # a CALLER is decided at the caller, not here.
+                    if _vattr(nv, "label") == "parameter":
+                        continue
+                    for de in self._edge_in(vid, "dfg"):
+                        if de.source not in seen:
+                            nxt.append(de.source)
+                frontier = nxt
+            return False
+        except Exception:
+            return False
+
     def _sprintf_sql_template_guard(self, vid: int) -> bool:
         try:
             args = [e.target for e in self._edge_out(vid, "ast")
@@ -756,9 +812,19 @@ class GraphAnalyzer:
                     if _vattr(self.graph.vs[_ow], "label") in ("function", "method"):
                         _in_function = True
                         break
+                # Fix 84 (CVE-2026-30530): Fix 71e's flat file-scope gate
+                # also excluded application action methods that hold the
+                # whole source->sink chain INSIDE the method
+                # (Actions::save_customer: foreach($_POST) -> $data ->
+                # $this->query($sql)).  Replace the scope gate with a
+                # semantic one for in-function call sites: admit the probe
+                # when a bounded backward dfg walk from the call args
+                # reaches a source node (superglobal/registry).  Wrapper
+                # pass-through params and constant SQL still never bind.
                 _via_db_probe = (_short_lower in self._db_probe_methods
                                  and _short_lower not in self._framework_method_sinks
-                                 and not _in_function)
+                                 and (not _in_function
+                                      or self._db_probe_arg_has_internal_source(v.index)))
                 if (_short_lower in self._framework_method_sinks or _via_db_probe):
                     matched_name = normalized_callee
                     _is_qualified_match = False

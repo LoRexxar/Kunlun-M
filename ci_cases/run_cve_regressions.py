@@ -49,6 +49,14 @@ EXPECTATIONS = {
     # Recommendation System /Admin/edit_symptom.php). Safe contrast in the
     # same file (prepare+bound execute) must NOT fire.
     'CVE-2026-93997_pdo_query_sqli.php': {'1005': 1},
+    # Fix 84 (CVE-2026-30530 SourceCodester Online Food Ordering System):
+    # foreach($_POST) → $data column list → $this->query(INSERT/UPDATE) —
+    # a METHOD-BODY generic-DB call on a SQLite3 subclass.  Fix 71e's
+    # file-scope-only probe gate missed every in-function call; now the
+    # probe binds when the args' bounded backward dfg walk reaches a
+    # superglobal inside the function.  Entry-param wrapper contrast
+    # (run_raw_sql84) must NOT fire.
+    'CVE-2026-30530_sqlite3_method_sqli.php': {'1005': 1},
     # Fix 73: PHP include/require language-construct sinks (SuiteCRM,
     # CVE-2026-71550) — $_REQUEST['aow_action'] concat → require_once
     # dynamic file inclusion.  Both the custom/ and modules/ branches.
