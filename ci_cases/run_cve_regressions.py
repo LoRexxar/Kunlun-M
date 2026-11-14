@@ -95,6 +95,12 @@ EXPECTATIONS = {
     # enhanced-for loop var → ExpressionTransform.transformMap →
     # parser.parseExpression under unrestricted StandardEvaluationContext.
     'ExpressionTransform.java': {'6012': 1},
+    # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
+    # param is a framework source; file.filename → f-string template →
+    # open(file_path, "wb+") arbitrary file write. Subdir python/ carries
+    # its own requirements.txt so detect_framework resolves fastapi (not
+    # the repo-root django one).
+    'CVE-2026-44566_fastapi_upload.py': {'7005': 1},
 }
 
 

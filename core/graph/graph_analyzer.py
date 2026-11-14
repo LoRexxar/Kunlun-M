@@ -3501,6 +3501,21 @@ class GraphAnalyzer:
 
                 # Rule 2: constant — skip, keep searching
                 if ulabel == NodeLabel.CONST.value:
+                    # Fix 85b (CVE-2026-44566 Open WebUI): a CONST node that
+                    # HAS dfg in-edges is a string-interpolation template
+                    # (python f-string/JoinedStr: the normalizer links each
+                    # interpolated expression into the const node via dfg).
+                    # The old unconditional skip made every f-string a taint
+                    # dead-end — `f"{DIR}/{file.filename}"` never traced back
+                    # to its placeholders. A pure literal has NO dfg in-edges
+                    # and stays terminal. Only enqueue the interpolated parts;
+                    # the const itself is never a source.
+                    _f85 = [s for s in self._get_dfg_sources(up_vid)
+                            if s not in visited]
+                    if _f85 and depth + 1 < max_depth:
+                        for _f85v in _f85:
+                            visited.add(_f85v)
+                            queue.append((_f85v, depth + 1, new_path + [_f85v]))
                     continue
 
                 # Rule 2b: binary_op / subscript / call / statement (e.g., sys.argv[0],

@@ -2020,6 +2020,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             if _fv_type in ('call', 'method_call', 'static_call', 'new'):
                                                 _next_frontier.append(_svid)
                                                 continue
+                                            # Fix 85c (CVE-2026-44566): a const
+                                            # WITH dfg in-edges is an f-string
+                                            # template (python JoinedStr) — its
+                                            # interpolated expressions flow in
+                                            # via dfg, so the value is NOT a
+                                            # resolved literal. Treating it as
+                                            # resolved_value made CVI_7005.main
+                                            # drop `open(f"{d}/{file.filename}")`
+                                            # as a "hardcoded path".
+                                            if graph.es.select(_target=_svid, label='dfg'):
+                                                _next_frontier.append(_svid)
+                                                continue
                                             _resolved = _vattr(_sv, 'name', '')
                                             break
                                         # Also check ast children of operators

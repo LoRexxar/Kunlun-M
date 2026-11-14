@@ -40,6 +40,10 @@ class SourceRegistry:
         self.source_members = set()
         # 用户自定义 source producer 函数名 → SourceInfo
         self.user_source_functions = {}
+        # Fix 85 (CVE-2026-44566 Open WebUI): 检测到的框架名（None=未检测）。
+        # knowledge_bridge._enrich_fastapi_upload_params 以此为语义门：
+        # 显式检测到其他框架时不再把 UploadFile 注解参数当 FastAPI 源。
+        self.framework: "str | None" = None
 
     def add_source_member(self, name):
         """注册一个 source 变量/属性"""
@@ -395,6 +399,7 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
 
     # 2. 检测框架
     framework = detect_framework(project_dir)
+    registry.framework = framework
     if framework and framework in _FRAMEWORK_CONFIGS:
         fw_config = _FRAMEWORK_CONFIGS[framework]
         for sm in fw_config['source_members']:

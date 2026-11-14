@@ -190,6 +190,15 @@ def enrich_taint(
         fw_param_count = _enrich_framework_request_params(graph, source_registry)
         count += fw_param_count
 
+    # 5b. Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile 参数标注。
+    #     ``file: UploadFile = File(...)`` —— UploadFile 对象整体是攻击者可控
+    #     的 HTTP 输入（filename / content_type / 字节流），路径穿越链
+    #     file.filename → f"{DIR}/{...}" → open(path, "wb") 只有在该参数
+    #     种下污点后才可达。纯图判定（parameter 节点 type_hint），
+    #     以 registry.framework 为语义门。
+    if language == "python":
+        count += _enrich_fastapi_upload_params(graph, source_registry)
+
     # 6. 框架 safe 方法标注
     #    某些框架方法返回值经过安全转换（hash/枚举/常量），不应传播污点。
     #    例如 Symfony Request::getCacheKey() 返回 URL 的 MD5 hash。
@@ -1218,6 +1227,54 @@ def _enrich_framework_request_params(graph: ig.Graph, source_registry) -> int:
         graph.vs[v.index]["taint_type"] = "source"
         graph.vs[v.index]["taint_origin"] = "framework_request_param"
         count += 1
+    return count
+
+
+def _enrich_fastapi_upload_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 85 (CVE-2026-44566 Open WebUI): FastAPI/Starlette ``UploadFile``
+    route parameters are HTTP sources.
+
+    FastAPI uploads arrive as dependency-injected params
+    (``file: UploadFile = File(...)``).  The whole object is
+    attacker-controlled — filename, content_type and the byte stream —
+    and path-traversal chains (``file.filename`` → f-string →
+    ``open(path, "wb")``) only become reachable when the parameter node
+    seeds taint.  Detection is purely graph-native: the Python
+    normalizer stores the annotation on parameter nodes
+    (``type_hint``), so no AST re-walk is needed.
+
+    Semantic gate: when the project's requirements explicitly declare a
+    DIFFERENT framework (flask/django), an ``UploadFile``-annotated
+    parameter is more likely an unrelated user class — skip.  Unknown /
+    fastapi / no marker → apply (the annotation is strong evidence).
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "fastapi":
+        return 0
+
+    import re as _re
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != "parameter":
+            continue
+        if _vattr(v, "taint_type"):
+            continue
+        node_lang = _vattr(v, "language", "")
+        if node_lang and node_lang != "python":
+            continue
+        th = _vattr(v, "type_hint", "") or ""
+        # \b keeps MyUploadFileX / UploadFileHelper from matching.
+        if not _re.search(r"\bUploadFile\b", th):
+            continue
+        graph.vs[v.index]["taint_type"] = "source"
+        graph.vs[v.index]["taint_origin"] = "fastapi_upload_param"
+        count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 85: marked %d FastAPI UploadFile param(s) as sources",
+            count,
+        )
     return count
 
 def _get_simple_name(name: str) -> str:
