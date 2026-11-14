@@ -550,7 +550,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 try:
                     from importlib import import_module
                     mod = import_module(f'core.core_engine.{lang}.source_discovery')
-                    sr = mod.discover_sources(target_directory, None)
+                    # Fix 79c (CVE-2026-32613): monorepo-aware registry —
+                    # union frameworks of ALL build markers UNDER the scan
+                    # root (per-project build.gradle in nested subrepos).
+                    # Falls back to plain discover_sources when the module
+                    # has no discover_project_sources.
+                    _discover_fn = getattr(mod, 'discover_project_sources', None)
+                    sr = (_discover_fn(target_directory)
+                          if callable(_discover_fn)
+                          else mod.discover_sources(target_directory, None))
                     # 接口适配：确保有 is_source_member（Java 没有）
                     if not hasattr(sr, 'is_source_member'):
                         _src_members = sr.source_members if hasattr(sr, 'source_members') else set()
@@ -668,6 +676,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     for e in graph.es.select(label="use"):
                         if e.target in safe_func_vids:
                             call_vid = e.source
+                            # Fix 81 (CVE-2026-32613): never cut DFG edges
+                            # into a call that carries its OWN builtin
+                            # passthrough annotation (java catalog: toString
+                            # etc.) — the use edge binds by bare name to an
+                            # unrelated same-name safe def (hijack), and
+                            # cutting here starves the backward BFS.
+                            _cv = graph.vs[call_vid]
+                            if (_vattr(_cv, "taint_type", "") == "passthrough"
+                                    and (_vattr(_cv, "taint_passthrough", None) or [])):
+                                continue
                             safe_call_vids.add(call_vid)
                             # Delete DFG edges from call args to call_vid (passthrough)
                             for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
@@ -1408,6 +1426,47 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                                     path=[op_vid]), None
                                         except Exception:
                                             pass
+                                # Fix 80b (CVE-2026-32613): consume the call
+                                # node's OWN knowledge_bridge annotation
+                                # BEFORE the empty-shell bailout below.  An
+                                # unresolved external method annotated
+                                # receiver-passthrough (e.g. `e.getValue()`
+                                # with receiver declared Map.Entry — kork
+                                # ExpressionTransform.evaluateValue feeding
+                                # SpEL parseExpression) returns a value
+                                # derived from its receiver: trace the dfg
+                                # receiver edge.  Without this the empty-
+                                # shell check saw a use-edge to a stub
+                                # function and returned code=3 first,
+                                # killing the chain at the very node the
+                                # enrichment had just resolved.
+                                if _vattr(graph.vs[op_vid], "taint_receiver_pt", False):
+                                    for _re80b in graph.es.select(_target=op_vid, label="dfg"):
+                                        _rv80b = graph.vs[_re80b.source]
+                                        if _vattr(_rv80b, "label", "") in ("identifier", "parameter"):
+                                            _sr80b = analyzer.parameters_back(_re80b.source)
+                                            if _sr80b is not None and _sr80b.is_controllable:
+                                                return _sr80b, None
+                                _tp80b = _vattr(graph.vs[op_vid], "taint_passthrough", []) or []
+                                if _tp80b:
+                                    _ac80b = 0
+                                    for _ae80b in graph.es.select(_source=op_vid, label="ast"):
+                                        if _vattr(_ae80b, "role") != "arg":
+                                            continue
+                                        _ix80b = _vattr(_ae80b, "arg_index", None)
+                                        _ai80b = int(_ix80b) if _ix80b is not None else _ac80b
+                                        _ac80b += 1
+                                        if _ai80b not in set(int(i) for i in _tp80b):
+                                            continue
+                                        _an80b = graph.vs[_ae80b.target]
+                                        if _vattr(_an80b, "label", "") == "operator":
+                                            _r80b, _ = _deep_trace_args(_ae80b.target, depth + 1, max_depth)
+                                            if _r80b is not None and _r80b.is_controllable:
+                                                return _r80b, None
+                                        else:
+                                            _sr80b = analyzer.parameters_back(_ae80b.target)
+                                            if _sr80b is not None and _sr80b.is_controllable:
+                                                return _sr80b, None
                                 _all_use_targets_empty = True
                                 for _ue in graph.es.select(_source=op_vid, label="use"):
                                     _fv = graph.vs[_ue.target]

@@ -381,6 +381,15 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             else:
                 inner_fullname = inner_callee
 
+            if inner_type == OperatorType.NEW.value:
+                # Chained "new X(...).method()": the receiver type IS the
+                # constructed class. _extract_callee_name returns the bare
+                # class identifier here ("X"), never the "new X" op name, so
+                # the legacy startswith("new") hint below could never fire
+                # and these receivers resolved to None (external stub).
+                if inner_callee and inner_callee[0:1].isupper():
+                    return inner_callee
+
             vid = self._func_fullname_idx.get(inner_fullname)
             if vid is not None:
                 rt = self._vreturn_type[vid]

@@ -572,8 +572,45 @@ class Normalizer:
                        file_path) -> int | None:
         if param_node is None:
             return None
+        # Fix 79e (CVE-2026-32613): javalang/ljavalang types an INFERRED
+        # lambda parameter (`artifact -> ...`, no parentheses/types) as a
+        # plain str in LambdaExpression.parameters.  getattr(str, 'name')
+        # is '' → the parameter node was silently dropped, leaving every
+        # body use of the lambda param an orphan with no dfg upstream.
+        if isinstance(param_node, str):
+            if not param_node:
+                return None
+            p_pos = add_node({
+                "label": NodeLabel.PARAMETER.value,
+                "name": param_node,
+                "lineno": 0,
+                "language": self.language,
+                "attrs": {
+                    "type": IdentifierType.VARIABLE.value,
+                    "java_type": "",
+                    "file_path": file_path,
+                },
+            })
+            return p_pos
+        # Fix 79e-2: ljavalang types an INFERRED lambda parameter
+        # (``artifact -> ...``) as a MemberReference (member='artifact')
+        # rather than a FormalParameter — no 'name' attr, so it was dropped.
         lineno, _ = self._loc(param_node)
-        name = getattr(param_node, "name", "")
+        name = getattr(param_node, "name", "") or ""
+        if not name and getattr(param_node, "member", ""):
+            name = param_node.member
+            p_pos = add_node({
+                "label": NodeLabel.PARAMETER.value,
+                "name": name,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {
+                    "type": IdentifierType.VARIABLE.value,
+                    "java_type": "",
+                    "file_path": file_path,
+                },
+            })
+            return p_pos
         if not name:
             return None
         ptype = getattr(param_node, "type", None)
@@ -624,8 +661,23 @@ class Normalizer:
             return ""
         if isinstance(tnode, str):
             return tnode
+        # Fix 79 (CVE-2026-32613): nested declared types are name+sub_type
+        # chains in javalang — `Map.Entry<String,Object>` is
+        # ReferenceType(name=Map, sub_type=ReferenceType(name=Entry,...)).
+        # Returning only `.name` collapsed it to "Map", so receiver-typed
+        # builtin lookups (Map.Entry.getValue) could never hit.
         name = getattr(tnode, "name", "") or ""
-        return name
+        parts = [name]
+        sub = getattr(tnode, "sub_type", None)
+        _guard = 0
+        while sub is not None and _guard < 8:
+            sub_name = getattr(sub, "name", "") or ""
+            if not sub_name:
+                break
+            parts.append(sub_name)
+            sub = getattr(sub, "sub_type", None)
+            _guard += 1
+        return ".".join(p for p in parts if p)
 
     # ===================================================================
     # Import
@@ -875,10 +927,42 @@ class Normalizer:
                 node_dict["name"] = "<for-each>"
 
                 if var is not None:
-                    var_pos = self._walk_node(var, add_node, add_edge,
-                                               ctx_stack, file_path, 0)
-                    if var_pos is not None:
-                        self._ast_edge(add_edge, pos, var_pos, AstRole.LHS.value)
+                    # Fix 79 (CVE-2026-32613): javalang/ljavalang types the
+                    # enhanced-for loop variable as VariableDeclaration (NOT
+                    # LocalVariableDeclaration), which no dispatcher case
+                    # handles — the generic children fallback silently
+                    # dropped it, so `for (Map.Entry e : m.entrySet())`
+                    # produced NO node for `e` and every use of `e` in the
+                    # loop body was an unresolvable receiver.  Emit one
+                    # identifier per declarator with its declared java_type.
+                    var_type_name = type(var).__name__
+                    if var_type_name == "VariableDeclaration":
+                        _vd_lineno, _ = self._loc(var)
+                        _vd_type = self._type_text(getattr(var, "type", None))
+                        for _decl in (getattr(var, "declarators", []) or []):
+                            _decl_name = getattr(_decl, "name", "")
+                            if not _decl_name:
+                                continue
+                            _id_attrs = {
+                                "type": IdentifierType.VARIABLE.value,
+                                "raw_type": "VariableDeclarator",
+                            }
+                            if _vd_type:
+                                _id_attrs["java_type"] = _vd_type
+                            _id_pos = add_node({
+                                "label": NodeLabel.IDENTIFIER.value,
+                                "name": _decl_name,
+                                "lineno": _vd_lineno,
+                                "language": self.language,
+                                "attrs": _id_attrs,
+                            })
+                            self._ast_edge(add_edge, pos, _id_pos,
+                                           AstRole.LHS.value)
+                    else:
+                        var_pos = self._walk_node(var, add_node, add_edge,
+                                                  ctx_stack, file_path, 0)
+                        if var_pos is not None:
+                            self._ast_edge(add_edge, pos, var_pos, AstRole.LHS.value)
 
                 if iterable is not None:
                     iter_pos = self._walk_node(iterable, add_node, add_edge,

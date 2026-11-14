@@ -81,6 +81,12 @@ EXPECTATIONS = {
     # ArrayPattern over Object.entries → helper call arg → param →
     # template literal → db.query.  Three GT sinks (L53/L80/L173).
     'sync.js': {'3104': 3},
+    # Fix 79 (CVE-2026-32613 Spinnaker echo SpEL RCE): user-authored
+    # pipeline expectedArtifacts (TYPE-qualified source
+    # Pipeline.getExpectedArtifacts) → null-check weak re-assign →
+    # enhanced-for loop var → ExpressionTransform.transformMap →
+    # parser.parseExpression under unrestricted StandardEvaluationContext.
+    'ExpressionTransform.java': {'6012': 1},
 }
 
 
@@ -141,6 +147,15 @@ def main() -> int:
                 and not glob.glob(os.path.join(scan_dir, '**', '*.py'), recursive=True)
                 and glob.glob(os.path.join(scan_dir, '**', '*.js'), recursive=True)):
             _lang68 = 'js'
+        # Fix 79 (CVE-2026-32613): java repro subdir scans as 'all' — the
+        # php default silently skips .java files (same trap as python/js
+        # above).  'all' keeps the root-scan semantics for the subdir.
+        if (scan_dir != CASES_DIR
+                and not glob.glob(os.path.join(scan_dir, '**', '*.php'), recursive=True)
+                and not glob.glob(os.path.join(scan_dir, '**', '*.py'), recursive=True)
+                and not glob.glob(os.path.join(scan_dir, '**', '*.js'), recursive=True)
+                and glob.glob(os.path.join(scan_dir, '**', '*.java'), recursive=True)):
+            _lang68 = 'all'
         proc = subprocess.run(
             [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
              '-t', scan_dir, '--yes', '-lan', _lang68, '--no-cache'],

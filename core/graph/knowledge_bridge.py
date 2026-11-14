@@ -224,6 +224,51 @@ def enrich_taint(
 # receiver passthrough 的字符串标记 ("this"/"self")
 _RECEIVER_PT_NAMES: frozenset[str] = frozenset({"this", "self"})
 
+
+def _receiver_typed_lookup_name(graph: ig.Graph, call_vid: int, short_name: str) -> str:
+    """Fix 79 (CVE-2026-32613): derive ``<ReceiverType>.<method>`` from the
+    call node's receiver identifier java_type (declared type).
+
+    Only meaningful for operator nodes (call/method_call) whose name carries
+    a receiver segment (``e.getValue``). Returns "" when no typed receiver
+    is resolvable — the caller then falls back to the bare short name.
+    """
+    try:
+        v = graph.vs[call_vid]
+        if _vattr(v, "label") != "operator":
+            return ""
+        recv_seg = ""
+        nm = str(_vattr(v, "name", ""))
+        if "." in nm:
+            recv_seg = nm.rsplit(".", 1)[0]
+        # dfg/member in-edges to identifier nodes carrying a declared type
+        for e in graph.es.select(_target=call_vid):
+            if e["label"] not in ("dfg", "member"):
+                continue
+            src = graph.vs[e.source]
+            if _vattr(src, "label", "") not in ("identifier", "parameter"):
+                # Fix 79: Java method receivers resolve through dfg to the
+                # enclosing function's PARAMETER node (label='parameter')
+                # when the receiver is a parameter variable — e.g.
+                # `transformMap(Map artifactMap, ...)` calling
+                # `artifactMap.entrySet()`. The parameter node carries the
+                # declared java_type ('Map'), so accept it alongside plain
+                # identifier uses.
+                continue
+            jt = str(_vattr(src, "java_type", "") or "")
+            if not jt:
+                continue
+            if recv_seg and _vattr(src, "name", "") != recv_seg:
+                continue
+            if jt:
+                # strip generic args and whitespace; keep dotted type text
+                jt = jt.split("<")[0].strip()
+                if jt:
+                    return f"{jt}.{short_name}"
+        return ""
+    except Exception:
+        return ""
+
 # 正则替换/匹配函数 — pattern 为固定常量且不含 dot wildcard 时标为 safe
 _REGEX_SANITIZE_FUNCS: frozenset[str] = frozenset({
     "preg_replace", "preg_replace_callback", "preg_filter",
@@ -344,6 +389,18 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     knowledge = None
     if full_name and full_name != short_name:
         knowledge = trace_cache.lookup_builtin(full_name)
+    if not knowledge:
+        # Fix 79 (CVE-2026-32613): receiver-declared-type qualified lookup.
+        # A call like `e.getValue()` has no typed fullname — full_name is the
+        # variable form "e.getValue". JDK interface accessors
+        # (Map.Entry.getValue/getKey, Map.entrySet, Function.apply) are only
+        # distinguishable from same-name domain getters by the receiver's
+        # DECLARED type. Look up f"{receiver.java_type}.{short_name}" before
+        # falling back to the bare short name, so qualified entries keep
+        # winning (Fix 78k discipline) without whitelisting bare "getValue".
+        _typed = _receiver_typed_lookup_name(graph, func_vid, short_name)
+        if _typed:
+            knowledge = trace_cache.lookup_builtin(_typed)
     if not knowledge:
         knowledge = trace_cache.lookup_builtin(short_name)
     if not knowledge:
@@ -469,6 +526,20 @@ def _enrich_from_source_registry(
                 if "." in cand and source_registry.is_source_member(cand):
                     graph.vs[func_vid]["taint_type"] = "source"
                     return True
+
+    # Fix 79 (CVE-2026-32613): typed-receiver qualified fallback.  A Java
+    # framework source member registered as "Pipeline.getExpectedArtifacts"
+    # (TYPE-qualified to avoid bare-name FPs) can never match the call-node
+    # name "inputPipeline.getExpectedArtifacts" — the receiver is a local
+    # variable.  Rebuild "<ReceiverDeclaredType>.<method>" from the
+    # receiver identifier's java_type and consult the registry with that,
+    # so only calls whose receiver is DECLARED as the framework type hit.
+    if hasattr(source_registry, 'is_source_member'):
+        _t79 = _receiver_typed_lookup_name(
+            graph, func_vid, func_name.rsplit(".", 1)[-1])
+        if _t79 and source_registry.is_source_member(_t79):
+            graph.vs[func_vid]["taint_type"] = "source"
+            return True
 
     return False
 

@@ -432,6 +432,12 @@ class GraphAnalyzer:
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._builtin_knowledge_cache: dict | None = None
         self._call_stack: list[str] = []
+        # Fix 83 (CVE-2026-32613 anchor FP root-cause): call-site bindings
+        # for inline return traces.  While analyze_function_return recurses
+        # into a callee body, each formal param node maps to THIS call's
+        # actual arg (context-sensitive substitution).  Each frame dict is
+        # {param_vid: (arg_vid, call_vid)} plus a "__sig__" cache signature.
+        self._afr_bindings: list[dict] = []
         self._source_registry = source_registry
         # Framework method sinks: short method names from tamper EXTRA_SINKS
         # that are safe to match without qualified-name resolution because they
@@ -1888,6 +1894,16 @@ class GraphAnalyzer:
         6. Max depth / no more upstream → code=3
         """
         cache_key = (start_vid, context_vid)
+        # Fix 83 (CVE-2026-32613): verdicts computed under an active AFR
+        # call-site binding depend on WHICH call's args the params resolve
+        # to — the same (vid, ctx) can be clean under one call site and
+        # tainted under another.  Fold a binding-frame signature (call vid
+        # per frame, innermost-last) into the cache key so nested traces
+        # never share verdicts across call sites.
+        _ab83 = getattr(self, "_afr_bindings", None)
+        if _ab83:
+            cache_key = (start_vid, context_vid,
+                         tuple(_f83.get("__sig__", ()) for _f83 in _ab83))
         if cache_key in self._decision_cache:
             return self._decision_cache[cache_key]
 
@@ -2874,6 +2890,55 @@ class GraphAnalyzer:
                                     "name": uname, "code": 1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Fix 83 (CVE-2026-32613 anchor FP root-cause):
+                    # context-sensitive parameter binding.  When this BFS
+                    # runs inside analyze_function_return's inline return
+                    # trace, the formal param reached here belongs to a
+                    # callee whose value AT THIS CALL SITE is the mapped
+                    # actual arg — NOT the merged dfg in-edges of every
+                    # caller in the graph (the `__()` translation-hub
+                    # family: one caller passing $_POST polluted the param
+                    # node, and every `__('literal')` call site in
+                    # osticket then inherited XSS taint ×152).  Redirect to
+                    # this call's arg; never expand the param's cross-caller
+                    # dfg in-edges while a binding is active.
+                    _bind = None
+                    for _frm83 in reversed(getattr(self, "_afr_bindings", ()) or ()):
+                        if up_vid in _frm83:
+                            _bind = _frm83[up_vid]
+                            break
+                    if _bind is not None:
+                        _arg83, _call83 = _bind
+                        _al83 = _vattr(self.graph.vs[_arg83], "label", "")
+                        if _al83 == NodeLabel.CONST.value:
+                            if param_fallback is None:
+                                param_fallback = AnalysisResult(
+                                    code=-1,
+                                    reason=f"entry parameter '{uname}' (bound to constant at this call)",
+                                    chain=[{"step": "afr_binding", "vid": up_vid,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
+                        try:
+                            self._pb_frame_depth = getattr(self, "_pb_frame_depth", 0) + 1
+                            _bres83 = self.parameters_back(
+                                _arg83, context_vid=_call83,
+                                max_depth=max(max_depth - depth, 12))
+                        finally:
+                            self._pb_frame_depth -= 1
+                        if _bres83 is not None and _bres83.is_controllable:
+                            _bres83.path = new_path + (_bres83.path or [])
+                            return self._cached(cache_key, _bres83)
+                        if param_fallback is None:
+                            param_fallback = AnalysisResult(
+                                code=-1,
+                                reason=f"entry parameter '{uname}' (call-bound arg not controllable)",
+                                chain=[{"step": "afr_binding", "vid": up_vid,
+                                        "name": uname, "code": -1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                     # For Go: *http.Request etc. are user-controlled sources
                     # Checked here (after taint_type=source, before Java type checks)
                     # so Go source types are recognized without needing enrich_taint annotations.
@@ -2962,7 +3027,17 @@ class GraphAnalyzer:
                                             "name": uname, "code": -1}],
                                     path=new_path,
                                     expr_lineno=_vattr(uv, "lineno", 0))
-                            continue
+                            # Fix 79 (CVE-2026-32613): NUMERIC types terminate —
+                            # a copied int/long can never carry a payload. But
+                            # COLLECTION types (Map/List/Set...) are references
+                            # whose CONTENTS flow in from the caller's argument
+                            # (dfg arg→param edge, e.g. transformMap(artifactMap)
+                            # receiving user-authored pipeline maps evaluated as
+                            # SpEL). The old blanket `continue` cut the
+                            # cross-call-boundary taint path at every collection
+                            # parameter; only numeric types may stop the BFS.
+                            if param_java_type in _NUMERIC_JAVA_TYPES:
+                                continue
                     # Fix 52s: constructor entry-param bridge.  A ctor
                     # parameter with no DFG upstream gets its value from the
                     # CALL SITE (new ClassName($arg)) — trace the matching
@@ -3843,6 +3918,24 @@ class GraphAnalyzer:
                         if func_taint:
                             func_vid = up_vid
 
+                    # Fix 81 (CVE-2026-32613): a builtin passthrough annotation
+                    # on the CALL node wins over a name-matched def.  Java
+                    # method calls like `source.toString()` bind their use
+                    # edge to an unrelated same-name user def (bare-name
+                    # cross-file hijack — kork has ~14 user toString defs,
+                    # some safe-summarized as constant returns); that hijack
+                    # then vetoes the chain as "safe" even though the java
+                    # builtin catalog already annotated THIS call node as
+                    # passthrough (receiver-derived String conversion).
+                    # Scope: java + call node carries indexed passthrough.
+                    if (self.language == "java"
+                            and func_taint not in ("", "passthrough")
+                            and _vattr(uv, "taint_type", "") == "passthrough"
+                            and any(isinstance(i, int) for i in
+                                    (_vattr(uv, "taint_passthrough", []) or []))):
+                        func_vid = up_vid
+                        func_taint = "passthrough"
+
                     # 4a: source — 函数本身产生可控数据
                     if func_taint == "source" or func_taint == "source:user":
                         # For user-defined source producers, try inline return analysis
@@ -3978,9 +4071,37 @@ class GraphAnalyzer:
                         tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
                         if not tp:
                             tp = _vattr(self.graph.vs[func_vid], "func_summary_pt", [])  # Fix 46e
+                        if not tp:
+                            # Fix 80c (CVE-2026-32613): knowledge_bridge's
+                            # builtin lookup writes taint_passthrough on the
+                            # CALL node itself (e.g. Function.apply via
+                            # receiver-declared-type lookup — kork
+                            # stringExpressionPreprocessor.apply feeding SpEL
+                            # parseExpression).  When the resolved func_vid
+                            # is a shell stub that carries taint_type=
+                            # "passthrough" but no positional indices (the
+                            # scanner sync copies taint_type only), the
+                            # call node's own annotation is the only place
+                            # the indices exist — fall back to it.
+                            tp = _vattr(uv, "taint_passthrough", []) or []
                         pt_param_indices: set[int] = set(
                             int(i) for i in tp if isinstance(i, int)
                         )
+                        # Fix 81 (CVE-2026-32613): zero-arg java method calls —
+                        # a catalog passthrough index [0] on `x.toString()` /
+                        # `x.trim()` refers to the RECEIVER (the String/Object
+                        # the result derives from), not a positional arg that
+                        # doesn't exist.  Trace the receiver when the call has
+                        # no positional args.
+                        if (pt_param_indices
+                                and self.language == "java"
+                                and not any(_vattr(ae, "role", "") == "arg"
+                                            for ae in self._edge_out(up_vid, "ast"))):
+                            _recv81 = self._trace_call_receiver(
+                                up_vid, callee, context_vid,
+                                max(max_depth - depth, 24), new_path)
+                            if _recv81 is not None and _recv81.is_controllable:
+                                return self._cached(cache_key, _recv81)
                         # 映射到 call 的实参
                         if pt_param_indices:
                             arg_counter = 0
@@ -4098,6 +4219,37 @@ class GraphAnalyzer:
                             and _vattr(uv, "taint_type", "") == "passthrough"):
                         func_vid = up_vid
                         func_taint = "passthrough"
+                        # Fix 79 (CVE-2026-32613): consume the annotation
+                        # HERE. The primary passthrough block (Rule 4, which
+                        # reads taint_receiver_pt / taint_passthrough) runs
+                        # EARLIER in this loop iteration and its condition
+                        # could no longer fire once func_taint was empty at
+                        # that point — so a call node annotated by
+                        # knowledge_bridge (e.g. `e.getValue()` with declared
+                        # receiver type Map.Entry) fell through to
+                        # "unresolved method" and killed the chain.
+                        if _vattr(uv, "taint_receiver_pt", False):
+                            _r79 = self._trace_call_receiver(
+                                up_vid, callee, context_vid,
+                                max(max_depth - depth, 24), new_path)
+                            if _r79 is not None:
+                                return self._cached(cache_key, _r79)
+                        _tp79 = _vattr(uv, "taint_passthrough", []) or []
+                        if _tp79:
+                            _ac79 = 0
+                            for _ae79 in self._edge_out(up_vid, "ast"):
+                                if _vattr(_ae79, "role") != "arg":
+                                    continue
+                                _ix79 = _vattr(_ae79, "index")
+                                _ai79 = int(_ix79) if _ix79 else _ac79
+                                _ac79 += 1
+                                if _ai79 in set(int(i) for i in _tp79):
+                                    _ar79 = self.parameters_back(
+                                        _ae79.target, context_vid=up_vid,
+                                        max_depth=max(max_depth - depth, 6))
+                                    if _ar79.is_controllable or _ar79.is_repaired:
+                                        _ar79.path = new_path + _ar79.path
+                                        return self._cached(cache_key, _ar79)
                     if callee and callee not in self._call_stack and (
                             func_vid is None or not func_taint
                             or func_taint == "passthrough"):
@@ -4827,8 +4979,15 @@ class GraphAnalyzer:
             if not source_name:
                 continue
             dep_vid = self._find_identifier_by_name(source_name, context_vid)
+            # Fix 80 (CVE-2026-32613): the dfg in-edge source IS the receiver
+            # use node itself (Java `for (Map.Entry e : m.entrySet()) ...
+            # e.getValue()` — receiver flows e→call via dfg).  The
+            # name-lookup index misses freshly-emitted identifier nodes
+            # (for-each loop vars, lineno=0), which made every such receiver
+            # "unresolvable" and killed receiver-passthrough chains.  Trace
+            # the dfg source directly when the lookup fails.
             if dep_vid is None:
-                continue
+                dep_vid = source_vid
             result = self.parameters_back(dep_vid, context_vid, max_depth)
             if result.is_controllable:
                 return AnalysisResult(
@@ -4851,6 +5010,10 @@ class GraphAnalyzer:
                 root_name = _vattr(self.graph.vs[root_vid], "name", "")
                 if root_name:
                     dep_vid = self._find_identifier_by_name(root_name, context_vid)
+                    # Fix 80: same fallback as strategy 1 — trace the member
+                    # chain root directly when the name index misses it.
+                    if dep_vid is None:
+                        dep_vid = root_vid
                     if dep_vid is not None:
                         result = self.parameters_back(dep_vid, context_vid, max_depth)
                         if result.is_controllable:
@@ -5478,7 +5641,16 @@ class GraphAnalyzer:
                     caller_deps.append(pname)
 
             # Recurse into return expression
-            sub = self.parameters_back(expr_vid, context_vid=func_vid, max_depth=20)
+            # Fix 83: bind formal params to THIS call's args so the
+            # recursion resolves params context-sensitively.
+            _b83: dict = {pvid: (actual_args[fidx], call_vid)
+                          for fidx, (pvid, _pn) in formal.items() if fidx in actual_args}
+            _b83["__sig__"] = ("afr", call_vid, func_vid)
+            self._afr_bindings.append(_b83)
+            try:
+                sub = self.parameters_back(expr_vid, context_vid=func_vid, max_depth=20)
+            finally:
+                self._afr_bindings.pop()
             if not sub.is_controllable:
                 # Fix 42j: PHP ternary returns render as a branch node
                 # whose BFS doesn't descend into iftrue/iffalse children
@@ -5490,7 +5662,13 @@ class GraphAnalyzer:
                     for be in self._edge_out(expr_vid, "ast"):
                         if _vattr(be, "role") not in ("iftrue", "iffalse", "value"):
                             continue
-                        arm = self.parameters_back(be.target, context_vid=func_vid, max_depth=20)
+                        # Fix 83: keep the binding frame active for the arm
+                        # recursion (it runs after sub's frame was popped).
+                        self._afr_bindings.append(_b83)
+                        try:
+                            arm = self.parameters_back(be.target, context_vid=func_vid, max_depth=20)
+                        finally:
+                            self._afr_bindings.pop()
                         if arm.is_controllable:
                             return arm
             if sub.is_controllable:
@@ -5516,6 +5694,25 @@ class GraphAnalyzer:
                     _ln = _vattr(svv, "lineno", 0) or 0
                     if _ln < (fn_ln0 or 0):
                         continue
+                    # Fix 82 (CVE-2026-32613 anchor regression): the old
+                    # filter was "same file AND lineno >= function start"
+                    # with NO upper bound — assignments in LATER functions
+                    # of the same file (or at global scope below it) were
+                    # treated as defs of this function's `return $x`, so a
+                    # global `$name = $_POST[...]` below the function
+                    # poisoned its return summary ("return 'name' ←
+                    # same-name assign rhs" ×153 FP on osticket once Fix 80
+                    # weak-update merge edges let the RHS trace reach the
+                    # superglobal).  Restrict sibs to identifiers whose
+                    # enclosing function IS func_vid; when own/ast ancestry
+                    # cannot resolve the enclosing function (normalizer
+                    # quirk), fall back to the old positional filter so the
+                    # CVI-115534 rhs bridge still works.
+                    _sib_func = self._get_enclosing_func_vid(sib)
+                    if _sib_func is not None:
+                        if _sib_func != func_vid:
+                            continue
+                    # else: unresolved scope — keep the lineno>=fn_ln0 fallback
                     for le in self._edge_in(sib, "ast"):
                         if _vattr(le, "role", "") != "lhs":
                             continue
@@ -5525,7 +5722,13 @@ class GraphAnalyzer:
                         for re_ in self._edge_out(le.source, "ast"):
                             if _vattr(re_, "role", "") != "rhs":
                                 continue
-                            r43g = self.parameters_back(re_.target, context_vid=func_vid, max_depth=20)
+                            # Fix 83: rhs walk is inside the callee body —
+                            # keep this call's binding frame active.
+                            self._afr_bindings.append(_b83)
+                            try:
+                                r43g = self.parameters_back(re_.target, context_vid=func_vid, max_depth=20)
+                            finally:
+                                self._afr_bindings.pop()
                             if r43g is not None and r43g.is_controllable:
                                 r43g.reason = (f"return '{ename}' ← same-name "
                                                f"assign rhs: {r43g.reason}")

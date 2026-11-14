@@ -1,0 +1,9 @@
+// CVE-2026-32613 repro — frozen framework marker (Spinnaker echo).
+// The graph engine's Java framework detection walks up from the scanned
+// dir to find this build.gradle; the kork BOM coordinate selects the
+// 'spinnaker' framework config (source: Pipeline.getExpectedArtifacts).
+// FROZEN on purpose: do not "modernize" — detection depends on it.
+dependencies {
+    implementation enforcedPlatform("io.spinnaker.kork:kork-bom:7.255.0")
+    implementation "io.spinnaker.kork:kork-expressions"
+}

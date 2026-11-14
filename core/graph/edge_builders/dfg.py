@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -21,13 +22,25 @@ if TYPE_CHECKING:
 
 from core.graph.edge_builders.base import BaseEdgeBuilder
 from core.graph.node_edge_schema import (
-    AstRole, CgCallType, CrgType, DfgType, EdgeLabel, NodeLabel, OperatorType,
+    AstRole, CgCallType, CrgType, DfgType, EdgeLabel, FunctionType, NodeLabel,
+    OperatorType,
 )
 from utils.igraph_compat import _vattr
 
 __all__ = ["DataFlowBuilder"]
 
 logger = logging.getLogger("KunlunLog")
+
+# Fix 79d (CVE-2026-32613): Java collection/stream higher-order methods
+# whose functional argument receives ELEMENTS of the receiver.  Comparator
+# factories (sorted/comparing) and completion callbacks (thenApply/
+# whenComplete) are deliberately excluded — their lambdas do not receive
+# receiver elements.
+_ELEMENT_DISPATCH_METHODS: frozenset[str] = frozenset({
+    "forEach", "forEachRemaining", "map", "flatMap", "filter", "peek",
+    "anyMatch", "allMatch", "noneMatch", "removeIf", "replaceAll",
+    "mapToInt", "mapToLong", "mapToDouble", "takeWhile", "dropWhile",
+})
 
 # PHP type casts that sanitize taint by destroying string content.
 # Must match graph_analyzer._TYPE_CAST_SAFE — when the DFG builder encounters
@@ -260,6 +273,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             self._analyze_same_variables()
             # Fix 21c: foreach array -> keyvar/valvar element flows
             self._analyze_foreach_flows()
+            # Fix 79d (CVE-2026-32613): collection/stream higher-order
+            # dispatch — receiver elements flow into lambda parameters
+            self._analyze_lambda_dispatch_flows()
             try:
                 self._analyze_cross_file_variables(language)
             except Exception:
@@ -1240,16 +1256,132 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
             cond_vids = self._get_ast_children(v.index, role="condition")
             if not cond_vids:
+                # Fix 79 (CVE-2026-32613): Java enhanced-for emits the
+                # iterable under the generic RHS role (and the loop var
+                # under LHS) — same element-flow semantics as PHP's
+                # condition/keyvar/valvar triple.
+                cond_vids = self._get_ast_children(v.index, role="rhs")
+            if not cond_vids:
                 continue
             cond_vid = cond_vids[0]
 
-            for role in ("keyvar", "valvar"):
-                var_vids = self._get_ast_children(v.index, role=role)
+            var_vids: list[int] = []
+            for role in ("keyvar", "valvar", "lhs"):
+                var_vids.extend(self._get_ast_children(v.index, role=role))
                 for var_vid in var_vids:
                     if var_vid == cond_vid:
                         continue
                     # 跳过数组自身（taint 沿 dfg 已有边可达时无需自环式补边）
                     self._add_dfg_edge(cond_vid, var_vid, DfgType.SAME.value)
+
+    def _analyze_lambda_dispatch_flows(self) -> None:
+        """Fix 79d (CVE-2026-32613): collection/stream higher-order dispatch.
+
+        ``recv.forEach((k, v) -> ...)``, ``xs.stream().map(x -> ...)``,
+        ``list.removeIf(x -> ...)`` … — the functional argument's
+        parameters receive ELEMENTS of the receiver collection.  Without a
+        receiver→param dfg edge, the lambda body is an island: backward
+        traces from any body use die at the lambda parameter (this is
+        exactly where the CVE-2026-32613 echo→kork SpEL chain broke).
+
+        Scoped to the standard element-dispatch method names — comparator
+        factories (``sorted``/``comparing``) and completion callbacks
+        (``thenApply``/``whenComplete``) do NOT feed receiver elements to
+        their lambda and stay untouched.  Java only.
+        """
+        if self._language != "java":
+            return
+        call_types = {OperatorType.METHOD_CALL.value,
+                      OperatorType.STATIC_CALL.value,
+                      OperatorType.CALL.value}
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] not in call_types:
+                continue
+            vid = v.index
+            name = self._vname[vid] or ""
+            short = name.rsplit(".", 1)[-1]
+            if short not in _ELEMENT_DISPATCH_METHODS:
+                continue
+            # functional argument = ast[role=arg] child that is a lambda
+            # function node
+            lambda_vids = [
+                t for t in self._get_ast_children(vid, role="arg")
+                if self._vlabel[t] == NodeLabel.FUNCTION.value
+                and self._vtype[t] == FunctionType.LAMBDA.value
+            ]
+            if not lambda_vids:
+                continue
+            # receiver resolution:
+            # (a) name-based preferred: the receiver segment of the call
+            #     name resolved to the nearest same-name identifier/
+            #     parameter in the enclosing scope chain — for chained
+            #     `xs.stream().map(l)` this yields the BASE collection
+            #     directly (stream elements ≡ collection elements), with
+            #     no dependence on resolving the intermediate stream()
+            #     call node's type
+            receiver_vid = None
+            dot_pos = name.find(".")
+            if dot_pos > 0:
+                recv_name = name[:dot_pos]
+                scope_vid = None
+                for pv in self._edges_to(vid, "own") + self._edges_to(vid, "ast"):
+                    scope_vid = pv
+                    break
+                chain, seen, cur = [scope_vid], {scope_vid}, scope_vid
+                while cur is not None:
+                    nxt = None
+                    for av in self._edges_to(cur, "own") + self._edges_to(cur, "ast"):
+                        if av in seen:
+                            continue
+                        seen.add(av)
+                        chain.append(av)
+                        nxt = av
+                        if self._vlabel[av] in (NodeLabel.FUNCTION.value,
+                                                NodeLabel.FILE.value):
+                            break
+                    if nxt is None or self._vlabel[nxt] in (
+                            NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                        break
+                    cur = nxt
+                for scope in chain:
+                    if scope is None:
+                        continue
+                    for child in self._edges_from(scope, "own") + self._edges_from(scope, "ast"):
+                        if (self._vname[child] == recv_name
+                                and self._vlabel[child] in (
+                                    NodeLabel.PARAMETER.value,
+                                    NodeLabel.IDENTIFIER.value)):
+                            receiver_vid = child
+                            break
+                        if (self._vlabel[child] == NodeLabel.OPERATOR.value
+                                and self._vtype[child] == OperatorType.ASSIGN.value):
+                            for lhv in self._get_ast_children(child, role="lhs"):
+                                if self._vname[lhv] == recv_name:
+                                    receiver_vid = lhv
+                                    break
+                        if receiver_vid is not None:
+                            break
+                    if receiver_vid is not None:
+                        break
+            # (b) fallback: accumulated dfg in-edge from another CALL node
+            #     = chained receiver (``foo().map(l)`` where the base has no
+            #     name in this scope)
+            if receiver_vid is None:
+                for src, tgt, _t in self._dfg_edges:
+                    if tgt == vid and self._vlabel[src] == NodeLabel.OPERATOR.value:
+                        receiver_vid = src
+                        break
+            if receiver_vid is None:
+                continue
+            for lambda_vid in lambda_vids:
+                for pv in self._edges_from(lambda_vid, "own"):
+                    if self._vlabel[pv] != NodeLabel.PARAMETER.value:
+                        continue
+                    if pv == receiver_vid:
+                        continue
+                    self._add_dfg_edge(receiver_vid, pv, DfgType.SAME.value)
 
     def _analyze_same_variables(self) -> None:
         """#4: 同名变量链接 — 在同一作用域内链接同名变量的「使用→定义」。
@@ -1345,9 +1477,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if self._vlabel[v.index] != NodeLabel.BRANCH.value \
                     or self._vtype[v.index] != "foreach":
                 continue
-            for role in ("keyvar", "valvar"):
+            for role in ("keyvar", "valvar", "lhs"):
                 foreach_header_vids.update(
                     self._get_ast_children(v.index, role=role))
+        # Fix 79 (CVE-2026-32613): the foreach loop-variable declaration IS a
+        # definition site — its value arrives via the iterable element-flow
+        # edge (cond→var, added later in _analyze_foreach_flows).  Without
+        # registering it here, a body use of the loop var (e.g. Java
+        # `for (Map artifactMap : expectedArtifacts) ... transformMap(
+        # artifactMap, ctx)`) skipped it in the backward LHS search and the
+        # fallback (prior dfg-in identifier) also missed it — the foreach
+        # pass runs AFTER this one, so the cond→var edge is not accumulated
+        # yet.  The chain died at the loop var with zero out-edges.
+        assign_lhs_vids |= foreach_header_vids
         for scope_key, name_groups in scope_vars.items():
             scope_vid, scope_label = scope_key
             # Skip file-level scope ONLY for identifiers inside functions.
@@ -1475,6 +1617,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             break
                     # 找前方最近的 LHS
                     found = False
+                    _found_cand: int = -1
+                    _found_cand_j: int = -1
                     elem_write_seen = False
                     for j in range(i - 1, -1, -1):
                         cand = vids_sorted[j]
@@ -1511,9 +1655,42 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                 self._add_dfg_edge(cand, vid, DfgType.SAME.value)
                             continue
                         self._add_dfg_edge(cand, vid, DfgType.SAME.value)
+                        _found_cand = cand
+                        _found_cand_j = j
                         found = True
                         break
                     if found:
+                        # Fix 80 (CVE-2026-32613): conditional re-assignment
+                        # is a WEAK update.  When the LHS this use links to is
+                        # assigned inside a branch that does NOT enclose the
+                        # use (`x = tainted; if (x == null) { x = emptyList(); }
+                        # foreach (x as ...)`, Spinnaker echo shape), the
+                        # re-assignment does not dominate the use — the prior
+                        # definition may still be live.  Add a merge edge
+                        # prior-def → LHS so backward traces see both routes.
+                        # Strong update is kept when the use is inside the
+                        # same branch AFTER the assignment (reassign dominates
+                        # the use), which avoids resurrecting sanitized values
+                        # inside `if (c) { x = hsc(x); echo x; }`.
+                        _owner80 = lhs_owner.get(_found_cand)
+                        if (_owner80 is not None
+                                and self._array_offset_key(_found_cand) is None):
+                            _obranches = self._branch_ancestors_80(_owner80)
+                            if _obranches and not _obranches.issubset(
+                                    self._branch_ancestors_80(vid)):
+                                _prev80 = None
+                                for j80 in range(_found_cand_j - 1, -1, -1):
+                                    _c80 = vids_sorted[j80]
+                                    if _c80 in assign_lhs_vids \
+                                            and self._array_offset_key(_c80) is None:
+                                        _prev80 = _c80
+                                        break
+                                    if self._vlabel[_c80] == NodeLabel.PARAMETER.value:
+                                        _prev80 = _c80
+                                        break
+                                if _prev80 is not None and _prev80 != _found_cand:
+                                    self._add_dfg_edge(
+                                        _prev80, _found_cand, DfgType.SAME.value)
                         continue
                     # 回退：如果没有同名 LHS，找前方最近的有 DFG 入边的
                     # identifier（如通过 param_flow 写入的 output param）。
@@ -2285,6 +2462,26 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if self._elabel[e.index] == label:
                 result.append(e.index)
         return result
+
+    def _branch_ancestors_80(self, vid: int) -> set[int]:
+        """Fix 80 (CVE-2026-32613): branch nodes enclosing ``vid`` (up to the
+        nearest function/file scope, walking own/ast parents).  Used by the
+        weak-update merge to decide whether a conditional re-assignment
+        dominates a later use of the same variable.
+        """
+        out: set[int] = set()
+        cur = vid
+        for _ in range(24):
+            pars = self._edges_to(cur, "own") or self._edges_to(cur, "ast")
+            if not pars:
+                break
+            cur = pars[0]
+            if self._vlabel[cur] == NodeLabel.BRANCH.value:
+                out.add(cur)
+            if self._vlabel[cur] in (NodeLabel.FUNCTION.value,
+                                     NodeLabel.FILE.value):
+                break
+        return out
 
     def _get_scope_parent(self, vid: int) -> int | None:
         """沿 own/ast 边向上找到最近的 function/file 作用域节点。

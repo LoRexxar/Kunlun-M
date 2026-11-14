@@ -45,6 +45,37 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "contentEquals":    {"passthrough": [], "safe": True},
         "subSequence":      {"passthrough": [0], "safe": False},
 
+        # ===== JDK 接口访问器（receiver 声明类型限定，Fix 79 CVE-2026-32613）=====
+        # Map.Entry.getValue/getKey 与 Map.entrySet 是容器元素透传：返回值
+        # 派生自 receiver 持有的数据。仅当 receiver 声明类型可解析为
+        # Map.Entry/Map 时才命中（knowledge_bridge 的 typed lookup），
+        # 不做裸名 getValue 白名单（领域 getter 大量撞名）。
+        "Map.Entry.getValue": {"passthrough": ["this"], "safe": False},
+        "Map.Entry.getKey":   {"passthrough": ["this"], "safe": False},
+        "Map.entrySet":       {"passthrough": ["this"], "safe": False},
+        "Map.Entry.setValue": {"passthrough": [0], "safe": False},
+        # java.util.function 函数式接口分发：结果 = lambda(arg)，参数透传。
+        # 闭包捕获变量经 receiver 流入（如 identity 直通）。
+        "Function.apply":          {"passthrough": [0], "safe": False},
+        "BiFunction.apply":        {"passthrough": [0, 1], "safe": False},
+        "UnaryOperator.apply":     {"passthrough": [0], "safe": False},
+        "Predicate.test":          {"passthrough": [0], "safe": False},
+        "Supplier.get":            {"passthrough": ["this"], "safe": False},
+        "Consumer.accept":         {"passthrough": [0], "safe": False},
+        "Function.identity":       {"passthrough": ["this"], "safe": False},
+        # Jackson ObjectMapper：convertValue/readValue/treeToValue 的返回值
+        # 是入参对象的同构拷贝（CVE-2026-32613 echo 把 ExpectedArtifact 转
+        # Map 后交 SpEL 求值）。
+        "ObjectMapper.convertValue": {"passthrough": [0], "safe": False},
+        "ObjectMapper.readValue":    {"passthrough": [0], "safe": False},
+        "ObjectMapper.treeToValue":  {"passthrough": [0], "safe": False},
+        # Collection→Stream：stream() 的元素就是 receiver 集合的元素
+        # （receiver 声明类型限定命中，链式 xs.stream().map(x->…) 的
+        # 元素流回溯经此穿过 stream 调用节点）。
+        "Collection.stream": {"passthrough": ["this"], "safe": False},
+        "List.stream":       {"passthrough": ["this"], "safe": False},
+        "Set.stream":        {"passthrough": ["this"], "safe": False},
+
         # ===== StringBuilder/StringBuffer =====
         "append":           {"passthrough": [0], "safe": False},
         "insert":           {"passthrough": [0], "safe": False},

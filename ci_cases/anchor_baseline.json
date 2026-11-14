@@ -20,8 +20,8 @@
   "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains).",
   "_flaky_note": "pear Net/DNS2 cache rows flicker with engine-external nondeterminism; Fix 68 baseline run: -2 (vs -23 without Fix 68)",
   "retry_on_fail": true,
-  "task_id": 5497,
-  "count": 101,
+  "task_id": 5773,
+  "count": 88,
   "findings": [
    {
     "cvi": "1000",
@@ -58,26 +58,6 @@
    {
     "cvi": "1000",
     "loc": "include/class.dynamic_forms.php:1891"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/class.export.php:247"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/class.export.php:282"
-   },
-   {
-    "cvi": "1002",
-    "loc": "include/class.file.php:790"
-   },
-   {
-    "cvi": "1009",
-    "loc": "include/class.forms.php:1514"
-   },
-   {
-    "cvi": "1009",
-    "loc": "include/class.forms.php:1616"
    },
    {
     "cvi": "1000",
@@ -200,10 +180,6 @@
     "loc": "include/class.http.php:47"
    },
    {
-    "cvi": "1009",
-    "loc": "include/class.knowledgebase.php:73"
-   },
-   {
     "cvi": "1000",
     "loc": "include/class.schedule.php:1336"
    },
@@ -213,31 +189,7 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/class.setup.php:103"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/cli/modules/file.php:70"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/cli/modules/unpack.php:132"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/client/accesslink.inc.php:36"
-   },
-   {
-    "cvi": "1014",
-    "loc": "include/client/header.inc.php:128"
-   },
-   {
-    "cvi": "1014",
-    "loc": "include/client/header.inc.php:74"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/client/open.inc.php:108"
+    "loc": "include/client/templates/dynamic-form.tmpl.php:43"
    },
    {
     "cvi": "1000",
@@ -246,6 +198,134 @@
    {
     "cvi": "1000",
     "loc": "include/client/tickets.inc.php:193"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:240"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:248"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/pear/Net/SMTP.php:214"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/pear/PEAR.php:846"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dashboard.inc.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:393"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/orgs.inc.php:170"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/dynamic-field-config.tmpl.php:138"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/dynamic-form-fields-view.tmpl.php:35"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/dynamic-form-simple.tmpl.php:21"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/dynamic-form.tmpl.php:97"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/inline-form.tmpl.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-profile.tmpl.php:12"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-profile.tmpl.php:14"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-profile.tmpl.php:154"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/simple-form.tmpl.php:24"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:40"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:672"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-print.tmpl.php:167"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tickets.tmpl.php:162"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-relations.inc.php:27"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-relations.inc.php:30"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tpl.inc.php:121"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tpl.inc.php:78"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/users.inc.php:225"
+   },
+   {
+    "cvi": "1000",
+    "loc": "open.php:80"
+   },
+   {
+    "cvi": "1002",
+    "loc": "include/class.file.php:790"
+   },
+   {
+    "cvi": "1002",
+    "loc": "include/pear/Mail/mime.php:480"
+   },
+   {
+    "cvi": "1007",
+    "loc": "scp/settings.php:56"
+   },
+   {
+    "cvi": "1011",
+    "loc": "include/pear/Mail/sendmail.php:123"
+   },
+   {
+    "cvi": "1014",
+    "loc": "include/client/header.inc.php:128"
+   },
+   {
+    "cvi": "1014",
+    "loc": "include/client/header.inc.php:74"
    },
    {
     "cvi": "1017",
@@ -264,16 +344,8 @@
     "loc": "include/laminas-mail/src/Protocol/Smtp.php:196"
    },
    {
-    "cvi": "1002",
-    "loc": "include/pear/Mail/mime.php:480"
-   },
-   {
     "cvi": "1017",
     "loc": "include/pear/Mail/mimePart.php:441"
-   },
-   {
-    "cvi": "1011",
-    "loc": "include/pear/Mail/sendmail.php:123"
    },
    {
     "cvi": "1017",
@@ -285,147 +357,23 @@
    },
    {
     "cvi": "1017",
+    "loc": "include/pear/Net/DNS2/Cache/File.php:87"
+   },
+   {
+    "cvi": "1017",
     "loc": "include/pear/Net/DNS2/Cache/Shm.php:154"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Net/DNS2/Cache/Shm.php:91"
    },
    {
     "cvi": "1017",
     "loc": "include/pear/Net/DNS2/Socket/Streams.php:225"
    },
    {
-    "cvi": "1000",
-    "loc": "include/pear/Net/SMTP.php:214"
-   },
-   {
     "cvi": "1017",
     "loc": "include/pear/Net/Socket.php:383"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/apikey.inc.php:118"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/apikey.inc.php:25"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/banrule.inc.php:28"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/banrule.inc.php:73"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/cannedresponse.inc.php:122"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/cannedresponse.inc.php:27"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/category.inc.php:168"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/category.inc.php:44"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/dashboard.inc.php:31"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/department.inc.php:33"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/department.inc.php:470"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/departments.inc.php:143"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/directory.inc.php:130"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/directory.inc.php:132"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/dynamic-form.inc.php:39"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/orgs.inc.php:170"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/pages.inc.php:102"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/pages.inc.php:104"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/pages.inc.php:107"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/pages.inc.php:108"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/schedule-add.tmpl.php:19"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/task-preview.tmpl.php:40"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/ticket-print.tmpl.php:167"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/ticket-open.inc.php:428"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/ticket-relations.inc.php:27"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/ticket-relations.inc.php:30"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/ticket-view.inc.php:1083"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/ticket-view.inc.php:1174"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/users.inc.php:225"
-   },
-   {
-    "cvi": "1000",
-    "loc": "open.php:80"
-   },
-   {
-    "cvi": "1000",
-    "loc": "scp/ajax.php:323"
-   },
-   {
-    "cvi": "1007",
-    "loc": "scp/settings.php:56"
    }
   ]
  }
