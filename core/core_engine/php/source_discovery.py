@@ -249,6 +249,21 @@ FRAMEWORK_CONFIGS = {
         },
         'global_source_functions': set(),
     },
+    'openemr': {
+        # Fix 86: OpenEMR (CVE-2026-126489, GHSA-8j6v-q545-q9q7) —
+        # second-order SQLi.  Admin-editable layout tables (layout_options,
+        # written by interface/super/edit_layout.php) are read back through
+        # the library/sql.inc.php DB wrappers and spliced into SQL column
+        # positions (ippf_issues.inc.php issue_ippf_con_save).  The DB-read
+        # wrappers' return values are therefore second-order sources.
+        'request_object_names': set(),
+        'request_methods': set(),
+        # Verified against library/sql.inc.php @ v8_4_1: row-returning
+        # read wrappers are sqlFetchArray / sqlQuery / sqlGetAssoc.
+        'global_source_functions': {
+            'sqlFetchArray', 'sqlQuery', 'sqlGetAssoc',
+        },
+    },
     'symfony': {
         'request_object_names': {'request', '$request'},
         'request_methods': {
@@ -285,6 +300,12 @@ def detect_framework(project_dir: str) -> Optional[str]:
             deps.update(data.get('require', {}))
             deps.update(data.get('require-dev', {}))
 
+            # Fix 86: OpenEMR — project-type composer.json (name: openemr/openemr).
+            # MUST run before the dependency loop: OpenEMR itself depends on
+            # symfony/* components, which would otherwise claim it as symfony.
+            if data.get('name') == 'openemr/openemr':
+                return 'openemr'
+
             for dep in deps:
                 if dep == 'slim/slim' or dep.startswith('slim/'):
                     return 'slim'
@@ -302,6 +323,12 @@ def detect_framework(project_dir: str) -> Optional[str]:
             pass
 
     # Fallback: directory structure
+    # Fix 86: OpenEMR — vendored app tree (library/sql.inc.php DB layer +
+    # interface/ controllers + sites/ instances) marks the app even when
+    # composer.json is stripped from a partial scan target.
+    if (os.path.isfile(os.path.join(project_dir, 'library', 'sql.inc.php'))
+            and os.path.isdir(os.path.join(project_dir, 'interface'))):
+        return 'openemr'
     # Fix 67: symfony 1.x (1.4-era) — vendored framework tree inside the
     # project (qdPM: core/lib/symfony; classic apps: lib/symfony)
     for _sf in (('core', 'lib', 'vendor', 'symfony'), ('core', 'lib', 'symfony'),

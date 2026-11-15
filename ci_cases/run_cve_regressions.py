@@ -101,6 +101,13 @@ EXPECTATIONS = {
     # its own requirements.txt so detect_framework resolves fastapi (not
     # the repo-root django one).
     'CVE-2026-44566_fastapi_upload.py': {'7005': 1},
+    # Fix 86 (CVE-2026-126489 OpenEMR second-order SQLi): admin-written
+    # layout_options.field_id read back via sqlFetchArray (openemr
+    # framework source) → spliced into REPLACE ... SET column-name
+    # position → sqlStatement sink. Caller file matters: without it the
+    # uncalled function is dead-code-gated. Safe contrast (constant SQL)
+    # in the same file must NOT fire.
+    'ippf_issues.inc.php': {'1006': 1},
 }
 
 

@@ -6,6 +6,12 @@
         <file value="wp-load.php"/>
         <folder value="wp-admin"/>
     </framework>
+    <!-- Fix 86: OpenEMR (CVE-2026-126489) — app tree markers -->
+    <framework name="OpenEMR" language="php" code="https://github.com/openemr/openemr">
+        <file value="library/sql.inc.php"/>
+        <file value="interface/super/edit_layout.php"/>
+        <folder value="interface/main"/>
+    </framework>
     <framework name="Joomla" language="php" code="https://github.com/joomla/joomla-cms">
         <file value="images/joomla_black.png"/>
         <folder value="layout/joomla"/>
