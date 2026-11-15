@@ -954,7 +954,27 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             # (kept as no-op: _sprintf_extra consumed by the sub-pass)
             logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
 
+            _sink_seen = 0
             for sink in sinks:
+                _sink_seen += 1
+                if _sink_seen % 250 == 1:
+                    # Fix 88-obs: taint-loop memory telemetry — RSS+VmSwap
+                    # sampled every 250 sinks. The OpenEMR 1.6M-node corpus
+                    # OOMed the host at 7.6GB during this loop (task 5834);
+                    # RSS-only gauges go blind once the kernel swaps the
+                    # process out, so both counters are logged.
+                    try:
+                        _vm = {}
+                        with open('/proc/self/status') as _sf:
+                            for _sl in _sf:
+                                if _sl.startswith(('VmRSS:', 'VmSwap:')):
+                                    _k, _v = _sl.split(':')
+                                    _vm[_k] = int(_v.split()[0]) // 1024
+                        logger.info('[SCAN] [GRAPH] sink-loop mem %d/%d rss=%dMB swap=%dMB',
+                                    _sink_seen, len(sinks),
+                                    _vm.get('VmRSS', -1), _vm.get('VmSwap', -1))
+                    except Exception:
+                        pass
                 try:
                     _sn = sink.get('name', '')
                     # ════════ sink-loop segment 1/6: ADMISSION ════════
