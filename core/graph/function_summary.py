@@ -157,6 +157,30 @@ def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
                     graph.vs[vid]["func_summary_type"] = best
 
 
+_PROP_INDEX_CACHE: list = [None, None]  # [weakref(graph), {name: [vid, ...]}]
+
+
+def _property_name_index(graph) -> dict:
+    """Fix 87 (perf): name→vids bucket index over property nodes.
+
+    Fix 72c-2's same-name property union originally scanned ALL graph
+    vertices on every call — O(N²) on large corpora (OpenEMR 1.6M nodes
+    spent 4.5h+ inside build_function_summaries with 100% of samples in
+    that loop).  Build the index once per graph and reuse it.
+    """
+    ref, idx = _PROP_INDEX_CACHE
+    if ref is not None and ref() is graph:
+        return idx
+    import weakref
+    from utils.igraph_compat import _vattr
+    new_idx: dict = {}
+    for v in graph.vs:
+        if _vattr(v, "type", "") == "property":
+            new_idx.setdefault(_vattr(v, "name", ""), []).append(v.index)
+    _PROP_INDEX_CACHE[:] = [weakref.ref(graph), new_idx]
+    return new_idx
+
+
 def build_function_summaries(
     graph: ig.Graph,
     languages: list[str] | None = None,
@@ -752,10 +776,11 @@ def _trace_return_value(
             _prop_seed.add(fv)
         if _prop_seed:
             _seed_names = {_vattr(graph.vs[fv], "name", "") for fv in _prop_seed}
-            for v2 in graph.vs:
-                if (_vattr(v2, "type", "") == "property"
-                        and _vattr(v2, "name", "") in _seed_names):
-                    _prop_seed.add(v2.index)
+            # Fix 87: bucket-index lookup replaces the per-call full
+            # graph.vs linear scan (O(N) each → O(N) once per graph).
+            _pidx = _property_name_index(graph)
+            for _pn in _seed_names:
+                _prop_seed.update(_pidx.get(_pn, ()))
             for fv in _prop_seed:
                 fnode = graph.vs[fv]
             # BFS the foreign node's dfg ancestry (bounded) for a source
