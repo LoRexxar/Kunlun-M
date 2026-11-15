@@ -49,6 +49,12 @@ EXPECTATIONS = {
     # Recommendation System /Admin/edit_symptom.php). Safe contrast in the
     # same file (prepare+bound execute) must NOT fire.
     'CVE-2026-93997_pdo_query_sqli.php': {'1005': 1},
+    # CVE-2026-36236 (SourceCodester Engineers Online Portal v1.0,
+    # update_password.php): $_POST['new_password'] interpolated into a
+    # double-quoted mysqli_query UPDATE — native superglobal→interp→sink
+    # chain, no engine fix needed; regression guard for the native path.
+    # Safe contrast (mysqli_prepare+bind) must NOT fire.
+    'CVE-2026-36236_post_interp_sqli.php': {'1006': 1},
     # Fix 84 (CVE-2026-30530 SourceCodester Online Food Ordering System):
     # foreach($_POST) → $data column list → $this->query(INSERT/UPDATE) —
     # a METHOD-BODY generic-DB call on a SQLite3 subclass.  Fix 71e's
