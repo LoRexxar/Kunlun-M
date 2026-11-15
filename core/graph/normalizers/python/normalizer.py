@@ -573,12 +573,22 @@ class Normalizer:
                 ann_name = self._expr_text(dec)
             else:
                 ann_name = "<decorator>"
+            ann_sig = ""
+            if (isinstance(dec, ast.Call) and dec.args
+                    and isinstance(dec.args[0], ast.Constant)
+                    and isinstance(dec.args[0].value, str)):
+                # Fix 91 (CVE-2026-33078 roxy-wi): keep the decorator's first
+                # string argument on the annotation node.  For framework
+                # routers (@bp.route('/section/haproxy/<server_ip>/save')) this
+                # is the URL rule whose <var> segments bind view-function
+                # parameters — knowledge_bridge marks those as HTTP sources.
+                ann_sig = dec.args[0].value
             ann_pos = add_node({
                 "label": NodeLabel.ANNOTATION.value,
                 "name": ann_name,
                 "lineno": dec.lineno if hasattr(dec, "lineno") else 0,
                 "language": self.language,
-                "attrs": {"raw_type": "Decorator"},
+                "attrs": {"raw_type": "Decorator", "signature": ann_sig},
             })
             add_edge({
                 "label": EdgeLabel.OWN.value,

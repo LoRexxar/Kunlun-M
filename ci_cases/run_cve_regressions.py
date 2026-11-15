@@ -107,6 +107,15 @@ EXPECTATIONS = {
     # its own requirements.txt so detect_framework resolves fastapi (not
     # the repo-root django one).
     'CVE-2026-44566_fastapi_upload.py': {'7005': 1},
+    # Fix 91 (CVE-2026-33078 roxy-wi <8.2.6.4): Flask route path params
+    # are HTTP sources — @bp.route('/section/haproxy/<server_ip>/save')
+    # binds URL vars to view params with no request.* anywhere; the param
+    # flows into '%s'-formatted SQL at cursor.execute().  Subdir flask/
+    # carries its own requirements.txt so detect_framework resolves flask.
+    # Fix 92 safe contrasts in the same file (route-tainted args into
+    # UNRESOLVED peewee-style ORM builders .select().where().execute())
+    # must NOT fire.
+    'CVE-2026-33078_flask_path_sqli.py': {'7002': 1},
     # Fix 86 (CVE-2026-126489 OpenEMR second-order SQLi): admin-written
     # layout_options.field_id read back via sqlFetchArray (openemr
     # framework source) → spliced into REPLACE ... SET column-name

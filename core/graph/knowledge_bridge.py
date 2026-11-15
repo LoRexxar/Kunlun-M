@@ -198,6 +198,11 @@ def enrich_taint(
     #     以 registry.framework 为语义门。
     if language == "python":
         count += _enrich_fastapi_upload_params(graph, source_registry)
+        # 5c. Fix 91 (CVE-2026-33078 roxy-wi): Flask route path params —
+        #     URL 规则 <var> 段绑定到 view 函数参数，全程不出现 request.*，
+        #     member-based source 永远打不中；从 Decorator 节点的 rule 串
+        #     （normalizer Fix 91 存入 signature）解析 <var> 并种污点。
+        count += _enrich_flask_route_params(graph, source_registry)
 
     # 6. 框架 safe 方法标注
     #    某些框架方法返回值经过安全转换（hash/枚举/常量），不应传播污点。
@@ -1276,6 +1281,94 @@ def _enrich_fastapi_upload_params(graph: ig.Graph, source_registry) -> int:
             count,
         )
     return count
+
+def _enrich_flask_route_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 91 (CVE-2026-33078 roxy-wi): Flask route path parameters are HTTP sources.
+
+    Flask binds URL path variables to view-function parameters
+    (``@bp.route('/section/haproxy/<server_ip>/save')`` →
+    ``haproxy_section_save(server_ip)``).  Each binding is attacker-
+    controlled request-path data, yet no ``request.*`` member appears
+    anywhere — member-based sources can never fire.  roxy-wi 8.2.6.3
+    chains such a param through ``master_slave_upload_and_restart()``
+    into ``is_master()`` where it lands in ``'%s'``-formatted SQL executed
+    by ``cursor.execute()`` (fixed in 8.2.6.4 via common.is_ip_or_dns).
+
+    Evidence is graph-native: the Python normalizer (Fix 91) stores the
+    router rule string on the Decorator annotation node (``signature``).
+    This pass parses ``<var>`` segments and marks the owning view
+    function's matching parameter nodes as sources.
+
+    Semantic gate mirrors Fix 85: skip when requirements declare a
+    DIFFERENT framework.  Unknown / flask → apply.  When the rule string
+    is missing (non-Call decorator / pre-Fix-91 graph) only an explicit
+    flask detection allows the mark-all-params fallback — in Flask every
+    view parameter is URL-bound.
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "flask":
+        return 0
+
+    import re as _re
+    _route_name = _re.compile(r"(?:^|\.)route$")
+    # <var>, <converter:var>, <any(a, b):var> — Flask URL rule variables.
+    _url_var = _re.compile(
+        r"<(?:(?:string|int|float|path|uuid|any)(?:\([^)]*\))?:)?([A-Za-z_]\w*)>")
+
+    # annotation node → owning node via incoming own edge (function/class).
+    ann_parent: dict[int, int] = {}
+    for e in graph.es:
+        if e["label"] == "own":
+            tgt = _vattr(graph.vs[e.target], "label")
+            if tgt == "annotation":
+                ann_parent[e.target] = e.source
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != "annotation":
+            continue
+        if _vattr(v, "raw_type") != "Decorator":
+            continue
+        node_lang = _vattr(v, "language", "")
+        if node_lang and node_lang != "python":
+            continue
+        name = _vattr(v, "name", "") or ""
+        if not _route_name.search(name):
+            continue
+        func_vid = ann_parent.get(v.index)
+        if func_vid is None:
+            continue
+        rule = _vattr(v, "signature", "") or ""
+        if rule:
+            varnames = set(_url_var.findall(rule))
+        elif fw == "flask":
+            varnames = None  # explicit Flask: every view param is URL-bound
+        else:
+            continue
+        for eid in graph.incident(func_vid, mode="out"):
+            e = graph.es[eid]
+            if e["label"] != "own":
+                continue
+            pv = graph.vs[e.target]
+            if _vattr(pv, "label") != "parameter":
+                continue
+            if _vattr(pv, "taint_type"):
+                continue
+            pname = _vattr(pv, "name", "") or ""
+            if not pname:
+                continue
+            if varnames is not None and pname not in varnames:
+                continue
+            graph.vs[pv.index]["taint_type"] = "source"
+            graph.vs[pv.index]["taint_origin"] = "flask_route_path_param"
+            count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 91: marked %d Flask route path param(s) as sources",
+            count,
+        )
+    return count
+
 
 def _get_simple_name(name: str) -> str:
     """提取短名：'trim' / 'MyClass::method' → 'method'。"""
