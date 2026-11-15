@@ -258,6 +258,23 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "loadstring", "dofile", "require",
 })
 
+# Fix 92 (CVE-2026-33078 roxy-wi): ORM query-builder method names whose
+# UNRESOLVED (library) call returns are parameterized query objects — the
+# call's tainted args bind as SQL parameters, so the return must NOT
+# inherit arg taint via the Fix 50-11 passthrough.  Deliberately excludes
+# generic names whose return legitimately carries tainted data (join =
+# str.join, replace = str.replace, get = dict.get, filter/values builtin,
+# union = set.union) — an ORM-builder chain still dies at its first
+# select/where/annotate segment, so excluding them costs no ORM coverage.
+# A user-defined builder with a return statement resolves through
+# analyze_function_return and never reaches this set.
+_ORM_QUERY_BUILDER_METHODS: frozenset[str] = frozenset({
+    "select", "where", "update", "insert", "delete", "exclude",
+    "order_by", "group_by", "having", "limit", "offset", "distinct",
+    "on_conflict", "get_or_none", "get_or_create", "except_",
+    "annotate", "aggregate", "outerjoin", "paginate",
+})
+
 # Java parameter annotations that indicate user-controlled input
 _USER_INPUT_PARAM_ANNOTATIONS: frozenset[str] = frozenset({
     "RequestParam", "RequestBody", "PathVariable", "CookieValue",
@@ -4506,20 +4523,36 @@ class GraphAnalyzer:
                                 # arg's chain to hit an annotated file-scoped
                                 # source (React/Vue props) or superglobal,
                                 # decided by full pb() on the arg.
+                                # Fix 92 (CVE-2026-33078 roxy-wi): ORM
+                                # query-builder methods (peewee / SQLAlchemy /
+                                # Django ``Model.select().where(tainted)``)
+                                # return PARAMETERIZED query objects — tainted
+                                # args are bound as SQL parameters, the query
+                                # object itself is not injectable. Skip the
+                                # arg passthrough for these unresolved library
+                                # builders, else every following
+                                # ``query.execute()`` inherits arg taint and
+                                # reports SQLi (roxy-wi corpus: 12 ORM FPs).
+                                # Generic names whose return legitimately
+                                # carries tainted data (str.join, str.replace,
+                                # dict.get/filter/values, set.union) are
+                                # deliberately NOT in this set.
+                                _orm_builder = callee.rsplit(".", 1)[-1] in _ORM_QUERY_BUILDER_METHODS
                                 _pt_hit = None
-                                try:
-                                    for _ae in self._edge_out(up_vid, "ast"):
-                                        if _vattr(_ae, "role", "") != "arg":
-                                            continue
-                                        _av = _ae.target
-                                        if _vattr(self.graph.vs[_av], "label", "") in (
-                                                NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
-                                            _pr = self.parameters_back(_av, context_vid=up_vid)
-                                            if _pr.code == 1:
-                                                _pt_hit = (_av, _pr)
-                                                break
-                                except Exception:
-                                    _pt_hit = None
+                                if not _orm_builder:
+                                    try:
+                                        for _ae in self._edge_out(up_vid, "ast"):
+                                            if _vattr(_ae, "role", "") != "arg":
+                                                continue
+                                            _av = _ae.target
+                                            if _vattr(self.graph.vs[_av], "label", "") in (
+                                                    NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
+                                                _pr = self.parameters_back(_av, context_vid=up_vid)
+                                                if _pr.code == 1:
+                                                    _pt_hit = (_av, _pr)
+                                                    break
+                                    except Exception:
+                                        _pt_hit = None
                                 if _pt_hit is not None:
                                     _av, _pr = _pt_hit
                                     return self._cached(cache_key, AnalysisResult(
