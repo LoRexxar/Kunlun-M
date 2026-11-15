@@ -720,7 +720,13 @@ def _trace_return_value(
     # When a binary_op has both h($x) (safe) and $x (param) as DFG sources,
     # safe should take precedence — the parameter is only reachable through
     # the safe function call, not directly.
-    dfg_src_list = list(eidx["in"].get("dfg", {}).get(start_vid, []))
+    # Fix 90: parallel/multi DFG edges (e.g. `$where .= " . " . f() . " "`
+    # inside a loop creates repeated def-use pairs) made dfg_src_list contain
+    # the same vid many times; the per-source recursion below then fans out
+    # exponentially through concat diamonds (ci_scan stuck 30min+ on the
+    # openemr repro).  Duplicate sources carry no extra tracing information —
+    # dedupe, preserving first-seen order.
+    dfg_src_list = list(dict.fromkeys(eidx["in"].get("dfg", {}).get(start_vid, [])))
 
     # Fix 46d: for concat binary_op ('.'), a safe operand must NOT
     # short-circuit a param operand — "safe_prefix" . $param keeps the
