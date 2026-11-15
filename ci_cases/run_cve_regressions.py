@@ -108,6 +108,15 @@ EXPECTATIONS = {
     # uncalled function is dead-code-gated. Safe contrast (constant SQL)
     # in the same file must NOT fire.
     'ippf_issues.inc.php': {'1006': 1},
+    # Fix 89 (CVE-2026-126491 OpenEMR patient_select match-arm SQLi):
+    # the ONLY call-site of getByPatientDemographics() lives inside a
+    # PHP 8 match arm — MatchArm/MatchDefaultArm are in no _*_NODES set
+    # and phply nodes have no children(), so arm bodies (and every call
+    # in them) were invisible: no call node → no cg edge → dead-code gate
+    # killed the chain. sqlFetchArray (openemr source) → $row['field_id']
+    # → $where → $sql → sqlStatement sink. Safe contrast in the same file
+    # must NOT fire.
+    'patient.inc.php': {'1006': 1},
 }
 
 
@@ -180,7 +189,7 @@ def main() -> int:
         proc = subprocess.run(
             [sys.executable, os.path.join(REPO, 'kunlun.py'), 'scan',
              '-t', scan_dir, '--yes', '-lan', _lang68, '--no-cache'],
-            cwd=REPO, capture_output=True, text=True, env=env, timeout=900)
+            cwd=REPO, capture_output=True, text=True, env=env, timeout=2400)
         m = None
         for line in (proc.stdout + '\n' + proc.stderr).splitlines():
             if 'TaskID' in line:

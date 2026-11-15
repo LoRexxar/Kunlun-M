@@ -669,11 +669,33 @@ class Normalizer:
         # Switch: cases already walked by body_attr_map above; skip duplicate
         # (body_attr_map["Switch"] = "nodes" at L587 already iterates Switch.nodes)
 
-        # Match: walk arms
+        # Match: walk arms.  Fix 89 (CVE-2026-126491): MatchArm /
+        # MatchDefaultArm are in NONE of the _*_NODES sets and phply nodes
+        # have no children() method, so delegating arms to _walk_node()
+        # silently dropped every arm body — all calls inside PHP 8 match
+        # arms were invisible (no call node → no cg edge → dead-code gate
+        # killed functions only reachable via match).  Walk arm conditions
+        # and bodies explicitly, attached to the match branch node.
         if node_type_name == "Match":
             arms = getattr(node, "arms", []) or []
             for idx, arm in enumerate(arms):
-                self._walk_node(arm, add_node, add_edge, ctx_stack, file_path, idx)
+                if arm is None:
+                    continue
+                for cond in (getattr(arm, "conditions", None) or []):
+                    cond_pos = self._walk_node(cond, add_node, add_edge, ctx_stack, file_path, idx)
+                    if cond_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": cond_pos,
+                            "attrs": {"role": "condition"},
+                        })
+                body = getattr(arm, "body", None)
+                if body is not None:
+                    body_pos = self._walk_node(body, add_node, add_edge, ctx_stack, file_path, idx)
+                    if body_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": body_pos,
+                            "attrs": {"role": "body"},
+                        })
 
         # For: walk start, test, count, body
         if node_type_name == "For":
