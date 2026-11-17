@@ -1632,6 +1632,21 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             assign_lhs_vids.add(rhv)
                             lhs_owner[rhv] = v.index
 
+        # Fix 103 (CVE-2026-126483): AUG_ASSIGN (`.=`/`+=`…) 的 LHS 是
+        # 「读+写」节点 — `$query .= "AND x = '$tainted' "` 的新值 = 旧值
+        # op RHS。旧逻辑只有 dfg(RHS→LHS)，LHS 又因属于 assign_lhs_vids
+        # 在下方同名链中被跳过，导致旧值（含污点）永远断流：openemr
+        # ippf_statistics.php $query 连续 .= 拼接后 sqlStatement($query)
+        # 零检出。这些 LHS 必须也参与「向前找最近同名定义」的链接。
+        aug_lhs_vids: set[int] = set()
+        for v in self.graph.vs:
+            if (self._vlabel[v.index] == NodeLabel.OPERATOR.value
+                    and self._vtype[v.index] == OperatorType.AUG_ASSIGN.value):
+                for lhv in self._get_ast_children(v.index, role=AstRole.LHS.value):
+                    if self._vlabel[lhv] in (NodeLabel.IDENTIFIER.value,
+                                             NodeLabel.CONST.value):
+                        aug_lhs_vids.add(lhv)
+
         # Parameter 节点是定义端点（类似 assign LHS）
         # 函数参数没有显式的赋值，但同名 identifier/parameter 使用应回溯到它
         for v in self.graph.vs:
@@ -1759,7 +1774,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     # cross-closure use stayed an orphan.  Run the closure
                     # fallback for singleton non-LHS uses too.
                     vid = vids[0]
-                    if (vid in assign_lhs_vids
+                    if vid in aug_lhs_vids:
+                        # Fix 103: AUG_ASSIGN LHS 单例 — 旧值定义可能在外层
+                        # 作用域（闭包捕获），不能因「已有 dfg 入边」提前跳过。
+                        pass
+                    elif (vid in assign_lhs_vids
                             or self._vlabel[vid] == NodeLabel.PARAMETER.value
                             or self._has_edge_to(vid, "dfg")):
                         continue
@@ -1798,8 +1817,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
                 # 从每个非 LHS 的 identifier，向前找最近的同名 LHS
                 for i, vid in enumerate(vids_sorted):
-                    if vid in assign_lhs_vids:
+                    if vid in assign_lhs_vids and vid not in aug_lhs_vids:
                         continue  # LHS 不向前链接（已有 dfg(RHS→LHS)）
+                    # Fix 103: AUG_ASSIGN 的 LHS 例外 — 它同时是旧值的读，
+                    # 需要链接到前方最近同名定义（SAME 边，名字流）。
+                    # 同语句自身 LHS 已被 vid_assign_op/lhs_owner 排除。
                     # Fix 21b-1: this use's own element offset — if the use
                     # reads $d['title'], an element-write LHS of a DIFFERENT
                     # element ($d['pop']=1) must not act as its definition.

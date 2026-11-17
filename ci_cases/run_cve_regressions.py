@@ -130,6 +130,15 @@ EXPECTATIONS = {
     # uncalled function is dead-code-gated. Safe contrast (constant SQL)
     # in the same file must NOT fire.
     'ippf_issues.inc.php': {'1006': 1},
+    # Fix 103/104 (CVE-2026-126483 OpenEMR ippf_statistics.php SQLi):
+    # $_POST['form_facility'] interpolated into $query assembled via
+    # AUG_ASSIGN (.=) appends → sqlStatement (3 executions of the tainted
+    # $query).  Fix 103: .= LHS is read+write — pre-fix the append chain
+    # broke taint (0 detections).  Fix 104: the negated
+    # hadRecentAbService($row0['pid']) guard with $row0 from
+    # sqlFetchArray(sqlStatement($query)) sits BEFORE the sinks — the old
+    # wrong-direction whitelist-guard acceptance killed every chain.
+    'ippf_statistics_126483.php': {'1006': 3},
     # Fix 89 (CVE-2026-126491 OpenEMR patient_select match-arm SQLi):
     # the ONLY call-site of getByPatientDemographics() lives inside a
     # PHP 8 match arm — MatchArm/MatchDefaultArm are in no _*_NODES set

@@ -9163,18 +9163,36 @@ class GraphAnalyzer:
                 #   $urm_md5 = md5($url); if (!in_array($urm_md5,$wl)) exit;
                 # md5 is a one-way function with a unique preimage, so
                 # membership of md5($url) in a constant whitelist pins $url
-                # to a single value.  Accept when arg0's defining assign
-                # wraps a call whose argument subtree contains var_name.
+                # to a single value.
+                # Fix 104 (CVE-2026-126483): the old acceptance — ANY
+                # same-named assign anywhere in the graph whose RHS merely
+                # REACHED var_name through dfg edges — was data-flow in the
+                # wrong direction. openemr ippf_statistics.php:
+                # `$patient_id = $row['pid']` with $row from
+                # sqlFetchArray(sqlStatement($query)) made
+                # `!hadRecentAbService($patient_id)` a "whitelist guard on
+                # $query", silently killing every sqlStatement chain in the
+                # file. A derivative only pins var_name when it is a ONE-WAY
+                # DIGEST CALL whose direct argument subtree (no dfg) holds
+                # var_name, assigned in the same file BEFORE the guard.
                 indir = False
                 a0_name = _vattr(a0, "name", "")
-                if a0_name:
+                b_line = int(_vattr(self.graph.vs[bvid], "lineno", 0) or 0)
+                b_file = (_vattr(self.graph.vs[bvid], "file_path", "")
+                          or _vattr(self.graph.vs[bvid], "path", ""))
+                if a0_name and b_file:
                     for ve in self.graph.vs:
                         if (_vattr(ve, "type", "") == "assign"
-                                and _vattr(ve, "name", "") == a0_name):
+                                and _vattr(ve, "name", "") == a0_name
+                                and (_vattr(ve, "file_path", "")
+                                     or _vattr(ve, "path", "")) == b_file
+                                and 0 < int(_vattr(ve, "lineno", 0) or 0)
+                                < b_line):
                             for ke in self.graph.es.select(
                                     _source=ve.index, label="ast"):
-                                if self._subtree_contains_name(
-                                        ke.target, var_name, depth=0):
+                                if (_vattr(ke, "role", "") == "rhs"
+                                        and self._is_one_way_digest_of(
+                                            ke.target, var_name)):
                                     indir = True
                                     break
                         if indir:
@@ -9192,6 +9210,32 @@ class GraphAnalyzer:
         if not self._branch_body_always_terminates(bvid):
             return "disqualify"
         return "constraint"
+
+    # Fix 104: one-way digest builtins — deterministic with unique
+    # preimage per output value, so whitelist membership of the digest
+    # pins var_name. crc32 (collisions) and password_hash (random salt:
+    # same input → different outputs) are deliberately excluded.
+    _ONE_WAY_DIGEST_FUNCS = frozenset(
+        {"md5", "sha1", "sha256", "hash", "hash_hmac", "hash_pbkdf2"})
+
+    def _is_one_way_digest_of(self, expr_vid: int, var_name: str) -> bool:
+        """Fix 104 helper: is *expr_vid* (an assign RHS expression) a call
+        to a one-way digest builtin whose direct argument AST subtree
+        contains *var_name*?  Nested digests (md5(md5($x))) qualify — the
+        inner variable is inside the outer call's arg subtree.  No dfg
+        following: data that merely derives from var_name elsewhere does
+        not pin its value."""
+        ev = self.graph.vs[expr_vid]
+        if (_vattr(ev, "label") != NodeLabel.OPERATOR.value):
+            return False
+        if str(_vattr(ev, "name", "")) not in self._ONE_WAY_DIGEST_FUNCS:
+            return False
+        for ae in self.graph.es.select(_source=expr_vid, label="ast"):
+            if _vattr(ae, "role", "") == "arg":
+                if self._subtree_contains_name(
+                        ae.target, var_name, depth=0, follow_dfg=False):
+                    return True
+        return False
 
     def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
         """Fix 20b: is this binary_op's Location/redirect base pinned to an
