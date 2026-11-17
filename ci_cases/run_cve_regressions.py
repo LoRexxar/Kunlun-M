@@ -139,6 +139,15 @@ EXPECTATIONS = {
     # sqlFetchArray(sqlStatement($query)) sits BEFORE the sinks — the old
     # wrong-direction whitelist-guard acceptance killed every chain.
     'ippf_statistics_126483.php': {'1006': 3},
+    # Fix 106 (CVE-2026-126482 OpenEMR ERA upload chain): uploaded-file
+    # tmp_name → rename() to web-accessible path (1017 file-write primitive
+    # at era_payments.php:158), and the ERA file content → preg_split →
+    # $pid interpolated into sqlQuery (1006 SQLi at SLEOB.php:39 — the CVE
+    # core sink; parseERA string-const callback dispatch reaches the body).
+    # Frozen from task 6282 (subdir scan, framework marker resolves; root
+    # mixed-dir scan under-detects SLEOB — the documented subdir trap).
+    'era_payments.php': {'1017': 1},
+    'SLEOB.php': {'1006': 1},
     # Fix 89 (CVE-2026-126491 OpenEMR patient_select match-arm SQLi):
     # the ONLY call-site of getByPatientDemographics() lives inside a
     # PHP 8 match arm — MatchArm/MatchDefaultArm are in no _*_NODES set
