@@ -7186,6 +7186,26 @@ class GraphAnalyzer:
                                     path=path + [up_vid],
                                     expr_lineno=_vattr(uv, "lineno", 0))
                             continue
+                    # Fix 105: the weak def-chain tracer must honor repair
+                    # semantics exactly like the main BFS — reaching a call
+                    # whose callee is a repair function means the value was
+                    # sanitized; do NOT walk into its arguments for sources.
+                    # org-profile.tmpl.php:2: $info = c ? Format::input($_POST)
+                    # : Format::htmlchars(...) — the raw walk previously
+                    # entered Format.input's arg and returned "superglobal
+                    # $_POST" (FP; both arms are encoders).  Record the
+                    # repair proof; it only becomes the verdict if every
+                    # route ends clean (exhaustion returns repaired_result).
+                    if _fc and self._is_repair_function(_fc):
+                        if repaired_result is None:
+                            repaired_result = AnalysisResult(
+                                code=2,
+                                reason=f"repair '{_fc}' (def-chain weak trace)",
+                                chain=[{"step": "repair", "vid": up_vid,
+                                        "name": _fc, "code": 2}],
+                                path=path + [up_vid],
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")

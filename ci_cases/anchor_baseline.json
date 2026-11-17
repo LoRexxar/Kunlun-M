@@ -21,160 +21,160 @@
   "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains). | 2026-11-14 Fix84 (CVE-2026-30530): method-body DB-probe semantic gate; installer CREATE DATABASE chain (install.php:52 $_POST → db_create_database → mysqli.php:158) human-verified real TP but flaps with cross-file dfg arg-binding races — tolerated in known_flaky_locs. | 2026-11-17 Fix 98c/99b3/102a/102b (CVE-2026-29080 rucio): python-gated summary fixes; PHP returns to HEAD form (Removed DFG 27361) +1 stable TP ticket-preview.tmpl.php:59 (preview renders POSTed draft ticket; file-scoped annotation family, in 6164+6172).",
   "_flaky_note": "pear Net/DNS2 cache rows flicker with engine-external nondeterminism; Fix 68 baseline run: -2 (vs -23 without Fix 68)",
   "retry_on_fail": true,
-  "task_id": 6172,
-  "count": 87,
+  "task_id": 6225,
+  "count": 82,
   "findings": [
    {
     "cvi": "1000",
-    "loc": "include/api.cron.php:36"
+    "loc": "include/api.cron.php:39"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1876"
+    "loc": "include/class.dynamic_forms.php:1964"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1877"
+    "loc": "include/class.dynamic_forms.php:1965"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1880"
+    "loc": "include/class.dynamic_forms.php:1968"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1881"
+    "loc": "include/class.dynamic_forms.php:1969"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1885"
+    "loc": "include/class.dynamic_forms.php:1973"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1889"
+    "loc": "include/class.dynamic_forms.php:1977"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1890"
+    "loc": "include/class.dynamic_forms.php:1978"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1891"
+    "loc": "include/class.dynamic_forms.php:1979"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4346"
+    "loc": "include/class.forms.php:4480"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4349"
+    "loc": "include/class.forms.php:4483"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4431"
+    "loc": "include/class.forms.php:4570"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4432"
+    "loc": "include/class.forms.php:4571"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4458"
+    "loc": "include/class.forms.php:4599"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4462"
+    "loc": "include/class.forms.php:4605"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4488"
+    "loc": "include/class.forms.php:4632"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4532"
+    "loc": "include/class.forms.php:4679"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4534"
+    "loc": "include/class.forms.php:4681"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4556"
+    "loc": "include/class.forms.php:4703"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4666"
+    "loc": "include/class.forms.php:4815"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4667"
+    "loc": "include/class.forms.php:4816"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4668"
+    "loc": "include/class.forms.php:4817"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4765"
+    "loc": "include/class.forms.php:4914"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4777"
+    "loc": "include/class.forms.php:4926"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4802"
+    "loc": "include/class.forms.php:4951"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4803"
+    "loc": "include/class.forms.php:4952"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4870"
+    "loc": "include/class.forms.php:5024"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4871"
+    "loc": "include/class.forms.php:5025"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4872"
+    "loc": "include/class.forms.php:5026"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4890"
+    "loc": "include/class.forms.php:5046"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4956"
+    "loc": "include/class.forms.php:5119"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4957"
+    "loc": "include/class.forms.php:5120"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4958"
+    "loc": "include/class.forms.php:5121"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:4976"
+    "loc": "include/class.forms.php:5141"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:5029"
+    "loc": "include/class.forms.php:5196"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:5349"
+    "loc": "include/class.forms.php:5535"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.forms.php:5350"
+    "loc": "include/class.forms.php:5536"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.http.php:123"
+    "loc": "include/class.http.php:135"
    },
    {
     "cvi": "1000",
@@ -182,15 +182,15 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/class.schedule.php:1336"
+    "loc": "include/class.schedule.php:1380"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.schedule.php:1401"
+    "loc": "include/class.schedule.php:1445"
    },
    {
     "cvi": "1000",
-    "loc": "include/client/templates/dynamic-form.tmpl.php:43"
+    "loc": "include/client/templates/dynamic-form.tmpl.php:47"
    },
    {
     "cvi": "1000",
@@ -198,23 +198,23 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/client/tickets.inc.php:193"
+    "loc": "include/client/tickets.inc.php:204"
    },
    {
     "cvi": "1000",
-    "loc": "include/client/tickets.inc.php:240"
+    "loc": "include/client/tickets.inc.php:253"
    },
    {
     "cvi": "1000",
-    "loc": "include/client/tickets.inc.php:248"
+    "loc": "include/client/tickets.inc.php:261"
    },
    {
     "cvi": "1000",
-    "loc": "include/pear/Net/SMTP.php:214"
+    "loc": "include/pear/Net/SMTP.php:233"
    },
    {
     "cvi": "1000",
-    "loc": "include/pear/PEAR.php:846"
+    "loc": "include/pear/PEAR.php:869"
    },
    {
     "cvi": "1000",
@@ -222,11 +222,11 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/helptopic.inc.php:393"
+    "loc": "include/staff/helptopic.inc.php:394"
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/orgs.inc.php:170"
+    "loc": "include/staff/orgs.inc.php:174"
    },
    {
     "cvi": "1000",
@@ -242,7 +242,7 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/templates/dynamic-form.tmpl.php:97"
+    "loc": "include/staff/templates/dynamic-form.tmpl.php:100"
    },
    {
     "cvi": "1000",
@@ -250,19 +250,7 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/templates/org-profile.tmpl.php:12"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/org-profile.tmpl.php:14"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/org-profile.tmpl.php:154"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/simple-form.tmpl.php:24"
+    "loc": "include/staff/templates/simple-form.tmpl.php:25"
    },
    {
     "cvi": "1000",
@@ -270,11 +258,7 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/templates/task-view.tmpl.php:672"
-   },
-   {
-    "cvi": "1000",
-    "loc": "include/staff/templates/ticket-preview.tmpl.php:59"
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:62"
    },
    {
     "cvi": "1000",
@@ -282,7 +266,7 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/templates/tickets.tmpl.php:162"
+    "loc": "include/staff/templates/tickets.tmpl.php:169"
    },
    {
     "cvi": "1000",
@@ -294,83 +278,79 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/tpl.inc.php:121"
+    "loc": "include/staff/tpl.inc.php:124"
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/tpl.inc.php:78"
+    "loc": "include/staff/tpl.inc.php:81"
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/users.inc.php:225"
+    "loc": "include/staff/users.inc.php:231"
    },
    {
     "cvi": "1000",
-    "loc": "open.php:80"
+    "loc": "open.php:92"
    },
    {
     "cvi": "1002",
-    "loc": "include/class.file.php:790"
+    "loc": "include/class.file.php:861"
    },
    {
     "cvi": "1002",
-    "loc": "include/pear/Mail/mime.php:480"
+    "loc": "include/pear/Mail/mime.php:503"
    },
    {
     "cvi": "1007",
-    "loc": "scp/settings.php:56"
+    "loc": "scp/settings.php:57"
    },
    {
     "cvi": "1011",
-    "loc": "include/pear/Mail/sendmail.php:123"
+    "loc": "include/pear/Mail/sendmail.php:146"
    },
    {
-    "cvi": "1014",
-    "loc": "include/client/header.inc.php:128"
-   },
-   {
-    "cvi": "1014",
-    "loc": "include/client/header.inc.php:74"
+    "cvi": "1013",
+    "loc": "include/class.http.php:79"
    },
    {
     "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/AbstractProtocol.php:264"
+    "loc": "include/laminas-mail/src/Protocol/AbstractProtocol.php:269"
    },
    {
     "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/Imap.php:321"
+    "loc": "include/laminas-mail/src/Protocol/Imap.php:348"
    },
    {
     "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/Pop3.php:138"
+    "loc": "include/laminas-mail/src/Protocol/Pop3.php:139"
    },
    {
     "cvi": "1017",
-    "loc": "include/laminas-mail/src/Protocol/Smtp.php:196"
+    "loc": "include/laminas-mail/src/Protocol/Smtp.php:203"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Mail/mimePart.php:441"
+    "loc": "include/pear/Mail/mimePart.php:457"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Mail/sendmail.php:128"
+    "loc": "include/pear/Mail/sendmail.php:153"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Mail/sendmail.php:130"
+    "loc": "include/pear/Mail/sendmail.php:155"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Net/DNS2/Cache/File.php:87"
+    "loc": "include/pear/Net/DNS2/Cache/File.php:93"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Net/DNS2/Socket/Streams.php:225"
+    "loc": "include/pear/Net/DNS2/Socket/Streams.php:250"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Net/Socket.php:383"
+    "loc": "include/pear/Net/Socket.php:384"
    }
   ]
  }
