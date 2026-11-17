@@ -39,7 +39,26 @@ CONTROLLED_SOURCES = [
 ]
 
 EXTRA_SINKS = [
+    # Fix 106 (CVE-2026-126482): sqlQuery first arg (SQL text) accepts
+    # only ONE bound param — SLEOB::slInvoiceNumber interpolated $pid
+    # (uploaded 835 CLP01) into the query string.
+    ("sqlQuery(", [1006]),
     ("sqlStatement(", [1006]),
     ("sqlStatementNoLog(", [1006]),
     ("sqlInsert(", [1006]),
 ]
+
+# Fix 108 (CVE-2026-126482): OpenEMR 官方输出转义助手（library/htmlspecialchars.inc.php
+# v8_4_1 实测，全部为 htmlspecialchars/json_encode 包装）注册为 XSS repair。
+# 只收编码函数，不收 xl()（裸翻译不转义）与渲染器（generate_display_field 等回显
+# 型助手不属于公认编码函数）。
+FILTER_FUNCTIONS = {
+    "text": [1000, 10001, 10002],          # htmlspecialchars(ENT_NOQUOTES)
+    "attr": [1000, 10001, 10002],          # htmlspecialchars(ENT_QUOTES)
+    "attr_js": [1000, 10001, 10002],       # attr(json_encode(x))
+    "js_escape": [1000, 10001, 10002],     # json_encode(x)
+    "json_sanitize": [1000, 10001, 10002], # json 往返规范化（library/sanitize.inc.php）
+    "xlt": [1000, 10001, 10002],           # text(xl(x))
+    "xla": [1000, 10001, 10002],           # attr(xl(x))
+    "xlj": [1000, 10001, 10002],           # js_escape(xl(x))
+}

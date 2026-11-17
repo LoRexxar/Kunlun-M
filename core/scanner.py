@@ -217,6 +217,21 @@ _PATH_SINK_INDEX = {
     "files.move": 1,
 }
 
+# Fix 106 (CVE-2026-126482): OpenEMR SQL wrapper family (declared in
+# rules/tamper/php/openemr.py EXTRA_SINKS).  Only the QUERY-TEXT arg
+# (arg 0) is the injection surface; the array arg at position 1 is the
+# BOUND-PARAMETER list — tainted values there are bound as parameters,
+# never interpolated.  Without this, the Fix 86 second-order DB sources
+# (sqlQuery returns are sources) made every wrapper call with a DB-read
+# binding value report SQLi (SLEOB.php:259 FP — query const, all values
+# bound with ?).
+_SQL_QUERY_TEXT_SINK_INDEX = {
+    "sqlquery": 0,
+    "sqlstatement": 0,
+    "sqlstatementnolog": 0,
+    "sqlinsert": 0,
+}
+
 
 def _match_sink_arg_index(table, sink_name_lower):
     """Return the dangerous-argument index for sink_name_lower from table,
@@ -320,6 +335,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     _repair_tmp, _controlled_tmp = load_base_config(_lang_lower)
                     for _fw_mod in _detected:
                         _extra = merge_framework_config(_repair_tmp, _controlled_tmp, _fw_mod)
+                        # Fix 108 (CVE-2026-126482): merge_framework_config
+                        # also folds the framework's FILTER_FUNCTIONS into
+                        # _repair_tmp, but the dict used to be discarded after
+                        # mining EXTRA_SINKS — so on the graph scan path the
+                        # analyzer's repair registry never saw framework
+                        # repair functions (OpenEMR text/attr/js_escape/xlt...
+                        # kept reporting XSS).  Load the merged dict into the
+                        # shared L1 registry (idempotent union) before any
+                        # analysis runs.
+                        try:
+                            from core.filter_functions import load_builtin as _load_repair_l1
+                            _load_repair_l1(_lang_lower, _repair_tmp)
+                        except Exception as _l1e:
+                            logger.debug('[SCAN] framework repair L1 load failed: {e}'.format(e=_l1e))
                         if _extra:
                             for _pattern, _svids in _extra.items():
                                 _vw_method_sinks = []
@@ -1252,6 +1281,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     #   file_put_contents(path, data)  → arg 0 is path
                     path_only_idx = _match_sink_arg_index(
                         _PATH_SINK_INDEX, sink_name_lower)
+                    # Fix 106: SQL wrapper family — only the query-text arg
+                    # is the injection surface (bound-parameter arrays are
+                    # not interpolable).
+                    query_only_idx = _match_sink_arg_index(
+                        _SQL_QUERY_TEXT_SINK_INDEX, sink_name_lower)
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
@@ -1336,6 +1370,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                          and analyzer._php_exec_target_in_subtree(
                                              arg_vids[path_only_idx]))):
                             continue
+                        # Fix 106 (CVE-2026-126482): OpenEMR SQL wrapper
+                        # family — only the query-text arg can inject; the
+                        # array arg is the bound-parameter list (SLEOB:259
+                        # FP: const query, all values bound with ?).
+                        if query_only_idx >= 0 and i != query_only_idx:
+                            if os.environ.get("KM_DBG_QO"):
+                                print(f"[qo-skip] {sink_name_lower} i={i} qoi={query_only_idx} vid={sink.get('vid')}")
+                            continue
+                        if os.environ.get("KM_DBG_QO"):
+                            print(f"[qo-run] {sink_name_lower} i={i} qoi={query_only_idx} vid={sink.get('vid')}")
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
                             continue
@@ -1930,6 +1974,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # find content data flow, not path flow.
                             if callable_only or path_only_idx >= 0:
                                 continue
+                            # Fix 106b (CVE-2026-126482): SQL wrapper family
+                            # (sqlQuery/sqlStatement/...) — the bare function
+                            # NAME is itself a registered second-order source
+                            # (Fix 86 CONTROLLED_SOURCES), so PB on the sink
+                            # call node self-reports "source function
+                            # 'sqlQuery'" for every call with uncontrollable
+                            # args (SLEOB.php:259: const query, all values
+                            # bound).  The query-text arg walk above is the
+                            # whole story for these sinks.
+                            if query_only_idx >= 0:
+                                continue
                             # Fix 73d: import sinks (include/require family)
                             # are language constructs with NO receiver object
                             # — receiver tracing is pure waste here and the
@@ -1985,6 +2040,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # not controllable. Receiver tracing would re-discover
                             # the content arg flow, which is NOT a path traversal.
                             if path_only_idx >= 0:
+                                continue
+                            # Fix 106b (CVE-2026-126482): same SQL-wrapper
+                            # receiver-skip on the args-present fallback (see
+                            # the no-args branch above for the rationale).
+                            if query_only_idx >= 0:
                                 continue
                             # Sanitizer detected in args: skip receiver tracing.
                             # If any arg was sanitizer-wrapped (repair result),

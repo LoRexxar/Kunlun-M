@@ -263,6 +263,17 @@ FRAMEWORK_CONFIGS = {
         'global_source_functions': {
             'sqlFetchArray', 'sqlQuery', 'sqlGetAssoc',
         },
+        # Fix 108 (CVE-2026-126482): official output-escaping helpers
+        # (library/htmlspecialchars.inc.php — all htmlspecialchars /
+        # json_encode wrappers).  Framework-scoped repair set consumed by
+        # knowledge_bridge step 6b; per-svid veto (Fix 48i) still applies
+        # at analysis time, so e.g. js_escape only kills XSS-family svids.
+        # Deliberately excludes xl() (raw translation, no escaping) and
+        # renderer helpers (generate_display_field et al.).
+        'repair_functions': {
+            'text', 'attr', 'attr_js', 'js_escape', 'json_sanitize',
+            'xlt', 'xla', 'xlj',
+        },
     },
     'symfony': {
         'request_object_names': {'request', '$request'},

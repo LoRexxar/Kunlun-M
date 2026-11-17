@@ -261,10 +261,21 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 fullname = f"{resolved_type}.{callee_name}"
             elif op_type == OperatorType.NEW.value:
                 fullname = callee_name
-            elif op_name:
-                fullname = op_name
             else:
-                fullname = callee_name
+                # Fix 106 (CVE-2026-126482): PHP static calls carry a
+                # qualified fullname from the normalizer (e.g.
+                # 'SLEOB.slInvoiceNumber') even when receiver-type
+                # resolution fails (no dtype on the class-ref identifier).
+                # Prefer it over the bare callee name — the bare name
+                # matched a synthetic external stub instead of the real
+                # method, cutting the callgraph at every Class::method()
+                # in name-imported (use ...;) code.
+                cand = op_name or ""
+                if op_type == OperatorType.STATIC_CALL.value:
+                    op_fn = self._vfullname[vid]
+                    if op_fn and "." in op_fn:
+                        cand = op_fn
+                fullname = cand or callee_name
 
             func_name = callee_name
 
@@ -295,7 +306,191 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 for k, val in attrs.items():
                     graph.es[eid][k] = val
 
+        # ── Fix 106 (CVE-2026-126482): string-const callback dispatch ──
+        # PHP dynamic call `$cb($out)` where the callee variable is a
+        # formal parameter bound at the (sole/all) call site(s) of the
+        # enclosing function to a string constant naming a defined
+        # function (parseERA($tmp, 'era_payments_callback')).  Rebuild
+        # the use edge from the caller's const arg so the callgraph
+        # reaches the callback body.
+        count += self._resolve_string_callbacks(graph)
+
         return count
+
+    def _resolve_string_callbacks(self, graph: "ig.Graph") -> int:
+        """Bind variable-callee calls to functions named by const args.
+
+        For each `call` operator whose callee is a variable that is a
+        formal param of the enclosing function, collect the const-string
+        values that can reach that param position through caller chains
+        (direct const arg, param-to-param pass-through, one-hop const
+        assignment via dfg), and add a use edge to each defined function
+        named by those constants.  Only binds to real (file-backed,
+        non-external) function nodes; caps distinct targets at 8.
+        """
+        # use-edge reverse index: function vid → caller op vids
+        callers_of: dict[int, list[int]] = defaultdict(list)
+        for (src, tgt) in self._use_pairs:
+            if self._vlabel[tgt] == NodeLabel.FUNCTION.value:
+                callers_of[tgt].append(src)
+
+        added = 0
+        new_edges: list[tuple[int, int]] = []
+        new_attrs: list[dict] = []
+        for v in graph.vs:
+            vid = v.index
+            if self._vlabel[vid] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[vid] != OperatorType.CALL.value:
+                continue
+            callee_name = self._extract_callee_name(
+                graph, vid, self._vname[vid])
+            if not callee_name or not callee_name.startswith("$"):
+                continue
+            enc = self._enclosing_function(graph, vid)
+            if enc is None:
+                continue
+            param_idx = self._param_position(graph, enc, callee_name)
+            if param_idx is None:
+                continue
+
+            values = self._collect_const_values(
+                graph, enc, param_idx, callers_of)
+            if not values:
+                import os
+                if os.environ.get("KM_DBG_CB"):
+                    print(f"[cb-dbg] op {vid} enc={enc} pidx={param_idx}: "
+                          f"no values (callers={callers_of.get(enc, [])})")
+                continue
+
+            targets: dict[str, int] = {}
+            for fname in values:
+                if len(targets) >= 8:
+                    break
+                cand = self._func_name_file_idx.get(fname, {}).get(
+                    self._vfile_path[vid])
+                if cand is None:
+                    fids = list(
+                        self._func_name_file_idx.get(fname, {}).values())
+                    if len(fids) == 1:
+                        cand = fids[0]
+                if cand is not None:
+                    targets.setdefault(fname, cand)
+
+            for _fname, tgt_vid in targets.items():
+                if (vid, tgt_vid) in self._use_pairs:
+                    continue
+                self._use_pairs.add((vid, tgt_vid))
+                new_edges.append((vid, tgt_vid))
+                new_attrs.append({
+                    "label": "use",
+                    "call_type": CgCallType.DIRECT.value,
+                    "lineno": self._vlineno[vid],
+                })
+                added += 1
+
+        if new_edges:
+            graph.add_edges(new_edges)
+            n_existing = graph.ecount() - len(new_edges)
+            for i, attrs in enumerate(new_attrs):
+                eid = n_existing + i
+                for k, val in attrs.items():
+                    graph.es[eid][k] = val
+        return added
+
+    def _param_position(self, graph: "ig.Graph", fn_vid: int,
+                        var_name: str) -> int | None:
+        """Positional index of the formal param named var_name (params
+        carry no `index` attr — mirror the analyzer's positional
+        convention from own-edge order).  NB: ``_own_to`` is a
+        child→parent index; children must come from own OUT-edges."""
+        pos = 0
+        for eid in graph.incident(fn_vid, mode="out"):
+            e = graph.es[eid]
+            if _vattr(e, "label", "") != "own":
+                continue
+            tgt = e.target
+            if self._vlabel[tgt] == NodeLabel.PARAMETER.value:
+                if self._vname[tgt] == var_name:
+                    return pos
+                pos += 1
+        return None
+
+    def _arg_at(self, graph: "ig.Graph", call_vid: int,
+                position: int) -> int | None:
+        """vid of the arg at `position` (positional, like the analyzer)."""
+        arg_counter = 0
+        for eid in graph.incident(call_vid, mode="out"):
+            e = graph.es[eid]
+            if _vattr(e, "label", "") != "ast":
+                continue
+            if _vattr(e, "role", "") != "arg":
+                continue
+            if arg_counter == position:
+                return e.target
+            arg_counter += 1
+        return None
+
+    def _collect_const_values(self, graph: "ig.Graph", fn_vid: int,
+                              param_idx: int,
+                              callers_of: dict[int, list[int]],
+                              depth: int = 0,
+                              seen: set[int] | None = None) -> set[str]:
+        """Const-string values that can reach (fn_vid, param_idx).
+
+        Bounded backward walk over caller chains:
+        * direct const-string actual arg,
+        * actual arg that is the caller function's own formal param
+          (pass-through: parseERA2100($out, $cb) ← parseERA(..., $cb)),
+        * one-hop dfg const assignment into the actual arg identifier.
+        """
+        values: set[str] = set()
+        if depth > 4:
+            return values
+        if seen is None:
+            seen = set()
+        if fn_vid in seen:
+            return values
+        seen.add(fn_vid)
+
+        for caller_op in callers_of.get(fn_vid, ()):
+            if self._vlabel[caller_op] != NodeLabel.OPERATOR.value:
+                continue
+            arg_vid = self._arg_at(graph, caller_op, param_idx)
+            if arg_vid is None:
+                continue
+            fname = self._const_string_value(arg_vid)
+            if fname:
+                values.add(fname)
+                continue
+            # pass-through: arg is the caller's own formal param
+            caller_fn = self._enclosing_function(graph, caller_op)
+            if caller_fn is not None:
+                arg_name = self._vname[arg_vid]
+                if arg_name:
+                    pidx = self._param_position(graph, caller_fn, arg_name)
+                    if pidx is not None:
+                        values |= self._collect_const_values(
+                            graph, caller_fn, pidx, callers_of,
+                            depth + 1, seen)
+            # one-hop const assignment: $x = 'name'; f($x)
+            for src_vid in self._dfg_to.get(arg_vid, ()):
+                fname = self._const_string_value(src_vid)
+                if fname:
+                    values.add(fname)
+        return values
+
+    def _const_string_value(self, vid: int) -> str | None:
+        """Sanitized function-name string if vid is a string const."""
+        if self._vlabel[vid] != NodeLabel.CONST.value:
+            return None
+        raw = self._vvalue[vid] or self._vname[vid]
+        if not raw:
+            return None
+        fname = str(raw).strip("'\" ")
+        if not fname or not fname.replace("_", "a").isalnum():
+            return None
+        return fname
 
     # -- helpers -----------------------------------------------------------
 
@@ -550,6 +745,17 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         vid = self._func_fullname_idx.get(fullname)
         if vid is not None:
             return vid
+
+        # Fix 106 (CVE-2026-126482): a qualified fullname may carry a
+        # namespace the method node doesn't ('OpenEMR\Billing\SLEOB.x'
+        # vs 'SLEOB.x') — retry with the namespace-stripped type part.
+        if "." in fullname:
+            _t, _m = fullname.rsplit(".", 1)
+            _short = f"{_t.rsplit(chr(92), 1)[-1]}.{_m}"
+            if _short != fullname:
+                vid = self._func_fullname_idx.get(_short)
+                if vid is not None:
+                    return vid
 
         # 2. Same-file name match (non-external declarations)
         if caller_file:

@@ -642,6 +642,11 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "flush": {"passthrough": [], "safe": True},
     "fmod": {"passthrough": [], "safe": True},
     "fnmatch": {"passthrough": [], "safe": True},
+    # Fix 106 (CVE-2026-126482): fopen handle inherits the filename's
+    # taint so fread(handle) content models "attacker-controlled file
+    # content" (uploaded 835 file → parseERA → sqlQuery).  Mirrors the
+    # existing file_get_contents passthrough[0] semantics.
+    "fopen": {"passthrough": [0], "safe": False},
     "forward_static_call": {"passthrough": [], "safe": True},
     "forward_static_call_array": {"passthrough": [], "safe": True},
     "fpassthru": {"passthrough": [], "safe": True},
@@ -1721,7 +1726,11 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "preg_match_all": {"passthrough": [], "safe": False, "param_flow": {2: 1}},
     "preg_quote": {"passthrough": [], "safe": True},
     "preg_replace_callback": {"passthrough": [], "safe": True},
-    "preg_split": {"passthrough": [], "safe": True},
+    # Fix 106 (CVE-2026-126482): preg_split/str_split CARRY taint (they
+    # split a tainted string into tainted pieces) — they are not
+    # sanitizers.  Mirror explode's passthrough semantics; marking them
+    # safe killed every `list(...) = preg_split(..., $tainted)` chain.
+    "preg_split": {"passthrough": [1], "safe": False},
     "prev": {"passthrough": [], "safe": True},
     "proc_close": {"passthrough": [], "safe": True},
     "proc_get_status": {"passthrough": [], "safe": True},
@@ -1847,7 +1856,8 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "stat": {"passthrough": [], "safe": True},
     "str_getcsv": {"passthrough": [], "safe": True},
     "str_rot13": {"passthrough": [], "safe": True},
-    "str_split": {"passthrough": [], "safe": True},
+    # Fix 106: str_split carries taint (see preg_split note above).
+    "str_split": {"passthrough": [0], "safe": False},
     "str_word_count": {"passthrough": [], "safe": True},
     "strchr": {"passthrough": [], "safe": True},
     "strcoll": {"passthrough": [], "safe": True},

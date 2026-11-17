@@ -17,6 +17,7 @@ Rebaseline after a *deliberate* behavior change:
   python tools/anchor_baseline.py --regen    # rewrites the json from fresh scans
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,8 +44,17 @@ def run_anchor(name, cfg):
     log = f'/tmp/anchor_{name}.log'
     cmd = [sys.executable, 'kunlun.py', 'scan', '-t', cfg['target'],
            '--yes', '-lan', cfg['language'], '--no-cache']
+    # Fix 110 (CVE-2026-126482): pin the hash seed for anchor scans.  Measured
+    # 2026-11-18 on t-osticket: identical code + parser + corpus produced
+    # different GRAPHS (369489 vs 369395 nodes) and ±11 verdict flips run-to-
+    # run purely from set-iteration order under hash randomization.  With
+    # PYTHONHASHSEED=0 two full runs are byte-identical (369525 nodes /
+    # 809766 edges both times, same 72-row verdict set).  Gate reproducibility
+    # requires the pin; engine-side order independence stays an open item.
+    env = dict(os.environ, PYTHONHASHSEED='0')
     with open(log, 'w') as fh:
-        r = subprocess.run(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT, timeout=1800)
+        r = subprocess.run(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT,
+                           timeout=1800, env=env)
     if r.returncode != 0:
         print(f'  [{name}] scan FAILED exit={r.returncode} (see {log})')
         return None

@@ -442,4 +442,11 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    # Fix 110 (CVE-2026-126482): re-exec with a pinned hash seed.  This gate
+    # runs the scanner in-process, so set-iteration order (hash randomization)
+    # directly shapes verdicts — measured ±11 flips on t-osticket 2026-11-18.
+    # PYTHONHASHSEED must be set before interpreter start, hence the re-exec.
+    if os.environ.get('PYTHONHASHSEED') != '0':
+        os.environ['PYTHONHASHSEED'] = '0'
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    raise SystemExit(main(sys.argv[1:]))

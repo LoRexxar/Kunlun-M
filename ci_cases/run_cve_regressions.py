@@ -187,7 +187,11 @@ def main() -> int:
         os.path.join(CASES_DIR, d) for d in os.listdir(CASES_DIR)
         if os.path.isdir(os.path.join(CASES_DIR, d)) and not d.startswith(('.'))
     )
-    env = dict(os.environ, PYTHONPATH=REPO)
+    # Fix 110 (CVE-2026-126482): pin the hash seed — measured on t-osticket
+    # 2026-11-18, unpinned runs flip ±11 verdicts purely from set-iteration
+    # order (see tools/anchor_baseline.py Fix 110 note).  Gate expectations
+    # must not depend on interpreter hash randomization.
+    env = dict(os.environ, PYTHONPATH=REPO, PYTHONHASHSEED='0')
     task_ids = []
     for scan_dir in scan_dirs:
         print(f'[cve-repro-gate] scanning {scan_dir} ...')

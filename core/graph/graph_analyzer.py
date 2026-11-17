@@ -76,6 +76,15 @@ _FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
     "type",
 })
 
+# Fix 106 (CVE-2026-126482): builtins whose passthrough[0] models
+# "content read from a path" (fopen handle / file_get_contents return).
+# When parameters_back walks the PATH argument of one of these, a
+# $_FILES[...]['tmp_name'] chain is an UPLOADED-FILE source: the path value
+# itself is server-generated, but the file it points to is attacker content.
+_FILE_CONTENT_READERS: frozenset[str] = frozenset({
+    "fopen", "file_get_contents",
+})
+
 # JS/TS source roots — kept EMPTY intentionally.
 # Bare identifiers like "location", "document", "window" are NOT valid
 # taint sources.  They cause FP when user code uses them as variable/param
@@ -456,6 +465,9 @@ class GraphAnalyzer:
         self._repair_registry = None
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._builtin_knowledge_cache: dict | None = None
+        # Fix 106: depth of nested parameters_back calls that walk the PATH
+        # argument of a _FILE_CONTENT_READERS builtin (fopen etc.).
+        self._file_read_arg_depth = 0
         self._call_stack: list[str] = []
         # Fix 83 (CVE-2026-32613 anchor FP root-cause): call-site bindings
         # for inline return traces.  While analyze_function_return recurses
@@ -1556,6 +1568,28 @@ class GraphAnalyzer:
 
     def _parameters_back_entry(self, start_vid: int, context_vid: int | None,
                                max_depth: int) -> AnalysisResult:
+        # Fix 109 (CVE-2026-126482): call-site bridges (Fix 83/52t) bind a
+        # callee param to the caller's arg TOP node — which may itself be a
+        # sanitizing type cast (osticket scp/plugins.php:14:
+        # getInstance((int)$_REQUEST['xid']) -> getInfoForPath -> @include
+        # class.plugin.php:324 was reported as request-controlled RFI).
+        # The mid-walk _TYPE_CAST_SAFE checks never see the START node, so
+        # the walk pierced the cast to its operand. A walk that starts at a
+        # safe cast must be sanitized, full stop: (int)/(float)/(bool)
+        # destroy string content; there is no taint on the far side.
+        _sv109 = self.graph.vs[start_vid]
+        if (_vattr(_sv109, "type", "") == "type_cast"
+                and _vattr(_sv109, "name", "") in _TYPE_CAST_SAFE):
+            return self._cached(
+                "pb_cast_start:%s" % start_vid,
+                AnalysisResult(
+                    code=2,
+                    reason=("start node is a sanitizing type cast "
+                            "(%s)" % _vattr(_sv109, "name", "")),
+                    chain=[{"step": "cast_start", "vid": start_vid,
+                            "name": _vattr(_sv109, "name", ""), "code": 2}],
+                    path=[start_vid],
+                    expr_lineno=_vattr(_sv109, "lineno", 0)))
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # with a repair function in the function body) — no need to trace.
@@ -2334,12 +2368,26 @@ class GraphAnalyzer:
             # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
             # The parent variable may trace back to the superglobal via DFG, but
             # this specific member access returns a server-generated value.
-            if sname in _FILES_NON_SOURCE_MEMBERS:
+            # Fix 106: tmp_name inside a file-content reader's path arg is an
+            # uploaded-file source — fall through instead of rejecting.
+            if sname in _FILES_NON_SOURCE_MEMBERS and not (
+                    sname == "tmp_name" and self._file_read_arg_depth > 0):
                 return self._cached(cache_key, AnalysisResult(
                     code=-1,
                     reason=f"member key '{sname}' is a non-source property (server-generated)",
                     chain=[{"step": "non_source_member", "vid": start_vid,
                             "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Fix 106: positive verdict for the tmp_name chain a file-content
+            # reader's path arg addresses (uploaded-file content source).
+            _uf106 = self._uploaded_file_tmp_name_source(start_vid)
+            if _uf106:
+                return self._cached(cache_key, AnalysisResult(
+                    code=1,
+                    reason=(f"uploaded file path '{_uf106}' — file content "
+                            f"is attacker-controlled"),
+                    chain=[{"step": "uploaded_file_source", "vid": start_vid,
+                            "name": _uf106, "code": 1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
             chain_names_start: list[str] = [sname]
@@ -2572,12 +2620,26 @@ class GraphAnalyzer:
             # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
             # The parent variable may trace back to the superglobal via DFG, but
             # this specific member access returns a server-generated value.
-            if sname in _FILES_NON_SOURCE_MEMBERS:
+            # Fix 106: tmp_name inside a file-content reader's path arg is an
+            # uploaded-file source — fall through instead of rejecting.
+            if sname in _FILES_NON_SOURCE_MEMBERS and not (
+                    sname == "tmp_name" and self._file_read_arg_depth > 0):
                 return self._cached(cache_key, AnalysisResult(
                     code=-1,
                     reason=f"member key '{sname}' is a non-source property (server-generated)",
                     chain=[{"step": "non_source_member", "vid": start_vid,
                             "name": sname, "code": -1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Fix 106: positive verdict for the tmp_name chain a file-content
+            # reader's path arg addresses (uploaded-file content source).
+            _uf106 = self._uploaded_file_tmp_name_source(start_vid)
+            if _uf106:
+                return self._cached(cache_key, AnalysisResult(
+                    code=1,
+                    reason=(f"uploaded file path '{_uf106}' — file content "
+                            f"is attacker-controlled"),
+                    chain=[{"step": "uploaded_file_source", "vid": start_vid,
+                            "name": _uf106, "code": 1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
             chain_names_pre: list[str] = [sname]
@@ -2598,8 +2660,17 @@ class GraphAnalyzer:
                     # Check ALL names in the member chain (not just start node),
                     # so that $_FILES['x']['tmp_name'][$n] is correctly rejected:
                     # 'tmp_name' is a non-source member even though $n is not.
+                    # Fix 106: but inside a file-content reader's path arg the
+                    # tmp_name chain IS an uploaded-file content source.
+                    _files_ns = [n for n in chain_names_pre
+                                 if n in _FILES_NON_SOURCE_MEMBERS]
+                    _files_blocked = (obj_name == "$_FILES" and _files_ns)
+                    if (_files_blocked and obj_name == "$_FILES"
+                            and self._file_read_arg_depth > 0
+                            and set(_files_ns) == {"tmp_name"}):
+                        _files_blocked = False
                     if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_pre)) \
-                            or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_pre)):
+                            or _files_blocked:
                         pass
                     elif self._is_subscript_key_of_non_superglobal(obj_vid):
                         pass
@@ -3589,6 +3660,21 @@ class GraphAnalyzer:
                 # Rule 1b: member/field identifier — check full_text and member
                 # chain for source (e.g., environ → os.environ → source)
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
+                    # Fix 106 (CVE-2026-126482): BFS reached a $_FILES member
+                    # node mid-walk (e.g. past a `?? null` wrapper — dfg
+                    # attaches to the mid-chain node, the tmp_name leaf is a
+                    # member-OUT child). The pb-entry pre-check never ran for
+                    # it. Judge the uploaded-file tmp_name chain HERE.
+                    _uf106 = self._uploaded_file_tmp_name_source(up_vid)
+                    if _uf106:
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=(f"uploaded file path '{_uf106}' — file "
+                                    f"content is attacker-controlled"),
+                            chain=[{"step": "uploaded_file_source",
+                                    "vid": up_vid, "name": _uf106, "code": 1}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
                         if self._is_source_variable(full_text):
@@ -4435,18 +4521,28 @@ class GraphAnalyzer:
                                     # only fall back to _find_identifier_by_name (which
                                     # searches the whole graph by name) when the arg has
                                     # no local dfg sources (e.g. bare unbound identifier).
-                                    dep_res = self.parameters_back(
-                                        arg_vid, context_vid,
-                                        max(max_depth - depth, 24))
-                                    if dep_res is None or not dep_res.is_controllable:
-                                        arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
-                                        if arg_name and dep_res is None:
-                                            dep_vid = self._find_identifier_by_name(
-                                                arg_name, context_vid)
-                                            if dep_vid is not None:
-                                                dep_res = self.parameters_back(
-                                                    dep_vid, context_vid,
-                                                    max(max_depth - depth, 24))
+                                    # Fix 106: inside a file-content reader's path arg,
+                                    # $_FILES[...]['tmp_name'] is an uploaded-file
+                                    # source (content, not path, is attacker data).
+                                    _reader_ctx = callee in _FILE_CONTENT_READERS
+                                    if _reader_ctx:
+                                        self._file_read_arg_depth += 1
+                                    try:
+                                        dep_res = self.parameters_back(
+                                            arg_vid, context_vid,
+                                            max(max_depth - depth, 24))
+                                        if dep_res is None or not dep_res.is_controllable:
+                                            arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                                            if arg_name and dep_res is None:
+                                                dep_vid = self._find_identifier_by_name(
+                                                    arg_name, context_vid)
+                                                if dep_vid is not None:
+                                                    dep_res = self.parameters_back(
+                                                        dep_vid, context_vid,
+                                                        max(max_depth - depth, 24))
+                                    finally:
+                                        if _reader_ctx:
+                                            self._file_read_arg_depth -= 1
                                     if dep_res is not None and dep_res.is_controllable:
                                                 # Branch scope isolation: if the
                                                 # source identifier is outside the
@@ -7531,6 +7627,59 @@ class GraphAnalyzer:
     def _is_server_member_blocked(self, vid: int) -> bool:
         return self._is_superglobal_member_blocked(vid)
 
+    def _uploaded_file_tmp_name_source(self, vid: int) -> str | None:
+        """Fix 106 (CVE-2026-126482): inside a file-content reader's path
+        argument (see _FILE_CONTENT_READERS), a ``$_FILES[...]['tmp_name']``
+        member chain is an UPLOADED-FILE source: the tmp_name path value is
+        server-generated, but the file CONTENT it addresses is fully
+        attacker-controlled (835 upload → fopen → fread → SQL injection).
+
+        Returns the chain text (e.g. ``$_FILES['form_erafile']['tmp_name']``)
+        when ``vid`` sits on a ``$_FILES`` member chain that carries
+        ``tmp_name`` and NO other non-source key; ``None`` otherwise
+        (including every context outside a file-content reader's path
+        argument, where tmp_name stays a server-generated non-source).
+        """
+        if self._file_read_arg_depth <= 0:
+            return None
+        if not self.graph:
+            return None
+        # walk UP the member chain to the $_FILES root
+        cur = vid
+        up_names: list[str] = []
+        found_root = False
+        for _ in range(10):
+            member_in = list(self._edge_in(cur, "member"))
+            if not member_in:
+                break
+            parent = member_in[0].source
+            up_names.append(
+                str(_vattr(self.graph.vs[cur], "name", "")).strip("'\""))
+            if str(_vattr(self.graph.vs[parent], "name", "")) == "$_FILES":
+                found_root = True
+                break
+            cur = parent
+        if not found_root or not up_names:
+            return None
+        # gather the whole bounded member subtree below vid (the tmp_name
+        # leaf is often a member-OUT child of the node dfg attaches to)
+        names = set(up_names)
+        stack = [vid]
+        for _ in range(16):
+            if not stack:
+                break
+            child = stack.pop()
+            for e in self._edge_out(child, "member"):
+                nm = str(_vattr(self.graph.vs[e.target], "name", "")).strip("'\"")
+                if nm:
+                    names.add(nm)
+                stack.append(e.target)
+        non_source = {k for k in names if k in _FILES_NON_SOURCE_MEMBERS}
+        if "tmp_name" in names and non_source == {"tmp_name"}:
+            first_key = up_names[-1] or "…"
+            return f"$_FILES['{first_key}']['tmp_name']"
+        return None
+
     def _is_superglobal_only_non_source_members(self, sg_vid: int) -> bool:
         """Generalized version of _is_server_only_uncontrolled_members.
         Returns True if ALL outgoing member children of a superglobal node
@@ -10474,6 +10623,24 @@ class GraphAnalyzer:
             # negation of "A()" still does not mention var_name, so the
             # fast fail holds for them too.
             return False
+
+        # Fix 106 (CVE-2026-126482): container/element confusion.  A
+        # subscripted occurrence `$out[loopid] == 2110` constrains ONLY the
+        # loopid element — it says nothing about the rest of the array.
+        # Matching by bare name let this enum-of-constants condition veto
+        # the WHOLE $out container and killed the 835-upload taint chain
+        # ($out['our_claim_id'] written inside that branch by ParseERA).
+        # Strip all `$var[...]` / `$var{...}` / `$var->prop` occurrences;
+        # if the name survives nowhere else, the branch does not constrain
+        # the container variable itself.  The survival check is
+        # word-boundary aware: `$seg[int] == HE` must not be kept alive by
+        # the unrelated longer name `$segid` in the same condition.
+        if _bcond and var_name in _bcond:
+            _stripped = re.sub(
+                re.escape(var_name) + r"\s*(\[[^\]]*\]|\{[^}]*\}|->\s*\w+)",
+                "", _bcond)
+            if not re.search(re.escape(var_name) + r"(?!\w)", _stripped):
+                return False
 
         # Wildcard branches: else and default normally don't constrain.
         # EXCEPTION: else of a != branch — the else means == (constraining).

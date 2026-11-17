@@ -222,7 +222,18 @@ def enrich_taint(
     #     are built-in sanitizers. Mark their call nodes as taint_type=safe
     #     so that function_summary._trace_return_value can detect them.
     from core.graph.graph_analyzer import _REPAIR_FUNCTIONS
-    repair_count = _enrich_repair_calls(graph, _REPAIR_FUNCTIONS)
+    repair_funcs = _REPAIR_FUNCTIONS
+    # Fix 108 (CVE-2026-126482): framework-scoped repair set (e.g. OpenEMR
+    # text/attr/js_escape/xlt... official escape helpers).  Extends the
+    # svid-blind enrich-time safe marks ONLY when that framework was
+    # detected for this scan; the per-svid registry veto (Fix 48i) at
+    # analysis time keeps them from leaking across sink families.
+    if source_registry is not None and hasattr(source_registry, 'framework') and source_registry.framework:
+        _cfg108 = getattr(source_registry, '_fw_config', None) or {}
+        _fw_repairs = _cfg108.get('repair_functions', set())
+        if _fw_repairs:
+            repair_funcs = _REPAIR_FUNCTIONS | frozenset(_fw_repairs)
+    repair_count = _enrich_repair_calls(graph, repair_funcs)
     count += repair_count
 
     # 7. 传播 safe taint: 将 sanitizer call 的 safe 标记传播到赋值 LHS 变量
