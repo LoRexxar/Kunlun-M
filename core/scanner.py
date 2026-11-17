@@ -235,6 +235,12 @@ _SQL_QUERY_TEXT_SINK_INDEX = {
     # never interpolated).  Without the restriction the tainted request
     # VALUES in the bound array would report SQLi at every wrapper call.
     "sqlstatementthrowexception": 0,
+    # Fix 113b (CVE-2026-126480): CDR-engine delegation wrappers — arg0 is
+    # the query text passed through from callers; the body itself is judged
+    # at each caller (registered sinks).  Presence here also puts them in
+    # _SQL_WRAPPER_FUNC_NAMES so their internal delegation calls demote.
+    "sqlstatementcdrengine": 0,
+    "sqlquerycdrengine": 0,
 }
 
 # Fix 113 (CVE-2026-126480): the SQL wrapper FUNCTION family.  A query-text
