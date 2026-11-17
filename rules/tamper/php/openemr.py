@@ -46,6 +46,12 @@ EXTRA_SINKS = [
     ("sqlStatement(", [1006]),
     ("sqlStatementNoLog(", [1006]),
     ("sqlInsert(", [1006]),
+    # Fix 111 (CVE-2026-126480): QueryUtils static wrapper family — same
+    # semantics as the library/sql.inc.php wrappers (arg0 = query TEXT,
+    # remaining args = bound params, not interpolable). Used by the Zend
+    # modules (CcrTable::insertApprovedData builds "UPDATE patient_data
+    # SET $fields" from request parameter NAMES).
+    ("QueryUtils::sqlStatementThrowException(", [1006]),
 ]
 
 # Fix 108 (CVE-2026-126482): OpenEMR 官方输出转义助手（library/htmlspecialchars.inc.php

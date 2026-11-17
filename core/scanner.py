@@ -230,7 +230,22 @@ _SQL_QUERY_TEXT_SINK_INDEX = {
     "sqlstatement": 0,
     "sqlstatementnolog": 0,
     "sqlinsert": 0,
+    # Fix 111 (CVE-2026-126480): QueryUtils static wrapper — arg0 is the
+    # query TEXT, arg1 is the bound-parameter array (values bound via ?,
+    # never interpolated).  Without the restriction the tainted request
+    # VALUES in the bound array would report SQLi at every wrapper call.
+    "sqlstatementthrowexception": 0,
 }
+
+# Fix 113 (CVE-2026-126480): the SQL wrapper FUNCTION family.  A query-text
+# sink called from INSIDE one of these wrappers is a pure delegation
+# (sql.inc.php: sqlStatement($statement) { return
+# QueryUtils::sqlStatementThrowException($statement, ...); }) — the wrapper's
+# arg0 is an entry parameter whose taint arrives from CALLERS, and every
+# caller is itself judged at its own sink line (the whole family is
+# registered as sinks).  Reporting the wrapper body too is the same
+# structural FP family as Fix 71c (osticket mysqli.php db_query).
+_SQL_WRAPPER_FUNC_NAMES = frozenset(_SQL_QUERY_TEXT_SINK_INDEX)
 
 
 def _match_sink_arg_index(table, sink_name_lower):
@@ -322,6 +337,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     # 预加载框架 tamper EXTRA_SINKS 并注入为虚拟规则
     # （从 oldscan 移植，适配 graph scan 的 rules dict 格式）
     _framework_method_sinks: set[str] = set()  # short method names for find_sinks Path C
+    _framework_static_sinks: set[str] = set()  # Fix 112: Class::method tails for find_sinks Path B
     if language and target_directory:
         try:
             from rules.tamper._loader import detect_frameworks, merge_framework_config, load_base_config
@@ -357,6 +373,23 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     _m = _re.search(r'->(\w+)', _pattern)
                                     if _m:
                                         _vw_method_sinks.append(_m.group(1))
+                                # Fix 112 (CVE-2026-126480): static `Class::method`
+                                # patterns — bind the bare METHOD name on the
+                                # VirtualRule (rule matcher, same as Fix 42e) and
+                                # collect the class.method tail for find_sinks
+                                # Path B namespace-suffix matching (FQCN call
+                                # sites like \OpenEMR\...\QueryUtils::method).
+                                # PURE static patterns only: mixed chains
+                                # ('\Drupal::database()->query') are owned by
+                                # the '->' branch above; extracting their
+                                # class::segment would bind bogus method names.
+                                if '::' in _pattern and '->' not in _pattern:
+                                    import re as _re
+                                    _m = _re.search(r'(\w+)::(\w+)', _pattern)
+                                    if _m:
+                                        _vw_method_sinks.append(_m.group(2))
+                                        _framework_static_sinks.add(
+                                            "{}.{}".format(_m.group(1), _m.group(2)).lower())
                                 for _svid in _svids:
                                     _vw_name = "VW_{}_{}".format(_svid, len(rules))
                                     _vw_class = type(_vw_name, (VirtualRule,), {
@@ -995,7 +1028,8 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             _db_probe_methods = {'query', 'exec'} if (lang == 'php' and _sqli_rules_present) else set()
             analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang),
                                      framework_method_sinks=_framework_method_sinks,
-                                     db_probe_methods=_db_probe_methods)
+                                     db_probe_methods=_db_probe_methods,
+                                     framework_static_sinks=_framework_static_sinks)
 
             # 收集该语言所有规则的 sink 函数名
             all_sink_names = []
@@ -1286,6 +1320,25 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # not interpolable).
                     query_only_idx = _match_sink_arg_index(
                         _SQL_QUERY_TEXT_SINK_INDEX, sink_name_lower)
+                    # Fix 113: is this sink call INSIDE a SQL wrapper function?
+                    # (delegation bodies — safety is decided at each caller,
+                    # which is itself a registered sink line)
+                    _ql_in_wrapper = False
+                    if query_only_idx >= 0:
+                        _ow113 = sink.get('vid')
+                        for _ in range(24):
+                            _ins113 = None
+                            for _e113 in graph.es.select(_target=_ow113, label="own"):
+                                _ins113 = _e113.source
+                                break
+                            if _ins113 is None:
+                                break
+                            _ow113 = _ins113
+                            if _vattr(graph.vs[_ow113], "label") in ("function", "method"):
+                                _fn113 = str(_vattr(graph.vs[_ow113], "name", "")).lower()
+                                _ql_in_wrapper = (_fn113.rsplit("::", 1)[-1]
+                                                  in _SQL_WRAPPER_FUNC_NAMES)
+                                break
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
@@ -1888,6 +1941,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # land here) and _pb_an.parameters_back —
                                 # apply the same origin requirement.
                                 if _import_gate(r):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
+                                # Fix 113 (CVE-2026-126480): sink call inside a
+                                # SQL wrapper function = pure delegation body;
+                                # the taint arrives through the wrapper's entry
+                                # parameter from callers that are themselves
+                                # registered sink lines.  Demote to unconfirmed
+                                # (structural FP family, Fix 71c doctrine).
+                                if _ql_in_wrapper:
                                     if not found_unconfirmed:
                                         found_unconfirmed = True
                                         unconfirmed_result = r

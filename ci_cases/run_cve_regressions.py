@@ -148,6 +148,17 @@ EXPECTATIONS = {
     # mixed-dir scan under-detects SLEOB — the documented subdir trap).
     'era_payments.php': {'1017': 1},
     'SLEOB.php': {'1006': 1},
+    # Fix 111/112/113 (CVE-2026-126480 OpenEMR Ccr parameter-name SQLi):
+    # the whole $_REQUEST is passed to CcrTable::insertApprovedData() and
+    # the taint surface is the ARRAY KEYS ('patient_data<col>-sel' →
+    # substr → .= concat → UPDATE ... SET column list).  QueryUtils
+    # ::sqlStatementThrowException registered as a query-text sink (Fix
+    # 111, arg0-only); framework Class::method sink patterns tail-match
+    # fully-qualified static call sites (Fix 112 — \OpenEMR\...\QueryUtils
+    # ::method); wrapper delegation bodies inside the SQL wrapper family
+    # are demoted to unconfirmed (Fix 113 — sql.inc.php:99/124 double
+    # rows whose callers are themselves registered sink lines).
+    'CcrTable_126480.php': {'1006': 1},
     # Fix 89 (CVE-2026-126491 OpenEMR patient_select match-arm SQLi):
     # the ONLY call-site of getByPatientDemographics() lives inside a
     # PHP 8 match arm — MatchArm/MatchDefaultArm are in no _*_NODES set

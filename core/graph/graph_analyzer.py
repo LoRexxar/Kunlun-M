@@ -457,7 +457,8 @@ class GraphAnalyzer:
 
     def __init__(self, graph: ig.Graph, language: str = "php",
                  source_registry=None, framework_method_sinks: set[str] | None = None,
-                 db_probe_methods: set[str] | None = None) -> None:
+                 db_probe_methods: set[str] | None = None,
+                 framework_static_sinks: set[str] | None = None) -> None:
         self.graph = graph
         self.language = language
         # Fix 48a: per-svid repair context (None = svid-blind legacy mode)
@@ -490,6 +491,16 @@ class GraphAnalyzer:
         # validator callbacks exploded into 4 FPs when 'query' entered the
         # framework whitelist (hm Form_validation anchor).
         self._db_probe_methods: set[str] = db_probe_methods or set()
+        # Fix 112 (CVE-2026-126480): framework STATIC sinks — `Class::method`
+        # patterns from tamper EXTRA_SINKS, stored as the dotted two-segment
+        # tail ("queryutils.sqlstatementthrowexception").  Same contract as
+        # _framework_method_sinks (receiver-agnostic), but for static calls:
+        # the call site may carry the FULLY-QUALIFIED name
+        # (\OpenEMR\...\QueryUtils::sqlStatementThrowException) while the
+        # declared pattern is the short form (QueryUtils::sql...).  Path B
+        # exact-matching on the use-edge fullname missed those; the tail
+        # match requires BOTH class and method, so it stays qualified.
+        self._framework_static_sinks: set[str] = framework_static_sinks or set()
         # Fix 93 (CVE-2026-29080): lazy per-file python from-import alias map
         # ({file_path: {local_name: module}}), used by find_sinks to resolve
         # bare calls like `text(...)` (from sqlalchemy import text) to their
@@ -882,7 +893,10 @@ class GraphAnalyzer:
                     tgt_fullname = _vattr(tgt, "fullname", "")
                     if not tgt_fullname:
                         continue
-                    norm_fn = tgt_fullname.replace("::", ".")
+                    # Fix 112: a leading backslash is PHP's global-namespace
+                    # marker (\OpenEMR\...\QueryUtils::method) — pure syntax,
+                    # no matching semantics; strip before normalizing.
+                    norm_fn = tgt_fullname.replace("::", ".").lstrip("\\")
                     # Fix 14: A bare fullname (no "." or "::") provides no
                     # receiver-type resolution for method_call/static_call.
                     # Without a qualifier, the match is indistinguishable from a
@@ -905,6 +919,23 @@ class GraphAnalyzer:
                         callee_name = tgt_fullname
                         _is_qualified_match = True
                         break
+                    # Fix 112 (CVE-2026-126480): framework STATIC sink —
+                    # `Class::method` EXTRA_SINKS patterns are declared in the
+                    # short form (QueryUtils::sqlStatementThrowException) but
+                    # the use-edge fullname may carry the whole namespace
+                    # (\OpenEMR\Common\Database\QueryUtils::...).  Tail match
+                    # on the last TWO dotted segments (class.method) — both
+                    # must agree, so this stays a QUALIFIED match; bare names
+                    # can never hit it.  Scoped to static calls and to the
+                    # framework-declared set (zero effect on other sinks).
+                    if (self._framework_static_sinks and "." in norm_fn
+                            and call_type == "static_call"):
+                        _tail2 = ".".join(norm_fn.lower().rsplit(".", 2)[-2:])
+                        if _tail2 in self._framework_static_sinks:
+                            matched_name = norm_fn
+                            callee_name = norm_fn
+                            _is_qualified_match = True
+                            break
 
             # Path C: framework method sink — short name whitelist.
             # Framework tamper EXTRA_SINKS define method-call sinks like
