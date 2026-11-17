@@ -1067,7 +1067,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 # Path E runs as a separate pass on a separate analyzer
                 # (see _sprintf_sql pass below), fully isolated.
                 _sprintf_sql_probe = bool(_sql_rule_ids & {'1005', '1006'})
+                # Fix 114b: URL-attribute escape sentinel — fires only when
+                # an XSS-family rule (1000 / 10002) is present.  Same Fix 70k
+                # doctrine: separate pass, separate analyzer, post-loop.
+                _url_attr_probe = bool(_sql_rule_ids & {'1000', '10002'})
             _sprintf_sql_probe = locals().get('_sprintf_sql_probe', False)
+            _url_attr_probe = locals().get('_url_attr_probe', False)
             logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
             sinks = analyzer.find_sinks(sink_names=all_sink_names)
             # Fix 70i: sprintf-SQL sentinel pass, isolated analyzer (no
@@ -2682,6 +2687,60 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 continue
                 except Exception as e:
                     logger.debug('[SCAN] sentinel sub-pass error: %s', e)
+
+            # ══ Fix 114b: URL-attribute escape sentinel sub-pass (isolated) ══
+            # CVE-2026-126451: escaped output inside a URL-loading attribute
+            # literal (src='…') keeps URI schemes executable — the escape is
+            # not a repair there.  Fully isolated from the main loop AND from
+            # the sprintf sentinel analyzer (separate GraphAnalyzer, separate
+            # decision cache — Fix 70k doctrine).
+            if lang == 'php' and _url_attr_probe:
+                try:
+                    _url_an = GraphAnalyzer(graph, language=lang,
+                                            source_registry=_make_source_registry(lang),
+                                            framework_method_sinks=set())
+                    _url_extra = _url_an.find_sinks(sink_names=['concat#url-attr-sentinel'])
+                    if _url_extra:
+                        from web.index.models import Rules as _RulesM2
+                        _xss_rule = None
+                        for _pref in ('1000', '10002'):
+                            for rule in lang_rule_list:
+                                if str(getattr(rule, 'svid', '')) == _pref:
+                                    _xss_rule = rule
+                                    break
+                            if _xss_rule is not None:
+                                break
+                        if _xss_rule is not None:
+                            for sink in _url_extra:
+                                try:
+                                    _found = False
+                                    for arg_vid in sink.get('arg_vids', []):
+                                        r = _url_an.parameters_back(arg_vid)
+                                        if r is not None and r.is_controllable:
+                                            _found = True
+                                            break
+                                    if not _found:
+                                        continue
+                                    sink_vid = sink['vid']
+                                    file_path = _vattr(graph.vs[sink_vid], 'file_path', '') or _vattr(graph.vs[sink_vid], 'path', '')
+                                    lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
+                                    vuln = VulnerabilityResult.from_match(
+                                        (file_path, lineno, 'concat'),
+                                        svid=_xss_rule.svid,
+                                        language='php',
+                                        rule_name=_xss_rule.vulnerability,
+                                        author=_xss_rule.author,
+                                    )
+                                    vuln.analysis = ('HTML-entity escape does not neutralize URI schemes in URL-attribute context; '
+                                                     + (r.reason or ''))
+                                    vuln.chain = [(str(c.get('step', '')), str(c.get('name', '')), file_path, lineno, int(c.get('vid', 0) or 0)) for c in (r.chain or [])[:4]]
+                                    find_vulnerabilities.append(vuln)
+                                    logger.info('[CVI-%s] [GRAPH] url-attr escape sentinel found: %s:%s', _xss_rule.svid, file_path, lineno)
+                                except Exception as e:
+                                    logger.debug('[SCAN] url-attr sentinel sink error: %s', e)
+                                    continue
+                except Exception as e:
+                    logger.debug('[SCAN] url-attr sentinel sub-pass error: %s', e)
 
     # ── Framework-dependency rules (independent of graph) ──
     if _fw_dep_rules:

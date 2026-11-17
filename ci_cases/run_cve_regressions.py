@@ -168,6 +168,17 @@ EXPECTATIONS = {
     # → $where → $sql → sqlStatement sink. Safe contrast in the same file
     # must NOT fire.
     'patient.inc.php': {'1006': 1},
+    # Fix 114 (CVE-2026-126451 OpenEMR stored XSS via DocumentTemplateRender
+    # iframe src): second-order chain — portal patient stores JSON into
+    # OnsiteDocument.TemplateData (Create()); staff Read() fetches the row
+    # back via $this->Phreezer->Get('OnsiteDocument', $pk) (Fix 114a: ORM
+    # fetch object registered as a context-gated second-order source) →
+    # doRender → json_decode → $formData['encounterForm'] → concat into
+    # src='".attr($src)."' — htmlspecialchars (ENT_QUOTES) kills quote
+    # breakout but NOT javascript: schemes, so Fix 114b's URL-attribute
+    # escape sentinel (Path F + isolated sub-pass) reports CVI-1000 at the
+    # concat line.
+    'DocumentTemplateRender.php': {'1000': 1},
 }
 
 

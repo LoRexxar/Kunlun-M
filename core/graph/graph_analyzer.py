@@ -211,6 +211,26 @@ _FORMAT_STRING_SANITIZERS: frozenset[str] = frozenset({
     "sprintf", "printf", "vsprintf", "fprintf",
 })
 
+# Fix 114b (CVE-2026-126451): HTML-entity escaper family — functions whose
+# job is encoding HTML-special characters (& < > " ').  They neutralize
+# quote/tag breakout but leave URI schemes intact (`javascript:` survives
+# htmlspecialchars with ENT_QUOTES), so their output concatenated into a
+# URL-loading attribute literal (src='…' href='…') is still injectable.
+# Members are publicly-recognized encoding functions plus verified thin
+# wrappers (OpenEMR attr/text = htmlspecialchars ENT_QUOTES in
+# library/htmlspecialchars.inc.php).  Deliberately EXCLUDED: urlencode /
+# rawurlencode (encode ':' → scheme dies), json_encode (quotes the value),
+# full-entity encoders like cleanValue (encode everything).
+# Used only by the Path F URL-attribute sentinel, always paired with the
+# enrich-time taint_type=='safe' gate — a bare name never fires alone.
+_HTML_ENTITY_ESCAPERS: frozenset[str] = frozenset({
+    "htmlspecialchars", "htmlentities",
+    "html_escape", "escape_html", "escapeHtml",
+    "esc_html", "esc_attr",  # WordPress — html-entity escapers
+    "attr", "text",  # OpenEMR htmlspecialchars wrappers (Fix 108 set)
+    "hsc", "htmlchars", "Format.htmlchars", "Format.input",  # DokuWiki / osTicket aliases
+})
+
 # Fix 14: PHP type cast operators that sanitize taint.
 # (int), (float), (bool), (array) casts destroy string content,
 # making XSS/SQLi/injection impossible through the cast result.
@@ -1218,6 +1238,83 @@ class GraphAnalyzer:
                     "type": _vattr(v, "type", ""),
                     "arg_vids": arg_vids[1:],
                     "rule_hint": "1006",
+                })
+
+        # Fix 114b (Path F): URL-attribute escape sentinel (PHP).
+        # CVE-2026-126451 (OpenEMR DocumentTemplateRender): an HTML-entity
+        # escaper (htmlspecialchars / attr, ENT_QUOTES) neutralizes quote
+        # breakout but NOT URI schemes — a `javascript:` value concatenated
+        # into a URL-loading attribute literal (`src='`, `href='`, …)
+        # stays executable, so the escape is NOT a repair in that context.
+        # Shape: binary '.' concat whose LEFT operand is a const ending in a
+        # URL-attr open-quote and whose RIGHT operand is a call the engine
+        # already believes is a sanitizer (taint_type == 'safe') from the
+        # HTML-entity escaper family.  The sink's taint args are the escaper
+        # call's own args (the PRE-escape value) — the isolated sub-pass
+        # re-runs parameters_back on them.
+        # Fires ONLY on the sentinel pseudo-name request (never joined to
+        # the shared sink loop — Fix 70k doctrine).
+        if (self.language == "php"
+                and "concat#url-attr-sentinel" in (sink_names or [])):
+            _url_attr_open = re.compile(
+                r"""(?:src|href|action|formaction|data|xlink:href)\s*=\s*['"]\s*$""",
+                re.IGNORECASE)
+            for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                v = self.graph.vs[vid]
+                if _vattr(v, "type") != OperatorType.BINARY_OP.value:
+                    continue
+                if _vattr(v, "name", "") != ".":
+                    continue
+                node_lang = _vattr(v, 'language', '')
+                if node_lang and self.language and node_lang != self.language:
+                    continue
+                _left = _right = None
+                for e in self._edge_out(vid, "ast"):
+                    _role = _vattr(e, "role", "")
+                    if _role == "left":
+                        _left = e.target
+                    elif _role == "right":
+                        _right = e.target
+                if _left is None or _right is None:
+                    continue
+                lv = self.graph.vs[_left]
+                if _vattr(lv, "label", "") != NodeLabel.CONST.value:
+                    continue
+                # literal names carry their own quotes — strip a matching
+                # outer pair before testing the URL-attr-open tail
+                lit = str(_vattr(lv, "name", "") or "")
+                if len(lit) >= 2 and lit[0] in "'\"" and lit[-1] == lit[0]:
+                    lit = lit[1:-1]
+                if not _url_attr_open.search(lit):
+                    continue
+                rv = self.graph.vs[_right]
+                if _vattr(rv, "type", "") not in _CALL_TYPES:
+                    continue
+                # gate 1: the engine must already consider this call a
+                # sanitizer (enrich marked it safe via a repair set)
+                if _vattr(rv, "taint_type", "") != "safe":
+                    continue
+                # gate 2: HTML-entity escaper family only — these encode
+                # HTML-special chars and leave URI schemes intact.
+                # Publicly-recognized encoding functions / their verified
+                # thin wrappers (OpenEMR attr/text = htmlspecialchars).
+                _short = _vattr(rv, "callee", "") or str(_vattr(rv, "name", "") or "")
+                _short = _short.replace("::", ".").rsplit(".", 1)[-1]
+                if _short not in _HTML_ENTITY_ESCAPERS:
+                    continue
+                esc_args = [
+                    e.target for e in self._edge_out(_right, "ast")
+                    if _vattr(e, "role") == "arg"
+                ]
+                if not esc_args:
+                    continue
+                results.append({
+                    "vid": vid, "name": "concat",
+                    "lineno": _vattr(v, "lineno", 0),
+                    "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                    "type": _vattr(v, "type", ""),
+                    "arg_vids": esc_args,
+                    "rule_hint": "1000",
                 })
 
         # 第三轮：查找 import 类型节点（PHP include/require）
