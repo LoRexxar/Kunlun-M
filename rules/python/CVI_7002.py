@@ -14,7 +14,7 @@ class CVI_7002(SingleRuleMixin):
         self.level = 7
         self.match_mode = "function-param-regex"
         self.match = r"cursor\.execute|connection\.execute|session\.execute|engine\.execute|db\.execute|\.raw\(|\.extra\(|RawSQL\(|cursor\.executemany|connection\.cursor|text\(|\.from_statement\("
-        self.vul_function = ["execute", "cursor.execute", "raw", "extra"]
+        self.vul_function = ["execute", "cursor.execute", "raw", "extra", "sqlalchemy.text"]
         # CVE-2026-63489 (Yeti <=2.5.0): ArangoDB AQL injection.  User-controlled
         # `sorting` / `filter_aliases` from POST /api/v2/*/search are f-string
         # interpolated into AQL identifier/expression positions in

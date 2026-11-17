@@ -15,7 +15,9 @@ PYTHON 内置函数/方法可控性知识库
 from typing import Dict, List, Optional, Union
 
 # {"函数名": {"passthrough": [参数位置列表], "safe": bool}}
-KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
+# passthrough 列表可含 "all"（Fix 93c）——所有位置实参都流入返回值
+# （str.format 无界元数内插）；消费端见 'all' 即不做索引过滤。
+KNOWLEDGE: Dict[str, Dict[str, Union[List[Union[int, str]], bool, Dict[int, int]]]] = {
         # ===== 字符串方法（透传 self） =====
         "str.upper":        {"passthrough": [0], "safe": False},
         "str.lower":        {"passthrough": [0], "safe": False},
@@ -31,7 +33,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "str.splitlines":   {"passthrough": [0], "safe": False},
         "str.encode":       {"passthrough": [0], "safe": False},
         "str.decode":       {"passthrough": [0], "safe": False},
-        "str.format":       {"passthrough": [0], "safe": False},
+        "str.format":       {"passthrough": ["all"], "safe": False},
         "str.join":         {"passthrough": [1], "safe": False},
         "str.center":       {"passthrough": [0], "safe": False},
         "str.ljust":        {"passthrough": [0], "safe": False},
@@ -57,6 +59,28 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "frozenset":        {"passthrough": [0], "safe": False},
         "repr":             {"passthrough": [0], "safe": False},
         "format":           {"passthrough": [0], "safe": False},
+        # Fix 93c (CVE-2026-29080): str.format interpolates EVERY positional
+        # arg into its result ('{} {} {}'.format(a, b, c) embeds a, b AND c).
+        # "__method__.<name>" entries are METHOD-form overrides: knowledge_
+        # bridge consults them before the bare builtin-function entry when
+        # the call site is a method_call, so '...'.format(...) /
+        # tmpl.format(key, value) no longer inherits builtin format(value,
+        # spec)'s [0]-only passthrough (which silently killed taint at
+        # arg1+ — rucio FilterEngine json_exists.format(key, value) SQLi).
+        "__method__.format": {"passthrough": ["all"], "safe": False},
+        # Fix 95 (CVE-2026-29080): dict view accessors are RECEIVER
+        # passthrough — `.items()` / `.keys()` / `.values()` yield the
+        # container's (key, value) contents, so a tainted container's
+        # views are tainted.  Without this the `for k, v in d.items():`
+        # element-flow edge (Fix 94) landed on a call node whose return
+        # nobody could classify and the chain died at the loop header
+        # (rucio FilterEngine `for key, value in filters.items()`).
+        # Scoped to __method__ form only: bare items/keys/values are not
+        # python builtins, and receiver-passthrough never invents taint —
+        # it only forwards whatever the receiver already carries.
+        "__method__.items":  {"passthrough": ["this"], "safe": False},
+        "__method__.keys":   {"passthrough": ["this"], "safe": False},
+        "__method__.values": {"passthrough": ["this"], "safe": False},
         "sorted":           {"passthrough": [0], "safe": False},
         "reversed":         {"passthrough": [0], "safe": False},
         "enumerate":        {"passthrough": [0], "safe": False},
@@ -357,7 +381,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
 }
 
 
-def lookup(func_name: str) -> Optional[Dict[str, Union[List[int], bool]]]:
+def lookup(func_name: str) -> Optional[Dict[str, Union[List[Union[int, str]], bool, Dict[int, int]]]]:
     """
     查询该语言的内置函数知识库
 

@@ -19,6 +19,7 @@ enables:
 from __future__ import annotations
 
 import logging
+import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -70,6 +71,8 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._incoming_to: dict[int, list[int]] = defaultdict(list)
         # use 边索引（已存在的 use 边，用于去重）
         self._use_pairs: set[tuple[int, int]] = set()
+        # Fix 97: python 同名有体函数索引（懒构建，duck-typing 虚分发）
+        self._py_dispatch_idx: dict[str, list[int]] | None = None
 
         # ── 预缓存节点属性 — 避免 15s+ 的 _vattr/graph.vs 开销 ──
         n = graph.vcount()
@@ -217,6 +220,41 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 resolved_type = self._resolve_receiver_type(
                     graph, vid, callee_name, name_index
                 )
+
+            # Fix 97 (CVE-2026-29080): python duck-typed multi-target
+            # dispatch.  An opaque-receiver method call
+            # (`selected_plugin_to_use.list_dids(...)`,
+            # `metadata_plugin.manages_key(...)`) can dispatch to ANY
+            # same-named method at runtime — rucio builds its plugin
+            # registry via importlib+getattr, so no static receiver type
+            # exists.  The old path resolved the callee through the name
+            # index and bound ONE arbitrary same-name function: a
+            # deterministic mis-bind that both missed the real targets
+            # and stole the call edge (dispatcher call at
+            # did_meta_plugins/__init__.py:249 bound to gateway
+            # did.py:36 list_dids instead of the four plugin list_dids).
+            # Bind to ALL non-external same-named python functions
+            # instead (standard virtual-dispatch over-approximation for
+            # duck typing).  Guards: python only; >1 candidates (a lone
+            # candidate is already found by the normal single-bind
+            # path); <=8 candidates (utility-name storms like `get`/
+            # `run` across a big corpus keep the old behavior).
+            if (language == "python"
+                    and op_type == OperatorType.METHOD_CALL.value
+                    and resolved_type is None):
+                _cands = self._py_dispatch_candidates(graph, callee_name)
+                if _cands:
+                    for _tgt in _cands:
+                        if (vid, _tgt) not in self._use_pairs:
+                            self._use_pairs.add((vid, _tgt))
+                            use_edges.append((vid, _tgt))
+                            use_attrs.append({
+                                "label": "use",
+                                "call_type": cg_call_type,
+                                "lineno": lineno,
+                            })
+                            count += 1
+                    continue
 
             # Build fullname
             if resolved_type:
@@ -458,6 +496,47 @@ class UseEdgeBuilder(BaseEdgeBuilder):
     def _get_dfg_sources(self, graph: "ig.Graph", vid: int) -> list[int]:
         """Get upstream DFG source vertex IDs."""
         return list(self._dfg_to.get(vid, []))
+
+    def _py_dispatch_candidates(self, graph: "ig.Graph", name: str) -> list[int]:
+        """Fix 97 (CVE-2026-29080): all python METHODS with this exact name
+        — the virtual-dispatch target set for an opaque-RECEIVER method
+        call.  An instance receiver (`selected_plugin_to_use.list_dids()`)
+        can only dispatch to methods (own-parent = class node), never to
+        module-level functions, so module functions are excluded — that
+        also keeps the candidate set small when a name is shared by both
+        forms (rucio has 4 plugin methods + 5 module-level list_dids;
+        the module functions would blow the storm cap).  Returns []
+        unless there are 2..8 candidates: a single candidate is left to
+        the normal single-bind path, and a storm (>8 same-named methods)
+        also keeps old behavior to bound edge growth on huge corpora.
+        """
+        if not name:
+            return []
+        if self._py_dispatch_idx is None:
+            idx: dict[str, list[int]] = {}
+            # own-edge index: parent → children (class → its methods)
+            own_to: dict[int, list[int]] = defaultdict(list)
+            for e in graph.es:
+                if _vattr(e, "label", "") == "own":
+                    own_to[e.source].append(e.target)
+            for i in range(graph.vcount()):
+                if self._vlabel[i] != NodeLabel.CLASS.value:
+                    continue
+                for ch in own_to.get(i, ()):
+                    if self._vlabel[ch] != NodeLabel.FUNCTION.value:
+                        continue
+                    if self._vis_external[ch]:
+                        continue
+                    if not str(self._vfile_path[ch]).endswith(".py"):
+                        continue
+                    nm = self._vname[ch]
+                    if nm:
+                        idx.setdefault(nm, []).append(ch)
+            self._py_dispatch_idx = idx
+        cands = self._py_dispatch_idx.get(name, [])
+        if 1 < len(cands) <= 8:
+            return cands
+        return []
 
     def _find_or_create_function(self, graph: "ig.Graph",
                                 func_name: str, fullname: str,

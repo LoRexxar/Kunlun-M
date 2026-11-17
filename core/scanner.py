@@ -670,26 +670,104 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             and _vattr(v, "func_summary_type", "") == "safe"):
                         safe_func_vids.add(v.index)
                 if safe_func_vids:
+                    # Fix 97 (CVE-2026-29080): 收集每个调用的全部 use 目标
+                    # 再判定。duck-typing 多目标虚分发（use.py Fix 97）让
+                    # 一个调用点挂多条 use 边；旧的"任一目标 safe 即删该
+                    # 调用入边"会把还有非 safe 候选（真实运行时目标）的
+                    # 调用错杀——rucio 全量复扫 7002 检出因此归零（删边
+                    # 14830→20990）。过近似语义下：全部目标 safe 才 safe。
+                    call_use_targets: dict[int, set[int]] = {}
+                    for e in graph.es.select(label="use"):
+                        call_use_targets.setdefault(e.source, set()).add(e.target)
                     # Find call nodes that use these functions
                     # use edge direction: source=call_vid, target=func_vid
                     safe_call_vids = set()
-                    for e in graph.es.select(label="use"):
-                        if e.target in safe_func_vids:
-                            call_vid = e.source
-                            # Fix 81 (CVE-2026-32613): never cut DFG edges
-                            # into a call that carries its OWN builtin
-                            # passthrough annotation (java catalog: toString
-                            # etc.) — the use edge binds by bare name to an
-                            # unrelated same-name safe def (hijack), and
-                            # cutting here starves the backward BFS.
-                            _cv = graph.vs[call_vid]
-                            if (_vattr(_cv, "taint_type", "") == "passthrough"
-                                    and (_vattr(_cv, "taint_passthrough", None) or [])):
-                                continue
-                            safe_call_vids.add(call_vid)
-                            # Delete DFG edges from call args to call_vid (passthrough)
-                            for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
-                                edges_to_delete.append(dfg_e.index)
+                    for call_vid, tgts in call_use_targets.items():
+                        # Fix 97 (CVE-2026-29080): python duck-typing
+                        # multi-target dispatch (use.py Fix 97) binds several
+                        # candidate callees to one call site — under that
+                        # regime a call is only provably safe when EVERY
+                        # candidate is safe.  Other languages keep the
+                        # calibrated any-safe cut: their multi-bind is a
+                        # bare-name index artefact, and switching it to
+                        # all-safe exploded osticket +260 XSS FPs (every
+                        # sanitizer sharing a name with one unsafe def
+                        # stopped cutting).
+                        _py97 = (language == "python")
+                        _all_safe = bool(tgts) and tgts.issubset(safe_func_vids)
+                        _any_safe = any(t in safe_func_vids for t in tgts)
+                        if not (_all_safe if _py97 else _any_safe):
+                            # Fix 97: python 侧存在非 safe（含未知/外部占位）
+                            # 候选时保守保留该调用的全部 DFG 入边。
+                            continue
+                        # Fix 81 (CVE-2026-32613): never cut DFG edges
+                        # into a call that carries its OWN builtin
+                        # passthrough annotation (java catalog: toString
+                        # etc.) — the use edge binds by bare name to an
+                        # unrelated same-name safe def (hijack), and
+                        # cutting here starves the backward BFS.
+                        _cv = graph.vs[call_vid]
+                        if (_vattr(_cv, "taint_type", "") == "passthrough"
+                                and (_vattr(_cv, "taint_passthrough", None) or [])):
+                            continue
+                        # Fix 99b2 (CVE-2026-29080): source-receiver veto —
+                        # NEVER cut DFG edges into a source-container accessor
+                        # call (`request.args.get('k')`).  The use edge binds
+                        # the bare method name to an unrelated same-name safe
+                        # def (bare-name hijack); cutting the receiver dfg edge
+                        # here blinds every later member-chain source rule
+                        # (analyzer Fix 93/99) and the chain dies at hop one.
+                        # Fix 99b3 (CVE-2026-29080 gates): receiver-only.  The
+                        # b2 form vetoed on ANY dfg-fed identifier whose member
+                        # chain hit a source member — including plain ARGUMENTS
+                        # (`Format::display($_POST['x'])`: the $_POST subscript
+                        # dim is an arg, not a receiver), which un-cut every
+                        # sanitizer call site with a superglobal argument and
+                        # added ~250 XSS rows on osticket (27361 → 7014 DFG
+                        # edges cut).  The chain must be the RECEIVER prefix
+                        # of the call's qualified name (`request.args.get` ←
+                        # receiver `request.args`); an argument chain
+                        # (`$_POST.x` vs call `Format.display`) never matches.
+                        if sr is not None and hasattr(sr, "is_source_member"):
+                            try:
+                                _cut_veto_99 = False
+                                _cname99b = _vattr(graph.vs[call_vid], "name", "") or ""
+                                for _e99b in graph.es.select(_target=call_vid, label="dfg"):
+                                    _sv99b = graph.vs[_e99b.source]
+                                    if _vattr(_sv99b, "label", "") != NodeLabel.IDENTIFIER.value:
+                                        continue
+                                    _nm99b = _vattr(_sv99b, "name", "")
+                                    if not _nm99b:
+                                        continue
+                                    _chain99b = _nm99b
+                                    _cur99b = _e99b.source
+                                    for _ in range(10):
+                                        _mi99b = list(graph.es.select(_target=_cur99b, label="member"))
+                                        if not _mi99b:
+                                            break
+                                        _pv99b = graph.vs[_mi99b[0].source]
+                                        _pn99b = _vattr(_pv99b, "name", "")
+                                        if not _pn99b:
+                                            break
+                                        _chain99b = _pn99b + "." + _chain99b
+                                        _cur99b = _mi99b[0].source
+                                    if not (sr.is_source_member(_chain99b) or sr.is_source_member(_nm99b)):
+                                        continue
+                                    # 99b3: source member reached — only a
+                                    # VETO when this chain is the receiver of
+                                    # the call, not a plain argument.
+                                    if (isinstance(_cname99b, str) and _cname99b
+                                            and _cname99b.startswith(_chain99b + ".")):
+                                        _cut_veto_99 = True
+                                        break
+                                if _cut_veto_99:
+                                    continue
+                            except Exception:
+                                pass
+                        safe_call_vids.add(call_vid)
+                        # Delete DFG edges from call args to call_vid (passthrough)
+                        for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
+                            edges_to_delete.append(dfg_e.index)
                     
                     # Also delete same-edges from external variables to
                     # identifiers nested inside safe call arguments.
@@ -1403,8 +1481,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # trace sub-args whose arg_index is in the list.
                                 # This prevents false taint from non-data args
                                 # (e.g. apply_filters hook name in arg0).
+                                # Fix 93c (CVE-2026-29080): builtin_knowledge
+                                # entries describe FUNCTION call forms
+                                # (builtin format(value, spec) passes only
+                                # arg0).  A method_call whose bare method name
+                                # collides ('...'.format(a, b, c)) is a
+                                # DIFFERENT function — str.format embeds ALL
+                                # args into the result.  Applying the function
+                                # entry's passthrough to the method form
+                                # silently killed taint at arg1+ (rucio
+                                # FilterEngine text(json_exists...format(key,
+                                # value))).  Mirror Rule 2b (graph_analyzer):
+                                # BK passthrough only gates plain 'call' ops.
                                 _bk_passthrough_idxs = None
-                                if _callee:
+                                if _callee and _vattr(graph.vs[op_vid], "type", "") == "call":
                                     try:
                                         _bk = analyzer._load_builtin_knowledge(analyzer.language)
                                         if _bk and _callee in _bk:
@@ -1468,7 +1558,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             if _sr80b is not None and _sr80b.is_controllable:
                                                 return _sr80b, None
                                 _tp80b = _vattr(graph.vs[op_vid], "taint_passthrough", []) or []
-                                if _tp80b:
+                                # Fix 93d (CVE-2026-29080): 'all'（无界元数
+                                # 透传，str.format 内插全部实参）必须与索引
+                                # 透传一样在本 pre-bailout 块消费——下方的
+                                # 空壳 bailout（unresolved method, code=3）
+                                # 会先杀链，而 builtin 知识注记本身就是该
+                                # 调用的解析结果，"unresolved" 判定对它不
+                                # 成立。93c 曾把 'all' 排除出本块指望下方
+                                # 通用路径，实测通用路径在空壳门后，整链
+                                # 灭活（probe4 g0/g1/g2 全 0 检出）。
+                                _tp80b_all = "all" in _tp80b
+                                if _tp80b and (_tp80b_all or any(isinstance(_i, int) for _i in _tp80b)):
+                                    _tp80b_idx = set(int(i) for i in _tp80b if isinstance(i, int))
                                     _ac80b = 0
                                     for _ae80b in graph.es.select(_source=op_vid, label="ast"):
                                         if _vattr(_ae80b, "role") != "arg":
@@ -1476,7 +1577,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         _ix80b = _vattr(_ae80b, "arg_index", None)
                                         _ai80b = int(_ix80b) if _ix80b is not None else _ac80b
                                         _ac80b += 1
-                                        if _ai80b not in set(int(i) for i in _tp80b):
+                                        if not _tp80b_all and _ai80b not in _tp80b_idx:
                                             continue
                                         _an80b = graph.vs[_ae80b.target]
                                         if _vattr(_an80b, "label", "") == "operator":
@@ -1665,6 +1766,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     if not found_unconfirmed:
                                         found_unconfirmed = True
                                         unconfirmed_result = r
+                                    # Fix 99 (CVE-2026-29080): code=3 is
+                                    # INCONCLUSIVE, not safe — deep trace
+                                    # failing to resolve a builtin method
+                                    # ('...'.format / dict.get) must not veto
+                                    # the authoritative parameters_back below.
+                                    # The old `continue` here skipped PB for
+                                    # the whole arg, dropping sinks whose PB
+                                    # verdict is code=1 (offline PB on the
+                                    # same graph proved controllable).
+                                    # Fall through: PB runs; if PB also
+                                    # fails, unconfirmed_result (set above)
+                                    # still governs the fallback path.
+                                    # (do NOT set any_arg_repaired — see
+                                    # CVE-2026-21858 comment above)
                                     continue
                                 any_arg_repaired = True
                                 continue

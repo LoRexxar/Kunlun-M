@@ -1081,11 +1081,24 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         # Walk target and iter
-        target_pos = self._walk_node(
-            node.target, add_node, add_edge, ctx_stack, file_path, 0,
-        )
-        if target_pos is not None:
-            self._ast_edge(add_edge, pos, target_pos, AstRole.LHS.value)
+        # Fix 94 (CVE-2026-29080): tuple/list loop targets
+        # (`for key, value in d.items():`) fell through the generic
+        # _walk_children fallback, which emits the element identifier
+        # nodes but returns None — so the for-branch never got an
+        # ast[LHS] edge to ANY target element and the loop variables
+        # were taint islands (rucio FilterEngine dict-iteration SQLi
+        # died exactly here).  Walk each element explicitly and give
+        # every leaf target an ast[LHS] edge; simple Name targets keep
+        # the original single-walk shape.
+        _targets = [node.target]
+        if isinstance(node.target, (ast.Tuple, ast.List)):
+            _targets = list(node.target.elts)
+        for _tgt in _targets:
+            target_pos = self._walk_node(
+                _tgt, add_node, add_edge, ctx_stack, file_path, 0,
+            )
+            if target_pos is not None:
+                self._ast_edge(add_edge, pos, target_pos, AstRole.LHS.value)
 
         iter_pos = self._walk_node(
             node.iter, add_node, add_edge, ctx_stack, file_path, 0,
@@ -1542,11 +1555,27 @@ class Normalizer:
 
         # targets → LHS
         for t_idx, target in enumerate(node.targets):
-            t_pos = self._walk_node(
-                target, add_node, add_edge, ctx_stack, file_path, t_idx,
-            )
-            if t_pos is not None:
-                self._ast_edge(add_edge, pos, t_pos, AstRole.LHS.value)
+            # Fix 96a (CVE-2026-29080): tuple/list assign targets
+            # (`key, oper, value = and_group` /
+            # `self.a, self.b = self._f(...)`) fell through the generic
+            # _walk_children fallback, which emits the element identifier
+            # nodes but returns None — the assign never got an ast[LHS]
+            # edge to ANY element and every unpacked variable was a
+            # taint island (rucio FilterEngine died at
+            # `key, oper, value = and_group`).  Same root cause and
+            # same shape as Fix 94's For-loop targets.  Walk each
+            # element explicitly and give every leaf target an
+            # ast[LHS] edge; simple Name/Attribute targets keep the
+            # original single-walk shape.
+            _targets = [target]
+            if isinstance(target, (ast.Tuple, ast.List)):
+                _targets = list(target.elts)
+            for _tgt in _targets:
+                t_pos = self._walk_node(
+                    _tgt, add_node, add_edge, ctx_stack, file_path, t_idx,
+                )
+                if t_pos is not None:
+                    self._ast_edge(add_edge, pos, t_pos, AstRole.LHS.value)
 
         # value → RHS
         val_pos = self._walk_node(
@@ -1672,14 +1701,26 @@ class Normalizer:
 
         # Walk arguments → ast[role=arg, arg_index=N]
         for idx, arg in enumerate(node.args):
-            arg_pos = self._walk_node(
-                arg, add_node, add_edge, ctx_stack, file_path, idx,
-            )
-            if arg_pos is not None:
-                self._ast_edge(
-                    add_edge, pos, arg_pos, AstRole.ARG.value,
-                    {"arg_index": idx},
+            # Fix 96c (CVE-2026-29080): tuple/list literal arguments
+            # (`row.append((key, value))`) hit the generic fallback which
+            # returns None — the call got NO ast[arg] edge and the tuple
+            # elements became edge-less orphans, so nothing appended ever
+            # carried taint.  Flatten: every element of a tuple/list
+            # literal argument becomes an indexed ast[arg] child of the
+            # call (all elements share the tuple's arg_index — element
+            # positions inside the container do not matter for taint).
+            _arg_targets = [arg]
+            if isinstance(arg, (ast.Tuple, ast.List)):
+                _arg_targets = list(arg.elts) or [arg]
+            for _at in _arg_targets:
+                arg_pos = self._walk_node(
+                    _at, add_node, add_edge, ctx_stack, file_path, idx,
                 )
+                if arg_pos is not None:
+                    self._ast_edge(
+                        add_edge, pos, arg_pos, AstRole.ARG.value,
+                        {"arg_index": idx},
+                    )
 
         # Walk keyword arguments
         for kw_idx, kw in enumerate(node.keywords):
@@ -1793,11 +1834,23 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         if node.value:
-            val_pos = self._walk_node(
-                node.value, add_node, add_edge, ctx_stack, file_path, 0,
-            )
-            if val_pos is not None:
-                self._ast_edge(add_edge, pos, val_pos, AstRole.VALUE.value)
+            # Fix 96c (CVE-2026-29080): tuple returns
+            # (`return filters_translated, []`) hit the generic fallback
+            # which returns None — the return node got NO ast[value]
+            # edge and the caller could never trace the returned
+            # container.  Flatten: every element of a tuple/list return
+            # becomes an ast[value] child (over-approximation: the
+            # caller sees the union of element taints, which is exactly
+            # the container's taint).
+            _vals = [node.value]
+            if isinstance(node.value, (ast.Tuple, ast.List)):
+                _vals = list(node.value.elts) or [node.value]
+            for _v in _vals:
+                val_pos = self._walk_node(
+                    _v, add_node, add_edge, ctx_stack, file_path, 0,
+                )
+                if val_pos is not None:
+                    self._ast_edge(add_edge, pos, val_pos, AstRole.VALUE.value)
 
         return pos
 

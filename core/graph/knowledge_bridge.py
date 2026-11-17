@@ -130,8 +130,11 @@ def enrich_taint(
 
         # 2. TraceCache builtin（内置函数的返回值可控性知识库）
         #    仅在 source_registry 未匹配时使用。先短名查，再完整名查。
+        #    Fix 93c: 传调用形态（call/method_call/static_call），让
+        #    _enrich_from_builtin 的 __method__ 覆盖条目优先生效。
         if trace_cache is not None:
-            if _enrich_from_builtin(graph, func_vid, lookup_name, full_lookup, trace_cache):
+            if _enrich_from_builtin(graph, func_vid, lookup_name, full_lookup, trace_cache,
+                                    node_type=_vattr(v, "type", "")):
                 count += 1
                 continue
 
@@ -389,7 +392,8 @@ _ORM_TERMINATOR_NAMES = frozenset({
 _ORM_EIDX_CACHE: dict = {}
 
 
-def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache) -> bool:
+def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache,
+                         node_type: str = "") -> bool:
     """从 TraceCache 内置知识库标注。先完整名查，再短名查。
 
     Fix 78k (CVE-2026-41478): 限定名优先。JS 的 Object.entries 与
@@ -399,9 +403,20 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     限定名条目语义更具体，必须赢过短名条目（与 sink 匹配的 qualified
     fullname 纪律一致）。lookup() 内部对带点名的短名回退保留：receiver
     形态（x.entries()）仍能落到原型条目。
+
+    Fix 93c (CVE-2026-29080): 方法形态覆盖。method_call 的短名会撞上
+    内建【函数】条目（`tmpl.format(k, v)` 短名 'format' 命中内建函数
+    format(value, spec) 的 passthrough=[0]），函数条目的位置语义对方法
+    形态是错的——str.format 把所有实参内插进结果。带 "__method__.<名>"
+    键的条目是方法形态专属知识，method_call 先查它再落到 bare 函数条目
+    （与 Fix 78k 的限定名优先纪律同构：更具体的形态赢）。
     """
     knowledge = None
-    if full_name and full_name != short_name:
+    # Fix 93c: __method__ 覆盖必须最先查——full_name 查询内部带短名兜底
+    # （"json_exists.format" → 'format'），会先撞上 bare 函数条目。
+    if node_type == "method_call":
+        knowledge = trace_cache.lookup_builtin(f"__method__.{short_name}")
+    if not knowledge and full_name and full_name != short_name:
         knowledge = trace_cache.lookup_builtin(full_name)
     if not knowledge:
         # Fix 79 (CVE-2026-32613): receiver-declared-type qualified lookup.
@@ -462,6 +477,9 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
 
     # 分离 receiver passthrough ("this"/"self") 和位置参数 passthrough (int 索引)
     receiver_pt = any(isinstance(x, str) and x in _RECEIVER_PT_NAMES for x in passthrough)
+    # Fix 93c: "all" = 无界元数透传（str.format 内插每个实参）——注记为
+    # taint_passthrough=['all']，消费端见 'all' 即全实参追踪，不做索引过滤。
+    all_args = any(isinstance(x, str) and x == "all" for x in passthrough)
     param_indices = [i for i in passthrough if isinstance(i, int)]
 
     if safe:
@@ -476,10 +494,10 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
 
     if passthrough:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        graph.vs[func_vid]["taint_passthrough"] = param_indices
+        graph.vs[func_vid]["taint_passthrough"] = ["all"] if all_args else param_indices
         if receiver_pt:
             graph.vs[func_vid]["taint_receiver_pt"] = True
-        if param_indices:
+        if param_indices and not all_args:
             _mark_passthrough_params(graph, func_vid, param_indices)
         return True
 

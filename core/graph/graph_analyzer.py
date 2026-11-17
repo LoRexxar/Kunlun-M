@@ -343,11 +343,19 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     #   is_alnum/is_alpha — alphanumeric / alphabetic wrappers
     "is_version", "is_alnum", "is_alpha", "is_alphanumeric",
     # Python
-    "isinstance", "issubclass", "hasattr", "callable",
     "isdigit", "isalpha", "isalnum", "isdecimal", "isnumeric",
     "isupper", "islower", "istitle", "isspace",
     "isascii", "isidentifier", "isprintable",
     "isfinite", "isinf", "isnan",
+    # NOTE Fix 99 (CVE-2026-29080): isinstance/issubclass/hasattr/callable
+    # are TYPE/REFLECTION checks, not content validators — the true branch
+    # of `if isinstance(key, InstrumentedAttribute)` still carries an
+    # arbitrary attacker string.  Crediting them as function-level guards
+    # let ONE isinstance anywhere in a function kill every taint trace on
+    # the checked variable (rucio FilterEngine: 21 isinstance branches
+    # suppressed the whole filters→text() SQLi chain).  isascii also does
+    # NOT exclude quotes but is kept (pre-existing behavior, charset-only
+    # relaxation is out of scope here).
     # Django open-redirect / URL validation guards
     "url_has_allowed_host_and_scheme", "is_safe_url",
     "validate_unicode_slug", "iri_to_uri",
@@ -470,6 +478,11 @@ class GraphAnalyzer:
         # validator callbacks exploded into 4 FPs when 'query' entered the
         # framework whitelist (hm Form_validation anchor).
         self._db_probe_methods: set[str] = db_probe_methods or set()
+        # Fix 93 (CVE-2026-29080): lazy per-file python from-import alias map
+        # ({file_path: {local_name: module}}), used by find_sinks to resolve
+        # bare calls like `text(...)` (from sqlalchemy import text) to their
+        # library-qualified sink name.
+        self._py_import_aliases: dict[str, dict[str, str]] | None = None
 
         # --- 预构建 O(1) 索引 ---
         # 边索引: label → {src_vid: [tgt_vid, ...]}
@@ -611,6 +624,54 @@ class GraphAnalyzer:
             return ("%s" in tmpl and bool(self._SQL_TMPL_RE.search(tmpl)))
         except Exception:
             return False
+
+    def _import_alias_map(self) -> dict[str, dict[str, str]]:
+        """Fix 93 (CVE-2026-29080): build {file_path: {local_name: module}}
+        from python `from X import a[, b as c]` import nodes (once per graph).
+
+        Import nodes carry structured attributes (type='from_import',
+        module='sqlalchemy', names="['text']"), so no source re-parsing is
+        needed.  Used to resolve bare calls to library-qualified sink names.
+        """
+        if self._py_import_aliases is not None:
+            return self._py_import_aliases
+        amap: dict[str, dict[str, str]] = {}
+        try:
+            import ast as _ast
+            for iv in self._nlbl.get(NodeLabel.IMPORT.value, []):
+                v = self.graph.vs[iv]
+                if _vattr(v, 'type', '') != 'from_import':
+                    continue
+                if _vattr(v, 'language', '') != 'python':
+                    continue
+                mod = _vattr(v, 'module', '') or ''
+                fp = _vattr(v, 'file_path', '') or ''
+                names_raw = _vattr(v, 'names', '') or ''
+                if not mod or not fp or not names_raw:
+                    continue
+                try:
+                    names = _ast.literal_eval(names_raw)
+                    if not isinstance(names, (list, tuple)):
+                        names = [names]
+                except Exception:
+                    names = [n.strip().strip('\'"')
+                             for n in names_raw.strip('[]').split(',')
+                             if n.strip()]
+                d = amap.setdefault(fp, {})
+                for n in names:
+                    n = str(n).strip()
+                    if not n:
+                        continue
+                    if ' as ' in n:
+                        _alias = n.partition(' as ')[2].strip()
+                        if _alias:
+                            d[_alias] = mod
+                    else:
+                        d[n] = mod
+        except Exception:
+            pass
+        self._py_import_aliases = amap
+        return amap
 
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
         """Locate sink operator nodes (call/static_call/method_call matching
@@ -761,6 +822,43 @@ class GraphAnalyzer:
                         callee_name = _cand
                         _is_qualified_match = True
                         break
+
+            # Fix 93 (CVE-2026-29080): python `from sqlalchemy import text`
+            # makes the sink a BARE call `text(...)` — the callee at the call
+            # site is only the local alias, so every direct candidate misses.
+            # Resolve the alias through the file's from-import map and match
+            # the QUALIFIED name against the sink set.  Libraries commonly
+            # re-export at package level (`from sqlalchemy.sql.expression
+            # import text` → canonical `sqlalchemy.text`), so every module
+            # prefix boundary of the import module is tried: for module
+            # `a.b.c` the candidates are `a.b.c.x`, `a.b.x`, `a.x` — the full
+            # path first, shortest prefix last.  Qualified-name-only matching
+            # is preserved: no bare name enters the sink set, so unrelated
+            # local `text()` functions (different module) never bind; a
+            # cross-package collision would require another package with the
+            # same root name exporting the same alias.
+            if (not matched_name and _is_bare_call
+                    and self.language == 'python'
+                    and '.' not in normalized_callee):
+                _fp = _vattr(v, 'file_path', '') or ''
+                _amap = self._import_alias_map().get(_fp)
+                if _amap:
+                    for _cand in _candidates:
+                        if not _cand or '.' in _cand:
+                            continue
+                        _mod = _amap.get(_cand)
+                        if _mod:
+                            _parts = _mod.split('.')
+                            _qs = ['.'.join(_parts[:i] + [_cand])
+                                   for i in range(len(_parts), 0, -1)]
+                            for _q in _qs:
+                                if _q in normalized_set or _q.lower() in normalized_lower:
+                                    matched_name = _q
+                                    callee_name = _q
+                                    _is_qualified_match = True
+                                    break
+                        if matched_name:
+                            break
 
             if not matched_name:
                 # Path B: qualified fullname match via use-edge function node.
@@ -2057,6 +2155,16 @@ class GraphAnalyzer:
                             _ai = 0
                         _args_by_idx[_ai] = _ae.target
                     for _pi in _pt_idx:
+                        if _pi == "all":
+                            # Fix 93c: 无界元数透传 — 递归全部实参。
+                            for _tv in _args_by_idx.values():
+                                _sub = self.parameters_back(
+                                    _tv, context_vid=context_vid,
+                                    max_depth=max_depth - 1)
+                                if _sub is not None and _sub.is_controllable:
+                                    _sub.path = [start_vid] + (_sub.path or [])
+                                    return self._cached(cache_key, _sub)
+                            continue
                         if isinstance(_pi, int) and _pi in _args_by_idx:
                             _sub = self.parameters_back(
                                 _args_by_idx[_pi], context_vid=context_vid,
@@ -2394,7 +2502,10 @@ class GraphAnalyzer:
                 pt_indices: set[int] = set(
                     int(i) for i in tp if isinstance(i, int)
                 )
-                if pt_indices:
+                # Fix 93c: 'all' = 无界元数透传（str.format）——每个实参
+                # 都流入返回值，不做索引过滤。
+                pt_all = "all" in tp
+                if pt_indices or pt_all:
                     arg_counter = 0
                     for ae in self.graph.es.select(
                         _source=start_vid, label="ast"
@@ -2403,7 +2514,7 @@ class GraphAnalyzer:
                             continue
                         idx = _vattr(ae, "index")
                         actual_idx = int(idx) if idx else arg_counter
-                        if actual_idx in pt_indices:
+                        if actual_idx in pt_indices or pt_all:
                             r = self.parameters_back(
                                 ae.target,
                                 max_depth=max_depth - 1,
@@ -3589,6 +3700,36 @@ class GraphAnalyzer:
                                     "name": _c68, "code": -1}],
                             path=[start_vid, up_vid],
                             expr_lineno=_vattr(sv, "lineno", 0)))
+                # Fix 93 (CVE-2026-29080): python member-chain receiver
+                # sources — `request.args.get('k')` is the canonical Flask
+                # idiom, semantically `request.args['k']`.  The method-call op
+                # node's name is only the bare method ('get') and the receiver
+                # ('request.args') connects via a dfg edge, not ast — so Rule
+                # 2b's ast-children scan below can never see it.  Rebuild the
+                # receiver's member chain and consult the registry: an
+                # accessor call on a source container returns source data.
+                # Scoped to python (php has Fix 69 registry reconstruction).
+                if (self.language == "python"
+                        and ulabel == NodeLabel.OPERATOR.value
+                        and utype == "method_call"):
+                    for _e93 in self._edge_in(up_vid, "dfg"):
+                        _rv93 = self.graph.vs[_e93.source]
+                        if _vattr(_rv93, "label", "") != NodeLabel.IDENTIFIER.value:
+                            continue
+                        _rn93 = _vattr(_rv93, "name", "")
+                        if not _rn93:
+                            continue
+                        if _vattr(_rv93, "taint_type", "") == "safe":
+                            continue
+                        _chain93 = self._is_source_via_member_chain(_e93.source, _rn93)
+                        if _chain93:
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{_chain93}' via member-chain accessor call",
+                                chain=[{"step": "member_chain_source", "vid": _e93.source,
+                                        "name": _chain93, "code": 1}],
+                                path=new_path + [_e93.source],
+                                expr_lineno=_vattr(sv, "lineno", 0)))
                 if (ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
                 )):
@@ -3846,6 +3987,31 @@ class GraphAnalyzer:
                     # stripinput() that wraps htmlspecialchars) that were
                     # marked safe by build_function_summaries.
                     call_lang = _vattr(self.graph.vs[up_vid], "language", "")
+                    # Fix 99 (CVE-2026-29080): source-receiver veto for the
+                    # bare-name safe lookups below. `request.args.get('k')`
+                    # binds the bare method name 'get' via its use edge to an
+                    # unrelated same-language `def get()` marked safe
+                    # (bare-name hijack, the FP/FP-blindness mirror of the
+                    # sink short-name ban) — the safe verdict then kills the
+                    # chain at its FIRST hop. An accessor call whose dfg
+                    # receiver is a registry source container returns source
+                    # data and can never be safe. Mirrors the repair-side
+                    # source-registry veto (_is_repair_function).
+                    _src_recv_99 = None
+                    if (self.language == "python"
+                            and ulabel == NodeLabel.OPERATOR.value
+                            and utype == "method_call"):
+                        for _e99 in self._edge_in(up_vid, "dfg"):
+                            _rv99 = self.graph.vs[_e99.source]
+                            if _vattr(_rv99, "label", "") != NodeLabel.IDENTIFIER.value:
+                                continue
+                            _rn99 = _vattr(_rv99, "name", "")
+                            if not _rn99 or _vattr(_rv99, "taint_type", "") == "safe":
+                                continue
+                            _c99 = self._is_source_via_member_chain(_e99.source, _rn99)
+                            if _c99:
+                                _src_recv_99 = _c99
+                                break
                     for ue in self._edge_out(up_vid, "use"):
                         tgt = self.graph.vs[ue.target]
                         if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
@@ -3867,7 +4033,8 @@ class GraphAnalyzer:
                                 continue
                         tgt_taint = _vattr(tgt, "taint_type", "")
                         tgt_summary = _vattr(tgt, "func_summary_type", "")
-                        if tgt_taint == "safe" or tgt_summary == "safe":
+                        if (tgt_taint == "safe" or tgt_summary == "safe") \
+                                and not _src_recv_99:
                             return self._cached(cache_key, AnalysisResult(
                                 code=2, reason=f"safe function '{_vattr(tgt, 'name', '')}'",
                                 chain=[{"step": "dfg", "vid": up_vid,
@@ -3896,6 +4063,10 @@ class GraphAnalyzer:
                                 if not sv_lang and _vattr(sv, "is_external", False):
                                     continue
                                 if _vattr(sv, "func_summary_type", "") == "safe" or _vattr(sv, "taint_type", "") == "safe":
+                                    if _src_recv_99:
+                                        # Fix 99 veto — source receiver; the
+                                        # same-name safe def is a hijack.
+                                        break
                                     if os.environ.get("KUNLUN_SAFE_DBG"):
                                         with open("/tmp/kunlun_safe_dbg.log", "a") as _f:
                                             _f.write("SAMENAME up=%d fn=%s\n" % (up_vid, tgt_name))
@@ -3999,12 +4170,48 @@ class GraphAnalyzer:
                     # If the use-edge target has no taint annotation, follow
                     # alias edges to find the real function definition that
                     # does (e.g. placeholder node → alias → Core_Upgrader.upgrade).
+                    # Fix 101 (CVE-2026-29080 gates): the alias-follow is a
+                    # BARE-NAME match over a same-name hub — an external
+                    # placeholder fans out to every same-named def in the
+                    # corpus.  A 'safe' taint_type picked up that way is a
+                    # VETO (kills the chain), so it needs identity proof, not
+                    # a name coincidence: when the call site resolved a
+                    # QUALIFIED callee (static Class::m / typed receiver),
+                    # a bare-name alias target's 'safe' may not decide it
+                    # (osticket: `Ticket::lookup($child[0])` was vetoed by
+                    # ajax.orgs.php's unrelated zero-arg lookup() whose safe
+                    # summary Fix 98a started syncing to taint_type —
+                    # ticket-relations.inc.php:27/30 died).  source/passthrough
+                    # annotations stay acceptable: over-approximation must
+                    # favour detection; only vetoes require proof (same
+                    # asymmetry as Fix 93/99).  Refined: the veto is skipped
+                    # only when the safe def belongs to a DIFFERENT class than
+                    # the callee's prefix — a same-class def is the genuine
+                    # target and its veto stands.
+                    _callee_qualified = isinstance(callee, str) and "." in callee
+                    _callee_cls = callee.split(".", 1)[0] if _callee_qualified else None
                     if not func_taint and func_vid is not None:
                         for ae in self._edge_out(func_vid, "alias"):
                             av = self.graph.vs[ae.target]
                             if _vattr(av, "label") == NodeLabel.FUNCTION.value:
                                 at = _vattr(av, "taint_type", "")
                                 if at:
+                                    if at == "safe" and _callee_qualified:
+                                        # Class identity proof: the alias fanout
+                                        # is bare-name, so a 'safe' def may only
+                                        # veto a qualified callee when the def
+                                        # belongs to the callee's own class
+                                        # (OrgsAjaxAPI::lookup must not veto
+                                        # Ticket::lookup).  A same-class def IS
+                                        # the callee's def — veto stands.
+                                        _av_cls = None
+                                        for _oe in self._edge_in(ae.target, "own"):
+                                            _pv = self.graph.vs[_oe.source]
+                                            if _vattr(_pv, "label", "") == "class":
+                                                _av_cls = _vattr(_pv, "name", "")
+                                                break
+                                        if _av_cls != _callee_cls:
+                                            continue
                                     func_vid = ae.target
                                     func_taint = at
                                     break
@@ -4333,7 +4540,10 @@ class GraphAnalyzer:
                             if _r79 is not None:
                                 return self._cached(cache_key, _r79)
                         _tp79 = _vattr(uv, "taint_passthrough", []) or []
-                        if _tp79:
+                        # Fix 93c: 'all' = 无界元数透传（str.format）——
+                        # 全实参递归，不做索引过滤（int('all') 会抛 ValueError）。
+                        _tp_all79 = "all" in _tp79
+                        if _tp79 and not _tp_all79:
                             _ac79 = 0
                             for _ae79 in self._edge_out(up_vid, "ast"):
                                 if _vattr(_ae79, "role") != "arg":
@@ -4348,6 +4558,18 @@ class GraphAnalyzer:
                                     if _ar79.is_controllable or _ar79.is_repaired:
                                         _ar79.path = new_path + _ar79.path
                                         return self._cached(cache_key, _ar79)
+                        elif _tp_all79:
+                            # Fix 93c: 'all' — every positional arg flows into
+                            # the return value; recurse on ALL of them.
+                            for _ae79 in self._edge_out(up_vid, "ast"):
+                                if _vattr(_ae79, "role") != "arg":
+                                    continue
+                                _ar79 = self.parameters_back(
+                                    _ae79.target, context_vid=up_vid,
+                                    max_depth=max(max_depth - depth, 6))
+                                if _ar79.is_controllable or _ar79.is_repaired:
+                                    _ar79.path = new_path + _ar79.path
+                                    return self._cached(cache_key, _ar79)
                     if callee and callee not in self._call_stack and (
                             func_vid is None or not func_taint
                             or func_taint == "passthrough"):
@@ -6920,6 +7142,11 @@ class GraphAnalyzer:
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int]] = deque()
         queue.append((start_vid, 0))
+        # Format-sanitizer verdict remembered across the BFS (the block
+        # below assigns these); without the init an UnboundLocalError is
+        # raised — swallowed upstream it silently kills the whole trace.
+        repaired_result: AnalysisResult | None = None
+        path: list[int] = [start_vid]
         while queue:
             cur_vid, depth = queue.popleft()
             for up_vid in self._get_dfg_sources(cur_vid):
@@ -7032,6 +7259,8 @@ class GraphAnalyzer:
                 # Continue BFS
                 if depth + 1 < max_depth:
                     queue.append((up_vid, depth + 1))
+        if repaired_result is not None:
+            return repaired_result
         return None
 
     def _check_safe_param_annotation(self, param_vid: int) -> str | None:

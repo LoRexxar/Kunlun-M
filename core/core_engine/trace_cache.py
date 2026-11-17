@@ -80,6 +80,23 @@ class TraceCache:
         """
         module = self._load_builtin_module()
         if module and hasattr(module, 'lookup'):
+            # Fix 100 (CVE-2026-29080 gates): "__method__.<name>" probes
+            # (knowledge_bridge Fix 93c, method-form overrides) are
+            # EXACT-ONLY.  Every builtin_knowledge.lookup() has a bare
+            # short-name fallback ("a.b" -> KNOWLEDGE["b"]), so probing
+            # "__method__.entries" against a language that defines no
+            # __method__ entries fell back to KNOWLEDGE["entries"] —
+            # cross-language poisoning: JS KNOWLEDGE["entries"/"format"]
+            # are {safe: True} (string-method tables), which certified
+            # Object.entries(...)'s return as clean and killed the Fix 78
+            # saltcorn sync.js chain (repro gate sync.js 3104: 3 -> 1).
+            # Only a language that ships a literal "__method__.<name>" key
+            # (python, Fix 93c) may answer the probe.
+            if func_name.startswith("__method__."):
+                k = getattr(module, "KNOWLEDGE", None)
+                if k and func_name in k:
+                    return k[func_name]
+                return None
             return module.lookup(func_name)
         return None
 

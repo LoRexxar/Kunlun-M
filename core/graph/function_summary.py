@@ -104,6 +104,9 @@ def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
     from core.graph.node_edge_schema import NodeLabel
     from utils.igraph_compat import _vattr
 
+    if eidx is None:  # defensive: callers always pass the shared index
+        eidx = _build_edge_index(graph)
+
     # 允许展开 own 子节点的节点类型（branch/control/函数体）
     _OWN_EXPAND_LABELS = {NodeLabel.BRANCH.value, "control", NodeLabel.FUNCTION.value}
 
@@ -118,6 +121,28 @@ def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
             if tgt_vid not in result:
                 result.add(tgt_vid)
                 queue.append(tgt_vid)
+        # Fix 98a: method-call receivers connect to the callee property via a
+        # *member* edge (receiver → property), not as an ast child of the
+        # call operator — the normalizer attaches them to the property node.
+        # Walking ast edges alone therefore misses the receiver identifier
+        # (`for k, v in g.items()` — `g` was invisible to own_vids), so
+        # _trace_return_value's second pass skipped it as a foreign vid and
+        # container-building functions were mis-summarised (CVE-2026-29080
+        # FilterEngine).  Follow the reverse member edge from every collected
+        # property/callee node to pull the receiver into the function's own
+        # set; member edges never cross statement boundaries.
+        # Fix 98a-gate: python-only — receivers reached via member edges also
+        # exist in PHP method bodies, and admitting them flipped hundreds of
+        # PHP method summaries (sanitizers tracing to unknown), collapsing
+        # the scanner safe-cut (osticket +260 XSS FPs).  The receiver-into-
+        # own_vids semantics is only needed for the python FilterEngine
+        # self-field/container chains.
+        _py98a = _vattr(graph.vs[vid], "language", "") == "python"
+        if _py98a:
+            for src_vid in eidx["in"].get("member", {}).get(vid, []):
+                if src_vid not in result:
+                    result.add(src_vid)
+                    queue.append(src_vid)
         if src_label in _OWN_EXPAND_LABELS:
             # branch/control 节点的 own 子节点也展开
             for tgt_vid in eidx["out"].get("own", {}).get(vid, []):
@@ -154,6 +179,33 @@ def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
         if best:
             for vid, fst in entries:
                 if fst != best:
+                    # Fix 102a (CVE-2026-29080 gates): never propagate 'safe'
+                    # onto EXTERNAL placeholder nodes.  Same-name propagation
+                    # is a name coincidence, and a placeholder is a bare-name
+                    # hub fanning out to every same-named call in the corpus
+                    # (osticket: the 'lookup' hub serves 557 call sites).  A
+                    # 'safe' stamped that way (a) enrols the placeholder in
+                    # the scanner's safe-cleanup, cutting DFG arg edges into
+                    # every hub call at graph level, and (b) feeds analyzer
+                    # Rule 4b's veto — `Ticket::lookup($child[0])` was killed
+                    # by ajax.orgs.php's unrelated zero-arg lookup() whose
+                    # safe summary Fix 98a started producing (ticket-relations
+                    # .inc.php:27/30 regression).  safe is a VETO and needs
+                    # identity proof; source/passthrough propagate on (they
+                    # favour detection — same asymmetry as Fix 93/99/101).
+                    # Fix 102b (CVE-2026-29080 gates): python-only.  Ungated,
+                    # un-stamping the PHP hubs took ~20k legitimate safe-cut
+                    # targets away from the scanner's safe-call cut (osticket
+                    # "Removed N DFG edges": 27361 → 7014) — every sanitizer
+                    # sharing a bare name with any real def stopped cutting
+                    # and the corpus exploded +250 XSS rows.  The hub-hijack
+                    # this guards against is the python duck-typing dispatch
+                    # shape; PHP placeholders keep the calibrated HEAD
+                    # propagation semantics.
+                    _py102 = _vattr(graph.vs[vid], "language", "") == "python"
+                    if (best == "safe" and _py102
+                            and _vattr(graph.vs[vid], "is_external", False)):
+                        continue
                     graph.vs[vid]["func_summary_type"] = best
 
 
@@ -225,6 +277,14 @@ def build_function_summaries(
             elif child_label == NodeLabel.RETURN.value:
                 return_vids.append(child_vid)
                 own_vids.add(child_vid)
+                # Fix 98a-2: top-level RETURN children of a function body were
+                # added to own_vids without expanding their ast subtree, so
+                # the returned *value* identifier (`return rows` — the `rows`
+                # node under the return) stayed foreign to the function.
+                # Fix 98a-gate: python-only (see 98a above) — expanding PHP
+                # return subtrees flipped PHP summaries corpus-wide.
+                if _vattr(graph.vs[child_vid], "language", "") == "python":
+                    _collect_ast_descendants(graph, child_vid, own_vids, return_vids, eidx=eidx)
             else:
                 # 其他 own 子节点：递归展开 ast 子树（同时收集嵌套 return）
                 _collect_ast_descendants(graph, child_vid, own_vids, return_vids, eidx=eidx)
@@ -826,6 +886,13 @@ def _trace_return_value(
     # to any operator: collect safe/literal flags, keep scanning for
     # source/param, and only conclude safe when nothing stronger was found.
     _second_safe_seen = False
+    _second_unknown_seen = False  # Fix 98c: an unknown source means the trace
+    # was incomplete (e.g. a chain that leaves the function).  A single
+    # literal/safe source must NOT certify the whole node as safe — that
+    # turned container-building functions (`rows.append(derived_from_param)`
+    # next to a literal init) into "sanitizers" and silently killed the
+    # CVE-2026-29080 FilterEngine chain.  Only conclude safe when every
+    # traced source is safe/literal.
     for src_vid in dfg_src_list:
         if src_vid not in own_vids:
             continue
@@ -844,10 +911,24 @@ def _trace_return_value(
         if sub["origin_type"] == "literal":
             dfg_has_safe_source = True
             continue  # 字面量不传播污点，忽略此 DFG 源
+        if sub["origin_type"] == "unknown":
+            _second_unknown_seen = True
         all_dep_params.extend(sub.get("dep_params", []))
         if sub.get("has_unresolved_call"):
             any_unresolved = True
     if not all_dep_params and not any_unresolved and _second_safe_seen:
+        # Fix 98c-gate: python-only.  Ungated, the unknown-mix veto flipped
+        # hundreds of PHP method summaries (safe → unknown) corpus-wide:
+        # PHP functions routinely mix a literal/safe init with a chain that
+        # leaves the function, and the calibrated safe verdict there is what
+        # the osticket anchor (88) is measured against — ungated 98c alone
+        # added +260 XSS rows (task 6162: 340 vs baseline 88).  The veto is
+        # only needed for the python FilterEngine container-building shape
+        # (`rows.append(derived_from_param)` next to a literal init).
+        _py98c = _vattr(graph.vs[start_vid], "language", "") == "python"
+        if _second_unknown_seen and _py98c:
+            # safe + unknown mix → inconclusive, not proven safe
+            return {"origin": vname, "origin_type": "unknown", "dep_params": [], "has_unresolved_call": False}
         # every own-vid source resolved safe/literal → safe
         return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
@@ -887,10 +968,18 @@ def _trace_return_value(
                     _gk = id(graph)
                     _ctors = _CTOR_NODES_CACHE.get(_gk)
                     if _ctors is None:
+                        # Fix 98b: python constructors are named __init__ —
+                        # scanning only PHP's __construct left every python
+                        # self-field read in a method to fall through to the
+                        # "chained $this/self" safe verdict, so a tainted
+                        # field written in __init__ (self._rows = <param-
+                        # derived>) read in another method was certified safe
+                        # and the return summary of the reading method became
+                        # 'safe' (CVE-2026-29080 FilterEngine t18 shape).
                         _ctors = [
                             _fv2.index for _fv2 in graph.vs
                             if (_vattr(_fv2, "label", "") == NodeLabel.FUNCTION.value
-                                and str(_vattr(_fv2, "name", "")) == "__construct")
+                                and str(_vattr(_fv2, "name", "")) in ("__construct", "__init__"))
                         ]
                         _CTOR_NODES_CACHE[_gk] = _ctors
                     for _fv_idx in _ctors:
@@ -1436,7 +1525,10 @@ def _trace_passthrough_call(
     # traced substr→substring→safe while the receiver held the sql param).
     _call_name = _vattr(graph.vs[call_vid], "name", "") or ""
     _receiver_traced = False
-    if 0 in pt_indices and isinstance(_call_name, str) and "." in _call_name:
+    # Fix 93c: 'all' = 无界元数透传（str.format）——receiver 与全部实参
+    # 都流入返回值，不做索引过滤。
+    _pt_all = "all" in pt_indices
+    if (0 in pt_indices or _pt_all) and isinstance(_call_name, str) and "." in _call_name:
         _recv_name = _call_name.split(".", 1)[0]
         # skip literal receivers (e.g. "foo".replace(...)) — chr(34)/chr(39)
         # avoid nested-quote escaping entirely
@@ -1467,16 +1559,24 @@ def _trace_passthrough_call(
         if role != "arg":
             continue
         actual_idx = int(arg_idx) if arg_idx else arg_counter
-        if actual_idx in pt_indices:
+        if actual_idx in pt_indices or _pt_all:
             arg_vid = tgt
             # 实参为字面量 const（如 str_repeat('<br>', $n)）→ 直接标 safe
+            # Fix 93c: 'all' 模式下常量实参只是并行流之一，不是安全判据
+            # （'x {}'.format('c', tainted) 的 arg0 是常量但 arg1 仍污点）。
             if _vattr(graph.vs[arg_vid], "label") == NodeLabel.CONST.value:
+                if _pt_all:
+                    continue
                 vname = _vattr(graph.vs[call_vid], "name", "")
                 return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, eidx, depth + 1)
             if sub["origin_type"] == "source":
                 return sub
             if sub["origin_type"] == "safe":
+                # Fix 93c: 'all' 模式下单个实参 safe 只是并行流之一，
+                # 不能对整个调用下 safe 判定——继续看其余实参。
+                if _pt_all:
+                    continue
                 return sub
             # str_replace / str_ireplace with literal search/replace args
             # acts as a sanitizer on the subject (e.g. adminer's h() =

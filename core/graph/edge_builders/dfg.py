@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -91,6 +92,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # 边索引：预构建以替代 es.select() 的 O(E) 遍历
         self._edge_src_idx: dict[tuple[str, int], list[int]] = {}  # (label, src_vid) → [tgt_vids]
         self._edge_tgt_idx: dict[tuple[str, int], list[int]] = {}  # (label, tgt_vid) → [src_vids]
+        # Fix 96d: 类名→__init__ 函数 vid 索引（懒构建，python 构造器实参绑定）
+        self._class_ctor_index: dict[str, int] | None = None
 
     # -- 边索引查询 helpers (O(1) 替代 es.select 的 O(E)) ------------------
 
@@ -273,6 +276,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
             self._analyze_same_variables()
             # Fix 21c: foreach array -> keyvar/valvar element flows
             self._analyze_foreach_flows()
+            # Fix 96b (CVE-2026-29080): same-name self-field write→read
+            # flow within one class (python)
+            self._analyze_self_field_flows()
+            # Fix 96c (CVE-2026-29080): list mutator (append/extend/
+            # insert) argument → container write-back (python)
+            self._analyze_container_writeback()
             # Fix 79d (CVE-2026-32613): collection/stream higher-order
             # dispatch — receiver elements flow into lambda parameters
             self._analyze_lambda_dispatch_flows()
@@ -831,55 +840,99 @@ class DataFlowBuilder(BaseEdgeBuilder):
             vid = v.index
 
             # 通过 use 边找到函数节点
-            func_vid = self._get_cg_target(vid)
-            if func_vid is None:
-                continue
+            # Fix 97 (CVE-2026-29080): 一个调用可有多条 use 边（python
+            # duck-typing 多目标虚分发，见 use.py Fix 97），逐个目标
+            # 绑定实参——单条 use 边时行为与原先完全一致。
+            for func_vid in self._get_cg_targets(vid):
+                self._bind_call_args_to(vid, func_vid)
 
-            # 尝试解析到真正的函数定义（占位节点无 own 子节点）
-            resolved_vid = self._resolve_function(func_vid)
+    def _bind_call_args_to(self, vid: int, func_vid: int) -> None:
+        """Fix 97 (CVE-2026-29080): 单个 use 目标的实参→形参绑定。
 
-            # Java overload resolution: if the resolved function's parameter
-            # types don't match the call site arg types, try other overloads
-            # with the same name in the same file.
-            resolved_vid = self._resolve_overload(vid, resolved_vid)
+        从 _analyze_parameter_passing 原文整段搬移（含 Fix 96d/96e 与
+        Java overload 分支），使多目标虚分发的每个 callee 都走一遍
+        完整绑定逻辑。
+        """
+        # 尝试解析到真正的函数定义（占位节点无 own 子节点）
+        resolved_vid = self._resolve_function(func_vid)
 
-            # 获取该调用的所有 arg 子节点
-            arg_children = self._get_ast_children_by_arg_index(vid)
+        # Java overload resolution: if the resolved function's parameter
+        # types don't match the call site arg types, try other overloads
+        # with the same name in the same file.
+        resolved_vid = self._resolve_overload(vid, resolved_vid)
 
-            # 获取函数定义的参数（按 own index）
-            param_map = self._get_own_children_by_index(resolved_vid)
+        # Fix 96d (CVE-2026-29080): python constructor arg binding.
+        # `fe = FilterEngine(filters)` resolves its use target to a
+        # body-less placeholder FUNCTION node named like the class —
+        # class nodes (label=class) are never in the function index,
+        # so args never bound to __init__ params and taint died at
+        # the constructor call (rucio FilterEngine).  Redirect to the
+        # class's __init__ so the generic arg→param binding below
+        # applies; the self-offset treats it like a method call.
+        is_ctor_call = False
+        if (self._language == "python"
+                and resolved_vid is not None
+                and not self._has_function_body(resolved_vid)):
+            ctor_vid = self._find_class_ctor(resolved_vid)
+            if ctor_vid is not None:
+                resolved_vid = ctor_vid
+                is_ctor_call = True
 
-            # 对于 method_call，函数定义的第一个参数是 self/this，
-            # 但调用参数中不包含 receiver（receiver 通过 member chain 传递）。
-            # 因此 arg_index 需要 +1 来对齐函数定义的参数 index。
-            is_method_call = self._vtype[vid] == OperatorType.METHOD_CALL.value
-            # 检查第一个参数是否是 self/this（确认需要偏移）
-            if is_method_call and param_map:
+        # 获取该调用的所有 arg 子节点
+        arg_children = self._get_ast_children_by_arg_index(vid)
+
+        # 获取函数定义的参数（按 own index）
+        param_map = self._get_own_children_by_index(resolved_vid)
+
+        # 对于 method_call，函数定义的第一个参数是 self/this，
+        # 但调用参数中不包含 receiver（receiver 通过 member chain 传递）。
+        # 因此 arg_index 需要 +1 来对齐函数定义的参数 index。
+        is_method_call = self._vtype[vid] == OperatorType.METHOD_CALL.value
+        if is_ctor_call:
+            # Fix 96d: __init__'s param 0 is `self` and the call args
+            # do NOT include the receiver — drop self and shift the
+            # remaining params down one so arg 0 ↔ param 1.  (The
+            # generic method_call shift below moves keys the other
+            # way and would misalign.)
+            if param_map:
                 first_param_vid = param_map.get(0)
-                if first_param_vid is not None:
-                    first_param_name = self._vname[first_param_vid]
-                    if first_param_name in ("self", "this", "$this", "Me"):
-                        # 重建偏移后的 param_map
-                        param_map = {k + 1: v for k, v in param_map.items()}
+                if first_param_vid is not None and self._vname[first_param_vid] in ("self", "cls", "this"):
+                    param_map = {k - 1: v for k, v in param_map.items() if k > 0}
+        # 检查第一个参数是否是 self/this（确认需要偏移）
+        if is_method_call and param_map:
+            first_param_vid = param_map.get(0)
+            if first_param_vid is not None:
+                first_param_name = self._vname[first_param_vid]
+                if first_param_name in ("self", "this", "$this", "Me"):
+                    # 重建偏移后的 param_map
+                    # Fix 96e (CVE-2026-29080): 调用实参不含 receiver
+                    # （receiver 走 member chain），意图是 arg 0 ↔ 形参
+                    # 1。原实现 {k+1} 把 self 挪到 1、其余上移，arg 0
+                    # 反而查不到任何形参——python 方法定义 self 是声
+                    # 明形参 0，该分支一触发绑定必断（rucio e6/e8
+                    # mini）。按注释本意改为剔除 receiver 形参后整体
+                    # 下移一位。PHP/Java 方法不声明 receiver 形参，
+                    # 守卫条件不命中，行为不变。
+                    param_map = {k - 1: v for k, v in param_map.items() if k > 0}
 
-            # 匹配 arg_index → parameter own index
-            for arg_idx, arg_vid in arg_children.items():
-                param_vid = param_map.get(arg_idx)
-                if param_vid is not None:
-                    # Overload resolution: skip if arg java_type doesn't
-                    # match param java_type (e.g. String arg → File param).
-                    param_jt = _vattr(self.graph.vs[param_vid], "java_type", "")
-                    if param_jt and param_jt not in ("", "Object"):
-                        arg_jt = _vattr(self.graph.vs[arg_vid], "java_type", "")
-                        if not arg_jt:
-                            # Try resolving type from callee (method return type)
-                            arg_jt = self._resolve_arg_java_type(arg_vid)
-                        if arg_jt and arg_jt not in ("", "Object"):
-                            # Check type compatibility (handle autoboxing)
-                            if not self._java_type_compatible(arg_jt, param_jt):
-                                logger.debug("[DFG] overload skip: arg java_type=%s → param java_type=%s (mismatch)", arg_jt, param_jt)
-                                continue  # Skip: type mismatch → wrong overload
-                    self._add_dfg_edge(arg_vid, param_vid, DfgType.FORWARD_SLICE.value)
+        # 匹配 arg_index → parameter own index
+        for arg_idx, arg_vid in arg_children.items():
+            param_vid = param_map.get(arg_idx)
+            if param_vid is not None:
+                # Overload resolution: skip if arg java_type doesn't
+                # match param java_type (e.g. String arg → File param).
+                param_jt = _vattr(self.graph.vs[param_vid], "java_type", "")
+                if param_jt and param_jt not in ("", "Object"):
+                    arg_jt = _vattr(self.graph.vs[arg_vid], "java_type", "")
+                    if not arg_jt:
+                        # Try resolving type from callee (method return type)
+                        arg_jt = self._resolve_arg_java_type(arg_vid)
+                    if arg_jt and arg_jt not in ("", "Object"):
+                        # Check type compatibility (handle autoboxing)
+                        if not self._java_type_compatible(arg_jt, param_jt):
+                            logger.debug("[DFG] overload skip: arg java_type=%s → param java_type=%s (mismatch)", arg_jt, param_jt)
+                            continue  # Skip: type mismatch → wrong overload
+                self._add_dfg_edge(arg_vid, param_vid, DfgType.FORWARD_SLICE.value)
 
     def _resolve_overload(self, call_vid: int, resolved_vid: int) -> int:
         """Java overload resolution: find the correct overload by matching
@@ -1084,30 +1137,29 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     continue
 
             # 通过 use 边找到函数节点，并解析到真正的定义
-            func_vid = self._get_cg_target(caller_vid)
-            if func_vid is None:
-                continue
-
-            resolved_vid = self._resolve_function(func_vid)
-            if resolved_vid == func_vid:
-                # 仍然是占位节点，无法解析到定义
-                continue
-
-            # 找到真正的函数定义中的 return 节点
-            return_vids = self._get_own_children_by_label(resolved_vid, NodeLabel.RETURN.value)
-
-            for ret_vid in return_vids:
-                value_children = self._get_ast_children(ret_vid, role=AstRole.VALUE.value)
-                if not value_children:
+            # Fix 97 (CVE-2026-29080): 多目标虚分发——逐个 use 目标回传
+            # 返回值（单目标时行为与原先一致）。
+            for func_vid in self._get_cg_targets(caller_vid):
+                resolved_vid = self._resolve_function(func_vid)
+                if resolved_vid == func_vid:
+                    # 仍然是占位节点，无法解析到定义
                     continue
-                return_value_vid = value_children[0]
 
-                # 检查调用者 operator 是否作为某个 assign 的 RHS
-                assign_lhs = self._find_assign_lhs_for_callee(caller_vid)
-                if assign_lhs is not None:
-                    self._add_dfg_edge(
-                        return_value_vid, assign_lhs, DfgType.FORWARD_SLICE.value
-                    )
+                # 找到真正的函数定义中的 return 节点
+                return_vids = self._get_own_children_by_label(resolved_vid, NodeLabel.RETURN.value)
+
+                for ret_vid in return_vids:
+                    value_children = self._get_ast_children(ret_vid, role=AstRole.VALUE.value)
+                    if not value_children:
+                        continue
+                    return_value_vid = value_children[0]
+
+                    # 检查调用者 operator 是否作为某个 assign 的 RHS
+                    assign_lhs = self._find_assign_lhs_for_callee(caller_vid)
+                    if assign_lhs is not None:
+                        self._add_dfg_edge(
+                            return_value_vid, assign_lhs, DfgType.FORWARD_SLICE.value
+                        )
 
     # -- 分析步骤 3b：Fluent API / Builder 模式 DFG 回传 -------------------------
 
@@ -1251,7 +1303,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
         for v in self.graph.vs:
             if self._vlabel[v.index] != NodeLabel.BRANCH.value:
                 continue
-            if self._vtype[v.index] != "foreach":
+            # Fix 94 (CVE-2026-29080): python `for` loops carry the same
+            # element-flow semantics as PHP foreach — the iterable (rhs)
+            # feeds every loop-target variable (lhs).  Scoped to python:
+            # Java classic C-style `for` also uses type 'for' but has no
+            # lhs/rhs roles in that shape, and java enhanced-for already
+            # emits 'foreach' (Fix 79 rhs fallback).
+            _is_py_for = (self._language == "python"
+                          and self._vtype[v.index] == "for")
+            if self._vtype[v.index] != "foreach" and not _is_py_for:
                 continue
 
             cond_vids = self._get_ast_children(v.index, role="condition")
@@ -1273,6 +1333,155 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         continue
                     # 跳过数组自身（taint 沿 dfg 已有边可达时无需自环式补边）
                     self._add_dfg_edge(cond_vid, var_vid, DfgType.SAME.value)
+
+    def _analyze_self_field_flows(self) -> None:
+        """Fix 96b (CVE-2026-29080): same-NAME self-field write→read flow.
+
+        ``_analyze_member_access_flows`` (#0c) deliberately skips
+        receiver→property DFG edges for self/this — the whole-OBJECT flow
+        it would create is field-insensitive and produced the aiohttp
+        self._pattern / self._host FP.  But that skip also severed the
+        legitimate pattern where a field is WRITTEN in one method and
+        READ in another:
+
+            def __init__(self, filters):
+                self._filters = translate(filters)   # write
+            def create_query(self):
+                for group in self._filters:          # read — taint island
+
+        This pass restores that flow WITHOUT the field-insensitivity:
+        it only connects a property node that is an assign TARGET
+        (ast role=lhs, i.e. a WRITE site) to same-NAME property nodes
+        (READ sites) under the SAME enclosing class.  Different field
+        names never connect, and identical names in different classes
+        never connect — the aiohttp FP shape (two fields of one object)
+        is unreachable by construction.
+
+        Scoped to python (this campaign's corpus); extending to PHP
+        needs the $this receiver forms re-verified against anchors.
+        """
+        if self._language != "python":
+            return
+        self_names = {"self", "this", "$this"}
+
+        def _class_scope(vid: int):
+            # Property nodes have no own-parent (they attach via ast
+            # role edges to their assign/expr owner); climb BOTH own
+            # and ast in-edges until the nearest class node.
+            cur = vid
+            seen = {vid}
+            while cur is not None:
+                if self._vlabel[cur] == NodeLabel.CLASS.value:
+                    return cur
+                nxt = None
+                for lbl in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                    parents = self._edges_to(cur, lbl)
+                    if parents:
+                        nxt = parents[0]
+                        break
+                if nxt is None or nxt in seen:
+                    return None
+                seen.add(nxt)
+                cur = nxt
+            return None
+
+        writes: dict[str, list[tuple[int, int]]] = {}
+        reads: dict[str, list[tuple[int, int]]] = {}
+        for (elabel, src_vid), tgt_vids in self._edge_src_idx.items():
+            if elabel != EdgeLabel.MEMBER.value:
+                continue
+            if self._vname[src_vid] not in self_names:
+                continue
+            for tgt_vid in tgt_vids:
+                if self._vlabel[tgt_vid] != NodeLabel.IDENTIFIER.value:
+                    continue
+                fname = self._vname[tgt_vid]
+                if not fname:
+                    continue
+                is_write = any(
+                    e.attributes().get("role") == AstRole.LHS.value
+                    for e in self.graph.es.select(_target=tgt_vid, label="ast")
+                )
+                bucket = writes if is_write else reads
+                bucket.setdefault(fname, []).append(
+                    (_class_scope(tgt_vid), tgt_vid))
+
+        for fname, wlist in writes.items():
+            rlist = reads.get(fname)
+            if not rlist:
+                continue
+            for w_cls, w_vid in wlist:
+                if w_cls is None:
+                    continue
+                for r_cls, r_vid in rlist:
+                    if r_vid == w_vid or r_cls != w_cls:
+                        continue
+                    self._add_dfg_edge(
+                        w_vid, r_vid, DfgType.FORWARD_SLICE.value)
+
+    _APPEND_METHODS = frozenset({"append", "extend", "insert"})
+
+    def _analyze_container_writeback(self) -> None:
+        """Fix 96c (CVE-2026-29080): list mutator write-back.
+
+        ``parsed.append(row)`` / ``xs.extend(items)`` / ``xs.insert(i, v)``
+        store the argument INTO the receiver container — after the call
+        the container's elements carry the argument's taint.  The call
+        itself returns None and the receiver identifier's DEF node
+        (`parsed = []`) has no edge to the argument, so the container
+        stayed untainted forever (rucio FilterEngine builds its whole
+        filter structure through .append).
+
+        Edge added: every ast[arg] child of the mutator call → the
+        receiver's DEF identifier (the dfg source of the receiver use at
+        the call site).  Container-level over-approximation — an
+        appended tainted element taints the container, matching the
+        element-flow semantics of Fix 94/95.  Scoped to python.
+        """
+        if self._language != "python":
+            return
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] != OperatorType.METHOD_CALL.value:
+                continue
+            vid = v.index
+            if self._vname[vid] not in self._APPEND_METHODS:
+                continue
+            # receiver use identifier: member-source of the callee
+            # property node (recv --member--> .append)
+            callee_vids = self._get_ast_children(vid, role=AstRole.CALLEE.value)
+            recv_use = None
+            for cv in callee_vids:
+                for e in self.graph.es.select(_target=cv,
+                                              label=EdgeLabel.MEMBER.value):
+                    recv_use = e.tuple[0]
+                    break
+                if recv_use is not None:
+                    break
+            if recv_use is None:
+                continue
+            # def node of the receiver (dfg source of the use).  Earlier
+            # passes' dfg edges are still PENDING in self._dfg_edges (they
+            # are only written into the graph by _apply_dfg_edges at the
+            # end), so consult both the graph and the pending set.
+            def_vids = [
+                e.tuple[0] for e in self.graph.es.select(
+                    _target=recv_use, label=EdgeLabel.DFG.value)
+                if self._vlabel[e.tuple[0]] == NodeLabel.IDENTIFIER.value
+            ]
+            def_vids.extend(
+                src for src, tgt, _t in self._dfg_edges
+                if tgt == recv_use and self._vlabel[src] == NodeLabel.IDENTIFIER.value
+            )
+            if not def_vids:
+                continue
+            arg_vids = self._get_ast_children(vid, role=AstRole.ARG.value)
+            for a in arg_vids:
+                for d in def_vids:
+                    if a != d:
+                        self._add_dfg_edge(
+                            a, d, DfgType.FORWARD_SLICE.value)
 
     def _analyze_lambda_dispatch_flows(self) -> None:
         """Fix 79d (CVE-2026-32613): collection/stream higher-order dispatch.
@@ -1474,8 +1683,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # 平局可能让读节点 vid 更小而排前面，链不上循环变量）。
         foreach_header_vids: set[int] = set()
         for v in self.graph.vs:
-            if self._vlabel[v.index] != NodeLabel.BRANCH.value \
-                    or self._vtype[v.index] != "foreach":
+            if self._vlabel[v.index] != NodeLabel.BRANCH.value:
+                continue
+            # Fix 94 (CVE-2026-29080): python `for` loop targets (ast lhs)
+            # are definition sites too — same as PHP foreach keyvar/valvar
+            # and Java enhanced-for lhs (Fix 79).  Without registration a
+            # body use of the loop var skips it in the backward LHS search
+            # and stays an orphan (rucio FilterEngine `for key, value in
+            # filters.items():` chain died at value@body).
+            _hdr94 = (self._vtype[v.index] == "foreach"
+                      or (self._language == "python"
+                          and self._vtype[v.index] == "for"))
+            if not _hdr94:
                 continue
             for role in ("keyvar", "valvar", "lhs"):
                 foreach_header_vids.update(
@@ -1551,14 +1770,17 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         _defs78 = self._closure_defs_in_scope(
                             _scope78, name, assign_lhs_vids)
                         if _defs78:
-                            _best78 = max(
-                                _defs78,
-                                key=lambda d: (self._vlineno[d], d))
-                            self._add_dfg_edge(
-                                _best78, vid, DfgType.SAME.value)
+                            if os.environ.get("KM_NO_98B"):
+                                _best78 = max(
+                                    _defs78,
+                                    key=lambda d: (self._vlineno[d], d))
+                                self._add_dfg_edge(
+                                    _best78, vid, DfgType.SAME.value)
+                            else:
+                                self._closure_link_weak(vid, _defs78)
                             break
                     continue
-                # Fix 17a: composite sort key.  phply emits lineno=0 for most
+                # Fix 17a: composite sort key. phply emits lineno=0 for most
                 # nodes, so plain lineno sort degenerates to vid order, in
                 # which a statement's LHS precedes its own RHS args — the
                 # "closest previous LHS" search then links a use to the LHS
@@ -1573,6 +1795,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         vid,
                     ),
                 )
+
                 # 从每个非 LHS 的 identifier，向前找最近的同名 LHS
                 for i, vid in enumerate(vids_sorted):
                     if vid in assign_lhs_vids:
@@ -1678,19 +1901,51 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             _obranches = self._branch_ancestors_80(_owner80)
                             if _obranches and not _obranches.issubset(
                                     self._branch_ancestors_80(vid)):
-                                _prev80 = None
+                                # Fix 98 (CVE-2026-29080): if/else JOIN —
+                                # collect ALL prior conditional whole-var
+                                # writes that do not dominate the use, not
+                                # just the nearest one.  `x = tainted;
+                                # if (c) { x = f(x); } else { x = {}; }`
+                                # then a use after the join linked only to
+                                # the else-branch def (lexically nearest),
+                                # silently killing the if-branch value
+                                # (rucio flaskapi dids.py filters shape).
+                                # Backward scan: a whole-var LHS inside a
+                                # non-enclosing branch is a weak update →
+                                # merge edge; a write at an enclosing scope
+                                # (or a parameter) dominates → stop.
+                                _use_br80 = self._branch_ancestors_80(vid)
+                                _merged80 = 0
                                 for j80 in range(_found_cand_j - 1, -1, -1):
                                     _c80 = vids_sorted[j80]
-                                    if _c80 in assign_lhs_vids \
-                                            and self._array_offset_key(_c80) is None:
-                                        _prev80 = _c80
-                                        break
                                     if self._vlabel[_c80] == NodeLabel.PARAMETER.value:
-                                        _prev80 = _c80
+                                        # Fix 80 semantics: a parameter def
+                                        # may still be live under the
+                                        # conditional re-assign — merge it.
+                                        if _c80 != _found_cand:
+                                            self._add_dfg_edge(
+                                                _c80, _found_cand, DfgType.SAME.value)
                                         break
-                                if _prev80 is not None and _prev80 != _found_cand:
-                                    self._add_dfg_edge(
-                                        _prev80, _found_cand, DfgType.SAME.value)
+                                    if _c80 not in assign_lhs_vids:
+                                        continue
+                                    if self._array_offset_key(_c80) is not None:
+                                        continue
+                                    _cbr80 = self._branch_ancestors_80(
+                                        lhs_owner.get(_c80, _c80))
+                                    if not _cbr80 or _cbr80.issubset(_use_br80):
+                                        # dominating write — prior defs are
+                                        # dead, but the dominating value
+                                        # itself still flows (Fix 80).
+                                        if _c80 != _found_cand:
+                                            self._add_dfg_edge(
+                                                _c80, _found_cand, DfgType.SAME.value)
+                                        break
+                                    if _c80 != _found_cand:
+                                        self._add_dfg_edge(
+                                            _c80, _found_cand, DfgType.SAME.value)
+                                        _merged80 += 1
+                                        if _merged80 >= 4:
+                                            break
                         continue
                     # 回退：如果没有同名 LHS，找前方最近的有 DFG 入边的
                     # identifier（如通过 param_flow 写入的 output param）。
@@ -1749,12 +2004,36 @@ class DataFlowBuilder(BaseEdgeBuilder):
                             _defs78 = self._closure_defs_in_scope(
                                 _scope78, name, assign_lhs_vids)
                             if _defs78:
-                                _best78 = max(
-                                    _defs78,
-                                    key=lambda d: (self._vlineno[d], d))
-                                self._add_dfg_edge(
-                                    _best78, vid, DfgType.SAME.value)
+                                if os.environ.get("KM_NO_98B"):
+                                    _best78 = max(
+                                        _defs78,
+                                        key=lambda d: (self._vlineno[d], d))
+                                    self._add_dfg_edge(
+                                        _best78, vid, DfgType.SAME.value)
+                                else:
+                                    self._closure_link_weak(vid, _defs78)
                                 break
+
+    def _closure_link_weak(self, vid: int, defs78: list[int]) -> None:
+        """Fix 98b (CVE-2026-29080): closure capture with if/else JOIN
+        semantics.  The old capture linked only the lexically-last def
+        (max lineno); when that def sits in one branch of an if/else
+        (rucio flaskapi dids.py: `if: filters = ast.literal_eval(filters)
+        else: ... filters = [filters]` read inside a nested `def
+        generate(vo)`), the sibling branch's def was silently dropped and
+        the taint chain died.  Link the last def PLUS every preceding
+        conditional def, stopping after the last unconditional (dominating)
+        def — which is itself linked since its value may still be live at
+        closure call time.  Capped at 4 edges.
+        """
+        defs_sorted = sorted(defs78, key=lambda d: (self._vlineno[d], d))
+        linked = 0
+        for d in reversed(defs_sorted):
+            self._add_dfg_edge(d, vid, DfgType.SAME.value)
+            linked += 1
+            _brs = self._branch_ancestors_80(d)
+            if not _brs or linked >= 4:
+                break  # unconditional def dominates — stop after linking it
 
     def _array_offset_key(self, vid: int) -> str | None:
         """Fix 21b-1: element offset for identifier `$d['title']` → 'title';
@@ -2438,6 +2717,23 @@ class DataFlowBuilder(BaseEdgeBuilder):
             return callee_vids[0]
         return None
 
+    def _get_cg_targets(self, vid: int) -> list[int]:
+        """Fix 97 (CVE-2026-29080): 调用 operator 的全部 use 目标。
+
+        python duck-typing 多目标虚分发（use.py Fix 97）会让一个调用
+        点持有多条 use 边；绑定实参/回传返回值时必须遍历每个目标。
+        单目标时与 _get_cg_target 行为一致。
+        """
+        targets: list[int] = []
+        for eid in self.graph.incident(vid, mode="out"):
+            e = self.graph.es[eid]
+            if self._elabel[e.index] == EdgeLabel.USE.value:
+                targets.append(e.target)
+        if targets:
+            return targets
+        # JS 等语言用 ast[role=callee] 而非 use 边
+        return list(self._ast_role_from.get((vid, "callee"), []))
+
     def _get_cg_callers(self, func_vid: int) -> list[int]:
         """获取所有通过 use/callee 边调用 func_vid 的 operator 顶点。
 
@@ -2718,6 +3014,34 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                 return vid
 
         return func_vid
+
+    def _find_class_ctor(self, stub_vid: int) -> Optional[int]:
+        """Fix 96d (CVE-2026-29080): body-less use target whose NAME matches
+        a class node in the graph → that class's ``__init__`` function vid.
+
+        ``FilterEngine(filters)`` is a plain call whose use target is a
+        placeholder function node named like the class; class nodes carry
+        label=class and are invisible to the function index, so without
+        this redirect the call args were never bound to ``__init__``
+        params and taint died at the constructor call site.  Python-only;
+        first definition of a class name wins (module-level uniqueness is
+        the common case, duplicates keep the scan conservative).
+        """
+        if self._class_ctor_index is None:
+            idx: dict[str, int] = {}
+            for v in self.graph.vs:
+                if self._vlabel[v.index] != NodeLabel.CLASS.value:
+                    continue
+                cname = self._vname[v.index]
+                if not cname or cname in idx:
+                    continue
+                for ch in self._edges_from(v.index, EdgeLabel.OWN.value):
+                    if (self._vlabel[ch] == NodeLabel.FUNCTION.value
+                            and self._vname[ch] == "__init__"):
+                        idx[cname] = ch
+                        break
+            self._class_ctor_index = idx
+        return self._class_ctor_index.get(self._vname[stub_vid] or "")
 
     def _find_assign_lhs_for_callee(self, caller_vid: int) -> Optional[int]:
         """找到调用 operator 作为某个赋值语句 RHS 时的 LHS 顶点。

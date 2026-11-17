@@ -116,6 +116,13 @@ EXPECTATIONS = {
     # UNRESOLVED peewee-style ORM builders .select().where().execute())
     # must NOT fire.
     'CVE-2026-33078_flask_path_sqli.py': {'7002': 1},
+    # Fix 93c/94/96a-e/99 (CVE-2026-29080 rucio <=35.8.4 FilterEngine
+    # SQLi): Flask route → request.args.get('filters') → ast.literal_eval
+    # → FilterEngine.__init__ (constructor arg binding) → for-loop tuple
+    # target → list .append write-back → self._filters cross-method read →
+    # str.format(all-args passthrough) → sqlalchemy text() interpolation.
+    # Every hop of this chain was a silent taint island before the fixes.
+    'CVE-2026-29080_rucio_filter_engine_sqli.py': {'7002': 1},
     # Fix 86 (CVE-2026-126489 OpenEMR second-order SQLi): admin-written
     # layout_options.field_id read back via sqlFetchArray (openemr
     # framework source) → spliced into REPLACE ... SET column-name
