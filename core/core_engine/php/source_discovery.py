@@ -96,14 +96,13 @@ class SourceRegistry:
         """
         if not self.framework:
             return False
-        config = FRAMEWORK_CONFIGS.get(self.framework)
-        if not config:
-            return False
-        # Check if the object is a request-like object
-        if obj_name not in config['request_object_names']:
+        # Fix 114a: consult the *merged* runtime sets (framework_request_objects /
+        # request_methods) rather than the raw config, so context-gated additions
+        # like orm_fetch_objects + orm_fetch_methods take effect here too.
+        if obj_name not in self.framework_request_objects:
             return False
         # Check if the method is a source method
-        return method_name in config['request_methods']
+        return method_name in self.request_methods
 
     def is_framework_global_function(self, func_name: str) -> bool:
         """Check if a function name is a framework global source function."""
@@ -135,12 +134,23 @@ class SourceRegistry:
         self._fw_config = config  # 保留完整配置供 knowledge_bridge 使用
 
         self.framework_request_objects = set(config['request_object_names'])
+        self.request_methods = set(config['request_methods'])
+
+        # Fix 114a: OpenEMR Phreezer ORM fetch — `$this->Phreezer->Get(...)`
+        # return values are second-order sources.  Routed through the same
+        # request-object machinery (context-gated: method counts only when
+        # the receiver is a registered ORM fetch object).
+        _orm_objs = set(config.get('orm_fetch_objects', set()))
+        _orm_methods = set(config.get('orm_fetch_methods', set()))
+        if _orm_objs and _orm_methods:
+            self.framework_request_objects |= _orm_objs
+            self.request_methods |= _orm_methods
 
         # ⚠️ request_methods 不注册为 framework_methods（即不作为全局 source producer）。
         # 这些方法（如 get, query, all）只有在 request 对象上调用时才是 source，
         # 全局注册会导致所有名为 get() 的方法被误标。保留在 request_methods 中
         # 供 is_framework_request_method() 上下文检查使用。
-        self.request_methods = set(config['request_methods'])
+        # （值已在上文初始化并合并 orm_fetch_methods，勿重置。）
 
         # Register dotted member names for graph_analyzer's _is_source_variable
         # and _is_source_via_member_chain.  e.g. "request.input", "$request.get".
@@ -263,6 +273,19 @@ FRAMEWORK_CONFIGS = {
         'global_source_functions': {
             'sqlFetchArray', 'sqlQuery', 'sqlGetAssoc',
         },
+        # Fix 114a (CVE-2026-126451): the patient-portal Phreezer ORM is the
+        # other second-order channel.  Portal patients persist arbitrary
+        # JSON into OnsiteDocument columns via Create()/Update()
+        # (portal/patient/libs/Controller/OnsiteDocumentController.php);
+        # `$this->Phreezer->Get('OnsiteDocument', $pk)` reads the row back
+        # and every property of the returned object is DB-stored
+        # patient-controlled data (TemplateData -> DocumentTemplateRender
+        # iframe src).  'Get' is context-gated on the Phreezer object name
+        # only — never registered as a bare global source.
+        'orm_fetch_objects': {
+            'Phreezer', '$this->Phreezer', 'phreezer', '$phreezer',
+        },
+        'orm_fetch_methods': {'Get'},
         # Fix 108 (CVE-2026-126482): official output-escaping helpers
         # (library/htmlspecialchars.inc.php — all htmlspecialchars /
         # json_encode wrappers).  Framework-scoped repair set consumed by
