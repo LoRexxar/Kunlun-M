@@ -235,6 +235,12 @@ _SQL_QUERY_TEXT_SINK_INDEX = {
     # never interpolated).  Without the restriction the tainted request
     # VALUES in the bound array would report SQLi at every wrapper call.
     "sqlstatementthrowexception": 0,
+    # Fix 115c (CVE-2026-126478): QueryUtils::fetchRecords — same semantics
+    # (arg0 = query TEXT built by the caller, arg1 = bound-parameter array).
+    # SyndromicsurveillanceTable::fetch_result builds "AND c.id IN (" .
+    # implode(',', $code_selected) . ")" from the form_icd_codes[] POST
+    # array and executes via fetchRecords.
+    "fetchrecords": 0,
     # Fix 113b (CVE-2026-126480): CDR-engine delegation wrappers — arg0 is
     # the query text passed through from callers; the body itself is judged
     # at each caller (registered sinks).  Presence here also puts them in

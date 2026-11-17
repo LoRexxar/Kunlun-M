@@ -266,8 +266,18 @@ FRAMEWORK_CONFIGS = {
         # the library/sql.inc.php DB wrappers and spliced into SQL column
         # positions (ippf_issues.inc.php issue_ippf_con_save).  The DB-read
         # wrappers' return values are therefore second-order sources.
-        'request_object_names': set(),
-        'request_methods': set(),
+        'request_object_names': {'request', '$request'},
+        # Fix 115a (CVE-2026-126478): the Zend/Laminas module controllers
+        # (interface/modules/zend_modules/*) read user input through
+        # `$request = $this->getRequest(); $request->getPost('name', ...)`
+        # (AbstractActionController).  Laminas Request methods are gated on
+        # the receiver being a request object; Symfony-style method names
+        # (get/request/query chains) are NOT added, so FHIR's
+        # Symfony Request usage is unaffected.
+        'request_methods': {
+            'getPost', 'getQuery', 'getFiles', 'getHeaders',
+            'getServer', 'getEnv', 'getContent',
+        },
         # Verified against library/sql.inc.php @ v8_4_1: row-returning
         # read wrappers are sqlFetchArray / sqlQuery / sqlGetAssoc.
         'global_source_functions': {

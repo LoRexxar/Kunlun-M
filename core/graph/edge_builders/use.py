@@ -628,6 +628,17 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 rt = self._vreturn_type[vid]
                 if rt and rt != "void":
                     return rt
+                # Fix 115b (CVE-2026-126478): getter with no declared return
+                # type — body is `return $this->prop;` (Zend/Laminas module
+                # controllers: getSyndromicsurveillanceTable()).  Resolve the
+                # property's class from its assignment sources (constructor
+                # DI param type hint / `new X`), so the chained call
+                # `$this->getter()->method()` binds to the real method def
+                # instead of an external stub (no cg edge → in-body sinks
+                # invisible).
+                rt = self._infer_getter_return_type(graph, vid)
+                if rt:
+                    return rt
 
             if inner_callee.startswith("new") and len(inner_callee) > 3:
                 hint = inner_callee[3:]
@@ -638,8 +649,120 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
         return None
 
+    def _infer_getter_return_type(self, graph: "ig.Graph",
+                                  func_vid: int) -> str | None:
+        """Fix 115b (CVE-2026-126478): infer a getter's return type from its
+        body when no declared return type exists.
+
+        Recognized shape (the Zend/Laminas module-controller idiom):
+            public function getXyzTable() { return $this->xyzTable; }
+        Walk the function's own subtree for `return` statements whose value
+        is a ``$this->prop`` member read, then resolve the property's class
+        via :meth:`_infer_property_class_type`.  Only single-hop property
+        returns are recognized — anything more complex stays unresolved.
+        """
+        # own-subtree walk (Fix 34b doctrine: full subtree, not just children)
+        stack = [func_vid]
+        seen: set[int] = set()
+        return_stmts: list[int] = []
+        while stack:
+            cur = stack.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            stack.extend(self._own_to.get(cur, ()))
+            if cur != func_vid and self._vlabel[cur] == NodeLabel.RETURN.value:
+                return_stmts.append(cur)
+        if not return_stmts:
+            return None
+        for rop in return_stmts:
+            for tgt, role in self._ast_src_from.get(rop, []):
+                if role != "value":
+                    continue
+                if self._vlabel[tgt] != NodeLabel.IDENTIFIER.value:
+                    continue
+                # must be a property read on $this (member edge from this)
+                member_srcs = self._member_to.get(tgt) or []
+                if not member_srcs:
+                    continue
+                if not any(self._vname[ms] in ("this", "$this", "self")
+                           for ms in member_srcs):
+                    continue
+                prop_name = self._vname[tgt]
+                if not prop_name:
+                    continue
+                pt = self._infer_property_class_type(graph, func_vid, prop_name)
+                if pt:
+                    return pt
+        return None
+
+    def _infer_property_class_type(self, graph: "ig.Graph",
+                                   func_vid: int,
+                                   prop_name: str) -> str | None:
+        """Fix 115b: resolve the class of a ``$this-><prop_name>`` property.
+
+        Finds property-write identifier nodes named ``prop_name`` (member of
+        ``$this``) in the getter's own file and walks their DFG sources (≤3
+        hops) for a typed constructor/DI parameter or a ``new X`` operator:
+
+            function __construct(Cls $table) {  # FQCN type hint, e.g. Ns\\Cls
+                $this->xyzTable = $table;   // ← type hint is the class
+            }
+
+        File-scoped approximation of class scope (PSR-1: one class per PHP
+        file); the ``$this`` receiver requirement keeps unrelated same-name
+        locals out.
+        """
+        ffile = self._vfile_path[func_vid]
+        if not ffile or not prop_name:
+            return None
+
+        def _cls_from_hint(hint: str) -> str | None:
+            if not hint:
+                return None
+            base = hint.replace("::", "\\").rsplit("\\", 1)[-1]
+            if base and base[0:1].isupper():
+                return base
+            return None
+
+        for v in graph.vs:
+            i = v.index
+            if self._vlabel[i] != NodeLabel.IDENTIFIER.value:
+                continue
+            if self._vname[i] != prop_name:
+                continue
+            if self._vfile_path[i] != ffile:
+                continue
+            member_srcs = self._member_to.get(i) or []
+            if not any(self._vname[ms] in ("this", "$this", "self")
+                       for ms in member_srcs):
+                continue
+            # walk DFG sources up to 3 hops looking for a typed param or new
+            frontier = [i]
+            visited: set[int] = set()
+            for _ in range(3):
+                nxt: list[int] = []
+                for u in frontier:
+                    for s in self._dfg_to.get(u, ()):
+                        if s in visited:
+                            continue
+                        visited.add(s)
+                        if self._vlabel[s] == NodeLabel.PARAMETER.value:
+                            cls = _cls_from_hint(
+                                _vattr(graph.vs[s], "type_hint", "") or "")
+                            if cls:
+                                return cls
+                        if self._vlabel[s] == NodeLabel.OPERATOR.value and \
+                                self._vtype[s] == OperatorType.NEW.value:
+                            cls = _cls_from_hint(self._vname[s])
+                            if cls:
+                                return cls
+                        nxt.append(s)
+                frontier = nxt
+        return None
+
     def _get_receiver_ident_names(self, graph: "ig.Graph",
-                                   call_vid: int) -> list[str]:
+                                  call_vid: int) -> list[str]:
         """Extract receiver identifier names from callee chain."""
         callee_vids: list[int] = []
         for tgt, role in self._ast_src_from.get(call_vid, []):

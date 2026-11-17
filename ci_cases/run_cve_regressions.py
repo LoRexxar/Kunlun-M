@@ -179,6 +179,17 @@ EXPECTATIONS = {
     # escape sentinel (Path F + isolated sub-pass) reports CVI-1000 at the
     # concat line.
     'DocumentTemplateRender.php': {'1000': 1},
+    # Fix 115 (CVE-2026-126478 OpenEMR Syndromic Surveillance SQLi):
+    # form_icd_codes[] POST array (Fix 115a: getPost on a $request receiver
+    # = openemr source) imploded into an UNQUOTED numeric IN() clause
+    # wrapped in add_escape_custom (no-op for quote-free payloads —
+    # deliberately NOT a repair, see rules/tamper/php/openemr.py) on both
+    # UNION arms, executed via QueryUtils::fetchRecords (Fix 115c: arg0 =
+    # caller-built query text sink).  Fix 115b: the getXyzTable() getter
+    # (no declared return type) resolves its property class from the
+    # constructor DI hint so the chained call gets a real cg edge.
+    # Two arms -> two sink rows (count + rows fetchRecords sites).
+    'CVE-2026-126478_syndromic_in_sqli.php': {'1006': 2},
 }
 
 

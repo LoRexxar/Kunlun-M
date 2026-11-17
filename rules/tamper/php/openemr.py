@@ -52,6 +52,11 @@ EXTRA_SINKS = [
     # modules (CcrTable::insertApprovedData builds "UPDATE patient_data
     # SET $fields" from request parameter NAMES).
     ("QueryUtils::sqlStatementThrowException(", [1006]),
+    # Fix 115c (CVE-2026-126478): fetchRecords is the read-side sibling —
+    # arg0 is the caller-built query text (arg1 bound params are safe).
+    # Syndromicsurveillance module: form_icd_codes[] POST array imploded
+    # into an unquoted numeric IN() clause, executed via fetchRecords.
+    ("QueryUtils::fetchRecords(", [1006]),
     # Fix 113b (CVE-2026-126480 focused sweep): CDR-engine wrappers in
     # library/sql.inc.php (v8_4_1 :177/:313) are pure delegations to the
     # sqlStatement/sqlQuery family.  Before this, taint chains ended ON THE
@@ -68,6 +73,12 @@ EXTRA_SINKS = [
 # 只收编码函数，不收 xl()（裸翻译不转义）与渲染器（generate_display_field 等回显
 # 型助手不属于公认编码函数）。
 FILTER_FUNCTIONS = {
+    # Fix 115d (CVE-2026-126478): escape_limit / CommonPlugin::escapeLimit
+    # is `(int)` cast (library/formdata.inc.php:43 @ v8_2_0) — a genuine
+    # numeric sanitizer for LIMIT fragments.  Registered for SQL-family
+    # svids only.
+    "escapeLimit": [1005, 1006],
+    "escape_limit": [1005, 1006],
     "text": [1000, 10001, 10002],          # htmlspecialchars(ENT_NOQUOTES)
     "attr": [1000, 10001, 10002],          # htmlspecialchars(ENT_QUOTES)
     "attr_js": [1000, 10001, 10002],       # attr(json_encode(x))
