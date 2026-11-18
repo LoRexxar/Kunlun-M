@@ -1059,6 +1059,18 @@ class GraphAnalyzer:
             # A '()' segment marks a call in the chain — exclude it.
             _is_dyn_expr_name = bool(callee_name) and "()" not in callee_name and (
                 "(" in callee_name or ")" in callee_name or " " in callee_name.strip())
+            # Fix 118b (CVE-2026-42048 langflow): a callee name that STARTS
+            # with a quote char is a STRING-LITERAL receiver — "', '.join",
+            # '"{}".format'. The spaces live inside the literal; the call is
+            # fully static, never a computed dispatch. Without this guard
+            # every tainted ", ".join(list) / "...".format(...) expanded into
+            # every framework-whitelisted method that exists in the graph
+            # (CVI_7002 method_sinks 'execute') → phantom SQLi rows on
+            # join/format lines (langflow task6479 kb:646/655). Expression
+            # strings (ArrayOffset(...), Variable('a b')) never start with a
+            # quote, so the dispatch detector loses no real target.
+            if callee_name[:1] in ("'", '"'):
+                _is_dyn_expr_name = False
             if (not matched_name and _is_dyn_expr_name
                     and self._framework_method_sinks
                     and _vattr(v, "type", "") == OperatorType.METHOD_CALL.value):

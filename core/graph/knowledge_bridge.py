@@ -206,6 +206,12 @@ def enrich_taint(
         #     member-based source 永远打不中；从 Decorator 节点的 rule 串
         #     （normalizer Fix 91 存入 signature）解析 <var> 并种污点。
         count += _enrich_flask_route_params(graph, source_registry)
+        # 5d. Fix 118 (CVE-2026-42048 langflow): FastAPI Pydantic body 参数 —
+        #     路由 handler 的 ``request: BulkDeleteRequest`` 参数整体是请求
+        #     体（JSON），成员读取 request.kb_names 全程不出现 request.* 框架
+        #     source 成员，member-based source 永远打不中。以项目内
+        #     BaseModel 子类闭包（CRG EXTENDS 边）为判据注源。
+        count += _enrich_fastapi_body_params(graph, source_registry)
 
     # 6. 框架 safe 方法标注
     #    某些框架方法返回值经过安全转换（hash/枚举/常量），不应传播污点。
@@ -1310,6 +1316,134 @@ def _enrich_fastapi_upload_params(graph: ig.Graph, source_registry) -> int:
             count,
         )
     return count
+
+def _enrich_fastapi_body_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 118 (CVE-2026-42048 langflow <=1.8.4): FastAPI Pydantic body-model
+    route parameters are HTTP sources.
+
+    FastAPI binds the JSON request body to a route-handler parameter whose
+    annotation is a Pydantic ``BaseModel`` subclass::
+
+        class BulkDeleteRequest(BaseModel):
+            kb_names: List[str]
+
+        @router.delete("")
+        async def delete_knowledge_bases_bulk(request: BulkDeleteRequest, ...):
+            for kb_name in request.kb_names: ...
+
+    Every member read off that parameter is attacker-controlled, yet no
+    ``request.args``-style framework member ever appears — member-based
+    sources can never fire.  Chains like ``request.kb_names`` →
+    ``kb_user_path / kb_name`` → ``shutil.rmtree`` only become reachable
+    when the parameter seeds taint.
+
+    Discriminators (all graph-native):
+    1. *Model set*: project-local classes whose CRG EXTENDS closure reaches
+       ``BaseModel`` (the pydantic root is an external stub node).  Depends
+       aliases such as ``CurrentActiveUser = Annotated[User, Depends(...)]``
+       are Assign aliases, not ClassDefs — they never join the set.
+    2. *Route scope*: only parameters of functions carrying a router
+       decorator whose last segment is an HTTP verb (``router.delete``,
+       ``app.post``, ``api_router.api_route``…).  Internal helpers typed
+       with the same DTO stay untainted.
+    3. *Depends exclusion*: an inline ``Annotated[X, Depends(...)`` hint is
+       dependency injection, not a body binding — skipped even when X is a
+       BaseModel subclass.
+
+    Semantic gate mirrors Fix 85: skip when requirements declare a
+    DIFFERENT framework.  Unknown / fastapi → apply.
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "fastapi":
+        return 0
+
+    import re as _re
+
+    # --- 1. BaseModel subclass closure over CRG EXTENDS edges -------------
+    _ROOT_BASES = {"BaseModel"}
+    # child_class_name -> [base_class_names]
+    extends_map: dict[str, list[str]] = {}
+    has_type_attr = "type" in graph.es.attributes()
+    for e in graph.es:
+        if e["label"] != "crg":
+            continue
+        if not has_type_attr or e["type"] != "extends":
+            continue
+        child = graph.vs[e.source]
+        base = graph.vs[e.target]
+        if _vattr(child, "label") != "class" or _vattr(base, "label") != "class":
+            continue
+        c_name = _vattr(child, "name", "")
+        b_name = _vattr(base, "name", "")
+        if c_name and b_name:
+            extends_map.setdefault(c_name, []).append(b_name)
+
+    model_set = set(_ROOT_BASES)
+    changed = True
+    while changed:  # fixpoint: class extends anything already in the set
+        changed = False
+        for c_name, bases in extends_map.items():
+            if c_name in model_set:
+                continue
+            if any(b in model_set for b in bases):
+                model_set.add(c_name)
+                changed = True
+    model_set -= _ROOT_BASES  # the root stub itself is not a project class
+
+    if not model_set:
+        return 0
+
+    # --- 2. functions owning a route decorator -----------------------------
+    _route_dec = _re.compile(
+        r"(?:^|\.)(?:get|post|put|delete|patch|head|options|api_route|route)$")
+    route_funcs: set[int] = set()
+    for v in graph.vs:
+        if _vattr(v, "label") != "annotation":
+            continue
+        if _vattr(v, "raw_type") != "Decorator":
+            continue
+        if not _route_dec.search(_vattr(v, "name", "") or ""):
+            continue
+        for e in graph.incident(v.index, mode="in"):
+            edge = graph.es[e]
+            if edge["label"] == "own":
+                route_funcs.add(edge.source)
+    if not route_funcs:
+        return 0
+
+    # params of route functions (own edges from function nodes)
+    route_params: set[int] = set()
+    for fidx in route_funcs:
+        for e in graph.incident(fidx, mode="out"):
+            edge = graph.es[e]
+            if edge["label"] != "own":
+                continue
+            tgt = graph.vs[edge.target]
+            if _vattr(tgt, "label") == "parameter":
+                route_params.add(edge.target)
+
+    # --- 3. mark params typed with a project BaseModel subclass ------------
+    model_pat = {m: _re.compile(r"\b{}\b".format(_re.escape(m))) for m in model_set}
+    count = 0
+    for pidx in route_params:
+        v = graph.vs[pidx]
+        if _vattr(v, "taint_type"):
+            continue
+        th = _vattr(v, "type_hint", "") or ""
+        if not th or "Depends" in th:
+            continue
+        if not any(pat.search(th) for pat in model_pat.values()):
+            continue
+        graph.vs[pidx]["taint_type"] = "source"
+        graph.vs[pidx]["taint_origin"] = "fastapi_body_param"
+        count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 118: marked %d FastAPI body-model param(s) as sources",
+            count,
+        )
+    return count
+
 
 def _enrich_flask_route_params(graph: ig.Graph, source_registry) -> int:
     """Fix 91 (CVE-2026-33078 roxy-wi): Flask route path parameters are HTTP sources.

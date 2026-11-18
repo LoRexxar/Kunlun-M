@@ -107,6 +107,12 @@ EXPECTATIONS = {
     # its own requirements.txt so detect_framework resolves fastapi (not
     # the repo-root django one).
     'CVE-2026-44566_fastapi_upload.py': {'7005': 1},
+    # Fix 118 (CVE-2026-42048 langflow <=1.8.4, GHSA-9whx-c884-c68q):
+    # FastAPI Pydantic body-model route param is a framework source —
+    # request.kb_names → pathlib truediv (kb_user_path / kb_name) →
+    # KBStorageHelper.delete_storage(kb_path) → shutil.rmtree(kb_path)
+    # arbitrary directory delete.  Depends alias current_user stays clean.
+    'CVE-2026-42048_langflow_kb_bulk_delete.py': {'7005': 1},
     # Fix 117a/b/c/e/f/g/m (CVE-2026-110279 IBM ContextForge MCP Gateway):
     # request.headers → {k.lower(): v for k,v in headers.items()} dict-comp
     # → passthrough_headers["Authorization"]=v subscript write-back → await
