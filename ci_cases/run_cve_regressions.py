@@ -190,6 +190,19 @@ EXPECTATIONS = {
     # constructor DI hint so the chained call gets a real cg edge.
     # Two arms -> two sink rows (count + rows fetchRecords sites).
     'CVE-2026-126478_syndromic_in_sqli.php': {'1006': 2},
+    # Fix 116 (CVE-2026-126481 OpenEMR ERA 835 path traversal): uploaded
+    # X12 835 (tmp_name file source) parsed by ParseERA; the registered
+    # callback declares `global $eraname;` and writes GS04/ISA13-derived
+    # content into it (Fix 116a: normalizer emits one marker per declared
+    # name from phply Global.nodes; Fix 116b: DFG capture pass links the
+    # function-scope WRITE to FILE-scope uses, PHP process-global
+    # semantics); the file scope then interpolates $eraname into the
+    # rename()/copy() destination -> arbitrary file write.  Fix 116c
+    # (is_string et al. as neutral shape predicates) un-vetoes the
+    # `if (is_string($tmp_name) && $tmp_name !== '')` upload guard.
+    # Two sinks (rename :73 / copy :77); the island contrast (no `global`)
+    # must NOT fire.
+    'CVE-2026-126481_global_capture.php': {'1017': 2},
 }
 
 

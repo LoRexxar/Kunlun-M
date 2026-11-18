@@ -1441,12 +1441,30 @@ class Normalizer:
                                         const_type=ConstType.CONSTANT)
 
             # -- Global / LexicalVariable → identifier -----------------------------
+            # Fix 116a (CVE-2026-126481): phply's Global statement carries the
+            # declared variables in ``nodes`` (Variable objects whose .name
+            # includes the ``$``) — the old single-name read silently dropped
+            # the whole statement, so `global $eraname;` left no trace in the
+            # graph and cross-scope PHP variable sharing was invisible.
+            # Emit ONE marker identifier (type=global) per declared variable;
+            # the DFG builder's Fix 116b capture pass keys on them.
             if node_type_name == "Global":
-                var_name = getattr(ast_node, "name", "")
-                if var_name:
-                    return self._emit_identifier(add_node, name=var_name, lineno=lineno,
-                                                  id_type=IdentifierType.GLOBAL, file_path=file_path)
-                return None
+                emitted = None
+                ctx = ctx_stack[-1] if ctx_stack else None
+                for child in getattr(ast_node, "nodes", []) or []:
+                    var_name = getattr(child, "name", "") or ""
+                    if var_name:
+                        emitted = self._emit_identifier(
+                            add_node, name=var_name, lineno=lineno,
+                            id_type=IdentifierType.GLOBAL, file_path=file_path)
+                        # attach the marker under the enclosing scope so the
+                        # Fix 116b capture pass can find the declaring
+                        # function (orphan markers have no scope ancestry).
+                        if ctx is not None:
+                            add_edge({"label": EdgeLabel.OWN.value,
+                                      "source": ctx[0], "target": emitted,
+                                      "attrs": {"index": depth}})
+                return emitted
 
             if node_type_name == "LexicalVariable":
                 var_name = getattr(ast_node, "name", "")

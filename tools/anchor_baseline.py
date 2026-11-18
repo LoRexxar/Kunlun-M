@@ -51,10 +51,17 @@ def run_anchor(name, cfg):
     # PYTHONHASHSEED=0 two full runs are byte-identical (369525 nodes /
     # 809766 edges both times, same 72-row verdict set).  Gate reproducibility
     # requires the pin; engine-side order independence stays an open item.
+    # Fix 116 closeout (2026-11-18): 1800s was calibrated on an uncontended
+    # box; under memory pressure (3.7G RAM, 3.6G swap used, ~750k majflt per
+    # anchor scan) the post-sink-loop GraphAnalyzer.__init__ vertex-index pass
+    # alone thrashes for 10+ min — two anchor runs (tasks 6433/6434) died or
+    # stalled at the same point inside 1800s.  5400s headroom; scans that
+    # finish healthy still take ~21 min, the extra budget only absorbs the
+    # paging tail.
     env = dict(os.environ, PYTHONHASHSEED='0')
     with open(log, 'w') as fh:
         r = subprocess.run(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT,
-                           timeout=1800, env=env)
+                           timeout=5400, env=env)
     if r.returncode != 0:
         print(f'  [{name}] scan FAILED exit={r.returncode} (see {log})')
         return None

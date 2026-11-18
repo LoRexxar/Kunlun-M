@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 from core.graph.edge_builders.base import BaseEdgeBuilder
 from core.graph.node_edge_schema import (
-    AstRole, CgCallType, CrgType, DfgType, EdgeLabel, FunctionType, NodeLabel,
-    OperatorType,
+    AstRole, CgCallType, CrgType, DfgType, EdgeLabel, FunctionType,
+    IdentifierType, NodeLabel, OperatorType,
 )
 from utils.igraph_compat import _vattr
 
@@ -274,6 +274,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # for DFG incoming edges on output param identifiers.
             self._analyze_builtin_and_summary(language)
             self._analyze_same_variables()
+            # Fix 116b (CVE-2026-126481): PHP `global $x;` write-through capture
+            self._analyze_php_global_capture()
             # Fix 21c: foreach array -> keyvar/valvar element flows
             self._analyze_foreach_flows()
             # Fix 96b (CVE-2026-29080): same-name self-field write→read
@@ -2035,6 +2037,127 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                 else:
                                     self._closure_link_weak(vid, _defs78)
                                 break
+
+    def _analyze_php_global_capture(self) -> None:
+        """Fix 116b (CVE-2026-126481): PHP ``global $x;`` write-through capture.
+
+        A function that declares ``global $x;`` shares the variable with the
+        file scope (PHP semantics: one process-global variable).  Fix 116a
+        makes the normalizer emit each declared name as an identifier marker
+        with ``type == "global"``; this pass links WRITE sites of the name
+        inside the declaring function to FILE-SCOPE use sites (non-LHS) of
+        the same name in the same file, so taint written through a global
+        reaches top-level consumers.
+
+        GT chain (CVE-2026-126481): ParseERA invokes the upload callback,
+        which writes ``global $eraname`` from parsed X12 content
+        (GS04/ISA13/N1*PR — attacker-controlled via the uploaded 835
+        file); the top-level ``"$eraDir/$eraname.edi"`` then becomes the
+        rename()/copy() destination (path traversal, arbitrary file
+        write).  Without this pass the callback's write is an isolated
+        island and the chain dies at the function boundary.
+
+        Scope discipline (FP containment):
+        - WRITE side only (function defs → file-scope uses).  Read side
+          and cross-function flows are left to cg + file-scope chains.
+        - Targets are strictly FILE-scope identifiers (first own/ast
+          scope ancestor is the FILE node), never identifiers inside
+          other functions (those need their own ``global`` declaration
+          and a read-side pass).
+        - Targets must be plain uses (no incoming ast/lhs edge): file-scope
+          re-assignments already get prior-def chaining from
+          _analyze_same_variables and must not be bypassed.
+        """
+        if (self._language or "").lower() != "php":
+            return
+        # LHS identifiers (assignment targets) — reverse index of ast/lhs
+        lhs_vids: set[int] = set()
+        for (src_vid, role), tgt_list in self._ast_role_from.items():
+            if role == AstRole.LHS.value:
+                lhs_vids.update(tgt_list)
+
+        # global markers, grouped by (name, file)
+        markers: list[tuple[int, str, str]] = []  # (vid, name, file_path)
+        for v in self.graph.vs:
+            if self._vlabel[v.index] == NodeLabel.IDENTIFIER.value \
+                    and (v["type"] or "") == IdentifierType.GLOBAL.value \
+                    and v["name"]:
+                markers.append((v.index, v["name"], v["file_path"] or ""))
+        if not markers:
+            return
+
+        # same-name candidates grouped by (name, file)
+        cand: dict[tuple[str, str], list[int]] = {}
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.IDENTIFIER.value:
+                continue
+            nm = self._vname[v.index]
+            if not nm or not nm.startswith("$"):
+                continue
+            fp = self._vfile_path[v.index] or ""
+            if not fp:
+                continue
+            cand.setdefault((nm, fp), []).append(v.index)
+
+        def _first_scope(vid: int):
+            """Nearest function/file ancestor along own/ast edges."""
+            cur, seen = vid, {vid}
+            for _ in range(32):
+                nxt = None
+                for lbl in ("own", "ast"):
+                    parents = self._edges_to(cur, lbl)
+                    if parents:
+                        nxt = parents[0]
+                        break
+                if nxt is None or nxt in seen:
+                    return None
+                seen.add(nxt)
+                cur = nxt
+                if self._vlabel[cur] in (NodeLabel.FUNCTION.value,
+                                         NodeLabel.FILE.value):
+                    return cur
+            return None
+
+        file_vids = {v.index for v in self.graph.vs
+                     if self._vlabel[v.index] == NodeLabel.FILE.value}
+        added = 0
+        for marker_vid, name, fp in markers:
+            namesakes = cand.get((name, fp))
+            if not namesakes:
+                continue
+            func_scope = _first_scope(marker_vid)
+            if func_scope is None or func_scope in file_vids:
+                # marker must live inside a function to capture anything;
+                # a bare file-scope `global` statement is a no-op in PHP
+                continue
+            # write sites: same-name ASSIGN-LHS identifiers inside the
+            # declaring function.  Structural criterion — this engine
+            # never builds dfg(RHS→LHS) edges for PHP assignments (the
+            # same-name machinery links by name instead), so the old
+            # "has dfg in-edge" filter matched nothing and the pass was
+            # dead code (proven on task 6389: marker existed, zero edges).
+            write_sites = [
+                wv for wv in namesakes
+                if wv != marker_vid
+                and wv in lhs_vids
+                and _first_scope(wv) == func_scope
+            ]
+            if not write_sites:
+                continue
+            # file-scope plain uses
+            use_sites = [
+                uv for uv in namesakes
+                if uv != marker_vid and uv not in lhs_vids
+                and self._vlabel[uv] == NodeLabel.IDENTIFIER.value
+                and _first_scope(uv) in file_vids
+            ]
+            for wv in write_sites:
+                for uv in use_sites:
+                    self._add_dfg_edge(wv, uv, DfgType.SAME.value)
+                    added += 1
+        if added:
+            logger.debug(
+                "[DataFlowBuilder] Fix 116b php global capture: %d edges", added)
 
     def _closure_link_weak(self, vid: int, defs78: list[int]) -> None:
         """Fix 98b (CVE-2026-29080): closure capture with if/else JOIN

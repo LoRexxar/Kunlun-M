@@ -400,6 +400,19 @@ _EXISTENCE_CHECK_FUNCS: frozenset[str] = frozenset({
     # PHP
     "isset", "empty", "is_null", "array_key_exists", "property_exists",
     "in_array",  # membership only — content unchanged
+    # Fix 116c (CVE-2026-126481): PHP type-check predicates return a bool
+    # about the argument's SHAPE, not its content — the same neutral class
+    # as isset/empty (mirrors _NEUTRAL_GUARD_PREDS, Fix 42u).  That
+    # `is_string($tmp_name)` passes proves nothing about the string's
+    # content; these builtins carry safe=True (bool return value) which
+    # Fix 20a's safe-predicate branch guard must not misread as a value
+    # constraint.  Observed live: `if (is_string($tmp_name) && $tmp_name
+    # !== '')` around the OpenEMR 835 upload handler vetoed the whole
+    # tmp_name → ParseERA → global $eraname → rename() chain.
+    "is_string", "is_bool", "is_scalar", "is_int", "is_integer",
+    "is_float", "is_double", "is_long", "is_array", "is_object",
+    "is_iterable", "is_countable", "is_callable", "is_resource",
+
     # Python
     "hasattr",
     # Java
