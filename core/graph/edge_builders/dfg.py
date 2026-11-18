@@ -1485,6 +1485,67 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         self._add_dfg_edge(
                             a, d, DfgType.FORWARD_SLICE.value)
 
+        # Fix 117a (CVE-2026-110279): subscript write-back.
+        # ``d[key] = tainted`` — the python normalizer emits the write as
+        # an assign whose ast[LHS] child is a Subscript OPERATOR (raw_type
+        # "Subscript", ast[callee] = the container use identifier), which
+        # ``_analyze_assignments`` skips wholesale (LHS must be
+        # identifier/const) — the written value never tainted the
+        # container, so ``passthrough_headers["Authorization"] = value;
+        # return passthrough_headers`` lost the whole chain.  Mirror the
+        # append write-back: link the assign's ast[RHS] value into the
+        # container use's DEF node(s) (dfg sources of the container use),
+        # so every later read of the container sees the item's taint.
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] != OperatorType.ASSIGN.value:
+                continue
+            vid = v.index
+            if self._vraw_type[vid] != "Assign":
+                # python normalizer marks real Assigns with raw_type
+                # "Assign"; other languages' assign shapes keep their
+                # own semantics (PHP already covered by CVE-2026-62007).
+                continue
+            lhs_nodes = self._get_ast_children(vid, role=AstRole.LHS.value)
+            if not lhs_nodes or self._vlabel[lhs_nodes[0]] != NodeLabel.OPERATOR.value:
+                continue
+            sub_vid = lhs_nodes[0]
+            if self._vraw_type[sub_vid] != "Subscript":
+                continue
+            # container use identifier: ast[callee] child of the subscript op
+            cont_use = None
+            for cv in self._get_ast_children(sub_vid, role=AstRole.CALLEE.value):
+                if self._vlabel[cv] in (NodeLabel.IDENTIFIER.value,
+                                        NodeLabel.CONST.value):
+                    cont_use = cv
+                    break
+            if cont_use is None:
+                continue
+            rhs_nodes = self._get_ast_children(vid, role=AstRole.RHS.value)
+            if not rhs_nodes:
+                continue
+            value_vid = rhs_nodes[0]
+            if self._vlabel[value_vid] not in (NodeLabel.IDENTIFIER.value,
+                                               NodeLabel.CONST.value,
+                                               NodeLabel.OPERATOR.value):
+                continue
+            def_vids = [
+                e.tuple[0] for e in self.graph.es.select(
+                    _target=cont_use, label=EdgeLabel.DFG.value)
+                if self._vlabel[e.tuple[0]] in (
+                    NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value)
+            ]
+            def_vids.extend(
+                src for src, tgt, _t in self._dfg_edges
+                if tgt == cont_use and self._vlabel[src] in (
+                    NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value)
+            )
+            for d in def_vids:
+                if value_vid != d:
+                    self._add_dfg_edge(
+                        value_vid, d, DfgType.FORWARD_SLICE.value)
+
     def _analyze_lambda_dispatch_flows(self) -> None:
         """Fix 79d (CVE-2026-32613): collection/stream higher-order dispatch.
 

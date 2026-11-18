@@ -791,6 +791,28 @@ class GraphAnalyzer:
                     not any(_vattr(e, "role") == "arg"
                             for e in self._edge_out(v.index, "ast"))):
                 continue
+            # Fix 117n/117n2 (CVE-2026-110279): python Subscript operators
+            # are CONTAINER accesses, never calls — but the python
+            # normalizer emits them with type='call' and name=<container
+            # identifier>, so a bare vul_function entry (CVI_7002's
+            # Django-ORM 'extra') collided with tainted local containers
+            # named alike (``extra["user_id"] = tainted`` in mcpgateway
+            # auth.py was nominated as a SQL sink).  Skip ONLY bare-container
+            # nominations: a qualified container chain (``response.text[:n]``
+            # → name 'response.text[...]') is a real semantic entity whose
+            # resolved callee legitimately matches qualified sinks (7008 XSS
+            # response.text — the blanket Subscript skip of 117n lost 4
+            # corpus TPs, task6456 vs task6453).
+            # ⚠ the name format is '<container>[...]': the ellipsis itself
+            # contains '.' characters, so a raw `'.'
+            # in name` qualification test is ALWAYS true (117n2's bug —
+            # scan task6467 regressed to the full pre-117n 168-row set).
+            # Test the CONTAINER PART before the first '[' instead.
+            if (self.language == "python"
+                    and _vattr(v, "raw_type") == "Subscript"):
+                _sub_container = (_vattr(v, "name", "") or "").split("[", 1)[0]
+                if "." not in _sub_container and "::" not in _sub_container:
+                    continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
                 callee_name = _vattr(v, "callee", "")

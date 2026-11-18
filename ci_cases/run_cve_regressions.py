@@ -107,6 +107,13 @@ EXPECTATIONS = {
     # its own requirements.txt so detect_framework resolves fastapi (not
     # the repo-root django one).
     'CVE-2026-44566_fastapi_upload.py': {'7005': 1},
+    # Fix 117a/b/c/e/f/g/m (CVE-2026-110279 IBM ContextForge MCP Gateway):
+    # request.headers → {k.lower(): v for k,v in headers.items()} dict-comp
+    # → passthrough_headers["Authorization"]=v subscript write-back → await
+    # invoke_tool → httpx.AsyncClient(headers=...) outbound credential
+    # override.  Engine chain: comprehension+receiver-passthrough summaries,
+    # subscript write-back DFG, await flow, CVI_7016 sink.
+    'CVE-2026-110279_mcp_passthrough_headers.py': {'7016': 1},
     # Fix 91 (CVE-2026-33078 roxy-wi <8.2.6.4): Flask route path params
     # are HTTP sources — @bp.route('/section/haproxy/<server_ip>/save')
     # binds URL vars to view params with no request.* anywhere; the param

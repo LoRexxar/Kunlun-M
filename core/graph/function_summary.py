@@ -530,6 +530,46 @@ def _trace_return_value(
 
     # ── 2. 字面量 ──
     if vlabel == NodeLabel.CONST.value:
+        # Fix 117g (CVE-2026-110279): container literals / comprehensions
+        # (Fix 117b/117c) — and the joinedstr (f-string) precedent —
+        # normalize to a CONST node that CARRIES dfg in-edges from its
+        # dynamic element expressions (`{k.lower(): v for k, v in
+        # request_headers.items()}`, ``f"{param}"``).  Concluding 'literal'
+        # here buried the element-origin dependency: get_passthrough_headers
+        # summarized as passthrough(pt=[1]) — the tainted param-0 flow
+        # through the comprehension vanished — and its caller invoke_tool
+        # collapsed to 'safe', so the scanner's safe-cut deleted the
+        # arg→call DFG edge and the whole chain died one hop before the
+        # sink.  A CONST with dynamic (non-const) dfg sources is a
+        # CONTAINER: trace its sources and aggregate.  Pure-literal
+        # containers have no dynamic in-edges (117b only links non-Constant
+        # elements) and stay literal.
+        _dyn_in = [s for s in (eidx["in"].get("dfg", {}).get(start_vid) or [])
+                   if _vattr(graph.vs[s], "label", "") != NodeLabel.CONST.value]
+        if _dyn_in:
+            _flows, _unres = [], False
+            for _s in _dyn_in:
+                if _s in visited:
+                    continue
+                _sub = _trace_return_value(graph, _s, own_vids, param_idx,
+                                           visited, eidx, depth + 1)
+                if _sub:
+                    _flows.append(_sub)
+                    _unres = _unres or bool(_sub.get("has_unresolved_call"))
+            if _flows:
+                _agg_type, _agg_params = _aggregate_flows(_flows)
+                if _agg_type == "source":
+                    return {"origin": vname, "origin_type": "source",
+                            "dep_params": [], "has_unresolved_call": _unres}
+                if _agg_type == "passthrough":  # param deps present
+                    return {"origin": vname, "origin_type": "param",
+                            "dep_params": list(_agg_params),
+                            "has_unresolved_call": _unres}
+                # safe / literal / unknown — propagate with unresolved flag
+                # so 'unknown' containers defer instead of certifying safe.
+                return {"origin": vname, "origin_type": _agg_type,
+                        "dep_params": list(_agg_params),
+                        "has_unresolved_call": _unres}
         return {"origin": vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
 
     # ── 2.5. 节点自身已有 taint_type 注解（由 enrich_taint 或 _enrich_source_variables 标注） ──
@@ -591,7 +631,42 @@ def _trace_return_value(
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
         if taint == "passthrough":
             pt = _vattr(v, "taint_passthrough", [])
-            return _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
+            _pt_res = _trace_passthrough_call(graph, start_vid, pt, own_vids, param_idx, visited, eidx, depth)
+            # Fix 117m (CVE-2026-110279): receiver passthrough.  The python
+            # builtin knowledge models container-view methods as
+            # ``__method__.items => {"passthrough": ["this"]}`` — enrich_taint
+            # resolves the "this" index into ``taint_receiver_pt=True`` with
+            # an EMPTY taint_passthrough (node 41 ``request_headers.items()``
+            # mini task 6447: taint_passthrough=[], taint_receiver_pt=True).
+            # The analyzer consumes the flag (graph_analyzer Rule 4 via
+            # _trace_call_receiver), but this summary tracer never did —
+            # _trace_passthrough_call found no ast args and returned
+            # 'unknown', so get_passthrough_headers lost the param-0 leg
+            # (pt=[1] instead of [0,1]) and invoke_tool collapsed to 'safe'
+            # (the safe-cut then deleted the arg→call DFG edge).  Consume the
+            # flag for python method calls — the receiver reaches the op via
+            # dfg, never as an ast arg (same shape Fix 117h-2 traced).
+            if (_vattr(v, "taint_receiver_pt", False)
+                    and _vattr(v, "language", "") == "python"
+                    and vtype == "method_call"):
+                _recv = _trace_method_receivers(
+                    graph, start_vid, own_vids, param_idx, visited, eidx, depth)
+                if _recv and _recv.get("origin_type") in ("source", "param"):
+                    if (_pt_res and _pt_res.get("origin_type") == "source"
+                            and _recv.get("origin_type") != "source"):
+                        return _pt_res  # an explicit-arg source still wins
+                    if (_pt_res and _pt_res.get("origin_type") == "param"
+                            and _recv.get("origin_type") == "param"):
+                        _merged = dict(_recv)
+                        _merged["dep_params"] = sorted(set(
+                            list(_recv.get("dep_params", []))
+                            + list(_pt_res.get("dep_params", []))))
+                        _merged["has_unresolved_call"] = bool(
+                            _recv.get("has_unresolved_call")) or bool(
+                            _pt_res.get("has_unresolved_call"))
+                        return _merged
+                    return _recv
+            return _pt_res
 
         # Fix 72d: subscript reads are CONTAINER accesses, not function
         # calls.  `self.cfg['k']` normalizes to a 'call' operator whose name
@@ -885,6 +960,16 @@ def _trace_return_value(
     # safe/literal.  Generalizes Fix 46d (which fixed this for concat only)
     # to any operator: collect safe/literal flags, keep scanning for
     # source/param, and only conclude safe when nothing stronger was found.
+    # Fix 117i (CVE-2026-110279): python def-use chains hop
+    # identifier-to-identifier (assign-LHS def occurrence → later use
+    # occurrence).  Identifier occurrences are NEVER own_vids (they are
+    # ast children of their assign op), so a two-hop chain
+    # (``x = f(param); y = x``) died 'unknown' after one hop — the
+    # subscript write-back value (sanitized_value@L23 ← def@L20) never
+    # reached the container's return trace.  Python-only: also trace
+    # foreign IDENTIFIER sources (visited/depth bounds hold); PHP def-use
+    # semantics stay calibrated on the php anchors.
+    _py_ident_hop = _vattr(v, "language", "") == "python"
     _second_safe_seen = False
     _second_unknown_seen = False  # Fix 98c: an unknown source means the trace
     # was incomplete (e.g. a chain that leaves the function).  A single
@@ -895,7 +980,41 @@ def _trace_return_value(
     # traced source is safe/literal.
     for src_vid in dfg_src_list:
         if src_vid not in own_vids:
-            continue
+            # Fix 117i: python foreign-identifier def-use hop (see comment
+            # above).  Also admit foreign CONST nodes that carry dynamic
+            # dfg in-edges — the Fix 117b/117c container/comprehension
+            # results are emitted as CONSTs and never live in own_vids
+            # (``x = {.. for .. in tainted.items()}`` — the IfExp/branch
+            # assign links the container CONST straight to the LHS def).
+            # Pure literals (no dfg in-edges) stay skipped — they can
+            # only resolve 'literal'.
+            # Every other foreign source keeps the skip.
+            # Fix 117i-2 (CVE-2026-110279): bound the admission to
+            # SAME-FILE hops.  The def-use chains this fix exists for are
+            # function-local (``x = f(param); y = x`` inside one function);
+            # admitting every foreign identifier in the module let one
+            # trace fan out across the whole file's def-use graph —
+            # mcpgateway corpus (1553 files / 12k summaries) spent >12min
+            # inside build_function_summaries (py-spy: 14-deep
+            # _trace_return_value chains at the dfg-source loop) where the
+            # pre-117i build finished in seconds.  Cross-file def-use is
+            # the analyzer's (parameters_back) job at scan time, not the
+            # summary contract's.
+            if _py_ident_hop:
+                _sl = _vattr(graph.vs[src_vid], "label", "")
+                _sf_ok = (_vattr(graph.vs[src_vid], "file_path", "")
+                          == _vattr(v, "file_path", ""))
+                if not _sf_ok:
+                    continue
+                if _sl == NodeLabel.IDENTIFIER.value:
+                    pass  # admitted
+                elif (_sl == NodeLabel.CONST.value
+                        and (eidx["in"].get("dfg", {}).get(src_vid) or [])):
+                    pass  # dynamic container const — admitted
+                else:
+                    continue
+            else:
+                continue
         sub = _trace_return_value(graph, src_vid, own_vids, param_idx, visited, eidx, depth + 1)
         if sub["origin_type"] == "source":
             if _is_concat:
@@ -1118,7 +1237,25 @@ def _trace_return_value(
             if all_dep_params:
                 _fb_type = (assign_found or {}).get("origin_type", "")
                 if _fb_type in ("param", "source"):
-                    return assign_found
+                    # Fix 117j (CVE-2026-110279): the DFG pass and the AST
+                    # fallback are two PARTIAL views of the same
+                    # function's defs — DFG sees the subscript write-back
+                    # value (Fix 117a: sanitized_value → container def),
+                    # the fallback sees the literal-init assign.  Returning
+                    # the fallback's verdict alone discards the DFG
+                    # deps (pt=[1] instead of [0,1] — the whole
+                    # request_headers leg vanished).  Source dominates;
+                    # param verdicts UNION their dep sets.
+                    if _fb_type == "source":
+                        return assign_found
+                    _af = assign_found or {}
+                    _merged = dict(_af)
+                    _merged["dep_params"] = list(dict.fromkeys(
+                        list(_af.get("dep_params", []))
+                        + list(all_dep_params)))
+                    _merged["has_unresolved_call"] = bool(
+                        _af.get("has_unresolved_call")) or any_unresolved
+                    return _merged
                 return {
                     "origin": vname, "origin_type": "param",
                     "dep_params": list(dict.fromkeys(all_dep_params)),
@@ -1468,13 +1605,50 @@ def _trace_call_to_function(
     # until _MAX_ITERATIONS runs out — the caller stays unannotated and
     # every sanitized return through it becomes a false positive.
     if targets:
-        lang = _vattr(graph.vs[targets[0]], "language", "") or "php"
+        # Fix 117h-1 (CVE-2026-110279): language must come from the CALL
+        # node first — stub use-targets (bare 'get'/'copy'/… function
+        # nodes) carry an EMPTY language, and the old `or "php"` fallback
+        # made python graphs consult the PHP knowledge base, whose
+        # generic-getter entry ('get' => safe) silently killed every
+        # ``tainted_dict.get(k)`` value chain (cross-language
+        # external-stub poisoning, same family as the ljavalang Fix 61
+        # precedent).  Verified shape: call ops carry language on both
+        # php and python graphs; stubs never do.
+        _lang = (_vattr(graph.vs[call_vid], "language", "")
+                 or _vattr(graph.vs[targets[0]], "language", ""))
+        if not _lang:
+            _fp = (_vattr(graph.vs[call_vid], "file_path", "")
+                   or _vattr(graph.vs[targets[0]], "file_path", "") or "")
+            _ext = _fp.rsplit(".", 1)[-1].lower() if "." in _fp else ""
+            _lang = {"py": "python", "js": "javascript", "mjs": "javascript",
+                     "jsx": "javascript", "ts": "typescript",
+                     "tsx": "typescript", "java": "java"}.get(_ext, "php")
+        lang = _lang
         try:
             import importlib
             mod = importlib.import_module(f"core.core_engine.{lang}.builtin_knowledge")
             knowledge_get = getattr(mod, "lookup", None)
         except (ImportError, AttributeError):
             knowledge_get = None
+
+        # Fix 117h-2 (CVE-2026-110279): python method-call RECEIVER flow.
+        # In python graphs the receiver of ``recv.method(args)`` reaches
+        # the call op via a dfg in-edge (never an ast child).  Builtin
+        # safe/generic-getter verdicts (and 'unknown' fallbacks) describe
+        # ARGUMENT independence — they say nothing about the receiver, so
+        # ``tainted_container.get(k)`` must still carry the container's
+        # taint into the result (container element read, the call-op
+        # analog of the Fix 117e subscript-read flow).  Trace the
+        # receivers first; a source/param receiver wins over both the
+        # generic-safe verdict and the unresolved fallback.  Guarded to
+        # python: the php method-call receiver shape is name-embedded /
+        # member-edge (Fix 44b model) and is handled there.
+        _recv_flow = None
+        if (lang == "python"
+                and _vattr(graph.vs[call_vid], "type", "") == "method_call"):
+            _recv_flow = _trace_method_receivers(
+                graph, call_vid, own_vids, param_idx, visited, eidx, depth)
+
         if knowledge_get is not None:
             for t in targets:
                 tname = _vattr(graph.vs[t], "name", "")
@@ -1482,19 +1656,77 @@ def _trace_call_to_function(
                 if not entry:
                     continue
                 if entry.get("safe"):
+                    if _recv_flow and _recv_flow.get("origin_type") in ("source", "param"):
+                        return _recv_flow
                     return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
                 pt = [i for i in entry.get("passthrough", []) if isinstance(i, int)]
                 if pt:
                     return _trace_passthrough_call(graph, call_vid, pt, own_vids, param_idx, visited, eidx, depth)
                 # Known but no passthrough and not safe → return value does
                 # not depend on any argument in a tracked way.
+                if _recv_flow and _recv_flow.get("origin_type") in ("source", "param"):
+                    return _recv_flow
                 return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     if targets:
+        if _recv_flow and _recv_flow.get("origin_type") in ("source", "param"):
+            return _recv_flow
         # 目标完全未知 → 返回 None，让调用方继续 DFG 追踪
         return {"origin": "", "origin_type": "unknown", "dep_params": [], "has_unresolved_call": True}
 
     return None  # 无 use 边，让调用方继续
+
+
+def _trace_method_receivers(
+    graph: ig.Graph,
+    call_vid: int,
+    own_vids: set[int],
+    param_idx: dict[int, int],
+    visited: set[int],
+    eidx: dict,
+    depth: int,
+) -> dict | None:
+    """Fix 117h-2 (CVE-2026-110279): trace a python method-call's receivers.
+
+    The receiver(s) of ``recv.method(args)`` are the call op's dfg
+    in-edge sources that are NOT ast children of the call (explicit args
+    and the callee identifier are ast children; the receiver reaches the
+    op only via dfg).  Returns the strongest receiver verdict:
+    source > param (dep_params aggregated) > None (literal/safe/absent
+    receivers leave the entry-based verdict untouched).
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    _ast_child_vids = {t for t, _role, _ in eidx["ast_ch"].get(call_vid, [])}
+    dep_params: list[int] = []
+    any_unresolved = False
+    best_param: dict | None = None
+    for src in (eidx["in"].get("dfg", {}).get(call_vid) or []):
+        if src in _ast_child_vids:
+            continue  # explicit argument / callee — not the receiver
+        if src == call_vid:
+            continue
+        src_label = _vattr(graph.vs[src], "label", "")
+        if src_label not in (NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value):
+            continue
+        sub = _trace_return_value(graph, src, own_vids, param_idx, visited, eidx, depth + 1)
+        if not sub:
+            continue
+        if sub.get("origin_type") == "source":
+            return sub
+        if sub.get("origin_type") == "param":
+            best_param = sub
+            dep_params.extend(sub.get("dep_params", []))
+            any_unresolved = any_unresolved or bool(sub.get("has_unresolved_call"))
+        elif sub.get("origin_type") == "unknown":
+            any_unresolved = any_unresolved or bool(sub.get("has_unresolved_call", True))
+    if best_param is not None:
+        merged = dict(best_param)
+        merged["dep_params"] = sorted(set(dep_params))
+        merged["has_unresolved_call"] = any_unresolved
+        return merged
+    return None
 
 
 def _trace_passthrough_call(
@@ -1567,6 +1799,16 @@ def _trace_passthrough_call(
             if _vattr(graph.vs[arg_vid], "label") == NodeLabel.CONST.value:
                 if _pt_all:
                     continue
+                # Fix 117k (CVE-2026-110279): a literal pt-arg cannot
+                # ERASE param deps already proven from earlier pt-args.
+                # ``get_passthrough_headers(request_headers, {"CT": "json"})``
+                # (callee pt=[0,1]): arg0 → param[0], arg1 → const dict —
+                # the old immediate `return safe` discarded the dep and
+                # collapsed invoke_tool to 'safe' (Fix 93c fixed this for
+                # 'all' mode only).  Continue scanning; the no-deps fast
+                # path (every pt-arg const) still returns safe below.
+                if all_dep_params or any_unresolved:
+                    continue
                 vname = _vattr(graph.vs[call_vid], "name", "")
                 return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             sub = _trace_return_value(graph, arg_vid, own_vids, param_idx, visited, eidx, depth + 1)
@@ -1575,7 +1817,13 @@ def _trace_passthrough_call(
             if sub["origin_type"] == "safe":
                 # Fix 93c: 'all' 模式下单个实参 safe 只是并行流之一，
                 # 不能对整个调用下 safe 判定——继续看其余实参。
+                # Fix 117l (CVE-2026-110279): indexed 模式同理——一个
+                # safe pt-arg 不能抹掉更早 pt-arg 已证实的 param 依赖
+                # (arg0=param、arg1=literal-container 时旧逻辑直接
+                # return safe)。仅在尚无任何依赖时保留快速路径。
                 if _pt_all:
+                    continue
+                if all_dep_params or any_unresolved:
                     continue
                 return sub
             # str_replace / str_ireplace with literal search/replace args
