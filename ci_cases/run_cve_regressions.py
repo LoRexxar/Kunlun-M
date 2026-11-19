@@ -67,6 +67,12 @@ EXPECTATIONS = {
     # CVE-2026-71550) — $_REQUEST['aow_action'] concat → require_once
     # dynamic file inclusion.  Both the custom/ and modules/ branches.
     'CVE-2026-71550_aow_require_once.php': {'1007': 2},
+    # Fix 120 + CVE-2026-111215 (Netgate pfSense CE <=2.9.0 wireless parent
+    # iface command injection): $_POST['if'] → $clone array write-back →
+    # param → interface_get_wireless_base passthrough → {$baseif} interp →
+    # exec.  The .inc library file also regression-guards Fix 120 (.inc
+    # discovery: php set + PHP-open-tag content sniff).
+    'CVE-2026-111215_interfaces.inc': {'1011': 1},
     # Fix 72: config-file source chain (Siemens meta-iot2050,
     # CVE-2026-109830) — json.load → getConfig summary → getter summary →
     # subprocess.call("... " + initMode, shell=True). Safe contrast

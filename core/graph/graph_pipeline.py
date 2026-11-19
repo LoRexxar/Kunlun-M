@@ -67,8 +67,12 @@ def _try_get_normalizer(language: str):
 # Per-language code file extensions (ONLY files that should be AST-parsed)
 # .xml, .jar, etc. are intentionally excluded — they are not source code
 # ---------------------------------------------------------------------------
+# Fix 120: .inc 是遗留 PHP 库扩展——pfSense 整个 include 库（src/etc/inc/*.inc，
+# 含 CVE-2026-111215 的 exec sink interfaces.inc:3379）、phpMyAdmin libraries 等
+# 都用它；不在扩展集内 = 文件发现层静默丢弃整个库。但 .inc 也被模板系统用作
+# HTML 片段（phplist ui/*/footer.inc），故配套内容甄别（见 _INC_PHP_OPEN_RE）。
 _CODE_EXT_MAP = {
-    "php": {".php", ".php3", ".php4", ".php5", ".php7", ".pht", ".phs", ".phtml"},
+    "php": {".php", ".php3", ".php4", ".php5", ".php7", ".pht", ".phs", ".phtml", ".inc"},
     "java": {".java"},
     "javascript": {".js"},
     "typescript": {".ts", ".tsx"},
@@ -82,6 +86,10 @@ _CODE_EXT_MAP = {
     "kotlin": {".kt", ".kts"},
     "lua": {".lua"},
 }
+
+# Fix 120: .inc 内容甄别——仅 PHP 开标签（<?php / <?= / <?，容忍 BOM 与前导空白）
+# 开头的 .inc 才按 PHP 收录；HTML 模板片段 .inc 跳过（skipped_special）。
+_INC_PHP_OPEN_RE = re.compile(r"^(?:\ufeff|\s)*<\?")
 
 # Language aliases: user-facing name → internal normalizer name
 _LANG_ALIASES = {
@@ -436,6 +444,12 @@ def build_ast_graph(
                         try:
                             with open(abs_filepath, 'r', encoding='utf-8', errors='ignore') as _df:
                                 _dc = _df.read(262144)  # 前 256KB 足以识别数据形态
+                            # Fix 120: .inc 按内容甄别——HTML 模板片段（无 PHP 开标签）
+                            # 不是源码，跳过；PHP 库文件（pfSense interfaces.inc 等）
+                            # 放行进入解析。
+                            if file_ext == '.inc' and not _INC_PHP_OPEN_RE.match(_dc):
+                                skipped_special += 1
+                                continue
                             if _looks_like_php_data_file(_dc):
                                 skipped_special += 1
                                 continue
