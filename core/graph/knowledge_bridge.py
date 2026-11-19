@@ -62,6 +62,15 @@ def enrich_taint(
         标注的 function 节点数量
     """
     count = 0
+    # Fix 119f (CVE-2026-44381 perf): one-shot per-stub 72b hit verdicts —
+    # computed once per language pass, consumed by every call node.
+    _stub_hits = None
+    if source_registry is not None and hasattr(source_registry, 'is_source_member'):
+        try:
+            _ua, _aa, _ = _get_enrich_adjacency(graph)
+            _stub_hits = _build_stub_source_hits(graph, _ua, _aa, source_registry)
+        except Exception:
+            _stub_hits = None
     for v in graph.vs:
         vlabel = _vattr(v, "label", "")
         vtype = _vattr(v, "type", "")
@@ -124,7 +133,8 @@ def enrich_taint(
         #    传完整 func_name（如 "document.cookie"），内部用短名查 source producer，
         #    用完整 chain 查 source member。
         if source_registry is not None:
-            if _enrich_from_source_registry(graph, func_vid, full_lookup, source_registry):
+            if _enrich_from_source_registry(graph, func_vid, full_lookup, source_registry,
+                                            _stub_hits=_stub_hits):
                 count += 1
                 continue
 
@@ -276,10 +286,10 @@ def _receiver_typed_lookup_name(graph: ig.Graph, call_vid: int, short_name: str)
         if "." in nm:
             recv_seg = nm.rsplit(".", 1)[0]
         # dfg/member in-edges to identifier nodes carrying a declared type
-        for e in graph.es.select(_target=call_vid):
-            if e["label"] not in ("dfg", "member"):
-                continue
-            src = graph.vs[e.source]
+        # (Fix 119e: bucket-indexed instead of EdgeSeq.select(_target=vid)
+        # full-edge scan per call node; same edges, same order.)
+        for src_vid in _get_enrich_adjacency(graph)[2].get(call_vid, ()):
+            src = graph.vs[src_vid]
             if _vattr(src, "label", "") not in ("identifier", "parameter"):
                 # Fix 79: Java method receivers resolve through dfg to the
                 # enclosing function's PARAMETER node (label='parameter')
@@ -409,6 +419,85 @@ _ORM_TERMINATOR_NAMES = frozenset({
 _ORM_EIDX_CACHE: dict = {}
 
 
+# Fix 119e (CVE-2026-44381 perf): per-graph labeled-adjacency index for the
+# enrich hot path.  _enrich_from_source_registry's Fix 72b fallback and
+# _receiver_typed_lookup_name's Fix 79 lookup used to run
+# graph.es.select(_source=vid, label=...) PER CALL NODE — a full-edge
+# predicate scan per node, O(N*E) overall.  On the MISP corpus (964k nodes /
+# 2M edges) that alone burned >26 CPU-minutes (py-spy: 65% in the 72b loop).
+# Build the three buckets ONCE per graph (same id+vcount+ecount guard
+# discipline as _ORM_EIDX_CACHE); per-node lookups become O(degree).
+_ENRICH_EIDX_CACHE: dict = {}
+
+
+def _get_enrich_adjacency(graph: ig.Graph):
+    """Return (use_adj, alias_adj, dfg_member_in) for this graph.
+
+    use_adj/alias_adj: source vid -> [target vid] for label 'use'/'alias'
+    (iteration order = global edge order, same as EdgeSeq.select).
+    dfg_member_in:    target vid -> [source vid] for labels 'dfg'/'member'.
+    """
+    key = id(graph)
+    sig = (graph.vcount(), graph.ecount())
+    cached = _ENRICH_EIDX_CACHE.get(key)
+    if cached is not None and cached[0] == sig:
+        return cached[1]
+    use_adj: dict = {}
+    alias_adj: dict = {}
+    dfg_member_in: dict = {}
+    for e in graph.es:
+        lbl = e["label"]
+        if lbl == "use":
+            use_adj.setdefault(e.source, []).append(e.target)
+        elif lbl == "alias":
+            alias_adj.setdefault(e.source, []).append(e.target)
+        elif lbl == "dfg" or lbl == "member":
+            dfg_member_in.setdefault(e.target, []).append(e.source)
+    idx = (use_adj, alias_adj, dfg_member_in)
+    _ENRICH_EIDX_CACHE[key] = (sig, idx)
+    return idx
+
+
+def _build_stub_source_hits(graph: ig.Graph, use_adj: dict, alias_adj: dict,
+                            source_registry) -> frozenset:
+    """Fix 119f (CVE-2026-44381 perf): precompute the set of stub vids whose
+    72b candidate names contain a source-member hit.
+
+    The 72b fallback used to expand, for EVERY (call-node, stub) use pair,
+    the stub's full alias fan-out — on the MISP corpus a single hub stub
+    (43,532 alias edges, referenced by 46,570 call nodes) alone produced
+    2.03e9 candidate expansions.  The same any-match predicate computed
+    once per DISTINCT stub is O(use_targets + alias_edges).
+    """
+    ism = source_registry.is_source_member
+    use_targets = {t for targets in use_adj.values() for t in targets}
+    hits = set()
+    for stub_vid in use_targets:
+        n = _vattr(graph.vs[stub_vid], "name", "")
+        # Fix 119g: scoped consult — gated property members only match in
+        # their class context; registries without the 2-arg form fall back.
+        _sf119g = (_vattr(graph.vs[stub_vid], "file_path", "")
+                   or _vattr(graph.vs[stub_vid], "path", ""))
+        if _sf119g:
+            def _ism2(_n, _fp=_sf119g):
+                try:
+                    return ism(_n, _fp)
+                except TypeError:
+                    return ism(_n)
+        else:
+            _ism2 = ism
+        ok = bool(n) and "." in n and _ism2(n)
+        if not ok:
+            for av in alias_adj.get(stub_vid, ()):
+                an = _vattr(graph.vs[av], "name", "")
+                if "." in an and _ism2(an):
+                    ok = True
+                    break
+        if ok:
+            hits.add(stub_vid)
+    return frozenset(hits)
+
+
 def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache,
                          node_type: str = "") -> bool:
     """从 TraceCache 内置知识库标注。先完整名查，再短名查。
@@ -530,6 +619,7 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
 
 def _enrich_from_source_registry(
     graph: ig.Graph, func_vid: int, func_name: str, source_registry,
+    _stub_hits=None,
 ) -> bool:
     """从 SourceRegistry 标注框架 source producer 和 builtin source member。"""
     simple_name = _get_simple_name(func_name)
@@ -566,15 +656,26 @@ def _enrich_from_source_registry(
     # giving up so qualified builtin sources (CVE-2026-109830 config-file
     # read) taint.
     if hasattr(source_registry, 'is_source_member'):
-        for ue in graph.es.select(_source=func_vid, label="use"):
-            stub = graph.vs[ue.target]
-            candidates = [_vattr(stub, "name", "")]
-            for ae in graph.es.select(_source=stub.index, label="alias"):
-                candidates.append(_vattr(graph.vs[ae.target], "name", ""))
-            for cand in candidates:
-                if "." in cand and source_registry.is_source_member(cand):
+        # Fix 119e/119f: bucket-indexed adjacency + precomputed per-stub hit
+        # verdicts instead of per-pair alias fan-out expansion (the MISP
+        # corpus quadratic: 2.03e9 expansions → O(use_targets+alias_edges)).
+        _use_adj, _alias_adj, _ = _get_enrich_adjacency(graph)
+        _stubs = _use_adj.get(func_vid, ())
+        if _stub_hits is not None:
+            for _sv in _stubs:
+                if _sv in _stub_hits:
                     graph.vs[func_vid]["taint_type"] = "source"
                     return True
+        else:
+            for stub_vid in _stubs:
+                stub = graph.vs[stub_vid]
+                candidates = [_vattr(stub, "name", "")]
+                for alias_vid in _alias_adj.get(stub_vid, ()):
+                    candidates.append(_vattr(graph.vs[alias_vid], "name", ""))
+                for cand in candidates:
+                    if "." in cand and source_registry.is_source_member(cand):
+                        graph.vs[func_vid]["taint_type"] = "source"
+                        return True
 
     # Fix 79 (CVE-2026-32613): typed-receiver qualified fallback.  A Java
     # framework source member registered as "Pipeline.getExpectedArtifacts"

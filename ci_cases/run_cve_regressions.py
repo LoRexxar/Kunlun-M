@@ -216,6 +216,35 @@ EXPECTATIONS = {
     # Two sinks (rename :73 / copy :77); the island contrast (no `global`)
     # must NOT fire.
     'CVE-2026-126481_global_capture.php': {'1017': 2},
+    # Fix 119 (CVE-2026-44381 MISP 2.5.36 CakePHP 2.x order-field SQLi):
+    # $this->passedArgs (Fix 119a source) copied verbatim into
+    # Model::find('all', $rules) rules['order'] / $this->request['named']
+    # ['sort'] concatenated into $params['order'] — both reach
+    # DboSource::renderStatement ORDER BY unescaped (fix 53fc6be7da
+    # whitelist via findOrder).  Fix 119b: prefix member-chain semantics
+    # ($this.request.named.sort under $this.request).  Fix 119c: ->find(
+    # ORM-entry sink (framework-gated cakephp/).  DboSource.php row: the
+    # extract($data) inside renderStatement carries the tainted order —
+    # interior of the same chain (CVI 1014).  Tree under cakephp/ carries
+    # the lib/Cake marker for per-subdir framework detection.
+    'EventsController.php': {'1006': 1},
+    'ShadowAttributesController.php': {'1006': 1},
+    'DboSource.php': {'1014': 1},
+    # Fix 119g scope-gate positives: the gated property sources must still
+    # fire in their class contexts (controller passedArgs / view_helper
+    # request.data).
+    'ProbeController.php': {'1006': 1},
+    'ProbeHelper.php': {'1011': 1},
+}
+
+# Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
+# at ZERO findings.  The scope_probe triad is copied verbatim from the
+# battle's falsifiable probe: Shell::$params is CLI argv (Console/Command
+# context), NOT a web source; before Fix 119g the receiver-blind member
+# match turned it into system() command-injection FPs (MISP task 6510
+# ServerShell et al.).  A regression here re-opens the whole CLI FP family.
+FORBIDDEN = {
+    'ProbeShell.php': ('1011', '1002', '1006'),
 }
 
 
@@ -243,6 +272,7 @@ def main() -> int:
         return False
 
     missing = [f for f in EXPECTATIONS if not _case_exists(f)]
+    missing += [f for f in FORBIDDEN if not _case_exists(f)]
     if missing:
         print('GATE FAIL: expectation references missing case files:', missing)
         return 2
@@ -322,6 +352,15 @@ def main() -> int:
             print(f'  [{status}] {fname}: CVI {cvi} expected>={want} got {have}')
             if have < want:
                 failures.append(f'{fname}:{cvi}')
+    # Fix 119g: negative expectations — must-have-ZERO rows (FP regressions).
+    for fname, cvis in sorted(FORBIDDEN.items()):
+        got = by_file.get(fname, {})
+        for cvi in cvis:
+            have = got.get(cvi, 0)
+            status = 'ok' if have == 0 else 'FAIL'
+            print(f'  [{status}] {fname}: CVI {cvi} expected==0 got {have}')
+            if have:
+                failures.append(f'{fname}:{cvi}:FP-regression')
     if failures:
         print(f'GATE FAIL: {len(failures)} expectation(s) not met: {failures}')
         print('→ investigate the engine change; do NOT lower the expectation')

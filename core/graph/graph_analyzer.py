@@ -2494,7 +2494,9 @@ class GraphAnalyzer:
             stype = _vattr(sv, "type", "")
             if stype in ("field", "property"):
                 full_text = _vattr(sv, "full_text", "")
-                if full_text and full_text != sname and self._is_source_variable(full_text):
+                if full_text and full_text != sname and self._is_source_variable(
+                        full_text,
+                        _vattr(sv, "file_path", "") or _vattr(sv, "path", "")):
                     if self._is_superglobal_member_blocked(start_vid):
                         pass
                     else:
@@ -3852,7 +3854,9 @@ class GraphAnalyzer:
                             expr_lineno=_vattr(uv, "lineno", 0)))
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
-                        if self._is_source_variable(full_text):
+                        if self._is_source_variable(
+                                full_text,
+                                _vattr(uv, "file_path", "") or _vattr(uv, "path", "")):
                             # Respect taint_type=safe from enrich_taint
                             if _vattr(uv, "taint_type", "") == "safe":
                                 pass
@@ -7498,7 +7502,9 @@ class GraphAnalyzer:
                 # Member access source (e.g., $_REQUEST['ip'])
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
                     full_text = _vattr(uv, "full_text", "")
-                    if full_text and full_text != uname and self._is_source_variable(full_text):
+                    if full_text and full_text != uname and self._is_source_variable(
+                            full_text,
+                            _vattr(uv, "file_path", "") or _vattr(uv, "path", "")):
                         # $_SERVER has mixed controllability — check member chain for uncontrolled keys
                         if self._is_superglobal_member_blocked(up_vid):
                             pass
@@ -7630,7 +7636,7 @@ class GraphAnalyzer:
         except Exception:
             return False
 
-    def _is_source_variable(self, name: str) -> bool:
+    def _is_source_variable(self, name: str, file_path: str = "") -> bool:
         if not name:
             return False
         if name in _SUPERGLOBALS:
@@ -7670,7 +7676,19 @@ class GraphAnalyzer:
         # (e.g., Go: os.Args, os.Getenv; C: argv, getenv; Python: sys.argv, os.environ)
         if self._source_registry is not None:
             try:
-                if self._source_registry.is_source_member(name):
+                # Fix 119g: scoped consult — gated property members (CakePHP
+                # $this->params et al.) only match in their class context.
+                # file_path flows from the member-read node; registries
+                # whose is_source_member takes no second arg (js/ts/java
+                # closure) fall back to the unscoped call.
+                if file_path:
+                    try:
+                        _hit119g = self._source_registry.is_source_member(name, file_path)
+                    except TypeError:
+                        _hit119g = self._source_registry.is_source_member(name)
+                else:
+                    _hit119g = self._source_registry.is_source_member(name)
+                if _hit119g:
                     # Java: bare method names like "getParameter" / "getCookies"
                     # are in source_members for suffix fallback, but exact
                     # match on bare names bypasses the _JAVA_REQUEST_PREFIXES
@@ -7693,7 +7711,14 @@ class GraphAnalyzer:
                         # Direction 1: strip leading segments → suffix in SR
                         for i in range(1, len(parts)):
                             sfx = sep.join(parts[i:])
-                            if self._source_registry.is_source_member(sfx):
+                            if file_path:
+                                try:
+                                    _sfx_hit119g = self._source_registry.is_source_member(sfx, file_path)
+                                except TypeError:
+                                    _sfx_hit119g = self._source_registry.is_source_member(sfx)
+                            else:
+                                _sfx_hit119g = self._source_registry.is_source_member(sfx)
+                            if _sfx_hit119g:
                                 # Java: suffix match alone is too broad (e.g.
                                 # tree.getParameter matches getParameter).
                                 # Require prefix (root object) to be a known
@@ -7727,6 +7752,16 @@ class GraphAnalyzer:
                                             # (parts[0]) is a known request.
                                             if parts[0] not in _JAVA_REQUEST_PREFIXES:
                                                 continue
+                                        # Fix 119g: the raw set hit bypassed
+                                        # the member-scope gate — re-verify
+                                        # through is_source_member so gated
+                                        # property members ($this->params)
+                                        # still require their class context.
+                                        try:
+                                            if not self._source_registry.is_source_member(sr_entry, file_path):
+                                                continue
+                                        except TypeError:
+                                            pass
                                         return True
                         except (AttributeError, TypeError):
                             pass
@@ -9764,8 +9799,13 @@ class GraphAnalyzer:
         """
         if not name or self.graph is None:
             return None
+        # Fix 119g: the scope of every chain built below is the file where
+        # the member READ lives (the origin node) — gated property members
+        # ($this->params etc.) consult the registry with it.
+        _fpath119g = (_vattr(self.graph.vs[vid], "file_path", "")
+                      or _vattr(self.graph.vs[vid], "path", ""))
         # 快速检查：name 本身就是 source
-        if self._is_source_variable(name):
+        if self._is_source_variable(name, _fpath119g):
             return name
 
         # 沿 incoming member 边回溯，逐步拼接组合名
@@ -9790,14 +9830,14 @@ class GraphAnalyzer:
                 # chain already has parent as prefix — the parent itself
                 # might be the source (e.g., chain="process.env.INPUT",
                 # parent="process.env" is in source_registry)
-                if self._is_source_variable(parent_name):
+                if self._is_source_variable(parent_name, _fpath119g):
                     # Subscript key check (same as below)
                     if self._is_subscript_key_of_non_superglobal(parent_vid):
                         break
                     return parent_name
                 break  # no further useful chain to build
             chain = f"{parent_name}.{chain}"
-            if self._is_source_variable(chain):
+            if self._is_source_variable(chain, _fpath119g):
                 # Check if the matched superglobal is a subscript key of a
                 # non-superglobal (e.g., $export_formats[$_GET['format']]).
                 # If so, it selects a predefined value — not a data source.

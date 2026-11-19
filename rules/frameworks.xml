@@ -12,6 +12,14 @@
         <file value="interface/super/edit_layout.php"/>
         <folder value="interface/main"/>
     </framework>
+    <!-- Fix 119a (CVE-2026-44381): CakePHP 2.x — classic skeleton, MISP-style
+         vendored submodule, bare app tree -->
+    <framework name="CakePHP" language="php" code="https://github.com/cakephp/cakephp">
+        <folder value="lib/Cake"/>
+        <folder value="app/Lib/cakephp"/>
+        <folder value="app/Controller"/>
+        <folder value="app/Model"/>
+    </framework>
     <framework name="Joomla" language="php" code="https://github.com/joomla/joomla-cms">
         <file value="images/joomla_black.png"/>
         <folder value="layout/joomla"/>

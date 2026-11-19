@@ -71,6 +71,20 @@ class SourceRegistry:
     # Populated from framework config (e.g. "request.input", "request.query").
     source_members: Set[str] = field(default_factory=set)
 
+    # Fix 119d (CVE-2026-44381 perf): is_source_member is a pure function of
+    # (chain, scope, source_members, framework_request_objects), all static
+    # after add_framework — but enrich calls it per call-node (millions of
+    # times on a 1M-node corpus; 91% of py-spy samples on MISP corpus2).
+    # Memoize on (chain, scope); the cache is cleared at the end of
+    # add_framework (the only mutator).
+    _ism_cache: Dict[tuple, bool] = field(default_factory=dict)
+
+    # Fix 119g (CVE-2026-44381): property-form source members that are only
+    # attacker data when the READ happens in a specific class context.
+    # {member_chain: frozenset(scope_tags)}, populated from the framework
+    # config key 'member_scope'.  See _resolve_member_scope.
+    _member_scope: Dict[str, frozenset] = field(default_factory=dict)
+
     def is_source_variable(self, name: str) -> bool:
         """Check if a variable name is a known source (superglobal)."""
         return name in self.builtin_sources
@@ -108,23 +122,91 @@ class SourceRegistry:
         """Check if a function name is a framework global source function."""
         return func_name in self.framework_global_functions
 
-    def is_source_member(self, chain: str) -> bool:
+    # Fix 119g (CVE-2026-44381): class-scope resolution for gated property
+    # sources.  CakePHP registers Controller property sources ($this->request,
+    # $this->passedArgs, $this->params) — but the same chain names live in
+    # OTHER classes with different semantics: Shell::$params is CLI argv
+    # (Console tooling, outside the web threat model), and Cache/Log/
+    # Configure internals hold no request data.  Matching receiver-blind
+    # produced e.g. ServerShell system($this->params[...]) command-injection
+    # FPs on the MISP corpus (task 6510: 1011/1002/1017 rows across
+    # ServerShell / FileEngine / ConsoleOutput / ExtractTask / UpgradeShell).
+    # The scope of a member READ is decided by the reading file's path:
+    #   'controller'  — any 'Controller' path segment (app/Controller,
+    #                   lib/Cake/Controller, app/Controller/Component)
+    #   'view_helper' — a 'View' segment plus a 'Helper*' segment (CakePHP
+    #                   helpers legitimately hold $this->request)
+    @staticmethod
+    def _resolve_member_scope(file_path: str) -> str:
+        if not file_path:
+            return ''
+        segs = {s.lower() for s in file_path.replace('\\', '/').split('/')}
+        if 'controller' in segs:
+            return 'controller'
+        if 'view' in segs and any(s.startswith('helper') for s in segs):
+            return 'view_helper'
+        return ''
+
+    def is_source_member(self, chain: str, file_path: str = "") -> bool:
         """Check if a dotted name chain matches a known source member.
 
-        Matches both exact (e.g. "request.input") and suffix
-        (e.g. "request.input" matches when chain is a longer
-        dotted path ending with a registered member).
+        Memoized (Fix 119d): the hot path in enrich_taint.  Fix 119g: the
+        verdict is scoped — when the framework registers gated property
+        members (see _member_scope), the caller passes the file path of the
+        member READ and the verdict only holds in allowed class contexts.
+        Callers without file context pass nothing; gated members then MISS
+        (conservative: a '$this.params' chain with no proven Controller
+        context is treated as Shell/config semantics, not attacker data).
         """
+        scope = self._resolve_member_scope(file_path) if self._member_scope else ''
+        key = (chain, scope)
+        cached = self._ism_cache.get(key)
+        if cached is not None:
+            return cached
+        result = self._is_source_member_uncached(chain, scope)
+        self._ism_cache[key] = result
+        return result
+
+    def _is_source_member_uncached(self, chain: str, scope: str) -> bool:
+        """Check if a dotted name chain matches a known source member.
+
+        Matches three forms:
+        - exact (e.g. "request.input")
+        - suffix (e.g. "request.input" matches when chain is a longer
+          dotted path ending with the registered member whose prefix is
+          a request object name)
+        - prefix (Fix 119b, CVE-2026-44381): chain STARTS WITH a
+          registered source object + '.' — a member/dim read under a
+          source object is attacker data.  Required for framework
+          property sources like CakePHP "$this->request": the member
+          chain of $this->request['named']['sort'] only ever appears as
+          the full prefix chain "$this.request.named.sort", never as the
+          bare object name.
+
+        Fix 119g: a member registered in _member_scope only matches when
+        `scope` (the reading context) is in its allowed set.  The three
+        arms each keep scanning past a gated-denied member so set
+        iteration order never decides the verdict.
+        """
+        def _gate_ok(sm: str) -> bool:
+            allowed = self._member_scope.get(sm)
+            return allowed is None or scope in allowed
+
         if chain in self.source_members:
-            return True
+            return _gate_ok(chain)
         # Suffix match: chain="foo.request.input" should match
         # source_member "request.input" when "foo" is a request object name.
         for sm in self.source_members:
             if chain.endswith('.' + sm):
                 # Check if the prefix is a known request object name
                 prefix = chain[:-(len(sm) + 1)]
-                if prefix in self.framework_request_objects:
+                if prefix in self.framework_request_objects and _gate_ok(sm):
                     return True
+        # Prefix match (Fix 119b): chain="request.query.x" /
+        # "$this.request.named.sort" under a registered source object.
+        for sm in self.source_members:
+            if chain.startswith(sm + '.') and _gate_ok(sm):
+                return True
         return False
 
     def add_framework(self, framework: str):
@@ -161,6 +243,22 @@ class SourceRegistry:
                 if obj != clean:
                     self.source_members.add(f'{obj}.{method}')
 
+        # Fix 119a (CVE-2026-44381): framework property-form sources that are
+        # not method cross-products (e.g. CakePHP Controller $this->request /
+        # $this->passedArgs).  Consumed by is_source_member with prefix
+        # semantics (Fix 119b): every dim/member read UNDER a registered
+        # source object ("$this.request.named.sort" under "$this.request")
+        # is attacker data.
+        for sm in config.get('extra_source_members', set()):
+            self.source_members.add(sm)
+
+        # Fix 119g (CVE-2026-44381): class-scope gates for property-form
+        # members (see _resolve_member_scope / is_source_member).
+        self._member_scope = {
+            sm: frozenset(scopes)
+            for sm, scopes in config.get('member_scope', {}).items()
+        }
+
         # Fix 67: symfony 1.x form proxy — the form object is bound to
         # request params ($form->bind($request->getParameter(...))), so
         # field reads are user-input-backed: $form['field'] (base[] form)
@@ -180,6 +278,11 @@ class SourceRegistry:
                 name=func,
                 framework=framework,
             )
+
+        # Fix 119d: add_framework is the only mutator of source_members /
+        # framework_request_objects — drop any memoized verdicts from a
+        # previous framework configuration.
+        self._ism_cache.clear()
 
     def add_user_source_function(self, func_name: str, info: SourceInfo):
         """Register a user-defined function as a source producer."""
@@ -308,6 +411,48 @@ FRAMEWORK_CONFIGS = {
             'xlt', 'xla', 'xlj',
         },
     },
+    'cakephp': {
+        # Fix 119a (CVE-2026-44381): CakePHP 2.x (MISP et al.) —
+        # CakeRequest instance receivers: $request->query('x') /
+        # $request->data('x') / $request->param('x') / input().
+        'request_object_names': {'request', '$request'},
+        # CakeRequest::query($name)/data($name)/param($name)/input() all
+        # return attacker-controlled request payloads (lib/Cake/Network/
+        # CakeRequest.php @ 2.x).  Property forms ($request->query['x'])
+        # are covered via the cross-product source_members + Fix 119b
+        # prefix semantics.
+        'request_methods': {'query', 'data', 'param', 'input'},
+        'global_source_functions': set(),
+        # Controller property-form sources (CakePHP 2.x Controller):
+        #   $this->request    — the CakeRequest object itself; ArrayAccess
+        #                       reads ($this->request['named']['sort']) and
+        #                       every property under it are user data
+        #   $this->passedArgs — URL named + pass params (MISP index sort)
+        #   $this->params     — request params merge (deprecated alias)
+        # 'Model::$data' (current record) is deliberately NOT registered:
+        # same chain name, different semantics (DB record vs request body)
+        # — registering it would taint every beforeSave body.
+        'extra_source_members': {
+            '$this.request', 'this.request',
+            '$this.passedArgs', 'this.passedArgs',
+            '$this.params', 'this.params',
+        },
+        # Fix 119g (CVE-2026-44381): the property chains above are
+        # Controller(+/Helper) state.  The same chain names exist in other
+        # classes with different semantics — Shell::$params is CLI argv,
+        # Cache/Log/Configure internals hold no request data — so they are
+        # gated by the reading file's class scope (SourceRegistry.
+        # _resolve_member_scope).  MISP task 6510 evidence: ServerShell
+        # system($this->params[...]) command-injection FP et al.
+        'member_scope': {
+            '$this.request': ('controller', 'view_helper'),
+            'this.request': ('controller', 'view_helper'),
+            '$this.passedArgs': ('controller',),
+            'this.passedArgs': ('controller',),
+            '$this.params': ('controller',),
+            'this.params': ('controller',),
+        },
+    },
     'symfony': {
         'request_object_names': {'request', '$request'},
         'request_methods': {
@@ -350,6 +495,12 @@ def detect_framework(project_dir: str) -> Optional[str]:
             if data.get('name') == 'openemr/openemr':
                 return 'openemr'
 
+            # Fix 119a (CVE-2026-44381): CakePHP — before symfony/*: cake
+            # apps commonly pull symfony/console etc. as build tooling.
+            if any(dep == 'cakephp/cakephp' or dep.startswith('cakephp/')
+                   for dep in deps):
+                return 'cakephp'
+
             for dep in deps:
                 if dep == 'slim/slim' or dep.startswith('slim/'):
                     return 'slim'
@@ -365,6 +516,32 @@ def detect_framework(project_dir: str) -> Optional[str]:
                     return 'symfony'
         except (json.JSONDecodeError, OSError):
             pass
+
+    # Fix 119a (CVE-2026-44381): CakePHP 2.x — composer.json can live at
+    # app/ level (cake2 app skeleton; MISP) with the framework vendored
+    # as a submodule instead of a composer dependency.
+    _cake_composer = os.path.join(project_dir, 'app', 'composer.json')
+    if os.path.isfile(_cake_composer):
+        try:
+            with open(_cake_composer, 'r', encoding='utf-8') as f:
+                _cake_data = json.load(f)
+            _cake_deps = {}
+            _cake_deps.update(_cake_data.get('require', {}))
+            _cake_deps.update(_cake_data.get('require-dev', {}))
+            if any(dep == 'cakephp/cakephp' or dep.startswith('cakephp/')
+                   for dep in _cake_deps):
+                return 'cakephp'
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fix 119a: directory fingerprints — classic app skeleton (lib/Cake),
+    # MISP-style vendored submodule (app/Lib/cakephp), or a bare cake2
+    # app tree (app/Controller + app/Model; thinkphp/laravel/ci use
+    # different casing so no clash on case-sensitive filesystems).
+    if (os.path.isdir(os.path.join(project_dir, 'lib', 'Cake'))
+            or os.path.isdir(os.path.join(project_dir, 'app', 'Lib', 'cakephp'))
+            or (os.path.isdir(os.path.join(project_dir, 'app', 'Controller'))
+                and os.path.isdir(os.path.join(project_dir, 'app', 'Model')))):
+        return 'cakephp'
 
     # Fallback: directory structure
     # Fix 86: OpenEMR — vendored app tree (library/sql.inc.php DB layer +

@@ -806,6 +806,18 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             try:
                                 _cut_veto_99 = False
                                 _cname99b = _vattr(graph.vs[call_vid], "name", "") or ""
+                                # Fix 119g: scoped consult — gated property
+                                # members ($this->params et al.) only match in
+                                # their class context (member read file).
+                                _fp99b = (_vattr(graph.vs[call_vid], "file_path", "")
+                                          or _vattr(graph.vs[call_vid], "path", ""))
+                                def _ism99b(_n):
+                                    if not _fp99b:
+                                        return sr.is_source_member(_n)
+                                    try:
+                                        return sr.is_source_member(_n, _fp99b)
+                                    except TypeError:
+                                        return sr.is_source_member(_n)
                                 for _e99b in graph.es.select(_target=call_vid, label="dfg"):
                                     _sv99b = graph.vs[_e99b.source]
                                     if _vattr(_sv99b, "label", "") != NodeLabel.IDENTIFIER.value:
@@ -825,7 +837,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             break
                                         _chain99b = _pn99b + "." + _chain99b
                                         _cur99b = _mi99b[0].source
-                                    if not (sr.is_source_member(_chain99b) or sr.is_source_member(_nm99b)):
+                                    if not (_ism99b(_chain99b) or _ism99b(_nm99b)):
                                         continue
                                     # 99b3: source member reached — only a
                                     # VETO when this chain is the receiver of
