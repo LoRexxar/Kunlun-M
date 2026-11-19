@@ -241,6 +241,18 @@ EXPECTATIONS = {
     # request.data).
     'ProbeController.php': {'1006': 1},
     'ProbeHelper.php': {'1011': 1},
+    # CVE-2026-124469 (OpenEMR <= 8.2.0 Fee Sheet drug-inventory ORDER BY
+    # SQLi, CVSS 9.4): $_POST['prod'][N]['warehouse'] → FeeSheet
+    # ::checkInventory ($warehouse_id :845) → global sellDrug positional
+    # wrapper (interface/drugs/drugs.inc.php, 9th arg) → DrugSalesService
+    # ::sellDrug $default_warehouse interpolated into
+    # "di.warehouse_id != '...'" ORDER BY → QueryUtils
+    # ::sqlStatementThrowException (upstream fix 31e13ee2d9 binds ?).
+    # Native detection, zero engine change this battle (Fix86 sink +
+    # Fix120 .inc discovery + Fix106/110 chain plumbing).  Frozen from
+    # task 6575 row 16862; GT on full focus corpus task 6574 row 16861
+    # (DrugSalesService.php:326, all 6 files faithful to v8_2_0).
+    'CVE-2026-124469_DrugSalesService.php': {'1006': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
