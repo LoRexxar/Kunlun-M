@@ -253,6 +253,31 @@ EXPECTATIONS = {
     # task 6575 row 16862; GT on full focus corpus task 6574 row 16861
     # (DrugSalesService.php:326, all 6 files faithful to v8_2_0).
     'CVE-2026-124469_DrugSalesService.php': {'1006': 1},
+    # CVE-2026-124490 (OpenEMR <= 8.2.2 oe-module-faxsms, CVSS 9.4,
+    # GHSA-38jw-pwgq-9hpj): RCFaxClient::disposeDocument arbitrary file
+    # read/write/delete — $_REQUEST['_ACTION_COMMAND'] → AppDispatch
+    # ::dispatch (alias &$this->_request) → getRequest('file_path') →
+    # file_put_contents($where)/unlink($where) + sendFile →
+    # FaxUploadStaging::decryptFileBytes → file_get_contents.  Native
+    # detection, zero engine change.  Plus TWO unpatched sibling vendors
+    # found in this battle (GHSA names only RingCentral):
+    #  - SignalWireClient::disposeDocument (same write/delete shape) and
+    #    sendFax isContent=1 bypass → uploadFileForFax copy() staged
+    #    read (PDF-constrained exfil, task 6588 row 16895);
+    #  - EtherFaxActions::sendFax guards only under empty($isContent)
+    #    → EtherFaxClient::etherFaxSend is_file() branch reads AND
+    #    unlinks any existing file (task 6588 rows 16899/16900).
+    # Frozen from task 6591 (openemr/ subdir scan, framework marker
+    # resolves): GT on full module corpus task 6588 (8 TP family rows
+    # 16893/16894/16901/16895/16896/16898/16899/16900; the 20 echo rows
+    # there are attr()/js_escape()/text() outputs that die under the
+    # Fix 108 openemr framework repair set — proven by marker-root
+    # rescan task 6590: 37 → 17 rows, exactly the 20 echo rows gone).
+    'CVE-2026-124490_RCFaxClient.php': {'1017': 2, '1000': 1},
+    'CVE-2026-124490_SignalWireClient.php': {'1017': 3, '1000': 1},
+    'CVE-2026-124490_EtherFaxClient.php': {'1002': 1, '1017': 1},
+    'CVE-2026-124490_FaxUploadStaging.php': {'1002': 1},
+    'CVE-2026-124490_AppDispatch.php': {'1000': 2},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
@@ -263,6 +288,16 @@ EXPECTATIONS = {
 # ServerShell et al.).  A regression here re-opens the whole CLI FP family.
 FORBIDDEN = {
     'ProbeShell.php': ('1011', '1002', '1006'),
+    # CVE-2026-124490 safe-escape contrast: the real module echoes every
+    # request-derived value through OpenEMR's official output helpers
+    # (attr/attr_js/js_escape/text — library/htmlspecialchars.inc.php
+    # wrappers, Fix 108 openemr framework repair set).  A 1000 row here
+    # means the framework-scoped repair set stopped applying (e.g.
+    # openemr composer marker lost, or the repair set was broken).
+    # Context caveat per Fix 114b: attr() inside URL attributes
+    # (src=/href=) is NOT a repair — that shape lives in
+    # DocumentTemplateRender.php (sentinel), which must keep firing.
+    'CVE-2026-124490_contact_escape.php': ('1000',),
 }
 
 
@@ -308,7 +343,7 @@ def main() -> int:
     # order (see tools/anchor_baseline.py Fix 110 note).  Gate expectations
     # must not depend on interpreter hash randomization.
     env = dict(os.environ, PYTHONPATH=REPO, PYTHONHASHSEED='0')
-    task_ids = []
+    tasks = []  # Fix 122: (scan_dir, task_id) pairs — forbidden scoping
     for scan_dir in scan_dirs:
         print(f'[cve-repro-gate] scanning {scan_dir} ...')
         # Fix 68: repros span languages (php root + java repros) — scan all
@@ -350,16 +385,19 @@ def main() -> int:
             print('GATE FAIL: could not read TaskID from scan output for', scan_dir)
             print(proc.stdout[-800:], proc.stderr[-400:])
             return 2
-        task_ids.append(int(m))
+        tasks.append((scan_dir, int(m)))
 
     by_file = {}
-    for task_id in task_ids:
+    by_file_per_dir = {}  # Fix 122: scan_dir -> {base: {cvi: n}}
+    for scan_dir, task_id in tasks:
         for r in ScanResultTask.objects.filter(scan_task_id=task_id):
             # vulfile_path may be stored relative AND suffixed ':lineno'
             # (e.g. 'CVE-...php:17') — strip both before basename matching.
             base = os.path.basename(str(r.vulfile_path).split(':')[0])
             by_file.setdefault(base, {}).setdefault(str(r.cvi_id), 0)
             by_file[base][str(r.cvi_id)] += 1
+            by_file_per_dir.setdefault(scan_dir, {}).setdefault(base, {}).setdefault(str(r.cvi_id), 0)
+            by_file_per_dir[scan_dir][base][str(r.cvi_id)] += 1
 
     failures = []
     for fname, expect in sorted(EXPECTATIONS.items()):
@@ -371,12 +409,29 @@ def main() -> int:
             if have < want:
                 failures.append(f'{fname}:{cvi}')
     # Fix 119g: negative expectations — must-have-ZERO rows (FP regressions).
+    # Fix 122 (CVE-2026-124490): framework-scoped forbidden files evaluate
+    # ONLY in their framework subdir scan.  The root pass is a deliberately
+    # framework-agnostic mixed scan (Fix 67 subdir trap: a mixed root loses
+    # per-subdir framework detection), so an openemr escape-helper contrast
+    # fires there by design — the zero must hold in the scan where the
+    # framework marker actually resolves (proved live: gate run 16:56 root
+    # task 6592 fired contact_escape:19-21 while the openemr/ task had 0).
+    def _forbidden_scope(fname):
+        for h in glob.glob(os.path.join(CASES_DIR, '**', fname), recursive=True):
+            rel = os.path.relpath(h, CASES_DIR)
+            top = rel.split(os.sep)[0]
+            if top != fname:  # lives inside a framework subdir
+                return os.path.join(CASES_DIR, top)
+        return None  # root-level file: every scan counts
+
     for fname, cvis in sorted(FORBIDDEN.items()):
-        got = by_file.get(fname, {})
+        scope = _forbidden_scope(fname)
+        got = by_file_per_dir.get(scope, {}) if scope else by_file
         for cvi in cvis:
-            have = got.get(cvi, 0)
+            have = got.get(fname, {}).get(cvi, 0)
             status = 'ok' if have == 0 else 'FAIL'
-            print(f'  [{status}] {fname}: CVI {cvi} expected==0 got {have}')
+            print(f'  [{status}] {fname}: CVI {cvi} expected==0 got {have}'
+                  + (f' (scoped to {scope})' if scope else ''))
             if have:
                 failures.append(f'{fname}:{cvi}:FP-regression')
     if failures:
