@@ -83,6 +83,15 @@ EXPECTATIONS = {
     # entering the call op through bridge/binding dfg edges) and the
     # source-summary precedence over caller deps (Fix 125c).
     'CVE-2026-111217_carp_vhid_configbridge.php': {'1011': 1},
+    # CVE-2026-111214 (pfSense SA-26_23, CVSS 8.6): QinQ parent-interface
+    # command injection. $_POST['if'] stored unvalidated into the QinQ entry
+    # (edit:136), surfaced as vlanif via vlan_interface(), interpolated into
+    # ifconfig exec() directly at member-edit time (edit:212, 'via
+    # subscript') and after config store->load on the delete path
+    # (interfaces_qinq.php:70, 'via member chain'). Native detection on the
+    # Fix 123/124 config bridge — zero engine change; task6720 rows
+    # 16707/16708 are the full-corpus evidence.
+    'CVE-2026-111214_qinq_parent_if.php': {'1011': 2},
     # Fix 72: config-file source chain (Siemens meta-iot2050,
     # CVE-2026-109830) — json.load → getConfig summary → getter summary →
     # subprocess.call("... " + initMode, shell=True). Safe contrast
