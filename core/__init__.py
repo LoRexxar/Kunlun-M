@@ -668,8 +668,14 @@ def main():
         s.save()
 
         # AI 自动分诊入队（web 界面深度接入；任何异常不得影响扫描结果）
+        # Fix 132 (CVE-2026-111217 战役): CLI 扫描结束后的自动 triage 在
+        # ThreadPoolExecutor 非 daemon 线程里逐行调 LLM；端点慢/不可达时
+        # 每行挂 60s，进程在解释器退出 join 处无限卡死（实案 task6718:
+        # EXPORT 完成后 20min 仍在 SSL read）。批处理/门禁链环境用
+        # KM_DISABLE_AI_TRIAGE=1 显式关闭；web 界面手动触发不受影响。
         try:
-            if getattr(s, "project_id", None):
+            if getattr(s, "project_id", None) and \
+                    os.environ.get("KM_DISABLE_AI_TRIAGE", "") != "1":
                 import django
                 from web.ai_pipeline import enqueue_project_triage
                 enqueue_project_triage(int(s.project_id))
