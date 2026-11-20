@@ -138,6 +138,21 @@ EXPECTATIONS = {
     # substring back-edge poisoned every later read of the receiver).
     # 6006: new URL(newUrl) SSRF arm; 6015: sendRedirect + forward sinks.
     'FSUtils.java': {'6006': 1, '6015': 2},
+    # Fix 136 (CVE-2026-45049 OpenAM CDCServlet CDSSO open redirect):
+    # request.getParameter/goto + token cookie → redirectURL (StringBuilder
+    # append chain) → redirectURL.toString() arg at request.getRequest
+    # Dispatcher(L644) / response.sendRedirect(L677).  A same-name
+    # all-literal user toString() def (HijackToStringSource.java) used to
+    # stamp 'safe' onto the language-less external 'toString' placeholder
+    # hub via _propagate_same_name_summaries; the scanner's operator-arg
+    # path (_deep_trace_args → _is_safe_function_call) vetoed both args
+    # before PB ever ran — full-corpus scans read 0 CDC rows while a
+    # 2-file mini (no same-name safe def) detected them natively
+    # (pre-fix hijack repro: 1 row; post-fix: 3).  Fix 136 extends the
+    # Fix 102a external-hub safe-veto to java (hub language inferred
+    # from call sites).  6006: TokenRestrictionResolver agent-arg arm.
+    'CDCServlet.java': {'6015': 2},
+    'TokenRestrictionResolver.java': {'6006': 1},
     # Fix 135 (CVE-2026-90436 Apache Axis 1.x SOAP fault exceptionName):
     # inbound SOAP <Fault><detail><exceptionName> string reaches the Axis
     # deserialization Callback (org.apache.axis.encoding.Callback.setValue

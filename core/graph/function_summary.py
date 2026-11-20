@@ -153,6 +153,27 @@ def _collect_ast_descendants(graph: ig.Graph, start_vid: int, result: set[int],
                         return_vids.append(tgt_vid)
 
 
+def _hub_serves_java(graph, vid: int) -> bool:
+    """Fix 136 (CVE-2026-45049): external placeholder hubs are synthesized
+    language-less by the edge builders (unlike normalizer-created nodes,
+    which carry the source language).  The hub's language is the language
+    of its call sites: any use/cg in-edge from a java node makes this a
+    java hub.  Checked only for the Fix 102a/136 safe-veto path, so the
+    cost is bounded to placeholder hubs whose name coincides with a real
+    'safe' def — first-hit return keeps it O(1) on java corpora."""
+    from utils.igraph_compat import _vattr
+    try:
+        for eid in graph.incident(vid, mode="in"):
+            e = graph.es[eid]
+            if e["label"] not in ("use", "cg"):
+                continue
+            if _vattr(graph.vs[e.source], "language", "") == "java":
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
     """Propagate func_summary_type from definition nodes to same-name
     reference nodes created by the normalizer when building 'use' edges."""
@@ -202,10 +223,31 @@ def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
                     # this guards against is the python duck-typing dispatch
                     # shape; PHP placeholders keep the calibrated HEAD
                     # propagation semantics.
-                    _py102 = _vattr(graph.vs[vid], "language", "") == "python"
-                    if (best == "safe" and _py102
-                            and _vattr(graph.vs[vid], "is_external", False)):
-                        continue
+                    # Fix 136 (CVE-2026-45049): the same hub-hijack on the
+                    # JAVA side.  OpenAM corpus: 121 all-literal user
+                    # toString() defs stamp 'safe' onto 87 language-less
+                    # 'toString' placeholder hubs; one hub (StringBuilder
+                    # .toString, 35 call sites) vetoed CDCServlet's tainted
+                    # redirectURL.toString() args at L644/L677 — the CDSSO
+                    # open-redirect GT rows silently vanished in every
+                    # full-corpus scan while a 2-file mini (no same-name
+                    # safe def → no stamping) detected them natively.
+                    # Corpus-wide: 803 java placeholder hubs stamped safe by
+                    # name coincidence, fanning out to 6385 call sites
+                    # (String.equals 2034, Iterator.next 650, Set.isEmpty
+                    # 185...).  Java stubs are synthesized language-less
+                    # (edge builders, not normalizers), so hub language is
+                    # inferred from its call sites (use/cg in-edge sources).
+                    # PHP keeps the calibrated 102b semantics.
+                    _ext102 = _vattr(graph.vs[vid], "is_external", False)
+                    if best == "safe" and _ext102:
+                        _lang102 = _vattr(graph.vs[vid], "language", "")
+                        if _lang102 == "python":
+                            continue
+                        if (_lang102 == "java"
+                                or (not _lang102
+                                    and _hub_serves_java(graph, vid))):
+                            continue
                     graph.vs[vid]["func_summary_type"] = best
 
 
