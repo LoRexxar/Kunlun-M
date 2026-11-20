@@ -138,6 +138,21 @@ EXPECTATIONS = {
     # substring back-edge poisoned every later read of the receiver).
     # 6006: new URL(newUrl) SSRF arm; 6015: sendRedirect + forward sinks.
     'FSUtils.java': {'6006': 1, '6015': 2},
+    # Fix 135 (CVE-2026-90436 Apache Axis 1.x SOAP fault exceptionName):
+    # inbound SOAP <Fault><detail><exceptionName> string reaches the Axis
+    # deserialization Callback (org.apache.axis.encoding.Callback.setValue
+    # — SAX hands the implementer parsed inbound-XML element content,
+    # pre-authentication during service dispatch) → (String) cast →
+    # faultClassName → ClassUtils.forName → Class.forName(name, true,
+    # loader) static-init RCE; getConstructor(String).newInstance completes
+    # the reflective-instantiation family.  135a Callback interface entry
+    # params as java sources; 135b CVI_6018 qualified wrapper sink names
+    # (ClassUtils.forName / Class.newInstance / Constructor.newInstance);
+    # 135c java typed-receiver sink candidate resolution.
+    # SOAPFaultDetailsBuilder.java: call-site row (setValue param → forName);
+    # ClassUtils.java: wrapper-interior row (param → Class.forName body).
+    'SOAPFaultDetailsBuilder.java': {'6018': 1},
+    'ClassUtils.java': {'6018': 1},
     # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
     # param is a framework source; file.filename → f-string template →
     # open(file_path, "wb+") arbitrary file write. Subdir python/ carries

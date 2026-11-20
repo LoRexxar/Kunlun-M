@@ -341,6 +341,24 @@ _JAVA_STREAM_SOURCE_TYPES: frozenset[str] = frozenset({
     "Channel", "SocketChannel", "ServerSocketChannel", "DatagramChannel",
 })
 
+# Fix 135a (CVE-2026-90436, Apache Axis1): Java framework callback interface
+# entry params are remote-content sources.  org.apache.axis.encoding.
+# Callback is the Axis SOAP deserialization contract — the SAX framework
+# invokes setValue(value, hint) with the freshly parsed element content of
+# the INBOUND SOAP body (parsed pre-authentication during service
+# dispatch), so every implementer's `value` param is attacker XML.  Keyed
+# by interface bare name -> {method: (source positions, min param count)}.
+# The (value, hint) shape is pinned by the min param count (>= 2): a
+# single-arg `setValue(String)` on an unrelated class named Callback can
+# never satisfy it.  Bare-name interface matching is acceptable here
+# because the pair (interface "Callback", method "setValue", two params)
+# is the Axis contract itself; extend with other deserializer callback
+# contracts as corpora demand (SAX DefaultHandler-style entry params
+# belong here too, with their own shapes).
+_JAVA_CALLBACK_SOURCE_INTERFACES: dict[str, dict[str, tuple[tuple[int, ...], int]]] = {
+    "Callback": {"setValue": ((0,), 2)},
+}
+
 # Go types that carry user-controlled HTTP request data.
 # Parameters with these types in Go handler functions are SOURCES (controllable),
 # unlike Java where HttpServletRequest is framework-injected (uncontrollable).
@@ -825,6 +843,70 @@ class GraphAnalyzer:
         except Exception:
             return ""
 
+    def _is_framework_callback_param(self, param_vid: int) -> tuple[str, str] | None:
+        """Fix 135a (CVE-2026-90436): is this entry param a source because
+        its enclosing method implements a known framework callback interface
+        (e.g. Axis ``Callback.setValue(value, hint)`` — SAX hands the
+        implementer the deserialized inbound-XML element content)?
+
+        Graph-local proof chain (all edges walked, nothing name-searched):
+        param --own--> method(function node) --own--> class --crg
+        implements--> interface node whose bare name is configured, the
+        method name matches, the param's position among the method's
+        parameter children is a configured source position, and the
+        method's parameter count meets the configured minimum (pins the
+        (value, hint) shape).  Returns (interface, method) or None.
+        """
+        try:
+            g = self.graph
+            # param --own--> enclosing method (function node)
+            method_vid = None
+            for e in self._edge_in(param_vid, "own"):
+                if _vattr(g.vs[e.source], "label", "") == "function":
+                    method_vid = e.source
+                    break
+            if method_vid is None:
+                return None
+            mname = _vattr(g.vs[method_vid], "name", "")
+            if not mname:
+                return None
+            # quick reject: method name must appear in some config entry
+            _cfg_hit = None
+            for _iface, _methods in _JAVA_CALLBACK_SOURCE_INTERFACES.items():
+                if mname in _methods:
+                    _cfg_hit = (_iface, _methods[mname])
+                    break
+            if _cfg_hit is None:
+                return None
+            iface_name, (positions, min_params) = _cfg_hit
+            # param position among the method's parameter children
+            param_order: list[int] = []
+            for e in self._edge_out(method_vid, "own"):
+                if _vattr(g.vs[e.target], "label", "") == "parameter":
+                    param_order.append(e.target)
+            if param_vid not in param_order:
+                return None
+            if len(param_order) < min_params:
+                return None
+            pos = param_order.index(param_vid)
+            if pos not in positions:
+                return None
+            # method --own--> enclosing class --crg implements--> interface
+            class_vid = None
+            for e in self._edge_in(method_vid, "own"):
+                if _vattr(g.vs[e.source], "label", "") == "class":
+                    class_vid = e.source
+                    break
+            if class_vid is None:
+                return None
+            for e in self._edge_out(class_vid, "crg"):
+                if (_vattr(e, "type", "") == "implements"
+                        and _vattr(g.vs[e.target], "name", "") == iface_name):
+                    return (iface_name, mname)
+            return None
+        except Exception:
+            return None
+
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
         """Locate sink operator nodes (call/static_call/method_call matching
         *sink_names*, defaulting to built-in _SINK_FUNCTIONS).
@@ -1061,6 +1143,44 @@ class GraphAnalyzer:
                         matched_name = _typed
                         callee_name = _typed
                         _is_qualified_match = True
+
+            if not matched_name:
+                # Fix 135c (CVE-2026-90436, Apache Axis1): java
+                # typed-receiver sink candidate.  A java method call like
+                # ``faultClass.newInstance()`` carries only the
+                # receiver-qualified op name ("faultClass.newInstance" —
+                # the receiver is a local/field, not the class literal),
+                # which can never equal a qualified sink name
+                # ("Class.newInstance") textually.  Resolve the receiver
+                # identifier's declared java_type (dfg/member reaching-def
+                # carrying java_type, plus the Fix 133c file-scoped
+                # declared-type index fallback — the same lookup the
+                # enrichment path uses via
+                # knowledge_bridge._receiver_typed_lookup_name) and try
+                # ``<Type>.<method>``.  Single-segment java types
+                # (Class/Constructor/String) are canonical simple names in
+                # this engine (Fix 79/133 receiver catalog doctrine); the
+                # candidate stays QUALIFIED (Type.method), preserving the
+                # no-bare-name sink discipline.
+                if (self.language == "java"
+                        and call_type in (OperatorType.METHOD_CALL.value,
+                                          OperatorType.STATIC_CALL.value)
+                        and "." in normalized_callee):
+                    _recv_seg135 = normalized_callee.rsplit(".", 1)[0]
+                    if _recv_seg135 and "." not in _recv_seg135:
+                        try:
+                            from core.graph.knowledge_bridge import (
+                                _receiver_typed_lookup_name as _rtln135,
+                            )
+                            _typed135 = _rtln135(self.graph, v.index,
+                                                 normalized_callee.rsplit(".", 1)[-1])
+                        except Exception:
+                            _typed135 = ""
+                        if _typed135 and (_typed135 in normalized_set
+                                          or _typed135.lower() in normalized_lower):
+                            matched_name = _typed135
+                            callee_name = _typed135
+                            _is_qualified_match = True
 
             if not matched_name:
                 # Path B: qualified fullname match via use-edge function node.
@@ -3597,6 +3717,28 @@ class GraphAnalyzer:
                                 code=1,
                                 reason=f"network stream parameter '{uname}' (type: {_stream_t53})",
                                 chain=[{"step": "source_type", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Fix 135a (CVE-2026-90436): entry parameter of a
+                        # method implementing a known framework CALLBACK
+                        # interface is a remote-content source — the Axis
+                        # deserialization framework hands setValue(value,
+                        # hint) the freshly parsed inbound-SOAP-XML element
+                        # content (pre-authentication), so every implementer
+                        # receives attacker XML (see
+                        # _JAVA_CALLBACK_SOURCE_INTERFACES).
+                        _cb135 = self._is_framework_callback_param(up_vid)
+                        if _cb135 is not None:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (framework callback %s.%s, controllable)",
+                                uname, up_vid, _cb135[0], _cb135[1],
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=(f"framework callback parameter '{uname}' "
+                                        f"({_cb135[0]}.{_cb135[1]}, deserialized XML content)"),
+                                chain=[{"step": "callback_source", "vid": up_vid,
                                         "name": uname, "code": 1}],
                                 path=new_path,
                                 expr_lineno=_vattr(uv, "lineno", 0)))
