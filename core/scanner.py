@@ -1127,12 +1127,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             _sink_seen = 0
             for sink in sinks:
                 _sink_seen += 1
+                # Fix 129 (CVE-2026-111217): per-sink PB work budget reset —
+                # see GraphAnalyzer._PB_WORK_BUDGET.  The probe analyzer
+                # (sentinel/CVI probes) gets the same reset when present.
+                _pb_prev = getattr(analyzer, "_pb_work_count", 0)
+                analyzer._pb_work_count = 0
+                analyzer._pb_budget_tripped = False
                 if _sink_seen % 250 == 1:
                     # Fix 88-obs: taint-loop memory telemetry — RSS+VmSwap
                     # sampled every 250 sinks. The OpenEMR 1.6M-node corpus
                     # OOMed the host at 7.6GB during this loop (task 5834);
                     # RSS-only gauges go blind once the kernel swaps the
                     # process out, so both counters are logged.
+                    # Fix 129: pb=<last sink's parameters_back invocations>
+                    # exposes pathological sinks without per-sink logging.
                     try:
                         _vm = {}
                         with open('/proc/self/status') as _sf:
@@ -1140,9 +1148,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 if _sl.startswith(('VmRSS:', 'VmSwap:')):
                                     _k, _v = _sl.split(':')
                                     _vm[_k] = int(_v.split()[0]) // 1024
-                        logger.info('[SCAN] [GRAPH] sink-loop mem %d/%d rss=%dMB swap=%dMB',
+                        logger.info('[SCAN] [GRAPH] sink-loop mem %d/%d rss=%dMB swap=%dMB pb=%d',
                                     _sink_seen, len(sinks),
-                                    _vm.get('VmRSS', -1), _vm.get('VmSwap', -1))
+                                    _vm.get('VmRSS', -1), _vm.get('VmSwap', -1),
+                                    _pb_prev)
                     except Exception:
                         pass
                 try:

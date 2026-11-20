@@ -1719,10 +1719,44 @@ class GraphAnalyzer:
                             return True
         return False
 
+    # Fix 129 (CVE-2026-111217 perf): bounded-resource semantics for the PB
+    # cluster.  _SIG_WINDOW caps how much call-path context disambiguates
+    # decision-cache keys (see _parameters_back_impl); _PB_WORK_BUDGET caps
+    # total parameters_back invocations PER SINK (reset by the scanner's
+    # sink loop) so pathological interprocedural enumeration degrades to
+    # code=3 (inconclusive) instead of stalling the scan for hours.
+    _SIG_WINDOW = 6
+    # 500k: normal osticket sinks measure 1-111 invocations (Fix 129
+    # telemetry, task 6675); pfSense's full 20-31 min scans imply no sink
+    # above ~90k, so 500k keeps a 5x margin over the worst known-good sink
+    # while capping pathological enumeration at ~3-4 min.
+    _PB_WORK_BUDGET = 500_000
+
     def parameters_back(self, start_vid: int, context_vid: int | None = None,
                         max_depth: int = 50) -> AnalysisResult:
         """Public entry — runs the BFS impl, then applies Fix 20b two-pass
         redirect resolution."""
+        # Fix 129: deterministic per-sink work budget (invocation count, not
+        # wall-clock — reproducible across runs).  Trips only on pathological
+        # enumeration (normal sinks: first 1000 osticket sinks averaged well
+        # under 0.1 s / tens of thousands of invocations each).
+        _wc = getattr(self, "_pb_work_count", 0) + 1
+        self._pb_work_count = _wc
+        if _wc > GraphAnalyzer._PB_WORK_BUDGET:
+            if not getattr(self, "_pb_budget_tripped", False):
+                self._pb_budget_tripped = True
+                _tv = self.graph.vs[start_vid]
+                logger.warning(
+                    "[GRAPH] [FIX129] pb work budget tripped after %d "
+                    "invocations (node %s:%s '%s') — remaining recursion "
+                    "for this sink returns code=3",
+                    _wc, _vattr(_tv, "file_path", "") or _vattr(_tv, "path", ""),
+                    _vattr(_tv, "lineno", 0), _vattr(_tv, "name", ""))
+            return AnalysisResult(
+                code=3,
+                reason="pb work budget exhausted (Fix 129)",
+                chain=[{"step": "work_budget", "vid": start_vid, "code": 3}],
+                path=[start_vid])
         # Fix 53-perf (v2): hard frame cap at the PUBLIC ENTRY.  The 52k/52s
         # internal caps can be bypassed when other call sites (analyze_function_return
         # at 4893, Rule 4c passthrough, etc.) recurse through this entry with
@@ -2292,8 +2326,19 @@ class GraphAnalyzer:
         # never share verdicts across call sites.
         _ab83 = getattr(self, "_afr_bindings", None)
         if _ab83:
+            # Fix 129 (CVE-2026-111217 perf): context-sensitivity window.
+            # Fix 124's corpus-wide return-value binding made the AFR
+            # mutual recursion enumerate distinct interprocedural paths —
+            # with the FULL binding-stack signature in the key, every path
+            # prefix is a fresh cache key and shared subproblems are
+            # recomputed combinatorially (osticket: one sink region ran
+            # >90 min without finishing).  Only the innermost
+            # _SIG_WINDOW binding frames now disambiguate the key; verdicts
+            # for chains deeper than the window fall back to pre-Fix-83
+            # context-insensitive sharing for the ancient frames (bindings
+            # themselves stay active — only the cache key truncates).
             cache_key = (start_vid, context_vid,
-                         tuple(_f83.get("__sig__", ()) for _f83 in _ab83))
+                         tuple(_f83.get("__sig__", ()) for _f83 in _ab83[-GraphAnalyzer._SIG_WINDOW:]))
         if cache_key in self._decision_cache:
             return self._decision_cache[cache_key]
 
@@ -4277,9 +4322,23 @@ class GraphAnalyzer:
                             if _c99:
                                 _src_recv_99 = _c99
                                 break
+                    # Fix 131 (CVE-2026-111217 anchor W1): a safe-callee route
+                    # must NOT terminate the whole walk when other routes are
+                    # still pending.  Http::redirect($url)'s param node carries
+                    # dfg in-edges from 13 call-site bindings; the BFS popped
+                    # thread_actions.php:472's getCreateTicketUrl() (safe
+                    # summary) before main.inc.php:43's tainted $_SERVER
+                    # concat, so the first examined binding masked the tainted
+                    # one — order-dependent blindness (osticket
+                    # class.http.php:79 anchor row).  Defer the proof into
+                    # repaired_result (Fix 34c exhausted-fallback family) and
+                    # skip to the next queue item WITHOUT descending into the
+                    # safe call's arguments (its params are sanitized by
+                    # definition — walking them would FP every safe wrapper).
+                    _route_safe_131 = False
                     for ue in self._edge_out(up_vid, "use"):
                         tgt = self.graph.vs[ue.target]
-                        if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                        if _vattr(tgt, "label", "") != NodeLabel.FUNCTION.value:
                             continue
                         # In multi-language graphs, skip functions from
                         # other languages to prevent cross-language taint
@@ -4300,11 +4359,16 @@ class GraphAnalyzer:
                         tgt_summary = _vattr(tgt, "func_summary_type", "")
                         if (tgt_taint == "safe" or tgt_summary == "safe") \
                                 and not _src_recv_99:
-                            return self._cached(cache_key, AnalysisResult(
-                                code=2, reason=f"safe function '{_vattr(tgt, 'name', '')}'",
-                                chain=[{"step": "dfg", "vid": up_vid,
-                                        "name": _vattr(tgt, "name", ""), "code": 2}],
-                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                            # Fix 131: defer (see comment above) — stash the
+                            # sanitation proof, keep walking sibling routes.
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=2, reason=f"safe function '{_vattr(tgt, 'name', '')}'",
+                                    chain=[{"step": "dfg", "vid": up_vid,
+                                            "name": _vattr(tgt, "name", ""), "code": 2}],
+                                    path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                            _route_safe_131 = True
+                            break
                         # Check all same-name function nodes for safe summary.
                         # PHP normalizer sometimes creates duplicate function
                         # nodes (definition vs reference). If ANY same-name
@@ -4335,12 +4399,23 @@ class GraphAnalyzer:
                                     if os.environ.get("KUNLUN_SAFE_DBG"):
                                         with open("/tmp/kunlun_safe_dbg.log", "a") as _f:
                                             _f.write("SAMENAME up=%d fn=%s\n" % (up_vid, tgt_name))
-                                    return self._cached(cache_key, AnalysisResult(
-                                        code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
-                                        chain=[{"step": "dfg", "vid": up_vid,
-                                                "name": tgt_name, "code": 2}],
-                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                                    # Fix 131: defer — same exhausted-fallback
+                                    # treatment as the direct-callee branch.
+                                    if repaired_result is None:
+                                        repaired_result = AnalysisResult(
+                                            code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
+                                            chain=[{"step": "dfg", "vid": up_vid,
+                                                    "name": tgt_name, "code": 2}],
+                                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                                    _route_safe_131 = True
+                                    break
                         break  # only check first function target
+                    if _route_safe_131:
+                        # Fix 131: this route is provably clean — skip it (do
+                        # NOT walk the safe call's arguments) and let the BFS
+                        # try the remaining queue items; the stashed proof is
+                        # returned only if every route ends clean.
+                        continue
 
                     is_sg, sg_name = self._is_superglobal_method_call(up_vid)
                     if is_sg:
@@ -5036,6 +5111,18 @@ class GraphAnalyzer:
                                 # deliberately NOT in this set.
                                 _orm_builder = callee.rsplit(".", 1)[-1] in _ORM_QUERY_BUILDER_METHODS
                                 _pt_hit = None
+                                # NOTE (Fix 130 investigation, 2026-11-20): do
+                                # NOT exclude 'array' pseudo-calls here.  The
+                                # array-literal arg scan is the ONLY channel
+                                # that evaluates an array literal's VALUE
+                                # taint (elements connect via ast only, no dfg
+                                # element edges) — excluding it killed the
+                                # froxlor CVE-2026-41229 userdata-write and
+                                # CakePHP DboSource repros (elements trace to
+                                # sources intra-function, no param crossing).
+                                # The osticket +458 anchor burst blamed on
+                                # this branch was actually the Fix 42 G3
+                                # stub-intersection hole (see Fix 130).
                                 if not _orm_builder:
                                     try:
                                         for _ae in self._edge_out(up_vid, "ast"):
@@ -5103,13 +5190,11 @@ class GraphAnalyzer:
                         # handle it instead of poisoning the chain here.
                         if not _known and callee and "." in str(callee):
                             _short = str(callee).rsplit(".", 1)[-1].strip()
-                            if _short:
-                                for _nv in self._nlbl.get(NodeLabel.FUNCTION.value, []):
-                                    if str(_vattr(self.graph.vs[_nv], "name", "")) == _short:
-                                        _body = [e for e in self._edge_out(_nv, "own")]
-                                        if _body:
-                                            _known = True
-                                            break
+                            # Fix 128 (perf): memoized "exists a function with
+                            # this short name that owns a body" — was a linear
+                            # scan over every function node per PB frame.
+                            if _short and self._fn_with_body_by_name(_short):
+                                _known = True
                         # If callee came from an ambiguous alias (multiple
                         # different resolved_names), don't trust it as known
                         # — the real callee might be different.
@@ -5326,28 +5411,29 @@ class GraphAnalyzer:
             # For each identifier name, find same-file same-name nodes NOT in visited
             # Use attribute-based filtering to avoid full graph scan
             checked: set[int] = set()
+            if not hasattr(self, "_snv_kills_memo"):
+                self._snv_kills_memo = {}
+            # Fix 128 (perf): hoist per-start invariants out of the candidate
+            # loops (were recomputed per candidate per name per PB frame).
+            start_lineno = _vattr(self.graph.vs[start_vid], "lineno", 0)
+            start_func = self._get_enclosing_func_vid(start_vid)
             for u_name, vids in visited_idents.items():
-                # Fast path: select vertices by name attribute
-                for cand in self._nname.get(
-                    (NodeLabel.IDENTIFIER.value, u_name), []
-                ):
+                # Fast path: Fix 128 — same-file (name, file) bucket replaces
+                # the full name bucket + per-candidate file compare.
+                for cand in self._ident_bucket_by_file(u_name, start_fp):
                     if cand in visited or cand in checked:
                         continue
-                    cand_fp = _vattr(self.graph.vs[cand], "file_path", "") or _vattr(self.graph.vs[cand], "path", "")
-                    if cand_fp != start_fp:
-                        continue
+                    # (same-file constraint satisfied by the bucket itself)
                     # Line-number constraint: a variable at the sink position
                     # can only receive values from assignments that appear
                     # BEFORE it in the source code (lower line number).
                     cand_lineno = _vattr(self.graph.vs[cand], "lineno", 0)
-                    start_lineno = _vattr(self.graph.vs[start_vid], "lineno", 0)
                     if start_lineno > 0 and cand_lineno > start_lineno:
                         continue
                     # Function scope check: def-chain should not cross
                     # function boundaries. Variables with the same name
                     # in different functions are unrelated.
                     cand_func = self._get_enclosing_func_vid(cand)
-                    start_func = self._get_enclosing_func_vid(start_vid)
                     if cand_func is not None and start_func is not None:
                         if cand_func != start_func:
                             continue
@@ -5440,8 +5526,13 @@ class GraphAnalyzer:
                                     stack.append(ce.target)
                             return True
 
-                        for snv in self._nname.get(
-                                (NodeLabel.IDENTIFIER.value, u_name), []):
+                        # Fix 128 (perf): same-file + no-file buckets replace
+                        # the full name bucket (original guard `snv_fp and
+                        # snv_fp != start_fp` admits same-file AND empty-file
+                        # nodes only — exactly these two buckets; kill-witness
+                        # search outcome is order-independent).
+                        for snv in (self._ident_bucket_by_file(u_name, start_fp)
+                                    + self._ident_bucket_by_file(u_name, "")):
                             if snv == cand or snv in checked:
                                 continue
                             snv_fp = _vattr(self.graph.vs[snv], "file_path", "") or _vattr(self.graph.vs[snv], "path", "")
@@ -5453,7 +5544,14 @@ class GraphAnalyzer:
                                 shared_func = cand_func or start_func
                                 if shared_func is not None and snv_func is not None and snv_func != shared_func:
                                     continue
-                                if not _snv_kills(snv):
+                                # Fix 128 (perf): _snv_kills does a ≤200-node
+                                # RHS subtree scan per witness; memoize per
+                                # (snv, name) — pure function of the graph.
+                                _sk128 = self._snv_kills_memo.get((snv, u_name))
+                                if _sk128 is None:
+                                    _sk128 = _snv_kills(snv)
+                                    self._snv_kills_memo[(snv, u_name)] = _sk128
+                                if not _sk128:
                                     continue
                                 # Re-definition found between candidate and sink
                                 continue_outer = True
@@ -6349,6 +6447,20 @@ class GraphAnalyzer:
             return AnalysisResult(code=1, reason="Return depends on controllable params",
                                   deps=caller_deps,
                                   expr_lineno=_vattr(call_v, "lineno", 0))
+        # Fix 125c (CVE-2026-111217): source-summary 判定必须先于 caller_deps
+        # 短路。Fix 124c 的返回值绑定边让本函数能走进 callee 体内收集
+        # caller_deps（get_configured_vip($carpid) → callee 内 $vipinterface
+        # ← 调用方 $carpid），非可控 deps 会在 72h 之前以 code="deps"
+        # 提前返回——而 72h 的语义恰恰是「source 摘要无需任何调用方
+        # 证据即认证返回值可控」（存入配置树的污点经 load 读回，与调用
+        # 方实参无关）。caller_deps 与 source 摘要并存时，source 语义赢。
+        if func_vid is not None:
+            _sum125c = _vattr(self.graph.vs[func_vid], "func_summary_type", "")
+            if _sum125c == "source":
+                return AnalysisResult(
+                    code=1,
+                    reason=f"return of source-summary function '{_vattr(self.graph.vs[func_vid], 'name', '')}'",
+                    expr_lineno=_vattr(call_v, "lineno", 0))
         if caller_deps:
             return AnalysisResult(code="deps",
                                   reason=f"Return depends on caller vars: {caller_deps}",
@@ -6604,8 +6716,27 @@ class GraphAnalyzer:
                 # or vice versa (helps when enclosing-class resolution
                 # failed for one side, e.g. trait/abstract shapes).
                 writer_file_classes = self._file_class_names(cand_fp)
-                linked = bool(
+                # Fix 130 (CVE-2026-111217 anchor +458): the intersection
+                # term is only sound for a class REALLY DECLARED in one of
+                # the two files.  External stub nodes (is_external=True)
+                # exist for every referenced base class per file — two
+                # sibling classes both extending VerySimpleModel share that
+                # stub name in both file sets, so ANY same-name property
+                # chained across ANY two osticket model files passed G3
+                # (class.dynamic_forms.php `$t->text = $_POST-…` polluted
+                # every `->text` read via class.translation.php:942).
+                # Require the shared name to be a real declaration in the
+                # reader's or the writer's file; the reference-stub clauses
+                # below (writer_class in reader_file_classes etc.) carry
+                # the legitimate import linkage (Fix 76d-3: -43 if dropped)
+                # and are left untouched.
+                _real_shared = (
                     (reader_file_classes & writer_file_classes)
+                    & (self._file_real_class_names(reader_fp)
+                       | self._file_real_class_names(cand_fp))
+                )
+                linked = bool(
+                    _real_shared
                     or (writer_class and writer_class in reader_file_classes)
                     or (reader_class and reader_class in writer_file_classes)
                 )
@@ -7290,6 +7421,26 @@ class GraphAnalyzer:
         for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
             fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
             if fp == file_path and v["name"]:
+                out.add(v["name"])
+        self._decision_cache[_ck] = out
+        return out
+
+    def _file_real_class_names(self, file_path: str) -> set[str]:
+        """Fix 130 (CVE-2026-111217): class names REALLY DECLARED in a file —
+        class nodes whose file_path matches and that are NOT external stubs
+        (is_external=True nodes are per-reference stubs, e.g. every file
+        extending VerySimpleModel gets its own stub; the real declaration
+        lives in a third file)."""
+        _ck = ("_fcls_real", file_path)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        out: set[str] = set()
+        if not file_path:
+            return out
+        for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
+            fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if (fp == file_path and v["name"]
+                    and not _vattr(v, "is_external", False)):
                 out.add(v["name"])
         self._decision_cache[_ck] = out
         return out
@@ -8271,13 +8422,49 @@ class GraphAnalyzer:
                     return True
             # func_summary safe via use edge from the OUTER call is for the
             # callee, not the callback — resolve callback def by name.
-            for fv in self.graph.vs:
-                if (_vattr(fv, "label") == NodeLabel.FUNCTION.value
-                        and _vattr(fv, "name", "") == cname):
-                    if _vattr(fv, "func_summary_type", "") == "safe":
-                        return True
-                    break
+            # Fix 126 (CVE-2026-111217 perf): this was a linear scan over
+            # every graph vertex per invocation.  Fix 123/124's corpus-wide
+            # return/bind edges made PB recursion reach array-callback call
+            # sites far more often (pfsense full scan 34min -> >90min,
+            # py-spy 74.5% here).  Memoize name -> FIRST function vid
+            # (vertex order) — identical first-match semantics, built once.
+            fv = self._first_function_by_name(cname)
+            if fv is not None and _vattr(
+                    self.graph.vs[fv], "func_summary_type", "") == "safe":
+                return True
         return False
+
+    def _first_function_by_name(self, name: str) -> int | None:
+        cache = getattr(self, "_fn_name_idx", None)
+        if cache is None:
+            cache = {}
+            for v in self.graph.vs:
+                if _vattr(v, "label") == NodeLabel.FUNCTION.value:
+                    nm = _vattr(v, "name", "")
+                    if nm and nm not in cache:
+                        cache[nm] = v.index
+            self._fn_name_idx = cache
+        return cache.get(name)
+
+    def _fn_with_body_by_name(self, name: str) -> bool:
+        """Fix 128 (CVE-2026-111217 perf): does any function node with this
+        (short) name own a body?  Replaces the per-frame linear scan over all
+        function nodes in the 52z-5 known-callee probe.  Semantics identical
+        to the original loop: a name match without a body does NOT stop the
+        scan — the answer is 'exists a same-name function with a body'."""
+        cache = getattr(self, "_fn_body_idx128", None)
+        if cache is None:
+            cache = self._fn_body_idx128 = {}
+        got = cache.get(name)
+        if got is None:
+            got = False
+            for _nv in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+                if str(_vattr(self.graph.vs[_nv], "name", "")) == name:
+                    if any(True for _ in self._edge_out(_nv, "own")):
+                        got = True
+                        break
+            cache[name] = got
+        return got
 
     def _condition_call_is_negated(self, call_vid: int, max_up: int = 3) -> bool:
         """Check if *call_vid* sits directly under a unary '!' / 'not' node.
@@ -10435,7 +10622,23 @@ class GraphAnalyzer:
     _NEGATED_BRANCH_TYPES = frozenset({"else", "default"})
 
     def _get_enclosing_func_vid(self, vid: int) -> int | None:
-        """Return the vid of the nearest ancestor FUNCTION node, or None."""
+        """Return the vid of the nearest ancestor FUNCTION node, or None.
+
+        Fix 128 (CVE-2026-111217 perf): memoized per vid — the def-chain
+        fallback (42-family) calls this once per same-name candidate per
+        PB frame; Fix 123/124's denser graph multiplied those frames and
+        the unmemoized 30-hop walk dominated the osticket anchor run.
+        Pure function of the (immutable-during-analysis) graph."""
+        _m = getattr(self, "_enclosing_func_memo", None)
+        if _m is None:
+            _m = self._enclosing_func_memo = {}
+        if vid in _m:
+            return _m[vid]
+        r = self._get_enclosing_func_impl(vid)
+        _m[vid] = r
+        return r
+
+    def _get_enclosing_func_impl(self, vid: int) -> int | None:
         cur = vid
         seen: set[int] = set()
         for _ in range(30):
@@ -10469,7 +10672,21 @@ class GraphAnalyzer:
         所以遇到 else/default 时停止向上收集（不包含父 if/switch）。
 
         例如：vid 在 else 内部，返回 [else_branch_vid]（不含 if_branch）。
-        """
+
+        Fix 128 (CVE-2026-111217 perf): memoized per vid (tuple snapshot,
+        fresh list per hit). Called per def-chain candidate per PB frame;
+        pure walk over the immutable graph."""
+        _m = getattr(self, "_branch_chain_memo", None)
+        if _m is None:
+            _m = self._branch_chain_memo = {}
+        got = _m.get(vid)
+        if got is not None:
+            return list(got)
+        result = self._get_branch_chain_impl(vid)
+        _m[vid] = tuple(result)
+        return result
+
+    def _get_branch_chain_impl(self, vid: int) -> list[int]:
         result: list[int] = []
         cur, seen = vid, set()
         stop_at_parent = False
@@ -11469,6 +11686,27 @@ class GraphAnalyzer:
 
         return None
 
+    def _ensure_nfile(self) -> dict[tuple[str, str, str], list[int]]:
+        """Fix 128 (CVE-2026-111217 perf): (label, name, file) bucket index,
+        lazily built once (shared with _find_identifier_by_name)."""
+        if self._nfile is None:
+            self._nfile = {}
+            for v in self.graph.vs:
+                vl = _vattr(v, 'label', '') or ''
+                vn = _vattr(v, 'name', '') or ''
+                fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
+                if vl and vn:
+                    self._nfile.setdefault((vl, vn, fp), []).append(v.index)
+        return self._nfile
+
+    def _ident_bucket_by_file(self, name: str, fp: str) -> list[int]:
+        """Fix 128 (CVE-2026-111217 perf): identifier nodes with *name* whose
+        resolved file equals *fp*. Replaces the def-chain loops' full
+        _nname name-bucket scan + per-candidate file attribute compare —
+        common PHP variable names hit hundreds of foreign-file entries per
+        PB frame under Fix 123/124's denser graphs."""
+        return self._ensure_nfile().get((NodeLabel.IDENTIFIER.value, name, fp), [])
+
     def _find_identifier_by_name(self, name: str,
                                   context_vid: int | None = None) -> int | None:
         """Find identifier vertex by name, preferring same-file matches.
@@ -11480,20 +11718,13 @@ class GraphAnalyzer:
         Replaced O(V) full scan with O(1) dict lookup using prebuilt indexes
         (_nfile, _nname).
         """
-        if self._nfile is None:
-            self._nfile = {}
-            for v in self.graph.vs:
-                vl = _vattr(v, 'label', '') or ''
-                vn = _vattr(v, 'name', '') or ''
-                fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
-                if vl and vn:
-                    self._nfile.setdefault((vl, vn, fp), []).append(v.index)
+        self._ensure_nfile()
         scope = None
         if context_vid is not None:
             scope = _vattr(self.graph.vs[context_vid], "file_path", None)
         if scope:
             key = (NodeLabel.IDENTIFIER.value, name, scope)
-            vids = self._nfile.get(key, [])
+            vids = self._ensure_nfile().get(key, [])
             if vids:
                 # Prefer candidates in the same function scope as context_vid
                 if context_vid is not None:
