@@ -751,7 +751,49 @@ def _trace_return_value(
         # 3b. call operator → 尝试 use → function（用户自定义函数的摘要）
         if vtype in _CALL_TYPES:
             result = _trace_call_to_function(graph, start_vid, own_vids, param_idx, visited, eidx, depth)
+            # Fix 125b: 跨函数桥接通道的有界 source 证据 BFS（对任何
+            # 摘要结果都跑——实案里 callee 摘要恰返回 unknown）。
+            # call op 自身可携带 dfg 入边——Fix 123 的 store→load 桥、
+            # 跨文件 Fix 124c 返回值绑定——这些通道天生跨函数，而下面
+            # 的聚合递归（125）受 own_vids/同文件约束（Fix 117i-2），
+            # 3f 只看 ast 实参，section 4 又跳过 foreign 源：实案
+            # pfSense get_configured_vip_detail 内 config_get_path(
+            # 'virtualip/vip') 的 op 入边带着 saveVIP 存入的 $vipent
+            # （含 $_POST['vhid']），三条常规通路全部看不见，函数被误
+            # 标 safe → sink 处 code=2 消毒。与 Fix 72c 同型的有界 BFS
+            # （hop<12）沿 dfg 祖先直接找 taint_type=source 注解或
+            # summary=source 的调用点；source 证据压过一切摘要结论。
+            if not (result and result.get("origin_type") == "source"):
+                _bfs_hit = _bridge_source_bfs(graph, start_vid, eidx, visited)
+                if _bfs_hit:
+                    return {"origin": vname, "origin_type": "source",
+                            "dep_params": [], "has_unresolved_call": False}
             if result and result.get("origin_type") != "unknown":
+                # Fix 125 (CVE-2026-111217): 图谱证据覆盖 callee 摘要。
+                # own-vid 入边的聚合递归：call op 的 dfg 入边中属于本函数
+                # 的部分（124c 返回值绑定等），按 117g 容器同型聚合，
+                # source/param 证据压过 safe/literal 摘要。
+                if result.get("origin_type") in ("safe", "literal", "param"):
+                    _dyn_in = [s for s in (eidx["in"].get("dfg", {}).get(start_vid) or [])
+                               if s not in visited]
+                    if _dyn_in:
+                        _flows, _unres = [], False
+                        for _s in _dyn_in:
+                            _sub = _trace_return_value(
+                                graph, _s, own_vids, param_idx, visited, eidx, depth + 1)
+                            if _sub:
+                                _flows.append(_sub)
+                                _unres = _unres or bool(_sub.get("has_unresolved_call"))
+                        if _flows:
+                            _agg_t, _agg_p = _aggregate_flows(_flows)
+                            if _agg_t == "source":
+                                return {"origin": vname, "origin_type": "source",
+                                        "dep_params": [],
+                                        "has_unresolved_call": _unres}
+                            if _agg_t == "passthrough" and _agg_p:
+                                return {"origin": vname, "origin_type": "param",
+                                        "dep_params": list(_agg_p),
+                                        "has_unresolved_call": _unres}
                 return result
             # 3f. 目标函数无摘要（unknown）→ fallback 追踪 ast 实参
             #     如果实参中包含 source parameter 的引用，call 返回值也继承该 origin。
@@ -1481,6 +1523,98 @@ def _is_orm_query_chain_terminator(graph, call_vid: int, eidx: dict) -> bool:
                     and str(_vattr(uv, "name", "")).rsplit("::", 1)[-1].rsplit(".", 1)[-1]
                     in _ORM_QUERY_CHAIN_STARTS):
                 return True
+    return False
+
+
+def _bridge_source_bfs(
+    graph: ig.Graph,
+    call_vid: int,
+    eidx: dict,
+    visited: set[int],
+    max_depth: int = 12,
+    max_nodes: int = 512,
+) -> bool:
+    """Fix 125b + Fix 127 (CVE-2026-111217): call op 的 dfg 入边上存在 source 证据吗？
+
+    沿 call op 的 dfg 入边做有界祖先 BFS（Fix 72c 同型）。专治跨函数通道
+    （Fix 123 store→load 桥、跨文件 124c 返回值绑定）：这些边落在调用点上、
+    绕过被调形参，callee 摘要对它们结构性失明。visited 传入以避免与主递归
+    成环。按**代数**限界（max_depth 层祖先）而非按节点数——数组项写回链
+    每代扇出 N 倍，按节点计 hop 会在宽扇出处耗尽预算而错过 3 代外的
+    source；另有总展开节点上限防稠密图发散。
+
+    Fix 127 (anchor 回归 osticket +571)：原版接受**任何** taint_type=source
+    祖先。Fix 124a/c 打通全语料返回值绑定后，两条不健全通道立即爆炸：
+      1. param 反向回走——dfg 实参绑定边横穿调用图，$_POST 在**某一个**
+         调用点传给 db_query/Format::htmlchars，就使该函数**所有**调用点
+         的返回值被判 source（跨调用点合并；Fix 84b 当年正是为 osticket
+         wrapper 这类 FP 立的 param 边界判例）。
+      2. 被溯源调用点自身的实参边——消毒器 callee（db_input/htmlchars）
+         的 safe 摘要被它消毒的那份污点证据压过（125b 注释原文「source
+         证据压过一切摘要结论」在此语义下是错的）。
+    规则：直连 source 节点命中**仅在 store_mode 下计数**——即走查已跨越
+    Fix 123 桥的持久化存储写侧（cfg_store=1 标记节点；存储值的溯源包含
+    param 回走，这是健全的）。'parameter' 节点是硬边界，除非 store_mode。
+    call→source-summary 子句不受限：callee 摘要为 'source' 意味着其返回值
+    按定义在所有调用点带污点（存储配置读取器家族的合法放大器）。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+
+    def _parents(vid: int) -> list[int]:
+        out = list(eidx["in"].get("dfg", {}).get(vid) or [])
+        # Fix 125d (CVE-2026-111217): member-read nodes derive their value
+        # from the *container*, but that edge is labeled 'member', not
+        # 'dfg' — a dfg-only walk dies one hop short of the source.
+        # 容器污点蕴含成员污点（与 analyzer 侧 _is_source_via_member_chain
+        # 同义）；member 边不跨语句边界（98a 判语），有界 BFS 内跟随是
+        # 污点健全的。
+        out += list(eidx["in"].get("member", {}).get(vid) or [])
+        return out
+
+    call_types = ("call", "method_call", "static_call")
+    seen: set[int] = set()
+    # Fix 127: per-node best store_mode；升级到 store 模式时允许重展开。
+    best_mode: dict[int, bool] = {}
+    frontier: list[tuple[int, bool]] = [
+        (s, False) for s in (eidx["in"].get("dfg", {}).get(call_vid) or [])
+        if s not in visited
+    ]
+    for _gen in range(max_depth):
+        if not frontier:
+            break
+        nxt: list[tuple[int, bool]] = []
+        for cur, mode in frontier:
+            if cur in visited:
+                continue
+            prev = best_mode.get(cur, False)
+            if cur in best_mode and not (mode and not prev):
+                # 已以相同或更高模式处理过
+                continue
+            mode = mode or prev
+            best_mode[cur] = mode
+            seen.add(cur)
+            if len(seen) > max_nodes:
+                return False
+            node = graph.vs[cur]
+            if not mode and _vattr(node, "cfg_store", ""):
+                # Fix 127: 跨越持久化存储桥的写侧节点 → 进入 store 模式
+                mode = True
+                best_mode[cur] = True
+            if mode and _vattr(node, "taint_type", "") == "source":
+                return True
+            if (_vattr(node, "label", "") == NodeLabel.OPERATOR.value
+                    and _vattr(node, "type", "") in call_types):
+                for uv in eidx["out"].get("use", {}).get(cur, []):
+                    if _vattr(graph.vs[uv], "func_summary_type", "") == "source":
+                        return True
+            # Fix 127 / 84b: 入口参数终止本路径——污点来自调用方时，安全性
+            # 由各调用方判定；除非走查携带存储写侧溯源（store_mode）。
+            if _vattr(node, "label", "") == "parameter" and not mode:
+                continue
+            nxt.extend((s, mode) for s in _parents(cur) if s not in visited)
+        # dedupe preserving order
+        frontier = list(dict.fromkeys(nxt))
     return False
 
 
