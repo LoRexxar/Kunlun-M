@@ -73,6 +73,16 @@ EXPECTATIONS = {
     # exec.  The .inc library file also regression-guards Fix 120 (.inc
     # discovery: php set + PHP-open-tag content sniff).
     'CVE-2026-111215_interfaces.inc': {'1011': 1},
+    # Fix 123/124/125 (CVE-2026-111217 pfSense CARP VHID command injection,
+    # CVSS 8.6): $_POST[vhid] → saveVIP → config_set_path("virtualip/vip/0")
+    # → config_get_path('virtualip/vip') → get_configured_vip_detail →
+    # get_configured_vip → {$vhid} interp → exec.  Regression-guards the
+    # config store→load bridge (Fix 123), corpus-wide return-value DFG
+    # propagation (Fix 124a/b/c), the summary graph-evidence override
+    # (Fix 125/125b: a safe/literal callee summary must not kill taint
+    # entering the call op through bridge/binding dfg edges) and the
+    # source-summary precedence over caller deps (Fix 125c).
+    'CVE-2026-111217_carp_vhid_configbridge.php': {'1011': 1},
     # Fix 72: config-file source chain (Siemens meta-iot2050,
     # CVE-2026-109830) — json.load → getConfig summary → getter summary →
     # subprocess.call("... " + initMode, shell=True). Safe contrast
