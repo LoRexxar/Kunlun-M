@@ -27,7 +27,15 @@ class CVI_7004(SingleRuleMixin):
         # parameter (e.g. tenant_subdomain, CVE-2026-89111).  Report on
         # presence + main() filtering instead of taint proof.
         self.require_taint = False
-        self.match = r"requests\.get|requests\.post|requests\.put|requests\.delete|requests\.head|requests\.patch|requests\.options|requests\.request|urllib\.request\.urlopen|urllib\.request\.urlretrieve|urlopen|http\.client\.HTTPConnection|http\.client\.HTTPSConnection|aiohttp\.ClientSession|httpx\.Client|httpx\.get|httpx\.post|httpx\.request|treq\.get|treq\.post|fetch_token|fetch_token_from|request_token"
+        # Fix 134 (CVE-2026-64849 MLflow): session-form HTTP sinks.
+        # `session = requests.Session(); session.post(tainted_url)` is the
+        # same SSRF sink family as module-level requests.post, but the
+        # method call only carries a bare 'post' name until the graph
+        # analyzer resolves the receiver's constructor/annotation type
+        # (graph_analyzer Fix 134 typed-receiver).  Enumerated explicitly
+        # (no (?:...) grouping) so parse_sink_names yields clean qualified
+        # names without bare 'post'/'get' fragments entering the sink set.
+        self.match = r"requests\.get|requests\.post|requests\.put|requests\.delete|requests\.head|requests\.patch|requests\.options|requests\.request|requests\.Session\.get|requests\.Session\.post|requests\.Session\.put|requests\.Session\.delete|requests\.Session\.head|requests\.Session\.patch|requests\.Session\.options|requests\.Session\.request|requests\.Session\.send|urllib\.request\.urlopen|urllib\.request\.urlretrieve|urlopen|http\.client\.HTTPConnection|http\.client\.HTTPSConnection|aiohttp\.ClientSession|httpx\.Client|httpx\.get|httpx\.post|httpx\.request|treq\.get|treq\.post|fetch_token|fetch_token_from|request_token"
 
     def main(self, regex_string, sink_args=None):
         if sink_args:

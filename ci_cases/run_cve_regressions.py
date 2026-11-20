@@ -157,6 +157,14 @@ EXPECTATIONS = {
     # override.  Engine chain: comprehension+receiver-passthrough summaries,
     # subscript write-back DFG, await flow, CVI_7016 sink.
     'CVE-2026-110279_mcp_passthrough_headers.py': {'7016': 1},
+    # Fix 134 (CVE-2026-64849 MLflow <3.15.0, GHSA-7gwp-5pfp-969j): stored
+    # second-order webhook SSRF.  store.get_webhook row read is a source
+    # (mlflow app overlay, Fix 114a doctrine); webhook.url flows through
+    # params to session.post(...) whose receiver type comes from BOTH the
+    # annotated param (requests.Session) and the constructor reaching-def
+    # (requests.Session()) — typed-receiver sink 'requests.Session.post'
+    # (CVI_7004); raise-only _validate_webhook_url must not sanitize.
+    'CVE-2026-64849_mlflow_webhook_ssrf.py': {'7004': 1},
     # Fix 91 (CVE-2026-33078 roxy-wi <8.2.6.4): Flask route path params
     # are HTTP sources — @bp.route('/section/haproxy/<server_ip>/save')
     # binds URL vars to view params with no request.* anywhere; the param

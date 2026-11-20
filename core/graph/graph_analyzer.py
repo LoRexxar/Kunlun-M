@@ -729,6 +729,102 @@ class GraphAnalyzer:
         self._py_import_aliases = amap
         return amap
 
+    def _python_receiver_typed_candidate(self, vid: int, short_name: str) -> str:
+        """Fix 134 (CVE-2026-64849): receiver-typed qualified name for a
+        python method call — ``requests.Session.post`` for
+        ``session.post(...)``.
+
+        The receiver identifier is the member-edge source of the callee
+        identifier (``session`` --member--> ``post``).  Its type comes from
+        either form of python typing evidence, walked over reaching-def
+        (dfg in-) edges, bounded:
+
+        1. ANNOTATION — a function PARAMETER carrying ``type_hint``
+           (``def f(..., session: requests.Session, ...)``).  The java
+           analog is declared ``java_type`` (Fix 79/133c); python
+           annotations are its counterpart.
+        2. CONSTRUCTOR — a reaching def that is a call op resolving
+           (use-edge) to a QUALIFIED external stub
+           (``session = requests.Session()``).
+
+        QUALIFIED-only discipline: a type must carry >= 2 dotted segments
+        (single-segment annotations like 'Webhook'/'Session' cannot bind
+        to a qualified sink without becoming short-name matches).  The
+        annotation form additionally requires the parameter to live in
+        the call's own file (Fix 133c same-file doctrine); constructor
+        stubs are file-less externals, qualified by module instead.
+        Returns "" when nothing resolvable.
+        """
+        try:
+            g = self.graph
+            op = g.vs[vid]
+            op_fp = str(_vattr(op, "file_path", "") or "")
+            # callee identifier (ast role=callee)
+            callee_vid = None
+            for e in self._edge_out(vid, "ast"):
+                if (_vattr(e, "role") == "callee"
+                        and _vattr(g.vs[e.target], "label")
+                        in ("identifier", "property")):
+                    callee_vid = e.target
+                    break
+            if callee_vid is None:
+                return ""
+            # receiver identifier = member-edge source of the callee
+            recv_vid = None
+            for e in self._edge_in(callee_vid, "member"):
+                if _vattr(g.vs[e.source], "label") == "identifier":
+                    recv_vid = e.source
+                    break
+            if recv_vid is None:
+                return ""
+            # bounded reaching-def walk over dfg in-edges
+            seen: set[int] = set()
+            frontier = [recv_vid]
+            for _ in range(3):
+                nxt: list[int] = []
+                for rvid in frontier:
+                    if rvid in seen:
+                        continue
+                    seen.add(rvid)
+                    rnode = g.vs[rvid]
+                    rlbl = _vattr(rnode, "label")
+                    if rlbl == "parameter":
+                        th = str(_vattr(rnode, "type_hint", "") or "")
+                        th = th.split("<")[0].strip()
+                        if ("." in th
+                                and str(_vattr(rnode, "file_path", "") or "")
+                                == op_fp):
+                            return f"{th}.{short_name}"
+                        continue
+                    if rlbl == "operator":
+                        # constructor reaching def: qualified callee via the
+                        # use-edge external stub and its alias edges
+                        # (op 'Session' -> use stub 'Session' -> alias
+                        # 'requests.Session', resolved_name carries the
+                        # qualified form — the Fix 72b two-hop chain)
+                        for ue in self._edge_out(rvid, "use"):
+                            stub_names = [str(_vattr(g.vs[ue.target], "name", "") or "")]
+                            for ae in self._edge_out(ue.target, "alias"):
+                                _rn = _vattr(ae, "resolved_name", "")
+                                if _rn:
+                                    stub_names.append(str(_rn))
+                                stub_names.append(
+                                    str(_vattr(g.vs[ae.target], "name", "") or ""))
+                            for nm in stub_names:
+                                if "." in nm:
+                                    return f"{nm}.{short_name}"
+                        continue
+                    # identifier: keep walking its own reaching defs
+                    for e in self._edge_in(rvid, "dfg"):
+                        if e.source not in seen:
+                            nxt.append(e.source)
+                frontier = nxt
+                if not frontier:
+                    break
+            return ""
+        except Exception:
+            return ""
+
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
         """Locate sink operator nodes (call/static_call/method_call matching
         *sink_names*, defaulting to built-in _SINK_FUNCTIONS).
@@ -937,6 +1033,34 @@ class GraphAnalyzer:
                                     break
                         if matched_name:
                             break
+
+            if not matched_name:
+                # Fix 134 (CVE-2026-64849 MLflow): python typed-receiver
+                # sink candidate.  For a session-form python method call
+                # the resolved callee is the VARIABLE-qualified form
+                # ('session.post' — receiver is a local/param, not a
+                # module), which can never equal a qualified sink name
+                # ('requests.Session.post') textually: the module-level
+                # ``requests.post`` form matches but the session form
+                # never does.  When the receiver segment is a single
+                # (unqualified) name, resolve the receiver's type
+                # (parameter ``type_hint`` annotation, e.g.
+                # ``session: requests.Session``; or constructor reaching
+                # def ``session = requests.Session()``) and try
+                # ``<QualifiedType>.<method>`` — a QUALIFIED candidate,
+                # preserving the no-bare-name sink discipline (single-
+                # segment annotations like 'Session' are rejected).
+                if (self.language == 'python'
+                        and call_type == OperatorType.METHOD_CALL.value
+                        and "." in normalized_callee
+                        and "." not in normalized_callee.rsplit(".", 1)[0]):
+                    _typed = self._python_receiver_typed_candidate(
+                        vid, normalized_callee.rsplit(".", 1)[-1])
+                    if _typed and (_typed in normalized_set
+                                   or _typed.lower() in normalized_lower):
+                        matched_name = _typed
+                        callee_name = _typed
+                        _is_qualified_match = True
 
             if not matched_name:
                 # Path B: qualified fullname match via use-edge function node.

@@ -215,6 +215,56 @@ _FRAMEWORK_REQUEST_PARAMS = {
 # 框架检测
 # ---------------------------------------------------------------------------
 
+# Fix 134 (CVE-2026-64849 MLflow): app-level source overlay.  Framework
+# detection is SINGLE-select (first detect_packages substring wins) and a
+# real app's markers name its web framework first (mlflow's pyproject
+# contains 'flask'), so app-scoped second-order sources need their own
+# ADDITIVE layer — the python analog of the php tamper framework stack,
+# where multiple marker-scoped knowledge packs coexist.
+_APP_SOURCE_CONFIGS = {
+    'mlflow': {
+        'detect_files': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+        'detect_packages': ['mlflow'],
+        'source_members': {
+            # webhook url is STORED user input: handlers._create_webhook
+            # persists request_message.url via the ORM store; get_webhook
+            # reads the row back and delivery.py session.post(webhook.url)
+            # fetches it (SSRF, CVE-2026-64849 / GHSA-7gwp-5pfp-969j).
+            # Second-order ORM read source — the Fix 114a (Phreezer ORM
+            # Get) doctrine, marker-scoped to mlflow.
+            'store.get_webhook',
+        },
+    },
+}
+
+
+def _config_files_contain(project_dir, detect_files, detect_packages):
+    """Marker check: walk up <=5 levels, substring-match any package name
+    inside the given config files (same read semantics as
+    detect_framework, factored out for the app overlay)."""
+    search_dir = project_dir
+    for _ in range(5):
+        if not search_dir or search_dir == '/':
+            break
+        for fname in detect_files:
+            fpath = os.path.join(search_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read().lower()
+                for pkg in detect_packages:
+                    if pkg in content:
+                        return True
+            except Exception:
+                pass
+        parent = os.path.dirname(search_dir)
+        if parent == search_dir:
+            break
+        search_dir = parent
+    return False
+
+
 def detect_framework(project_dir):
     """从 requirements.txt / setup.py / pyproject.toml 检测 Web 框架
     
@@ -407,6 +457,15 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
         logger.debug('[SourceDiscovery] Detected framework: {}'.format(framework))
     else:
         logger.debug('[SourceDiscovery] No Python framework detected')
+
+    # 2b. Fix 134 (CVE-2026-64849): app-level source overlay (additive,
+    #     marker-scoped — independent of the single-select framework above)
+    for app_name, app_cfg in _APP_SOURCE_CONFIGS.items():
+        if _config_files_contain(project_dir, app_cfg.get('detect_files', ()),
+                                 app_cfg.get('detect_packages', ())):
+            for sm in app_cfg['source_members']:
+                registry.add_source_member(sm)
+            logger.debug('[SourceDiscovery] App source overlay: {}'.format(app_name))
 
     # 3. 遍历 AST 发现用户自定义 source producer
     if tree and hasattr(tree, 'body'):
