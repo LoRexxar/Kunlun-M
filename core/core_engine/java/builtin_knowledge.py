@@ -33,6 +33,24 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "valueOf":          {"passthrough": [0], "safe": False},
         "format":           {"passthrough": [1], "safe": False},
         "getBytes":         {"passthrough": [0], "safe": False},
+        # ===== Fix 133 (CVE-2026-123551): typed-receiver String transforms.
+        # The bare entries above model the RECEIVER string as positional
+        # arg 0 (PHP/JS style). For java arg-bearing transforms the
+        # positional index points at the WRONG argument — String.substring
+        # (beginIndex) is a number, the tainted content flows from the
+        # RECEIVER. knowledge_bridge's typed lookup (_receiver_typed_lookup
+        # name, Fix 79) produces "String.<method>" from the receiver's
+        # DECLARED java_type, so these entries win over the bare form and
+        # annotate receiver flow (taint_receiver_pt) instead. OpenAM
+        # RelayState chain: resource = newUrl.substring(idx) died as
+        # code=3 'unresolved substring' before this entry.
+        "String.substring":     {"passthrough": ["this"], "safe": False},
+        "String.replace":       {"passthrough": ["this"], "safe": False},
+        "String.replaceAll":    {"passthrough": ["this"], "safe": False},
+        "String.replaceFirst":  {"passthrough": ["this"], "safe": False},
+        "String.split":         {"passthrough": ["this"], "safe": False},
+        "String.concat":        {"passthrough": ["this"], "safe": False},
+        "String.getBytes":      {"passthrough": ["this"], "safe": False},
         "toCharArray":      {"passthrough": [0], "safe": False},
         "intern":           {"passthrough": [0], "safe": False},
         "indent":           {"passthrough": [0], "safe": False},
@@ -184,6 +202,9 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "sendRedirect":         {"passthrough": [0], "safe": False},
         "sendError":            {"passthrough": [0], "safe": False},
         "addCookie":            {"passthrough": [0], "safe": False},
+        # forward sink (CVE-2026-123551): taint is the path arg; the returned
+        # dispatcher is not tainted, so passthrough stays empty
+        "getRequestDispatcher": {"passthrough": [], "safe": False},
 
         # ===== MyBatis =====
         # ${} interpolation is unsafe, handled at rule level
@@ -254,6 +275,9 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "HttpServletResponse.addHeader":       {"passthrough": [1], "safe": False},
         "HttpServletResponse.setStatus":       {"passthrough": [], "safe": True},
         "HttpServletResponse.sendError":       {"passthrough": [0], "safe": False},
+        "HttpServletRequest.getRequestDispatcher":  {"passthrough": [], "safe": False},
+        "ServletRequest.getRequestDispatcher":      {"passthrough": [], "safe": False},
+        "ServletContext.getRequestDispatcher":      {"passthrough": [], "safe": False},
 
         # ===== Spring Security =====
         "@Secured":               {"passthrough": [], "safe": True},

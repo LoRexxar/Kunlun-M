@@ -43,6 +43,17 @@ _ELEMENT_DISPATCH_METHODS: frozenset[str] = frozenset({
     "mapToInt", "mapToLong", "mapToDouble", "takeWhile", "dropWhile",
 })
 
+# Fix 133d (CVE-2026-123551): java immutable value types — a method invoked
+# on one of these receivers can never mutate the receiver object (no
+# builder-returns-this semantics), so the fluent-API back-flow edge
+# (call → receiver) is unsound for them and must not be created.
+_JAVA_IMMUTABLE_RECEIVER_TYPES: frozenset[str] = frozenset({
+    "String", "Integer", "Long", "Double", "Float", "Short", "Byte",
+    "Character", "Boolean", "BigDecimal", "BigInteger", "LocalDate",
+    "LocalDateTime", "LocalTime", "OffsetDateTime", "ZonedDateTime",
+    "Instant", "Duration", "Period", "Optional", "UUID", "CharSequence",
+})
+
 # PHP type casts that sanitize taint by destroying string content.
 # Must match graph_analyzer._TYPE_CAST_SAFE — when the DFG builder encounters
 # one of these as an assign RHS, it must NOT pierce through the cast node.
@@ -461,6 +472,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if parent_vid is None:
                 continue
 
+            candidates: list = []
+
             # 沿作用域链（own/ast 父链）向上查找同名 parameter/identifier。
             # 处理方法调用在 if/for/try body 内的场景：parent 是 branch 而非
             # function，receiver（如 Optional）parameter 在上层 method 节点中。
@@ -503,8 +516,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         NodeLabel.PARAMETER.value,
                         NodeLabel.IDENTIFIER.value,
                     ):
-                        receiver_vid = e.target
-                        break
+                        candidates.append(
+                            (e.target, self._vlineno[child.index] or 0))
+                        continue
                     # 搜索 assign/var 子节点的 lhs identifier
                     # （如 var template = new Template(...) → template 在
                     # assign 的 lhs 中而非 function 的直接子节点）
@@ -515,15 +529,35 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         for lhs_vid in lhs_nodes:
                             lhs_v = self.graph.vs[lhs_vid]
                             if self._vname[lhs_v.index] == receiver_name:
-                                receiver_vid = lhs_vid
-                                break
-                        if receiver_vid is not None:
-                            break
-                if receiver_vid is not None:
+                                candidates.append(
+                                    (lhs_vid, self._vlineno[lhs_vid] or 0))
+                if candidates:
                     break
 
-            if receiver_vid is None:
+            if not candidates:
                 continue
+
+            # Fix 133b (CVE-2026-123551): pick the REACHING definition, not
+            # the first same-named node in edge order. For java the decl
+            # statement (`String newUrl = null;`) emits the variable's
+            # declaration node FIRST in own-order, so first-match bound the
+            # receiver edge of `newUrl.substring(...)` to the declaration —
+            # whose only dfg in-edge is the `null` initializer. The real
+            # value flow lives on the later assignment use node
+            # (`newUrl = url;`), and the receiver trace dead-ended in the
+            # decl↔call cycle. Among same-scope candidates prefer the latest
+            # line ≤ the call line (straight-line reaching def); fall back to
+            # discovery order when line info is missing (legacy behavior).
+            call_line = self._vlineno[vid] or 0
+            receiver_vid = candidates[0][0]
+            _best = None
+            for _cvid, _cline in candidates:
+                if _cline and call_line and _cline <= call_line:
+                    if (_best is None or _cline > _best[1]
+                            or (_cline == _best[1] and _cvid > _best[0])):
+                        _best = (_cvid, _cline)
+            if _best is not None:
+                receiver_vid = _best[0]
 
             self._add_dfg_edge(receiver_vid, vid, DfgType.FORWARD_SLICE.value)
 
@@ -1228,6 +1262,74 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     # -- 分析步骤 3b：Fluent API / Builder 模式 DFG 回传 -------------------------
 
+    def _receiver_declared_java_type(self, call_vid: int, name: str) -> str:
+        """Fix 133d: resolve the DECLARED java_type of a receiver name.
+
+        The dfg receiver in-edge source is a reaching-definition USE node,
+        which carries no java_type — the declared type lives on the
+        declaration/parameter node. Walk the call's scope chain (own/ast
+        parents up to function/file) and return the first same-named
+        identifier/parameter/assign-lhs declared type. "" when unresolvable
+        (PHP/JS graphs have no java_type at all — guard stays inert there).
+        """
+        if not name:
+            return ""
+        graph = self.graph
+        if graph is None:
+            return ""
+        memo = getattr(self, "_recv_jt_memo", None)
+        if memo is None:
+            memo = self._recv_jt_memo = {}
+
+        def _jt_of(vid: int) -> str:
+            try:
+                return str(graph.vs[vid]["java_type"] or "").split("<")[0].strip()
+            except Exception:
+                return ""
+
+        # scope chain: own/ast parents of the call, bounded depth
+        scopes = []
+        cur = call_vid
+        for _ in range(8):
+            parent = None
+            for eid in graph.incident(cur, mode="in"):
+                e = graph.es[eid]
+                if self._elabel[e.index] in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                    parent = e.source
+                    break
+            if parent is None or parent in scopes:
+                break
+            scopes.append(parent)
+            cur = parent
+            if self._vlabel[parent] in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
+                break
+        for scope_vid in scopes:
+            key = (scope_vid, name)
+            if key in memo:
+                return memo[key]
+            for eid in graph.incident(scope_vid, mode="out"):
+                e = self.graph.es[eid]
+                if self._elabel[e.index] not in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                    continue
+                child = e.target
+                if self._vname[child] == name and self._vlabel[child] in (
+                        NodeLabel.PARAMETER.value, NodeLabel.IDENTIFIER.value):
+                    jt = _jt_of(child)
+                    if jt:
+                        memo[key] = jt
+                        return jt
+                # assign lhs: `Type x = ...` declarations
+                if (self._vlabel[child] == NodeLabel.OPERATOR.value
+                        and self._vtype[child] == OperatorType.ASSIGN.value):
+                    for lhs_vid in self._get_ast_children(child, role=AstRole.LHS.value):
+                        if self._vname[lhs_vid] == name:
+                            jt = _jt_of(lhs_vid)
+                            if jt:
+                                memo[key] = jt
+                                return jt
+            memo[key] = ""
+        return ""
+
     def _analyze_fluent_api_returns(self) -> None:
         """#3b: Fluent API — method_call 返回值回传到 receiver 对象。
 
@@ -1290,6 +1392,21 @@ class DataFlowBuilder(BaseEdgeBuilder):
             #    debug() 是 void 方法，不存在返回值回传语义。
             receiver_type = self._vtype[receiver_vid]
             if receiver_type == 'field':
+                continue
+
+            # Fix 133d (CVE-2026-123551): java immutable-typed receivers can
+            # never be mutated by their methods — the fluent back-edge
+            # (call → receiver) models builder-returns-this mutation and is
+            # unsound for them. Live case: `String newUrl = url; ...
+            # newUrl.substring(i)` back-flowed the call return into the
+            # reaching-def use node, so every later read of newUrl traced
+            # into the call ('unresolved substring' killed the URL(newUrl)
+            # SSRF chain). Resolve the receiver's DECLARED type (the use
+            # node itself carries none) from same-name nodes in the call's
+            # scope chain.
+            receiver_name = self._vname[receiver_vid]
+            _jt133d = self._receiver_declared_java_type(vid, receiver_name)
+            if _jt133d in _JAVA_IMMUTABLE_RECEIVER_TYPES:
                 continue
 
             # 检查此 receiver 是否在同作用域内有其他 method_call（多次使用）

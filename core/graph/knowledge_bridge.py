@@ -268,6 +268,33 @@ def enrich_taint(
 # receiver passthrough 的字符串标记 ("this"/"self")
 _RECEIVER_PT_NAMES: frozenset[str] = frozenset({"this", "self"})
 
+# Fix 133c (CVE-2026-123551): per-graph name→declared-type index for the
+# typed-receiver fallback — {name: [(vid, java_type, file_path, lineno)]}.
+# Built lazily once per enrichment pass (keyed like _ENRICH_EIDX_CACHE).
+_RECV_TYPE_IDX_CACHE: dict = {}
+
+
+def _recv_declared_type_index(graph: ig.Graph) -> dict:
+    key = (id(graph), graph.vcount(), graph.ecount())
+    cached = _RECV_TYPE_IDX_CACHE.get(id(graph))
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    idx: dict = {}
+    for v in graph.vs:
+        jt = str(_vattr(v, "java_type", "") or "").split("<")[0].strip()
+        if not jt:
+            continue
+        nm = str(_vattr(v, "name", "") or "")
+        if not nm or "." in nm:
+            continue
+        if _vattr(v, "label", "") not in ("identifier", "parameter"):
+            continue
+        idx.setdefault(nm, []).append(
+            (v.index, jt, str(_vattr(v, "file_path", "") or ""),
+             _vattr(v, "lineno", 0) or 0))
+    _RECV_TYPE_IDX_CACHE[id(graph)] = (key, idx)
+    return idx
+
 
 def _receiver_typed_lookup_name(graph: ig.Graph, call_vid: int, short_name: str) -> str:
     """Fix 79 (CVE-2026-32613): derive ``<ReceiverType>.<method>`` from the
@@ -309,6 +336,27 @@ def _receiver_typed_lookup_name(graph: ig.Graph, call_vid: int, short_name: str)
                 jt = jt.split("<")[0].strip()
                 if jt:
                     return f"{jt}.{short_name}"
+        # Fix 133c (CVE-2026-123551): the dfg receiver in-edge source is the
+        # REACHING-DEFINITION use node (Fix 133b), which carries no
+        # java_type — the declared type lives on the declaration/parameter
+        # node. Fall back to a file-scoped name→declared-type index: same
+        # name, same file, nearest line to the call (deterministic tie-break
+        # by vid). Without this the lookup returns "" and enrichment falls
+        # through to the bare positional entry ("substring" passthrough[0]
+        # = the numeric index arg), re-killing receiver chains.
+        if recv_seg and "." not in recv_seg:
+            _call_fp = str(_vattr(v, "file_path", "") or "")
+            _call_ln = _vattr(v, "lineno", 0) or 0
+            _best_t = None
+            for (_dvid, _djt, _dfp, _dln) in _recv_declared_type_index(graph).get(recv_seg, ()):
+                if _dfp != _call_fp:
+                    continue
+                _dist = abs((_dln or 0) - _call_ln)
+                if (_best_t is None or _dist < _best_t[0]
+                        or (_dist == _best_t[0] and _dvid < _best_t[1])):
+                    _best_t = (_dist, _dvid, _djt)
+            if _best_t is not None:
+                return f"{_best_t[2]}.{short_name}"
         return ""
     except Exception:
         return ""
@@ -522,6 +570,22 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
     # （"json_exists.format" → 'format'），会先撞上 bare 函数条目。
     if node_type == "method_call":
         knowledge = trace_cache.lookup_builtin(f"__method__.{short_name}")
+    # Fix 133 (CVE-2026-123551): typed-receiver qualified lookup BEFORE the
+    # full_name query. lookup_builtin()'s per-language dotted→short fallback
+    # makes a VARIABLE-form full_name ("newUrl.substring") resolve to the
+    # bare entry "substring" — whose positional passthrough[0] points at the
+    # numeric begin-index argument, not the receiver string — so the
+    # receiver-flow entry "String.substring" (Fix 79 typed lookup, from the
+    # receiver's DECLARED java_type) was unreachable and the chain died as
+    # code=3 'unresolved substring'. Ordering is precision-ordered and safe:
+    # a static "Class.method" call has no typed identifier receiver (class
+    # refs carry no java_type → "" → falls through), and PHP/JS nodes have
+    # no java_type at all, so this only ever wins for genuinely typed java
+    # receivers — the Fix 78k qualified-wins discipline, extended.
+    if not knowledge:
+        _typed = _receiver_typed_lookup_name(graph, func_vid, short_name)
+        if _typed:
+            knowledge = trace_cache.lookup_builtin(_typed)
     if not knowledge and full_name and full_name != short_name:
         knowledge = trace_cache.lookup_builtin(full_name)
     if not knowledge:

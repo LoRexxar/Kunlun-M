@@ -117,6 +117,18 @@ EXPECTATIONS = {
     # enhanced-for loop var → ExpressionTransform.transformMap →
     # parser.parseExpression under unrestricted StandardEvaluationContext.
     'ExpressionTransform.java': {'6012': 1},
+    # Fix 133 (CVE-2026-123551 OpenAM Liberty ID-FF unvalidated forward):
+    # request.getParameter("RelayState") → lrURL → FSUtils.forwardRequest →
+    # same-container check → newUrl.substring(index) receiver flow →
+    # request.getRequestDispatcher(resource) internal forward that skips
+    # REQUEST-only security filters. Three-part fix: 133a String.* typed
+    # receiver passthrough + typed-lookup-before-fullname ordering,
+    # 133b reaching-def receiver edge (was first-match decl node = dead end),
+    # 133c file-scoped declared-type fallback index (use nodes carry no
+    # java_type), 133d immutable-receiver guard on fluent back-flow (String
+    # substring back-edge poisoned every later read of the receiver).
+    # 6006: new URL(newUrl) SSRF arm; 6015: sendRedirect + forward sinks.
+    'FSUtils.java': {'6006': 1, '6015': 2},
     # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
     # param is a framework source; file.filename → f-string template →
     # open(file_path, "wb+") arbitrary file write. Subdir python/ carries
