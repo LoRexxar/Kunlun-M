@@ -58,6 +58,16 @@ _CALL_TYPES_DFG: frozenset[str] = frozenset({
     "call", "method_call", "static_call", "new",
 })
 
+# Fix 123 (CVE-2026-111217): path-scoped config store/load helper pair
+# (pfSense src/etc/inc/config.lib.inc).  config_set_path('a/b/c', $v)
+# writes $v into the global config tree; config_get_path('a/b') reads a
+# subtree back.  The value travels through array_set_path/array_get_path
+# recursion over explode()-ed dynamic keys, which static DFG cannot
+# resolve — the store→load transfer is modeled at the call-site level
+# instead (see _analyze_config_path_bridge).
+_CONFIG_PATH_STORE = "config_set_path"
+_CONFIG_PATH_LOAD = "config_get_path"
+
 # NOTE: Safe-callee detection for assignment RHS is now delegated to the
 # per-language builtin_knowledge system.  When an assignment RHS is a call
 # whose callee is marked {"safe": True} in builtin_knowledge, no DFG edge
@@ -241,6 +251,8 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # from multiple call sites. Memoize.
         self._resolve_fn_memo: dict[int, int] = {}
         self._has_body_memo: dict[int, bool] = {}
+        # Fix 124b: 函数 → 其 own/ast 子树内全部 return 节点（memoized）
+        self._deep_returns_memo: dict[int, list[int]] = {}
         self._parent_memo: dict[int, int | None] = {}
         for v in self.graph.vs:
             if self._vlabel[v.index] != NodeLabel.FUNCTION.value:
@@ -298,6 +310,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             self._analyze_parameter_passing()
             self._analyze_return_values()
             self._analyze_fluent_api_returns()
+            # Fix 123 (CVE-2026-111217): pfSense config_set_path →
+            # config_get_path path-scoped store→load bridge
+            self._analyze_config_path_bridge()
 
         # 批量写入
         self._apply_dfg_edges()
@@ -1102,6 +1117,33 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     # -- 分析步骤 3：返回值传播 -----------------------------------------------
 
+    def _collect_return_vids_deep(self, resolved_vid: int) -> list[int]:
+        """Fix 124b: 收集函数 own/ast 子树内**所有深度**的 return 节点。
+
+        旧行为只取函数的直接 own 子 return（`function -own-> return`），
+        而普通 PHP/Java 函数体的 return 几乎总在分支/循环/switch 子树里
+        （`function -own-> branch -own-> return`），导致绝大多数函数的
+        返回值集合为空。逐函数 memoize，子树遍历只做一次。
+        """
+        got = self._deep_returns_memo.get(resolved_vid)
+        if got is not None:
+            return got
+        result = self._get_own_children_by_label(resolved_vid, NodeLabel.RETURN.value)
+        stack = [resolved_vid]
+        seen = set()
+        while stack:
+            x = stack.pop()
+            if x in seen:
+                continue
+            seen.add(x)
+            if x != resolved_vid and self._vlabel[x] == NodeLabel.RETURN.value:
+                result.append(x)
+            stack.extend(self._edges_from(x, EdgeLabel.OWN.value))
+            stack.extend(self._edges_from(x, EdgeLabel.AST.value))
+        result = list(dict.fromkeys(result))
+        self._deep_returns_memo[resolved_vid] = result
+        return result
+
     def _analyze_return_values(self) -> None:
         """#3: 返回值传播 — 将 return 值连接到调用者的赋值目标。
 
@@ -1110,6 +1152,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
         - 通过 use 边找到函数节点，再解析到真正的函数定义
         - 找到函数定义体内的 return 节点的 ast[value] 子节点
         - 若调用 operator 被赋值（其作为某个 assign 的 RHS），则创建 dfg(return_value → LHS)
+        - Fix 124c：未被赋值时，绑定 dfg(return_value → 调用 op 自身)——
+          调用 op 即该表达式的值载体，覆盖 `return fn();`（尾调用）、
+          `foo(bar())`（实参）、`fn() . $x`（操作数）等形态，后续
+          op→LHS / op→形参 / 操作数→二元op 边自然承接。
+
+        Fix 124a (CVE-2026-111217)：原实现把 ``resolved_vid == func_vid``
+        当作"占位节点无法解析"而跳过——但 use 边的 target 本就是函数
+        定义节点（use.py `_find_or_create_function` 的 fullname 精确命中
+        返回真实定义），`_resolve_function` 对带 body 的节点原样返回，
+        于是**所有同库函数调用的返回值传播被整体跳过**（实测 corpus
+        全灭：pfSense 3219 个带值 return 0 条传播、osticket 8013 个仅
+        1 条）。正确判据是"解析结果是否有函数体"，无 body 才是占位。
         """
         call_types = {
             OperatorType.CALL.value,
@@ -1143,12 +1197,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # 返回值（单目标时行为与原先一致）。
             for func_vid in self._get_cg_targets(caller_vid):
                 resolved_vid = self._resolve_function(func_vid)
-                if resolved_vid == func_vid:
-                    # 仍然是占位节点，无法解析到定义
+                # Fix 124a: 带 body 的节点就是真实定义；无 body 才是
+                # 无法解析的外部占位节点。
+                if not self._has_function_body(resolved_vid):
                     continue
 
-                # 找到真正的函数定义中的 return 节点
-                return_vids = self._get_own_children_by_label(resolved_vid, NodeLabel.RETURN.value)
+                # Fix 124b: 函数体内任意深度的 return 节点
+                return_vids = self._collect_return_vids_deep(resolved_vid)
+
+                if not return_vids:
+                    continue
+
+                assign_lhs = self._find_assign_lhs_for_callee(caller_vid)
 
                 for ret_vid in return_vids:
                     value_children = self._get_ast_children(ret_vid, role=AstRole.VALUE.value)
@@ -1156,11 +1216,14 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         continue
                     return_value_vid = value_children[0]
 
-                    # 检查调用者 operator 是否作为某个 assign 的 RHS
-                    assign_lhs = self._find_assign_lhs_for_callee(caller_vid)
                     if assign_lhs is not None:
                         self._add_dfg_edge(
                             return_value_vid, assign_lhs, DfgType.FORWARD_SLICE.value
+                        )
+                    else:
+                        # Fix 124c: 调用 op 自身作为值载体
+                        self._add_dfg_edge(
+                            return_value_vid, caller_vid, DfgType.FORWARD_SLICE.value
                         )
 
     # -- 分析步骤 3b：Fluent API / Builder 模式 DFG 回传 -------------------------
@@ -1283,6 +1346,120 @@ class DataFlowBuilder(BaseEdgeBuilder):
             self._add_dfg_edge(vid, receiver_vid, DfgType.FORWARD_SLICE.value)
 
     # -- 分析步骤 4：同名变量链接 ---------------------------------------------
+
+    # -- Fix 123 (CVE-2026-111217): config path 桥 -----------------------------
+
+    def _const_prefix_of(self, expr_vid: int) -> tuple[str, bool]:
+        """表达式头部的字面量前缀，返回 (前缀文本, 是否纯字面量)。
+
+        - const 节点：剥离 PHP 引号后整体返回；
+        - ``.`` 拼接（含 "a/b/{$x}" 规范化产物）：沿 AST 取头部字面量，
+          遇到非字面量即停（其后动态部分不属于前缀）；纯字面量标志
+          沿右链传播，用于区分「整串字面量」与「字面量前缀」。
+        """
+        vlabel = self._vlabel[expr_vid]
+        vname = self._vname[expr_vid] or ""
+        if vlabel == NodeLabel.CONST.value:
+            if len(vname) >= 2 and vname[0] in ("'", '"') and vname[-1] == vname[0]:
+                vname = vname[1:-1]
+            return vname, True
+        if vlabel == NodeLabel.OPERATOR.value and vname == ".":
+            left = self._ast_role_from.get((expr_vid, "left"), [])
+            right = self._ast_role_from.get((expr_vid, "right"), [])
+            if not left:
+                return "", False
+            ltext, _ = self._const_prefix_of(left[0])
+            if not right:
+                return ltext, True
+            rtext, rpure = self._const_prefix_of(right[0])
+            return ltext + rtext, rpure
+        return "", False
+
+    @staticmethod
+    def _path_components(prefix: str) -> list[str]:
+        return [c for c in prefix.split("/") if c]
+
+    @staticmethod
+    def _path_compatible(store_comps: list[str], load_comps: list[str]) -> bool:
+        """按 '/' 组件判前缀兼容（任一侧为前缀即兼容）。
+
+        空组件 = 整树读写（config_set_path('', $arr) 全量替换 /
+        config_get_path('')），与任意路径兼容。
+        """
+        if not store_comps or not load_comps:
+            return True
+        n = min(len(store_comps), len(load_comps))
+        return store_comps[:n] == load_comps[:n]
+
+    def _analyze_config_path_bridge(self) -> None:
+        """Fix 123 (CVE-2026-111217): pfSense config path store→load 桥。
+
+        ``config_set_path('a/b/c', $v)`` 把 $v 写入全局配置树；
+        ``config_get_path('a/b')`` 读回该子树。值经 array_set_path/
+        array_get_path 的 explode 动态递归传递，静态 DFG 无法解析
+        （实扫 task6615 断点取证：store 值实参已 dfg 入 $value 形参、
+        load 调用点→赋值变量的返回链完好，唯一缺口是两者之间的
+        语义桥）。在调用点层面建模：当两侧首参的字面量路径按组件
+        互为前缀时，store 值实参 → load 调用节点加 forward_slice
+        dfg 边。仅 php；函数名是 pfSense config.lib.inc 专有，其他
+        项目不定义这两个名字，零影响。
+        """
+        if self._language != "php":
+            return
+        op_label = NodeLabel.OPERATOR.value
+        stores: list[tuple[list[str], int]] = []
+        loads: list[tuple[list[str], int]] = []
+        for vid in self._name_label_idx.get((_CONFIG_PATH_STORE, op_label), []):
+            if self._vtype[vid] not in _CALL_TYPES_DFG:
+                continue
+            args = self._get_ast_children_by_arg_index(vid)
+            path_vid = args.get(0)
+            value_vid = args.get(1)
+            if path_vid is None or value_vid is None:
+                continue
+            prefix, _ = self._const_prefix_of(path_vid)
+            stores.append((self._path_components(prefix), value_vid))
+        for vid in self._name_label_idx.get((_CONFIG_PATH_LOAD, op_label), []):
+            if self._vtype[vid] not in _CALL_TYPES_DFG:
+                continue
+            args = self._get_ast_children_by_arg_index(vid)
+            path_vid = args.get(0)
+            if path_vid is None:
+                continue
+            prefix, _ = self._const_prefix_of(path_vid)
+            loads.append((self._path_components(prefix), vid))
+        if not stores or not loads:
+            return
+        load_comps_of: dict[int, list[str]] = {}
+        buckets: dict[str, list[int]] = {}
+        wildcard: list[int] = []
+        for comps, vid in loads:
+            load_comps_of[vid] = comps
+            if comps:
+                buckets.setdefault(comps[0], []).append(vid)
+            else:
+                wildcard.append(vid)
+        all_loads = list(load_comps_of)
+        added = 0
+        for store_comps, value_vid in stores:
+            if not store_comps:
+                cand = all_loads
+            else:
+                cand = buckets.get(store_comps[0], []) + wildcard
+            for load_vid in cand:
+                if self._path_compatible(store_comps, load_comps_of[load_vid]):
+                    self._add_dfg_edge(value_vid, load_vid, DfgType.FORWARD_SLICE.value)
+                    # Fix 127 (CVE-2026-111217): mark the store-side value
+                    # node — the ONLY legitimate crossing point for param
+                    # back-walk in _bridge_source_bfs (write-side provenance
+                    # of a persistent store; see Fix 127 notes there).
+                    self.graph.vs[value_vid]["cfg_store"] = 1
+                    added += 1
+        if added:
+            logger.debug(
+                "[DFG] Fix123 config-path bridge: %d edges (%d stores, %d loads)",
+                added, len(stores), len(loads),
+            )
 
     def _analyze_foreach_flows(self) -> None:
         """Fix 21c: foreach (expr as $k => $v) — connect the iterated array
