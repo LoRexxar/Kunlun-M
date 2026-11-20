@@ -21,44 +21,48 @@
   "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains). | 2026-11-14 Fix84 (CVE-2026-30530): method-body DB-probe semantic gate; installer CREATE DATABASE chain (install.php:52 $_POST → db_create_database → mysqli.php:158) human-verified real TP but flaps with cross-file dfg arg-binding races — tolerated in known_flaky_locs. | 2026-11-17 Fix 98c/99b3/102a/102b (CVE-2026-29080 rucio): python-gated summary fixes; PHP returns to HEAD form (Removed DFG 27361) +1 stable TP ticket-preview.tmpl.php:59 (preview renders POSTed draft ticket; file-scoped annotation family, in 6164+6172).",
   "_flaky_note": "pear Net/DNS2 cache rows flicker with engine-external nondeterminism; Fix 68 baseline run: -2 (vs -23 without Fix 68)",
   "retry_on_fail": true,
-  "task_id": 6434,
-  "count": 73,
+  "task_id": 6719,
+  "count": 571,
   "findings": [
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1964"
+    "loc": "include/class.auth.php:762"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1965"
+    "loc": "include/class.auth.php:767"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1968"
+    "loc": "include/class.auth.php:774"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1969"
+    "loc": "include/class.auth.php:971"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1973"
+    "loc": "include/class.auth.php:976"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1977"
+    "loc": "include/class.auth.php:983"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1978"
+    "loc": "include/class.export.php:265"
    },
    {
     "cvi": "1000",
-    "loc": "include/class.dynamic_forms.php:1979"
+    "loc": "include/class.export.php:301"
    },
    {
     "cvi": "1000",
     "loc": "include/class.forms.php:4480"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.forms.php:4481"
    },
    {
     "cvi": "1000",
@@ -94,7 +98,23 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/class.forms.php:4693"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/class.forms.php:4703"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.forms.php:4719"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.forms.php:4730"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.forms.php:4734"
    },
    {
     "cvi": "1000",
@@ -162,6 +182,10 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/class.forms.php:5326"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/class.forms.php:5535"
    },
    {
@@ -170,7 +194,19 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/class.forms.php:5579"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/class.http.php:135"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.http.php:47"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/class.plugin.php:527"
    },
    {
     "cvi": "1000",
@@ -182,7 +218,95 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/class.setup.php:114"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/cli/modules/file.php:73"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/accesslink.inc.php:36"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/accesslink.inc.php:44"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/accesslink.inc.php:56"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/edit.inc.php:8"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/faq.inc.php:21"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/header.inc.php:157"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/login.inc.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/login.inc.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/login.inc.php:69"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/open.inc.php:108"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/register.confirm.inc.php:4"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/register.confirmed.inc.php:4"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/dynamic-form.tmpl.php:67"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/thread-entry.tmpl.php:27"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/thread-entry.tmpl.php:33"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/thread-entry.tmpl.php:45"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/thread-export.tmpl.php:60"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/client/templates/ticket-print.tmpl.php:154"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/ticket-print.tmpl.php:180"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/ticket-print.tmpl.php:204"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/templates/ticket-print.tmpl.php:216"
    },
    {
     "cvi": "1000",
@@ -190,11 +314,47 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/client/tickets.inc.php:253"
+    "loc": "include/client/tickets.inc.php:208"
    },
    {
     "cvi": "1000",
-    "loc": "include/client/tickets.inc.php:261"
+    "loc": "include/client/tickets.inc.php:211"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:214"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:217"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:220"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:256"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:258"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/view.inc.php:132"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/view.inc.php:162"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/view.inc.php:27"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/view.inc.php:40"
    },
    {
     "cvi": "1000",
@@ -206,7 +366,375 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/apikey.inc.php:118"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/apikey.inc.php:25"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/apikeys.inc.php:149"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/apikeys.inc.php:153"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/apikeys.inc.php:157"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/banlist.inc.php:168"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/banlist.inc.php:172"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/banlist.inc.php:176"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/banrule.inc.php:28"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/banrule.inc.php:73"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/cannedresponse.inc.php:123"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/cannedresponse.inc.php:28"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/cannedresponses.inc.php:172"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/cannedresponses.inc.php:176"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/cannedresponses.inc.php:180"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/categories.inc.php:137"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/categories.inc.php:141"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/categories.inc.php:145"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/category.inc.php:168"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/category.inc.php:44"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/dashboard.inc.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dashboard.inc.php:77"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dashboard.inc.php:88"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:123"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:136"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:142"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:162"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:185"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:207"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:222"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:255"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:275"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:292"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:304"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:331"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:34"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:355"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:357"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:367"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:388"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:415"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:431"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:471"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:79"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:90"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:143"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:199"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:203"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:207"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:211"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:215"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/departments.inc.php:219"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-form.inc.php:124"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-form.inc.php:296"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-form.inc.php:306"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-form.inc.php:40"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-forms.inc.php:108"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-forms.inc.php:128"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-list.inc.php:231"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-list.inc.php:27"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-lists.inc.php:107"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/dynamic-lists.inc.php:88"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:115"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:161"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:167"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:180"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:217"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:23"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:29"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:47"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/emails.inc.php:151"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/faq-categories.inc.php:157"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/faq-category.inc.php:10"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/faq.inc.php:234"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/faq.inc.php:257"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/faq.inc.php:80"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:162"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:173"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:196"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:206"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:266"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:350"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filter.inc.php:97"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filters.inc.php:173"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filters.inc.php:177"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/filters.inc.php:181"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/header.inc.php:74"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:146"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:222"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:26"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:268"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:313"
    },
    {
     "cvi": "1000",
@@ -214,7 +742,151 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:427"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:92"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopics.inc.php:199"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopics.inc.php:203"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopics.inc.php:207"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopics.inc.php:211"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/orgs.inc.php:173"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/orgs.inc.php:174"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/page.inc.php:192"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/page.inc.php:45"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/page.inc.php:82"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/pages.inc.php:150"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/pages.inc.php:154"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/pages.inc.php:158"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin-add.inc.php:38"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin-instance.inc.php:14"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin-instance.inc.php:36"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin.inc.php:44"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin.inc.php:5"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin.inc.php:68"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugin.inc.php:70"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugins.inc.php:102"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugins.inc.php:121"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugins.inc.php:128"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugins.inc.php:133"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugins.inc.php:58"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/plugins.inc.php:82"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:212"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:255"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:300"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:321"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:339"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:356"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:373"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:391"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:425"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/profile.inc.php:428"
    },
    {
     "cvi": "1000",
@@ -222,7 +894,587 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/queue.inc.php:35"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/queue.inc.php:410"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/role.inc.php:121"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/role.inc.php:26"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/roles.inc.php:109"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/roles.inc.php:113"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/roles.inc.php:117"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/roles.inc.php:91"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/schedule.inc.php:37"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/schedule.inc.php:43"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/schedules.inc.php:108"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/schedules.inc.php:89"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-agents.inc.php:210"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-pages.inc.php:301"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-pages.inc.php:41"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-system.inc.php:232"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-system.inc.php:235"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-system.inc.php:286"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-system.inc.php:387"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-tickets.inc.php:130"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-tickets.inc.php:149"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-tickets.inc.php:165"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-tickets.inc.php:167"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-tickets.inc.php:88"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-users.inc.php:188"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-users.inc.php:83"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-users.inc.php:85"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/slaplan.inc.php:129"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/slaplan.inc.php:28"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/slaplans.inc.php:163"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/slaplans.inc.php:167"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/slaplans.inc.php:171"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:236"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:269"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:279"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:479"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:48"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:565"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:575"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staffmembers.inc.php:244"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staffmembers.inc.php:248"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staffmembers.inc.php:253"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/syslogs.inc.php:195"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/system.inc.php:117"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/system.inc.php:119"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/system.inc.php:185"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/system.inc.php:211"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/system.inc.php:92"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tasks.inc.php:308"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tasks.inc.php:339"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tasks.inc.php:453"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/team.inc.php:106"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/team.inc.php:138"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/team.inc.php:150"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/team.inc.php:180"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/team.inc.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/teams.inc.php:165"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/teams.inc.php:169"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/teams.inc.php:173"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/template.inc.php:171"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/template.inc.php:27"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/template.inc.php:95"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates.inc.php:117"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates.inc.php:156"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates.inc.php:160"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates.inc.php:164"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/2fas.tmpl.php:6"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/advanced-search.tmpl.php:56"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/advanced-search.tmpl.php:58"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/advanced-search.tmpl.php:84"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:17"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:21"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:32"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:38"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/assign.tmpl.php:9"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:12"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:14"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:29"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:35"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:44"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/confirm.tmpl.php:6"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:13"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:17"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:30"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:36"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:52"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:53"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/delete.tmpl.php:7"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/templates/dynamic-form-fields-view.tmpl.php:35"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/dynamic-form.tmpl.php:113"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-mailbox.tmpl.php:146"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-mailbox.tmpl.php:148"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-oauth2auth.tmpl.php:122"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-oauth2auth.tmpl.php:35"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-oauth2auth.tmpl.php:48"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-oauth2auth.tmpl.php:65"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-oauth2auth.tmpl.php:67"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/email-smtp.tmpl.php:76"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/export.tmpl.php:12"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/export.tmpl.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/export.tmpl.php:28"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/export.tmpl.php:6"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/list-import.tmpl.php:65"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/list-item-preview.tmpl.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/list-item-row.tmpl.php:42"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/mark-as.tmpl.php:29"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/merge-tickets.tmpl.php:14"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/merge-tickets.tmpl.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/merge-tickets.tmpl.php:70"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/note.tmpl.php:6"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-delete.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-delete.tmpl.php:17"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-delete.tmpl.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-delete.tmpl.php:43"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-delete.tmpl.php:9"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-lookup.tmpl.php:12"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-lookup.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-lookup.tmpl.php:27"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-lookup.tmpl.php:29"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-lookup.tmpl.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/org-profile.tmpl.php:59"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/plugin-instance.tmpl.php:37"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/plugin-instance.tmpl.php:39"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-column-edit.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-column.tmpl.php:25"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-column.tmpl.php:65"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-export.tmpl.php:42"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-fields.tmpl.php:71"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-fields.tmpl.php:73"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/queue-sorting-edit.tmpl.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/refer.tmpl.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/refer.tmpl.php:89"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/release.tmpl.php:63"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-edit.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-edit.tmpl.php:21"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-edit.tmpl.php:23"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-edit.tmpl.php:25"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-edit.tmpl.php:51"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:21"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:29"
    },
    {
     "cvi": "1000",
@@ -230,7 +1482,283 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:53"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:61"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:74"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:80"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-preview.tmpl.php:9"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-print.tmpl.php:195"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-print.tmpl.php:225"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:14"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:28"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:30"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:36"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:52"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:53"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-status.tmpl.php:8"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:105"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:116"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:124"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:130"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:180"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:183"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:185"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:187"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:195"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:285"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:287"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:290"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:293"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:310"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:437"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:495"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:507"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:513"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:548"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:569"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:590"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task-view.tmpl.php:657"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task.tmpl.php:12"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task.tmpl.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task.tmpl.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/task.tmpl.php:22"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tasks-actions.tmpl.php:74"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tasks-actions.tmpl.php:82"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tasks-actions.tmpl.php:86"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tasks-actions.tmpl.php:88"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tasks-actions.tmpl.php:91"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tasks-actions.tmpl.php:94"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entries-preview.tmpl.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entries-preview.tmpl.php:28"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry-edit.tmpl.php:62"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry-resend.tmpl.php:32"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry-resend.tmpl.php:8"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry-view.tmpl.php:29"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry-view.tmpl.php:37"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry.tmpl.php:50"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry.tmpl.php:65"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry.tmpl.php:74"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/thread-entry.tmpl.php:89"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:101"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:148"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:221"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:31"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:39"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/templates/ticket-preview.tmpl.php:62"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:73"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:82"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-preview.tmpl.php:95"
    },
    {
     "cvi": "1000",
@@ -238,7 +1766,179 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/staff/templates/tickets.tmpl.php:169"
+    "loc": "include/staff/templates/ticket-print.tmpl.php:215"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-print.tmpl.php:267"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-print.tmpl.php:277"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:14"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:29"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:35"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:8"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:89"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/ticket-status.tmpl.php:90"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tickets.tmpl.php:172"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tickets.tmpl.php:214"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tickets.tmpl.php:75"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/timezone.tmpl.php:8"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-account.tmpl.php:129"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-account.tmpl.php:96"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-delete.tmpl.php:15"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-delete.tmpl.php:17"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-delete.tmpl.php:19"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-delete.tmpl.php:9"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-import.tmpl.php:45"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-import.tmpl.php:67"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-register.tmpl.php:12"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-register.tmpl.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-register.tmpl.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-register.tmpl.php:23"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/user-register.tmpl.php:84"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/users.tmpl.php:128"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/users.tmpl.php:66"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-edit.inc.php:116"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-edit.inc.php:129"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-edit.inc.php:135"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-edit.inc.php:147"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-edit.inc.php:164"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-edit.inc.php:20"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:298"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:339"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:349"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:410"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:432"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:456"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-open.inc.php:479"
    },
    {
     "cvi": "1000",
@@ -250,7 +1950,151 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/ticket-tasks.inc.php:120"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-tasks.inc.php:25"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1011"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1056"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1084"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1112"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1151"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1165"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1169"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1176"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1203"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1212"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1254"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1278"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1290"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1294"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1297"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1304"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:1308"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:245"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:284"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:286"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:303"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:346"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:433"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:696"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:703"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:710"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:720"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:786"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:825"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:890"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:928"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/ticket-view.inc.php:990"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tpl.inc.php:107"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/tpl.inc.php:124"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/tpl.inc.php:61"
    },
    {
     "cvi": "1000",
@@ -258,7 +2102,119 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/user-view.inc.php:115"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/user-view.inc.php:175"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/user-view.inc.php:180"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/user-view.inc.php:185"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/users.inc.php:204"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/users.inc.php:230"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/users.inc.php:231"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/aborted.inc.php:23"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/done.inc.php:11"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/done.inc.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/done.inc.php:32"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/done.inc.php:41"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/prereq.inc.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/prereq.inc.php:23"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/upgrade.inc.php:16"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/upgrade.inc.php:23"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/upgrader/upgrade.inc.php:56"
+   },
+   {
+    "cvi": "1000",
+    "loc": "scp/emailtest.php:106"
+   },
+   {
+    "cvi": "1000",
+    "loc": "scp/emailtest.php:115"
+   },
+   {
+    "cvi": "1000",
+    "loc": "scp/emailtest.php:91"
+   },
+   {
+    "cvi": "1000",
+    "loc": "scp/emailtest.php:96"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/file-missing.inc.php:18"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/file-perm.inc.php:8"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/file-unclean.inc.php:10"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/file-unclean.inc.php:7"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/header.inc.php:25"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/install-done.inc.php:46"
+   },
+   {
+    "cvi": "1000",
+    "loc": "setup/inc/install-prereq.inc.php:18"
+   },
+   {
+    "cvi": "10002",
+    "loc": "include/class.list.php:586"
    },
    {
     "cvi": "1002",
@@ -273,12 +2229,44 @@
     "loc": "scp/settings.php:57"
    },
    {
+    "cvi": "1009",
+    "loc": "include/class.forms.php:1566"
+   },
+   {
+    "cvi": "1009",
+    "loc": "include/class.forms.php:1671"
+   },
+   {
+    "cvi": "1009",
+    "loc": "include/class.knowledgebase.php:75"
+   },
+   {
     "cvi": "1011",
     "loc": "include/pear/Mail/sendmail.php:146"
    },
    {
     "cvi": "1013",
     "loc": "include/class.http.php:79"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/class.cli.php:104"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/class.import.php:34"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/class.import.php:46"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/class.list.php:599"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/class.list.php:603"
    },
    {
     "cvi": "1017",
@@ -291,6 +2279,10 @@
    {
     "cvi": "1017",
     "loc": "include/laminas-mail/src/Protocol/Smtp.php:203"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Mail/mime.php:787"
    },
    {
     "cvi": "1017",
