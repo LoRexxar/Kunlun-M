@@ -44,7 +44,26 @@ class CVI_3101_graph():
         self.vul_function = ["readFileSync", "readFile", "writeFileSync", "writeFile",
                              "appendFileSync", "appendFile", "createReadStream", "createWriteStream",
                              "openSync", "open", "unlinkSync", "unlink",
-                             "readdirSync", "readdir", "renameSync", "rename"]
+                             "readdirSync", "readdir", "renameSync", "rename",
+                             # Fix 139 (CVE-2026-128347): ExcelJS stream
+                             # WorkbookWriter.addImage embeds the local file
+                             # at options.filename into the generated xlsx
+                             # without a parent-directory traversal check
+                             # (GHSA-f9m8-8qmf-qq29).  QUALIFIED-only via the
+                             # Fix 139 typed-receiver candidate — the
+                             # traversal-REJECTING non-streaming
+                             # ExcelJS.Workbook#addImage never binds.
+                             "WorkbookWriter.addImage"]
 
     def main(self, regex_string, sink_args=None):
+        import re
+        # Fix 139 (CVE-2026-128347): addImage shape gate — the arbitrary
+        # file read lives in the options.filename key.  An addImage call
+        # whose object literal carries no `filename:` key (docx-style
+        # {data: ...} embeds in-memory buffers, no disk read) is not this
+        # sink.  main_input spans the whole multi-line call (scanner
+        # extends until brackets close), so the key check is reliable.
+        if isinstance(regex_string, str) and re.search(r'addImage\s*\(', regex_string):
+            if not re.search(r'filename\s*:', regex_string):
+                return False
         pass

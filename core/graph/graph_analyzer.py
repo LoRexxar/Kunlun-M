@@ -843,6 +843,68 @@ class GraphAnalyzer:
         except Exception:
             return ""
 
+    def _js_receiver_typed_candidates(self, vid: int, short_name: str) -> list[str]:
+        """Fix 139 (CVE-2026-128347): receiver-typed qualified candidates for
+        a javascript method call — ``WorkbookWriter.addImage`` for
+        ``wb.addImage(...)`` where ``const wb = new
+        ExcelJS.stream.xlsx.WorkbookWriter()``.
+
+        JS graph shape (normalizer emits the member chain as one qualified
+        op name): the receiver identifier is the ``member``-edge SOURCE of
+        the CALL op (``wb --member--> wb.addImage``), and its type comes
+        from a bounded dfg reaching-def walk landing on a qualified
+        member-chain operator (``ExcelJS.stream.xlsx.WorkbookWriter``).
+        Returns candidates longest-first (full chain, then progressively
+        shorter tails down to the two-segment ``Type.method`` form) so a
+        rule may declare either the full or the short qualified sink.
+        QUALIFIED-only discipline: a type name without a dot (bare
+        ``new Workbook()`` / a require alias) yields NO candidate — those
+        stay short-name territory and never bind here.
+        """
+        try:
+            g = self.graph
+            # receiver identifier = member-edge source of the CALL op
+            recv_vid = None
+            for e in self._edge_in(vid, "member"):
+                if _vattr(g.vs[e.source], "label") == "identifier":
+                    recv_vid = e.source
+                    break
+            if recv_vid is None:
+                return []
+            # bounded reaching-def walk over dfg in-edges
+            seen: set[int] = set()
+            frontier = [recv_vid]
+            type_names: list[str] = []
+            for _ in range(3):
+                nxt: list[int] = []
+                for rvid in frontier:
+                    if rvid in seen:
+                        continue
+                    seen.add(rvid)
+                    rn = g.vs[rvid]
+                    nm = str(_vattr(rn, "name", "") or "")
+                    if _vattr(rn, "label") == "operator" and "." in nm:
+                        # qualified member-chain op (new-expression value)
+                        type_names.append(nm)
+                        continue
+                    # identifier / other: keep walking its reaching defs
+                    for e in self._edge_in(rvid, "dfg"):
+                        if e.source not in seen:
+                            nxt.append(e.source)
+                frontier = nxt
+                if not frontier:
+                    break
+            cands: list[str] = []
+            for tn in type_names:
+                parts = [p for p in tn.split(".") if p]
+                if len(parts) < 2:
+                    continue
+                for k in range(len(parts)):
+                    cands.append(".".join(parts[k:] + [short_name]))
+            return cands
+        except Exception:
+            return []
+
     def _is_framework_callback_param(self, param_vid: int) -> tuple[str, str] | None:
         """Fix 135a (CVE-2026-90436): is this entry param a source because
         its enclosing method implements a known framework callback interface
@@ -1181,6 +1243,32 @@ class GraphAnalyzer:
                             matched_name = _typed135
                             callee_name = _typed135
                             _is_qualified_match = True
+
+            if not matched_name:
+                # Fix 139 (CVE-2026-128347, ExcelJS): javascript
+                # typed-receiver sink candidate.  A JS method call carries
+                # only the receiver-qualified op name ("wb.addImage" — the
+                # receiver is a local), which can never equal a qualified
+                # sink name ("WorkbookWriter.addImage") textually.  Resolve
+                # the receiver's constructor chain over dfg (``wb = new
+                # ExcelJS.stream.xlsx.WorkbookWriter()``) and try every
+                # qualified tail.  This keeps the sink match QUALIFIED, so
+                # the vulnerable streaming writer fires while the
+                # traversal-REJECTING non-streaming ``new ExcelJS.
+                # Workbook()`` receiver never binds.
+                if (self.language == "javascript"
+                        and call_type == OperatorType.METHOD_CALL.value
+                        and "." in normalized_callee
+                        and "." not in normalized_callee.rsplit(".", 1)[0]):
+                    _cands139 = self._js_receiver_typed_candidates(
+                        v.index, normalized_callee.rsplit(".", 1)[-1])
+                    for _q139 in _cands139:
+                        if (_q139 in normalized_set
+                                or _q139.lower() in normalized_lower):
+                            matched_name = _q139
+                            callee_name = _q139
+                            _is_qualified_match = True
+                            break
 
             if not matched_name:
                 # Path B: qualified fullname match via use-edge function node.

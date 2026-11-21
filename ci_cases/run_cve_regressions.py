@@ -120,6 +120,15 @@ EXPECTATIONS = {
     # ArrayPattern over Object.entries → helper call arg → param →
     # template literal → db.query.  Three GT sinks (L53/L80/L173).
     'sync.js': {'3104': 3},
+    # Fix 139 (CVE-2026-128347 ExcelJS stream WorkbookWriter): req.body →
+    # object-literal property value → wb.addImage({filename}) where
+    # wb = new ExcelJS.stream.xlsx.WorkbookWriter() embeds the local file
+    # at options.filename into xl/media (arbitrary file read, GHSA-
+    # f9m8-8qmf-qq29).  Two engine parts: JS typed-receiver candidate
+    # (wb.addImage → WorkbookWriter.addImage, traversal-REJECTING
+    # non-streaming ExcelJS.Workbook never binds) + object-literal
+    # ast[arg] children (every property value reaches the call).
+    'stream_export.js': {'3101': 1},
     # Fix 79 (CVE-2026-32613 Spinnaker echo SpEL RCE): user-authored
     # pipeline expectedArtifacts (TYPE-qualified source
     # Pipeline.getExpectedArtifacts) → null-check weak re-assign →
@@ -404,6 +413,11 @@ FORBIDDEN = {
     # (src=/href=) is NOT a repair — that shape lives in
     # DocumentTemplateRender.php (sentinel), which must keep firing.
     'CVE-2026-124490_contact_escape.php': ('1000',),
+    # Fix 139 (CVE-2026-128347) negative controls: non-streaming
+    # ExcelJS.Workbook#addImage REJECTS parent-directory traversal and a
+    # const filename is untainted — a 3101 row on either shape means the
+    # typed-receiver candidate regressed to bare-name binding.
+    'negatives.js': ('3101',),
 }
 
 

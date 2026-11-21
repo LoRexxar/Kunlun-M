@@ -385,6 +385,19 @@ class Normalizer:
                 ast_node, add_node, add_edge, ctx_stack, file_path, depth,
             )
 
+        # ---- Object literal -------------------------------------------
+        # Fix 139b (CVE-2026-128347): an ObjectExpression argument used to
+        # fall into _walk_children, whose "return the LAST walked child"
+        # contract bound the call's ast[arg] edge to the final property
+        # VALUE only ({filename: X, extension: 'png'} → arg = 'png' const)
+        # and orphaned every other property value into the enclosing
+        # function — taint on any non-last property could never reach the
+        # call sink.  Mirror the PHP _walk_array_literal shape instead.
+        if node_type == "ObjectExpression":
+            return self._walk_object(
+                ast_node, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+
         # ---- EmptyStatement, DebuggerStatement → skip ------------------
         if node_type in ("EmptyStatement", "DebuggerStatement"):
             return None
@@ -2478,6 +2491,70 @@ class Normalizer:
     # ===================================================================
     # Fallback: walk child fields
     # ===================================================================
+
+    def _walk_object(self, node, add_node, add_edge,
+                     ctx_stack, file_path, depth) -> int:
+        """Fix 139b (CVE-2026-128347): map a JS object literal to an
+        operator/call node (mirrors PHP ``_walk_array_literal`` for
+        ``array()``).
+
+        Every property VALUE becomes an ast[arg] child, so the DFG
+        builder's "call args → call" rule automatically creates
+        value → object dfg edges and taint on ANY property reaches the
+        sink call.  Property keys become ast[lhs] children (present in
+        the graph, never data-flow sources).  SpreadElement properties
+        (``{...src}``) walk their argument as a value — the spread
+        forwards every key of src.
+        """
+        lineno, end_lineno = self._loc(node)
+        pos = add_node({
+            "label": NodeLabel.OPERATOR.value,
+            "name": "{...}",
+            "lineno": lineno,
+            "end_lineno": end_lineno,
+            "language": self.language,
+            "attrs": {
+                "type": OperatorType.CALL.value,
+                "callee": "ObjectExpression",
+                "raw_type": "ObjectExpression",
+            },
+        })
+        self._own_edge(add_edge, ctx_stack, pos, depth)
+
+        properties = getattr(node, "properties", []) or []
+        arg_idx = 0
+        for prop in properties:
+            if prop is None:
+                continue
+            # SpreadElement inside an object literal: {...src}
+            if getattr(prop, "type", "") == "SpreadElement":
+                spread_arg = getattr(prop, "argument", None)
+                if spread_arg is not None:
+                    child_pos = self._walk_node(
+                        spread_arg, add_node, add_edge, ctx_stack,
+                        file_path, 0)
+                    if child_pos is not None:
+                        self._ast_edge(add_edge, pos, child_pos,
+                                       AstRole.ARG.value,
+                                       extra={"arg_index": arg_idx})
+                        arg_idx += 1
+                continue
+            key = getattr(prop, "key", None)
+            value = getattr(prop, "value", None)
+            if key is not None:
+                key_pos = self._walk_node(key, add_node, add_edge, ctx_stack,
+                                          file_path, 0)
+                if key_pos is not None:
+                    self._ast_edge(add_edge, pos, key_pos, AstRole.LHS.value)
+            if value is not None:
+                child_pos = self._walk_node(value, add_node, add_edge,
+                                            ctx_stack, file_path, 0)
+                if child_pos is not None:
+                    self._ast_edge(add_edge, pos, child_pos,
+                                   AstRole.ARG.value,
+                                   extra={"arg_index": arg_idx})
+                    arg_idx += 1
+        return pos
 
     def _walk_children(self, node, add_node, add_edge,
                        ctx_stack, file_path, depth) -> int | None:
