@@ -54,6 +54,28 @@ _JAVA_IMMUTABLE_RECEIVER_TYPES: frozenset[str] = frozenset({
     "Instant", "Duration", "Period", "Optional", "UUID", "CharSequence",
 })
 
+# Fix 137b (CVE-2026-83542 OFBiz): java Map-family container write-back.
+# `map.put(k, tainted)` / `map.putAll(taintedMap)` store the argument INTO
+# the receiver container — after the call the container carries the
+# argument's taint (weak/field-insensitive update, same accepted
+# semantics as the PHP array-item write-back in _analyze_assignments).
+# Without this edge OFBiz's screen-context flow is invisible:
+# UtilHttp.getCombinedMap returns a local map populated via
+# putAll(getParameterMap(request)), and populateBasicContext does
+# context.put("parameters", parameterMap) — both stores vanish, so the
+# DecoratorScreen ${parameters.mainDecoratorLocation} → expandString →
+# resolveLocation chain can never reach the HTTP source.
+# Gate: receiver DECLARED type (Fix 133d helper) must be a Map family
+# member.  The fluent-API _MUTATOR_NAMES exclusion of `put` stays intact
+# for non-Map receivers (trackingCode.set(field_A, input) field-
+# insensitivity FP precedent).
+_JAVA_MAP_RECEIVER_TYPES: frozenset[str] = frozenset({
+    "Map", "HashMap", "LinkedHashMap", "TreeMap", "Hashtable",
+    "ConcurrentMap", "ConcurrentHashMap", "NavigableMap", "SortedMap",
+    "AbstractMap", "MapStack", "Properties", "WeakHashMap", "EnumMap",
+})
+_JAVA_MAP_WRITE_METHODS: frozenset[str] = frozenset({"put", "putAll"})
+
 # PHP type casts that sanitize taint by destroying string content.
 # Must match graph_analyzer._TYPE_CAST_SAFE — when the DFG builder encounters
 # one of these as an assign RHS, it must NOT pierce through the cast node.
@@ -307,6 +329,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # Fix 96c (CVE-2026-29080): list mutator (append/extend/
             # insert) argument → container write-back (python)
             self._analyze_container_writeback()
+            # Fix 137b (CVE-2026-83542): java Map-family put/putAll
+            # argument → container write-back
+            if language == "java":
+                self._analyze_java_map_writeback()
             # Fix 79d (CVE-2026-32613): collection/stream higher-order
             # dispatch — receiver elements flow into lambda parameters
             self._analyze_lambda_dispatch_flows()
@@ -324,6 +350,11 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # Fix 123 (CVE-2026-111217): pfSense config_set_path →
             # config_get_path path-scoped store→load bridge
             self._analyze_config_path_bridge()
+            # Fix 137d (CVE-2026-83542): java reference-semantics argument
+            # write-back (callee mutation of a reference param is visible
+            # on the caller's variable)
+            if language == "java":
+                self._analyze_java_reference_writeback()
 
         # 批量写入
         self._apply_dfg_edges()
@@ -1716,6 +1747,184 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         w_vid, r_vid, DfgType.FORWARD_SLICE.value)
 
     _APPEND_METHODS = frozenset({"append", "extend", "insert"})
+
+    def _analyze_java_map_writeback(self) -> None:
+        """Fix 137b (CVE-2026-83542): java Map-family put/putAll write-back.
+
+        ``map.put(k, tainted)`` / ``map.putAll(taintedMap)`` store the
+        argument INTO the receiver map — after the call the container
+        carries the argument's taint.  The call returns void/old-value
+        and the receiver's DEF node (``map = new HashMap<>()``) has no
+        edge to the argument, so the map stayed untainted forever
+        (OFBiz: getCombinedMap's putAll(parameterMap) and
+        populateBasicContext's context.put("parameters", parameters)).
+
+        Edge added: every ast[arg] child of the mutator call → the
+        receiver identifier (resolved from the call's dfg receiver
+        in-edge, same technique as _analyze_fluent_api_returns).
+        Container-level weak update, matching the python append/extend
+        semantics of Fix 96c and the PHP array-item write-back.
+
+        Gates:
+        - callee short name ∈ {put, putAll}
+        - receiver DECLARED java type ∈ _JAVA_MAP_RECEIVER_TYPES
+          (Fix 133d helper; keeps the generic put on user classes
+          excluded — field-insensitivity FP precedent)
+        """
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            # qualified-name instance calls (`combinedMap.putAll(...)`,
+            # `context.put(...)`) are typed 'static_call' by the java
+            # normalizer; `this.x.y(...)` is 'method_call' — accept the
+            # full call family (_CALL_TYPES_DFG precedent).
+            if self._vtype[v.index] not in ("static_call", "method_call", "call"):
+                continue
+            vid = v.index
+            name = self._vname[vid] or ""
+            dot = name.rfind(".")
+            if dot <= 0:
+                continue
+            if name[dot + 1:] not in _JAVA_MAP_WRITE_METHODS:
+                continue
+            receiver_name = name[:name.find(".")]
+            if not receiver_name:
+                continue
+            # receiver identifier: dfg in-edge from a same-name
+            # identifier/parameter (created by _analyze_method_receiver_flows
+            # in the SAME batch — its edges are still pending in
+            # self._dfg_edges, so consult both the graph and the pending
+            # set, same technique as _analyze_container_writeback).
+            receiver_vid = None
+            for eid in self.graph.incident(vid, mode="in"):
+                e = self.graph.es[eid]
+                if self._elabel[e.index] != EdgeLabel.DFG.value:
+                    continue
+                src = self.graph.vs[e.source]
+                if (self._vlabel[src.index] in (NodeLabel.IDENTIFIER.value,
+                                                NodeLabel.PARAMETER.value)
+                        and (self._vname[src.index] or "") == receiver_name):
+                    receiver_vid = src.index
+                    break
+            if receiver_vid is None:
+                for src, tgt, _t in self._dfg_edges:
+                    if (tgt == vid and self._vlabel[src] in (NodeLabel.IDENTIFIER.value,
+                                                             NodeLabel.PARAMETER.value)
+                            and (self._vname[src] or "") == receiver_name):
+                        receiver_vid = src
+                        break
+            if receiver_vid is None:
+                continue
+            # declared-type gate
+            jt = self._receiver_declared_java_type(vid, receiver_name)
+            if jt not in _JAVA_MAP_RECEIVER_TYPES:
+                continue
+            arg_vids = self._get_ast_children(vid, role=AstRole.ARG.value)
+            for a in arg_vids:
+                if a != receiver_vid:
+                    self._add_dfg_edge(a, receiver_vid, DfgType.FORWARD_SLICE.value)
+
+    # java immutable receiver/param types — write-back must never fire on
+    # them (Fix 137d): primitives, boxed numbers, String/CharSequence and
+    # the common immutable value objects.  Assignment to such a param can
+    # never be observed through the caller's argument.
+    _JAVA_IMMUTABLE_VALUE_TYPES: frozenset[str] = frozenset({
+        "byte", "short", "int", "long", "float", "double", "char",
+        "boolean", "void", "String", "CharSequence", "Integer", "Long",
+        "Double", "Float", "Boolean", "Character", "Short", "Byte",
+        "BigInteger", "BigDecimal", "Optional", "UUID", "Instant",
+        "LocalDate", "LocalTime", "LocalDateTime", "Duration", "Period",
+    })
+
+    def _analyze_java_reference_writeback(self) -> None:
+        """Fix 137d (CVE-2026-83542): java reference-semantics arg write-back.
+
+        Java passes objects BY REFERENCE: when a callee writes into a
+        reference-typed parameter (``context.put(...)`` via Fix 137b, or a
+        plain reassignment def), the mutation is observable on the CALLER's
+        argument variable after the call.  The DFG only models the forward
+        binding ``arg -> param``, so a taint that enters the param inside
+        the callee never reaches the caller's variable — OFBiz's whole
+        screen-context build chain died at ``populateContextForRequest``
+        (context mutated two frames below the servlet entry).
+
+        Edge added: for every arg->param binding whose param has a
+        declared mutable (reference) java type, every DFG in-source of the
+        param that is NOT itself a bound caller argument (i.e. a mutation
+        inside the callee) also flows to the arg's DEF nodes (the dfg
+        identifier/parameter sources of the arg use — reaching definitions,
+        same resolution as the python container write-back).
+
+        Nested frames (mutation enters a *use* of the outer param via an
+        inner call's write-back) converge through the fixpoint loop below:
+        pass N's new edges are visible to pass N+1 through the shared
+        pending set ``self._dfg_edges``.
+        """
+        # full dfg in-edge map: applied graph edges + pending set.
+        # Fix 137e (perf): the pending set is bucket-indexed PER PASS —
+        # _in_sources used to linearly scan self._dfg_edges on every call
+        # (O(E) x params x args x defs = quadratic; py-spy caught it
+        # burning a full core 50% over scan1 baseline on the OFBiz corpus).
+        # applied graph edges are immutable during this function (new edges
+        # only append to the pending set, applied later by
+        # _apply_dfg_edges), so applied_in is indexed once up front.
+        applied_in: dict[int, list[int]] = {}
+        for e in self.graph.es:
+            if self._elabel[e.index] == EdgeLabel.DFG.value:
+                applied_in.setdefault(e.target, []).append(e.source)
+
+        pending_in: dict[int, list[int]] = {}
+
+        def _index_pending() -> None:
+            pending_in.clear()
+            for s, t, _t in self._dfg_edges:
+                pending_in.setdefault(t, []).append(s)
+
+        def _in_sources(vid: int) -> list[int]:
+            return applied_in.get(vid, []) + pending_in.get(vid, [])
+
+        # Snapshot the arg->param BINDINGS before the fixpoint loop: the
+        # write-back edges this function adds also TARGET parameter nodes
+        # (mutation -> outer param), and must never be re-classified as
+        # caller arguments on the next pass (self-poisoning: every mutation
+        # source would be excluded and the loop would converge to nothing).
+        binding_edges = list(self._dfg_edges)
+
+        for _pass in range(3):
+            added_before = len(self._dfg_edges)
+            _index_pending()  # Fix 137e: refresh per-pass bucket index
+            # arg -> param bindings (pending set; _analyze_parameter_passing
+            # just created them this phase)
+            param_args: dict[int, set[int]] = {}
+            for s, t, _t in binding_edges:
+                if self._vlabel[t] == NodeLabel.PARAMETER.value:
+                    param_args.setdefault(t, set()).add(s)
+            for param_vid, arg_vids in param_args.items():
+                v = self.graph.vs[param_vid]
+                jt = str(v["java_type"] or "").split("<")[0].strip()
+                if jt in self._JAVA_IMMUTABLE_VALUE_TYPES:
+                    continue
+                # mutation sources: dfg in-sources of the param that are
+                # not caller args bound to it and not structural own edges
+                muts = [s for s in _in_sources(param_vid) if s not in arg_vids]
+                if not muts:
+                    continue
+                for arg_vid in arg_vids:
+                    if self._vlabel[arg_vid] not in (NodeLabel.IDENTIFIER.value,
+                                                     NodeLabel.PARAMETER.value):
+                        continue
+                    # DEF nodes of the arg use: dfg identifier/parameter
+                    # sources (reaching definitions)
+                    for d in _in_sources(arg_vid):
+                        if self._vlabel[d] not in (NodeLabel.IDENTIFIER.value,
+                                                   NodeLabel.PARAMETER.value):
+                            continue
+                        for m in muts:
+                            if m != d:
+                                self._add_dfg_edge(
+                                    m, d, DfgType.FORWARD_SLICE.value)
+            if len(self._dfg_edges) == added_before:
+                break
 
     def _analyze_container_writeback(self) -> None:
         """Fix 96c (CVE-2026-29080): list mutator write-back.

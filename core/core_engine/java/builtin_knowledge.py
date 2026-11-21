@@ -178,6 +178,14 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
 
         # ===== Servlet =====
         "getParameter":         {"passthrough": [0], "safe": False},
+        # Fix 137c (CVE-2026-83542 OFBiz): FlexibleStringExpander expands
+        # ${...} against the context Map — any tainted context entry
+        # (e.g. ${parameters.mainDecoratorLocation}) lands in the return.
+        # [0,1] covers both forms: instance locationExdr.expandString(ctx)
+        # (Fix 44b: index 0 traces the receiver first, untainted receiver
+        # falls through to explicit args) and static
+        # FlexibleStringExpander.expandString(expr, context).
+        "expandString":         {"passthrough": [0, 1], "safe": False},
         "getParameterValues":   {"passthrough": [0], "safe": False},
         "getParameterMap":      {"passthrough": [0], "safe": False},
         "getHeader":            {"passthrough": [0], "safe": False},

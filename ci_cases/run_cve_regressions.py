@@ -168,6 +168,25 @@ EXPECTATIONS = {
     # ClassUtils.java: wrapper-interior row (param → Class.forName body).
     'SOAPFaultDetailsBuilder.java': {'6018': 1},
     'ClassUtils.java': {'6018': 1},
+    # Fix 137 (CVE-2026-83542 Apache OFBiz <24.09.08 unauth RCE, CVSS 9.8):
+    # anonymous JSON request → context.putAll(request.getParameterMap())
+    # → context.get("mainDecoratorLocation") (Fix 137b java Map put/putAll
+    # write-back edges + Fix 137h container-READ propagation through the
+    # bodyless Map.get hub) → ScreenFactory.renderReferencedScreen →
+    # FlexibleLocation.resolveLocation → 137g interface dispatch
+    # (LocationResolver crg implements fan-out) → ClasspathLocationResolver
+    # stripLocationType → UtilURL.fromResource → fromFilename → new File
+    # (CVI 6004) — the corpus-faithful sink line UtilURL.java:132.
+    # 137a kills the JS-DOM-source false root on java `location`
+    # identifiers; 137d reference-semantics arg write-back; 137f
+    # receiver-relative this.X hub-hijack bypass (23 same-name
+    # getLocation methods in ModelScreenWidget).  Case tree mirrors the
+    # corpus directory layout (framework/ before org/ is load-bearing for
+    # stub creation order — documented order-dependence debt).
+    # UtilXml rows (6044×2 stream params, 6007 XXE) are type-source rows
+    # frozen from the same scan (task 6907).
+    'UtilURL.java': {'6004': 1},
+    'UtilXml.java': {'6044': 2, '6007': 1},
     # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
     # param is a framework source; file.filename → f-string template →
     # open(file_path, "wb+") arbitrary file write. Subdir python/ carries

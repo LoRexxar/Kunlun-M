@@ -953,7 +953,7 @@ def _enrich_source_variables(graph: ig.Graph) -> int:
         if _vattr(v, "taint_type"):  # 已标注，跳过
             continue
         name = _vattr(v, "name", "")
-        if _is_source_var(name):
+        if _is_source_var(name, _vattr(v, "language", "")):
             graph.vs[v.index]["taint_type"] = "source"
             count += 1
     return count
@@ -1707,13 +1707,22 @@ def _get_simple_name(name: str) -> str:
     return name
 
 
-def _is_source_var(name: str) -> bool:
+def _is_source_var(name: str, node_language: str | None = None) -> bool:
     """判断是否是 source variable。
 
     注意：$_SESSION 不在此列表中——session 数据是服务端持久化的状态，
     非用户直接可控输入。$_SERVER 仍保留，因为 graph_analyzer 的 member chain
     检查会按 key 过滤（_SERVER_UNCONTROLLED_KEYS），整体保留 source 标注
     可让 DFG/AST 的污点预传播覆盖 HTTP_* 等可控字段。
+
+    Fix 137a (CVE-2026-83542 OFBiz): JS DOM 源根 {location, document,
+    window} 原先无语言门控地标记任意语言的同名 identifier —— Java 项目里
+    变量名 `location` 极常见（OFBiz FlexibleLocation.resolveLocation(String
+    location) 全链都叫这个名），整族被误标 taint_type=source，再经
+    _file_scoped_source_named 兑现成假 source。analyzer 侧的
+    _is_source_variable 早已有语言门（且连 JS 裸根都不是 source，只认
+    location.hash 等 registry 成员链）——enrich 侧与之对齐：裸 JS 根只对
+    JS 家族语言的节点生效。
     """
     if not name:
         return False
@@ -1727,5 +1736,9 @@ def _is_source_var(name: str) -> bool:
     # JS/TS source roots（通过 member chain 访问的根对象）
     # "process" removed: only process.env is a source (via SourceRegistry)
     if clean in {"location", "document", "window"}:
-        return True
+        if node_language is None:
+            return True
+        _nl = str(node_language).lower()
+        # only JS-family nodes (legacy graphs may leave language empty)
+        return _nl in ("", "javascript", "typescript", "js", "ts", "jsx", "tsx")
     return False

@@ -73,6 +73,10 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._use_pairs: set[tuple[int, int]] = set()
         # Fix 97: python 同名有体函数索引（懒构建，duck-typing 虚分发）
         self._py_dispatch_idx: dict[str, list[int]] | None = None
+        # Fix 137g: java 接口虚分发 — implements 关系（cr g 边 class→external class）
+        # 与 接口方法判定缓存（target_vid → 接口名或 ''）
+        self._iface_implementors: dict[str, set[str]] = defaultdict(set)
+        self._iface_of_target: dict[int, str] = {}
 
         # ── 预缓存节点属性 — 避免 15s+ 的 _vattr/graph.vs 开销 ──
         n = graph.vcount()
@@ -88,6 +92,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._vdtype: list[str] = [""] * n
         self._vreturn_type: list[str] = [""] * n
         self._vvalue: list[str] = [""] * n
+        self._vraw_type: list[str] = [""] * n
         for v in graph.vs:
             i = v.index
             self._vlabel[i] = _vattr(v, "label", "")
@@ -102,6 +107,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             self._vdtype[i] = _vattr(v, "dtype", "") or ""
             self._vreturn_type[i] = _vattr(v, "return_type", "") or ""
             self._vvalue[i] = _vattr(v, "value", "") or ""
+            self._vraw_type[i] = _vattr(v, "raw_type", "") or ""
 
         for e in graph.es:
             elabel = _vattr(e, "label", "")
@@ -111,6 +117,16 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 self._ast_to[e.target].append((e.source, role))
             elif elabel == "member":
                 self._member_to[e.target].append(e.source)
+            elif elabel == "crg":
+                # Fix 137g: class→external-class 引用边在 java 里承载
+                # implements/extends 关系；只收 class→(external class)，
+                # 外部节点名=接口/父类简名。
+                if (self._vlabel[e.source] == "class"
+                        and self._vlabel[e.target] == "class"
+                        and self._vis_external[e.target]
+                        and self._vfullname[e.source]):
+                    self._iface_implementors[self._vname[e.target]].add(
+                        self._vfullname[e.source])
             elif elabel == "own":
                 self._own_to[e.target].append(e.source)
             elif elabel == "dfg":
@@ -281,9 +297,16 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
             # Find existing function node or create external one
             caller_file = self._vfile_path[vid]
+            # Fix 137f (CVE-2026-83542 OFBiz): for receiver-RELATIVE call
+            # names ("this.x", "$this->x", "self::x", "cls.x") resolve the
+            # enclosing class's own method first — see the guard inside
+            # _find_or_create_function.
+            enc_cls = None
+            if op_type == OperatorType.METHOD_CALL.value:
+                enc_cls = self._enclosing_class_name(graph, vid)
             target_vid = self._find_or_create_function(
                 graph, func_name, fullname, lineno,
-                caller_file=caller_file
+                caller_file=caller_file, enclosing_class=enc_cls or ""
             )
 
             if target_vid is not None:
@@ -296,6 +319,30 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                         "lineno": lineno,
                     })
                     count += 1
+
+                # Fix 137g (CVE-2026-83542 OFBiz): java 接口虚分发。
+                # 当调用绑定的 target 是 corpus 内声明的接口方法
+                # （enclosing class raw_type=InterfaceDeclaration，无体），
+                # 运行时实际执行的是某个实现类的同签名方法——把 use 边
+                # 同时建到所有 implements 该接口的类（crg implements 索引）
+                # JDK 接口（Serializable/Map…）在 corpus 无
+                # InterfaceDeclaration 节点，天然不触发，无边爆炸。
+                # java 里小写接收者的实例调用常被归为 static_call
+                # （resolver.resolveLocation），两种类型都放行——真正的
+                # 闸门是 target 的 InterfaceDeclaration 判定。
+                if op_type in (OperatorType.METHOD_CALL.value,
+                               OperatorType.STATIC_CALL.value):
+                    for impl_vid in self._java_iface_dispatch_targets(
+                            graph, target_vid, func_name):
+                        if (vid, impl_vid) not in self._use_pairs:
+                            self._use_pairs.add((vid, impl_vid))
+                            use_edges.append((vid, impl_vid))
+                            use_attrs.append({
+                                "label": "use",
+                                "call_type": cg_call_type,
+                                "lineno": lineno,
+                            })
+                            count += 1
 
         # ── 批量写入 use 边 ──
         if use_edges:
@@ -859,11 +906,39 @@ class UseEdgeBuilder(BaseEdgeBuilder):
     def _find_or_create_function(self, graph: "ig.Graph",
                                 func_name: str, fullname: str,
                                 lineno: int = 0,
-                                caller_file: str = "") -> int | None:
+                                caller_file: str = "",
+                                enclosing_class: str = "") -> int | None:
         """Find an existing function node or create an external one.
 
         Uses pre-built indexes instead of O(V) vs.select() scans.
         """
+        # Fix 137f (CVE-2026-83542 OFBiz): receiver-RELATIVE call fullnames
+        # ("this.getLocation", "$this.method", "self::x", "cls.x") must
+        # resolve to the ENCLOSING CLASS's own method (java inner classes:
+        # real fullname 'DecoratorScreen.getLocation'), then any same-file
+        # definition — BEFORE the exact-fullname step.  Without this, an
+        # unrelated file's earlier this.X call creates a synthetic external
+        # hub whose fullname is ALSO "this.X", and the exact match silently
+        # hijacks every later this.X call even in files that DO define X
+        # (callee bare-name cross-file hijack — on the OFBiz corpus all 14
+        # ModelScreenWidget getLocation call sites bound to a hub polluted
+        # by SimpleServiceEngine/GroovyEngine, killing the return-value
+        # propagation and with it the whole screen-render taint chain).
+        # "super"/"parent" are excluded: they legitimately target a
+        # superclass that may live in another file.
+        if "." in fullname:
+            _rt, _rm = fullname.rsplit(".", 1)
+            if _rt.lstrip("$") in ("this", "self", "cls"):
+                if enclosing_class:
+                    _vid = self._func_fullname_idx.get(
+                        f"{enclosing_class}.{_rm}")
+                    if _vid is not None:
+                        return _vid
+                if caller_file:
+                    _vid = self._func_name_file_idx.get(_rm, {}).get(caller_file)
+                    if _vid is not None:
+                        return _vid
+
         # 1. Exact fullname match
         vid = self._func_fullname_idx.get(fullname)
         if vid is not None:
@@ -953,6 +1028,111 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
         self._enclosing_fn_cache[vid] = None
         return None
+
+    def _enclosing_class_name(self, graph: "ig.Graph", vid: int) -> str:
+        """Fix 137f: name of the class enclosing *vid* (inner-class aware).
+
+        Walks own-parents from the enclosing FUNCTION up to the nearest
+        'class' node (java inner classes: DecoratorScreen nested inside
+        ModelScreenWidget resolves to 'DecoratorScreen').  Cached per
+        enclosing function; '' when no class scope is found (top-level
+        function / php procedural file).
+        """
+        fn_vid = self._enclosing_function(graph, vid)
+        if fn_vid is None:
+            return ""
+        cached = getattr(self, "_enclosing_cls_cache", None)
+        if cached is None:
+            cached = self._enclosing_cls_cache = {}
+        if fn_vid in cached:
+            return cached[fn_vid]
+
+        result = ""
+        visited: set[int] = set()
+        current = fn_vid
+        for _ in range(10):
+            if current in visited:
+                break
+            visited.add(current)
+            if self._vlabel[current] == "class":
+                result = self._vname[current] or ""
+                break
+            parents = self._own_to.get(current, [])
+            if not parents:
+                break
+            current = parents[0]
+
+        cached[fn_vid] = result
+        return result
+
+    def _java_iface_dispatch_targets(self, graph: "ig.Graph",
+                                     target_vid: int,
+                                     callee_name: str) -> list[int]:
+        """Fix 137g: 接口方法 target → 实现类同名方法 vids。
+
+        target 的 enclosing class 是 corpus 内 InterfaceDeclaration 时，
+        通过 crg implements 索引把所有实现类的同名方法作为分发目标
+        （java-only：以 target 节点文件后缀 .java 判定；上限 16 个
+        实现类防边爆炸）。非接口方法/无实现/超限一律返回 []。
+        """
+        if target_vid is None or not callee_name:
+            return []
+        cached = self._iface_of_target.get(target_vid)
+        if cached is not None:
+            impls = cached
+        else:
+            impls = ""
+            fp = self._vfile_path[target_vid]
+            if fp.endswith(".java"):
+                cls_vid = self._enclosing_class_vid(graph, target_vid)
+                if cls_vid is not None and self._vraw_type[cls_vid] == \
+                        "InterfaceDeclaration":
+                    impls = self._vname[cls_vid] or ""
+            self._iface_of_target[target_vid] = impls
+        if not impls:
+            return []
+        out: list[int] = []
+        for impl_cls in list(self._iface_implementors.get(impls, ()))[:16]:
+            iv = self._func_fullname_idx.get(f"{impl_cls}.{callee_name}")
+            if iv is not None and iv != target_vid:
+                out.append(iv)
+        return out
+
+    def _enclosing_class_vid(self, graph: "ig.Graph", vid: int) -> int | None:
+        """Fix 137g: *vid* 的 enclosing class 节点（own 父链上溯）。
+
+        先到 enclosing function（*vid* 本身是函数节点时直接从它起
+        步——_enclosing_function 对函数节点会返回 None），再逐级 own-父
+        上溯到最近的 class 节点。与 _enclosing_class_name 同型，但返回
+        节点 vid 供 raw_type 检查。
+        """
+        if self._vlabel[vid] == NodeLabel.FUNCTION.value:
+            start = vid
+        else:
+            start = self._enclosing_function(graph, vid)
+        if start is None:
+            return None
+        cache = getattr(self, "_enclosing_cls_vid_cache", None)
+        if cache is None:
+            cache = self._enclosing_cls_vid_cache = {}
+        if start in cache:
+            return cache[start]
+        result = None
+        visited: set[int] = set()
+        current = start
+        for _ in range(10):
+            if current in visited:
+                break
+            visited.add(current)
+            if self._vlabel[current] == "class":
+                result = current
+                break
+            parents = self._own_to.get(current, [])
+            if not parents:
+                break
+            current = parents[0]
+        cache[start] = result
+        return result
 
     def _enclosing_function_lineno(self, graph: "ig.Graph", vid: int) -> tuple[int, int] | None:
         """Find the enclosing function's lineno range for *vid*.

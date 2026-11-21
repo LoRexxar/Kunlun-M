@@ -5412,6 +5412,60 @@ class GraphAnalyzer:
                                                 "name": _vattr(self.graph.vs[_av], "name", ""), "code": 1}] + _pr.chain[:2],
                                         path=new_path + [_av],
                                         expr_lineno=_vattr(self.graph.vs[up_vid], "lineno", 0)))
+                                # Fix 137h (CVE-2026-83542 OFBiz): java
+                                # container READ through a bodyless hub.
+                                # ``x.get(k)`` bound to an external stub must
+                                # not be an opaque unresolved call: with the
+                                # Fix 137b write-back edges the RECEIVER
+                                # itself can resolve to a source, and a Map
+                                # read returns the stored value — propagate
+                                # the receiver's verdict instead of returning
+                                # code=3. Without this the screen-context
+                                # chain died at context.get(
+                                # "mainDecoratorLocation") with
+                                # "unresolved method 'get'" while the
+                                # container was provably tainted (putAll of
+                                # request.getParameterMap()).
+                                if (callee.rsplit(".", 1)[-1] == "get"
+                                        and _vattr(uv, "language", "") == "java"):
+                                    _arg_vids137h = set()
+                                    try:
+                                        for _ae in self._edge_out(up_vid, "ast"):
+                                            if _vattr(_ae, "role", "") == "arg":
+                                                _arg_vids137h.add(_ae.target)
+                                    except Exception:
+                                        _arg_vids137h = set()
+                                    _recv_hit = None
+                                    try:
+                                        for _re in self._edge_in(up_vid, "dfg"):
+                                            _rsrc = _re.source
+                                            if _rsrc in _arg_vids137h:
+                                                continue
+                                            _rl = _vattr(self.graph.vs[_rsrc], "label", "")
+                                            if _rl not in (NodeLabel.IDENTIFIER.value,
+                                                           NodeLabel.PARAMETER.value,
+                                                           NodeLabel.OPERATOR.value):
+                                                continue
+                                            if (_rl == NodeLabel.IDENTIFIER.value
+                                                    and str(self.graph.vs[_rsrc]["name"] or "")
+                                                    == str(callee).rsplit(".", 1)[-1]):
+                                                continue  # the callee identifier itself
+                                            _rr = self.parameters_back(_rsrc, context_vid=up_vid)
+                                            if _rr.code == 1:
+                                                _recv_hit = (_rsrc, _rr)
+                                                break
+                                    except Exception:
+                                        _recv_hit = None
+                                    if _recv_hit is not None:
+                                        _rsrc, _rr = _recv_hit
+                                        return self._cached(cache_key, AnalysisResult(
+                                            code=1,
+                                            reason=f"container read: receiver traces to source ({_rr.reason[:60]})",
+                                            chain=[{"step": "container_read", "vid": _rsrc,
+                                                    "name": _vattr(self.graph.vs[_rsrc], "name", ""),
+                                                    "code": 1}] + _rr.chain[:2],
+                                            path=new_path + [_rsrc],
+                                            expr_lineno=_vattr(uv, "lineno", 0)))
                                 # Empty shell: no return, no params, no taint
                                 # annotation. Stop taint propagation through
                                 # this call's DFG upstream.
