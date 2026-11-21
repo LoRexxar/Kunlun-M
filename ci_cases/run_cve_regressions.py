@@ -187,6 +187,24 @@ EXPECTATIONS = {
     # frozen from the same scan (task 6907).
     'UtilURL.java': {'6004': 1},
     'UtilXml.java': {'6044': 2, '6007': 1},
+    # Fix 138 (CVE-2026-44203 OpenAM 16.1.0 pre-auth reflected XSS,
+    # CVSS 8.3, fix 078bd47 = ?html escapes in FormPostResponse.ftl +
+    # page/checkSession.ftl only): OAuth2 authorize form_post response
+    # mode → getFormPostRepresentation builds dataModel{redirectUri=
+    # redirectReference.toString(), formValues=authorizationToken.
+    # getToken()} → TemplateRepresentation.setDataModel (FTL renders
+    # ${redirectUri}/${formValues[key]} unescaped HTML).  Fix 138
+    # registers setDataModel (arg0 = model map) as a CVI 6082 sink in
+    # java builtin_knowledge; map-member put propagation (Fix 137b)
+    # carries the token/redirectUri taint into the sink.  Chain 2
+    # (checkSession.ftl ${baseUrl} script src) lands on the same sink
+    # at OAuth2Representation:116 via OpenIDConnectCheckSessionEndpoint
+    # .getDataModel source-summary — covered by the corpus scan
+    # (task 6927 row 19038); this repro pins the primary GT line 184
+    # (task 6928 row 19040).  Known gap documented: explicit generic
+    # type-witness calls (request.<String>getParameter) are swallowed
+    # by ljavalang (DeviceCodeVerificationResource realm arm dark).
+    'OAuth2Representation.java': {'6082': 1},
     # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
     # param is a framework source; file.filename → f-string template →
     # open(file_path, "wb+") arbitrary file write. Subdir python/ carries

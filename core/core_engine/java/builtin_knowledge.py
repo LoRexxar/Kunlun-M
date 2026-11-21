@@ -213,6 +213,10 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # forward sink (CVE-2026-123551): taint is the path arg; the returned
         # dispatcher is not tainted, so passthrough stays empty
         "getRequestDispatcher": {"passthrough": [], "safe": False},
+        # template data-model sink (CVE-2026-44203): taint is the model map
+        # (arg0) rendered into the HTML response by the .ftl; the
+        # representation itself is not tainted, passthrough stays empty
+        "setDataModel":          {"passthrough": [], "safe": False},
 
         # ===== MyBatis =====
         # ${} interpolation is unsafe, handled at rule level
