@@ -45,6 +45,37 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # RelayState chain: resource = newUrl.substring(idx) died as
         # code=3 'unresolved substring' before this entry.
         "String.substring":     {"passthrough": ["this"], "safe": False},
+        # Fix 140 (CVE-2026-45794): OpenAM CTS persisted-token read —
+        # second-order source. The Core Token Service is OpenAM's
+        # persistence store; push-notification message tokens are written
+        # by UNAUTHENTICATED flows — SnsMessageResource.addRegistrationInfo
+        # serialises the anonymous SNS callback's actionContent straight
+        # into Token.setBlob (SnsMessageResource.java:239 @07e402c3). After
+        # the messageId expires from the in-memory dispatcher,
+        # attemptFromCTS reads the token back and treats top-level blob
+        # keys as Java class names for Class.forName + Jackson deserialise
+        # (GHSA-pp89-732f-3g8q, fix ca15cba9 = PUSH_PREDICATES allowlist).
+        # "CTSPersistentStore.read" is a TYPE-qualified entry resolved via
+        # the Fix 79/133c typed-receiver lookup (receiver declared
+        # `private final CTSPersistentStore coreTokenService`) — same
+        # discipline as Retrofit2SyncCall.execute (Fix 79 family):
+        # fetch-API boundary of an external-writable store, never a
+        # bare-name source ("read" stays unmatched).
+        "CTSPersistentStore.read": {"passthrough": [], "safe": False, "source": True},
+        # Fix 140b (CVE-2026-45794): the CTS read chain's library
+        # boundaries, QUALIFIED-only (typed lookup / static full name) —
+        # org.forgerock.json.JsonValue.asMap() returns the receiver's
+        # underlying Map (receiver passthrough, same shape as
+        # Map.entrySet); Token.getBlob() returns the receiver's stored
+        # blob bytes; JsonValueBuilder.toJsonValue(String) parses its arg
+        # into the JsonValue (arg-0 passthrough).  Without these the
+        # intra-procedural chain read->getBlob->toJsonValue->asMap->getKey
+        # ->Class.forName dies as 'unresolved method asMap' (receiver-only
+        # unresolved calls have no arg-passthrough heuristic; Fix 137h's
+        # container-read rescue is scoped to 'get').
+        "JsonValue.asMap":              {"passthrough": ["this"], "safe": False},
+        "Token.getBlob":                {"passthrough": ["this"], "safe": False},
+        "JsonValueBuilder.toJsonValue": {"passthrough": [0], "safe": False},
         "String.replace":       {"passthrough": ["this"], "safe": False},
         "String.replaceAll":    {"passthrough": ["this"], "safe": False},
         "String.replaceFirst":  {"passthrough": ["this"], "safe": False},

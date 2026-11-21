@@ -214,6 +214,24 @@ EXPECTATIONS = {
     # type-witness calls (request.<String>getParameter) are swallowed
     # by ljavalang (DeviceCodeVerificationResource realm arm dark).
     'OAuth2Representation.java': {'6082': 1},
+    # Fix 140 (CVE-2026-45794 OpenAM unsafe Java deserialization via
+    # anonymous SNS push callback, CVSS 9.8, GHSA-pp89-732f-3g8q; fix
+    # ca15cba9 = PUSH_PREDICATES allowlist): unauthenticated
+    # SnsMessageResource.addRegistrationInfo serialises actionContent
+    # straight into Token.setBlob; once the messageId expires from the
+    # in-memory dispatcher, attemptFromCTS reads the token back
+    # (CTSPersistentStore.read — second-order source, external-writable
+    # store fetch boundary, typed-receiver qualified entry in the style
+    # of Retrofit2SyncCall.execute Fix 79) → getBlob → JsonValueBuilder
+    # .toJsonValue → asMap → entry.getKey() as class name →
+    # Class.forName + JSONSerialisation (Jackson) deserialise (CVI
+    # 6018).  Fix 140b: JsonValue.asMap / Token.getBlob receiver
+    # passthrough + JsonValueBuilder.toJsonValue arg-0 passthrough
+    # (QUALIFIED-only, library boundaries).  SnsNegative.java next to
+    # this case is the negative control pair (const-origin blob; a
+    # different declared type's read()) and MUST stay 0.
+    # Frozen from task 6997 row 19053 (mini line 59 = GT line 221).
+    'SnsMessageResource.java': {'6018': 1},
     # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
     # param is a framework source; file.filename → f-string template →
     # open(file_path, "wb+") arbitrary file write. Subdir python/ carries
