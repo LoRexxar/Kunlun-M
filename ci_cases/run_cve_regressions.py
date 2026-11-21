@@ -92,6 +92,23 @@ EXPECTATIONS = {
     # Fix 123/124 config bridge — zero engine change; task6720 rows
     # 16707/16708 are the full-corpus evidence.
     'CVE-2026-111214_qinq_parent_if.php': {'1011': 2},
+    # Fix 141a/b/c (CVE-2026-111216 pfSense, CVSS 8.6): gateway Monitor-IP
+    # OS command injection.  141a: $GLOBALS['k'] cross-function unification
+    # (GatewaysCache write->read hop); 141b: nested-conditional terminator
+    # must dominate the guard body (inner else-continue only kills one
+    # path); 141c: whitelist-guard veto needs a soundness re-trace — the
+    # !is_ipaddrv6($gwifip) guard whitelists only the sibling ['gwifip']
+    # member, not the tainted ['monitor'] member riding the same array.
+    # Chain: $_POST[monitor] -> save_gateway -> config tree -> GatewaysCache
+    # -> setup_gateways_monitor -> start_dpinger -> mwexec string -> body
+    # exec (util.inc:2880 shapes @347/@351; debug-echo @337).
+    # Isolated in its own pfsense-gwmon/ subdir (Fix 122 discipline): the
+    # byte-faithful helpers (config_get_path/array_get_path family) share
+    # names with the 111214/111217 repros in php-generic/, and co-scanning
+    # duplicate same-name defs flips the verdict layer (graph reachability
+    # proven intact on workspace/7037; real PHP fatals on redeclare, so
+    # the clash is a distillation artifact — isolation mirrors production).
+    'CVE-2026-111216_gateway_monitor_globals.php': {'1000': 1, '1011': 2},
     # Fix 72: config-file source chain (Siemens meta-iot2050,
     # CVE-2026-109830) — json.load → getConfig summary → getter summary →
     # subprocess.call("... " + initMode, shell=True). Safe contrast

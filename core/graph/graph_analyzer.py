@@ -2252,9 +2252,10 @@ class GraphAnalyzer:
                 path=list(r1.path), expr_lineno=_vattr(
                     self.graph.vs[start_vid], "lineno", 0))
         _sv = self.graph.vs[start_vid]
-        if self.language == "php" and r1.code == 1:
+        if self.language == "php" and r1.code == 1 and not getattr(
+                self, "_pb_excluded_names", None):
             _guard_reason = self._negated_whitelist_guard_for_result(
-                r1, sink_vid=start_vid)
+                r1, sink_vid=start_vid, context_vid=context_vid)
             if _guard_reason:
                 return AnalysisResult(
                     code=-1,
@@ -2583,7 +2584,8 @@ class GraphAnalyzer:
         return False
 
     def _negated_whitelist_guard_for_result(self, result: AnalysisResult,
-                                            sink_vid: int | None = None) -> str | None:
+                                            sink_vid: int | None = None,
+                                            context_vid: int | None = None) -> str | None:
         """Fix 21a post-check: walk the result path; for each tainted var
         name, ask whether a terminating negated whitelist guard on that
         name precedes the sink in the sink's function.  Returns a reason
@@ -2633,6 +2635,41 @@ class GraphAnalyzer:
                         probe_lineno = None
                 if self._negated_whitelist_guard_before(
                         probe_vid, pname, sink_lineno=probe_lineno):
+                    # Fix 141c (CVE-2026-111216): a terminating guard on
+                    # ONE path variable whitelists only THAT variable's
+                    # content.  When the sink arg has another source path
+                    # that avoids *pname* entirely, the veto is unsound
+                    # (pfSense gwlb.inc: $gwifip — a sibling array member
+                    # validated by !is_ipaddrv6() — must not sanitize the
+                    # tainted ['monitor'] member flowing through the same
+                    # array object).  Re-trace with *pname* excluded: a
+                    # surviving controllable verdict means the guard does
+                    # not constrain the sink's content, so no veto.
+                    _f141c_cache = getattr(self, "_f141c_retrace_cache", None)
+                    if _f141c_cache is None:
+                        _f141c_cache = self._f141c_retrace_cache = {}
+                    _f141c_key = (start_vid, context_vid, pname)
+                    if _f141c_key in _f141c_cache:
+                        if _f141c_cache[_f141c_key]:
+                            continue
+                        return (f"whitelist guard: '{pname}' constrained by "
+                                f"terminating negated predicate before sink")
+                    _excl_prev = getattr(self, "_pb_excluded_names", None)
+                    self._pb_excluded_names = {pname}
+                    try:
+                        _r2 = self.parameters_back(
+                            start_vid, context_vid=context_vid)
+                    finally:
+                        if _excl_prev is None:
+                            self.__dict__.pop("_pb_excluded_names", None)
+                        else:
+                            self._pb_excluded_names = _excl_prev
+                    _f141c_lift = bool(
+                        _r2 is not None and getattr(
+                            _r2, "is_controllable", False))
+                    _f141c_cache[_f141c_key] = _f141c_lift
+                    if _f141c_lift:
+                        continue
                     return (f"whitelist guard: '{pname}' constrained by "
                             f"terminating negated predicate before sink")
         return None
@@ -2671,6 +2708,12 @@ class GraphAnalyzer:
             # themselves stay active — only the cache key truncates).
             cache_key = (start_vid, context_vid,
                          tuple(_f83.get("__sig__", ()) for _f83 in _ab83[-GraphAnalyzer._SIG_WINDOW:]))
+        _pb_excl = getattr(self, "_pb_excluded_names", None)
+        if _pb_excl:
+            # Fix 141c (CVE-2026-111216): whitelist-guard soundness
+            # re-traces exclude one variable name; their verdicts must
+            # never collide with normal-trace cache entries.
+            cache_key = cache_key + (tuple(sorted(_pb_excl)),)
         if cache_key in self._decision_cache:
             return self._decision_cache[cache_key]
 
@@ -3565,6 +3608,18 @@ class GraphAnalyzer:
                             _vattr(self.graph.vs[_b], 'condition', '')
                             for _b in _shared_bc):
                         continue
+                # Fix 141c (CVE-2026-111216): during a whitelist-guard
+                # soundness re-trace, identifier reads of the guarded
+                # name are opaque — the tributary flowing through that
+                # variable is exactly what the guard covers; every OTHER
+                # tributary must still be explored.  (pfSense gwlb.inc:
+                # `if (!is_ipaddrv6($gwifip)) continue;` whitelists the
+                # sibling ['gwifip'] array member — it must not sanitize
+                # the tainted ['monitor'] member riding the same array.)
+                if _pb_excl and _vattr(
+                        self.graph.vs[up_vid], "label", "") == NodeLabel.IDENTIFIER.value \
+                        and _vattr(self.graph.vs[up_vid], "name", "") in _pb_excl:
+                    continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
                 # Safe node — taint propagation stops here
@@ -8966,6 +9021,55 @@ class GraphAnalyzer:
                 break
         return False
 
+    def _terminator_dominates_body(self, ev_vid: int, branch_vid: int) -> bool:
+        """Fix 141b (CVE-2026-111216): is the terminator evidence at
+        *ev_vid* UNCONDITIONAL inside the guarded body of *branch_vid*?
+
+        Walk up the ancestor chain (own/ast parents) from the evidence
+        node; the innermost enclosing conditional (label == BRANCH — if,
+        else-if, loops, ternaries all normalize to branch nodes) must be
+        *branch_vid* itself.  A ``continue``/``return``/``die`` buried in
+        a NESTED conditional (pfSense gwlb.inc setup_gateways_monitor:
+
+            if (empty($gw['monitor']) || !is_ipaddr($gw['monitor'])) {
+                if (is_ipaddr($gw['gateway'])) {
+                    $monitor = $gw['gateway'];      // falls through!
+                } else {
+                    continue;                        // nested terminator
+                }
+            }
+
+        ) only terminates ONE path — the sibling path falls through and
+        reaching a later sink proves NOTHING about the guard predicate.
+        Fix 42u's flat subtree scan accepted any continue/return/die in
+        the subtree, so the guard above was scored "always terminates"
+        and `_negated_whitelist_guard_before` killed the whole gateway
+        Monitor-IP taint chain ($gateway judged whitelist-constrained)
+        before start_dpinger() -> mwexec() -> exec().
+        """
+        frontier = {ev_vid}
+        seen = {ev_vid}
+        for _ in range(32):
+            nxt = set()
+            for cur in frontier:
+                for lbl in ("own", "ast"):
+                    for e in self._edge_in(cur, lbl):
+                        p = e.source
+                        if p in seen:
+                            continue
+                        seen.add(p)
+                        if p == branch_vid:
+                            return True
+                        # an intervening conditional shields the terminator
+                        if _vattr(self.graph.vs[p], "label", "") == \
+                                NodeLabel.BRANCH.value:
+                            continue
+                        nxt.add(p)
+            if not nxt:
+                return False
+            frontier = nxt
+        return False
+
     def _branch_body_always_terminates(self, branch_vid: int) -> bool:
         """Does the guarded branch body provably terminate execution?
 
@@ -9022,7 +9126,10 @@ class GraphAnalyzer:
         for cv in calls:
             cname = _vattr(self.graph.vs[cv], "name", "")
             if cname in self._TERMINATOR_FUNCS:
-                return True
+                # Fix 141b: the die/exit call must not itself be nested
+                # under another conditional inside the guard body.
+                if self._terminator_dominates_body(cv, branch_vid):
+                    return True
             # one-level callee expansion: does control return past the
             # callee's end?  "Not" iff the callee's LAST top-level
             # statement is a bare die/exit call.
@@ -9046,7 +9153,11 @@ class GraphAnalyzer:
                 if (_vattr(lv, "label") == NodeLabel.OPERATOR.value
                         and _vattr(lv, "type", "") in _CALL_TYPES
                         and _vattr(lv, "name", "") in self._TERMINATOR_FUNCS):
-                    return True
+                    # Fix 141b: the terminating CALL SITE must be
+                    # unconditional in the guard body (not nested under
+                    # another conditional).
+                    if self._terminator_dominates_body(cv, branch_vid):
+                        return True
                 # return-statement wrapper: return exit(); (rare)
                 if _vattr(lv, "label") == NodeLabel.RETURN.value:
                     for re_ in self.graph.es.select(
@@ -9070,7 +9181,11 @@ class GraphAnalyzer:
             seen2.add(sv)
             if self.graph.vs[sv].attributes().get("label") == \
                     NodeLabel.RETURN.value:
-                return True
+                # Fix 141b: return nested under another conditional only
+                # terminates one path.
+                if self._terminator_dominates_body(sv, branch_vid):
+                    return True
+                continue
             # Fix 42u: `continue` inside the guarded body terminates the
             # CURRENT LOOP ITERATION — for sinks later in the same loop
             # body the guard is just as absolute as die/exit (sgx-1.4.55
@@ -9080,7 +9195,12 @@ class GraphAnalyzer:
             _sv_attrs = self.graph.vs[sv].attributes()
             if (_sv_attrs.get("label") == NodeLabel.OPERATOR.value
                     and _sv_attrs.get("type", "") == "continue"):
-                return True
+                # Fix 141b: continue nested under ANOTHER conditional
+                # (pfSense gwlb.inc inner else-continue) terminates only
+                # the sibling-fallthrough path — not the whole body.
+                if self._terminator_dominates_body(sv, branch_vid):
+                    return True
+                continue
             for ee in self._edge_out(sv, "own"):
                 stack2.append(ee.target)
             for ee in self._edge_out(sv, "ast"):

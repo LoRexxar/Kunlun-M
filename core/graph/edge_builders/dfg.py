@@ -350,6 +350,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # Fix 123 (CVE-2026-111217): pfSense config_set_path →
             # config_get_path path-scoped store→load bridge
             self._analyze_config_path_bridge()
+            # Fix 141a (CVE-2026-111216): PHP $GLOBALS['k'] cross-function
+            # unification (runs after config bridge + return DFG so def
+            # sites already carry their incoming dfg edges)
+            self._analyze_php_globals_array()
             # Fix 137d (CVE-2026-83542): java reference-semantics argument
             # write-back (callee mutation of a reference param is visible
             # on the caller's variable)
@@ -1538,6 +1542,114 @@ class DataFlowBuilder(BaseEdgeBuilder):
             return True
         n = min(len(store_comps), len(load_comps))
         return store_comps[:n] == load_comps[:n]
+
+    def _analyze_php_globals_array(self) -> None:
+        """Fix 141a (CVE-2026-111216): PHP ``$GLOBALS['k']`` cross-function unification.
+
+        ``$GLOBALS['k']`` is the process-global variable — writable and
+        readable from ANY function without a ``global`` declaration.  The
+        graph represents each access as a function-local ``$GLOBALS``
+        identifier with a ``member`` edge to the key node (assignments
+        additionally create a flattened ``$GLOBALS[k]`` operator as the LHS
+        marker), so a value stored by one function never reaches readers in
+        other functions.
+
+        GT break (task6957 graph forensics): refresh_gateways() writes
+        ``$GLOBALS['GatewaysCache'] = return_gateways_array(...)`` and
+        get_gateways() reads ``$gateways = $GLOBALS['GatewaysCache']`` —
+        the two bare ``$GLOBALS`` identifiers (523/552) had no connecting
+        edge, killing the gateway-Monitor-IP taint chain before
+        setup_gateways_monitor() -> start_dpinger() -> mwexec() -> exec().
+
+        This pass links, per literal key K, def sites (``$GLOBALS`` node
+        with a member-K child AND an incoming dfg edge — the assigned
+        value) to use sites (``$GLOBALS`` node with a member-K child and an
+        outgoing dfg edge, in a different enclosing scope than the def)
+        with dfg(superglobal) edges.  Buckets are keyed by member name, so
+        unrelated ``$GLOBALS`` keys never connect.
+
+        Scope discipline (FP containment):
+        - Cross-scope pairs only: same-scope ``$GLOBALS`` accesses are
+          already linked by the same-name machinery (_analyze_same_variables).
+        - Def side requires an incoming dfg edge (a concrete assigned
+          value), use side requires an outgoing dfg edge (a consumed
+          value) — no speculative fan-out.
+        """
+        if (self._language or "").lower() != "php":
+            return
+
+        def _scope_of(vid: int):
+            """Nearest function/file ancestor along own/ast edges."""
+            cur, seen = vid, {vid}
+            for _ in range(32):
+                nxt = None
+                for lbl in ("own", "ast"):
+                    parents = self._edges_to(cur, lbl)
+                    if parents:
+                        nxt = parents[0]
+                        break
+                if nxt is None or nxt in seen:
+                    return None
+                seen.add(nxt)
+                cur = nxt
+                if self._vlabel[cur] in (NodeLabel.FUNCTION.value,
+                                         NodeLabel.FILE.value):
+                    return cur
+            return None
+
+        def _literal_key(name: str) -> str:
+            """'GatewaysCache' / "'GatewaysCache'" → GatewaysCache; else ''."""
+            if not name:
+                return ""
+            k = name.strip("'\"")
+            if not k or k.startswith("$"):
+                return ""
+            return k
+
+        # Bucket $GLOBALS access nodes by literal member key.
+        ident_label = NodeLabel.IDENTIFIER.value
+        op_label = NodeLabel.OPERATOR.value
+        buckets: dict[str, list[int]] = {}
+        for v in self.graph.vs:
+            if self._vlabel[v.index] == ident_label and v["name"] == "$GLOBALS":
+                for child in self._edges_from(v.index, "member"):
+                    k = _literal_key(self._vname[child])
+                    if k:
+                        buckets.setdefault(k, []).append(v.index)
+            elif self._vlabel[v.index] == op_label and (v["name"] or "").startswith("$GLOBALS["):
+                inner = v["name"][len("$GLOBALS["):-1]
+                k = _literal_key(inner)
+                if k:
+                    buckets.setdefault(k, []).append(v.index)
+
+        added = 0
+        for key, vids in buckets.items():
+            if len(vids) < 2:
+                continue
+            scope_of: dict[int, object] = {vid: _scope_of(vid) for vid in vids}
+            has_dfg_in = {
+                vid: self._has_edge_to(vid, "dfg") for vid in vids
+            }
+            has_dfg_out = {
+                vid: self._has_edge_from(vid, "dfg") for vid in vids
+            }
+            # Snapshot defs BEFORE adding edges so this pass's own edges
+            # cannot manufacture new defs.
+            defs = [vid for vid in vids if has_dfg_in[vid]]
+            uses = [vid for vid in vids if has_dfg_out[vid]]
+            for d in defs:
+                for u in uses:
+                    if d == u or scope_of[d] is None or scope_of[u] is None:
+                        continue
+                    if scope_of[d] == scope_of[u]:
+                        continue  # same scope — same-name machinery owns it
+                    self._add_dfg_edge(d, u, DfgType.SUPERGLOBAL.value)
+                    added += 1
+        if added:
+            logger.debug(
+                "[DFG] Fix141a $GLOBALS[k] cross-function links: %d edges",
+                added,
+            )
 
     def _analyze_config_path_bridge(self) -> None:
         """Fix 123 (CVE-2026-111217): pfSense config path store→load 桥。
