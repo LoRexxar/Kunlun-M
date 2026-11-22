@@ -1127,6 +1127,16 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             _sink_seen = 0
             for sink in sinks:
                 _sink_seen += 1
+                if os.environ.get("KM_DBG_SINKS"):
+                    _kdv = sink.get('vid')
+                    try:
+                        _kfp = _vattr(graph.vs[_kdv], 'file_path', '')
+                        _kln = _vattr(graph.vs[_kdv], 'lineno', '')
+                    except Exception:
+                        _kfp = _kln = '?'
+                    print(f"[KDS] sink#{_sink_seen} name={sink.get('name')!r} "
+                          f"vid={_kdv} type={sink.get('type')} "
+                          f"hint={sink.get('rule_hint')} loc={_kfp}:{_kln}")
                 # Fix 129 (CVE-2026-111217): per-sink PB work budget reset —
                 # see GraphAnalyzer._PB_WORK_BUDGET.  The probe analyzer
                 # (sentinel/CVI probes) gets the same reset when present.
@@ -2061,6 +2071,28 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             _target=parent_func_vid, label="cg"
                                         )
                                     )
+                                    # Fix 143n (CVE-2026-129448): java virtual
+                                    # dispatch binds callees via USE edges —
+                                    # the subtype-closure / interface fans
+                                    # (Fix 137g, Fix 143a/b/c) emit op→function
+                                    # use edges, so a method reached only
+                                    # through interface dispatch (xmlrpc:
+                                    # typeParser.getResult → SerializableParser
+                                    # .getResult) legitimately has ZERO cg
+                                    # in-edges.  A use in-edge from a real
+                                    # call operator IS a caller.  Java-only:
+                                    # PHP keeps the calibrated strict gate.
+                                    if not has_callers and lang == "java":
+                                        for _ue in analyzer.graph.es.select(
+                                                _target=parent_func_vid,
+                                                label="use"):
+                                            _usrc = analyzer.graph.vs[_ue.source]
+                                            if (_vattr(_usrc, "label", "") == "operator"
+                                                    and _vattr(_usrc, "type", "") in (
+                                                        "call", "method_call",
+                                                        "static_call", "new")):
+                                                has_callers = True
+                                                break
                                 if not has_callers:
                                     _DEAD_CODE_SKIP_COUNTS[1] += 1  # Fix 58b
                                     logger.debug(
@@ -2096,6 +2128,11 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             if _is_import_sink:
                                 continue
                             recv_result = analyzer.parameters_back(sink['vid'])
+                            if os.environ.get("KM_DBG_PB"):
+                                print(f"[PB] noarg sink={sink.get('name')!r} "
+                                      f"vid={sink['vid']} recv="
+                                      f"{getattr(recv_result, 'code', None)} "
+                                      f"reason={getattr(recv_result, 'reason', None)!r}")
                             if recv_result is not None and recv_result.is_controllable:
                                 # Fix 73c: receiver fallback respects the
                                 # import origin gate — arg-loop downgraded

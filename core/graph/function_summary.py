@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -362,6 +363,27 @@ def build_function_summaries(
             # 汇总
             summary_type, dep_params = _aggregate_flows(return_flows)
 
+            if os.environ.get("KM_DBG_FS"):
+                _fs_nm = _vattr(graph.vs[vid], "name", "")
+                _fs_fp_full = _vattr(graph.vs[vid], "file_path", "") or ""
+                _fs_spec = os.environ["KM_DBG_FS"]
+                _fs_hit = False
+                for _tok in _fs_spec.split(","):
+                    if ":" in _tok:
+                        if _tok.rstrip(":") in _fs_fp_full:
+                            _fs_hit = True
+                    elif _fs_nm == _tok:
+                        _fs_hit = True
+                if _fs_hit:
+                    _fs_fp = _fs_fp_full.split("/")[-1]
+                    print(f"[FS] {_fs_fp}:{_vattr(graph.vs[vid], 'lineno', '')} "
+                          f"{_fs_nm!r} -> {summary_type} dep={sorted(dep_params)}")
+                    for _fl in return_flows:
+                        print(f"    flow origin={_fl.get('origin')!r} "
+                              f"type={_fl.get('origin_type')!r} "
+                              f"dep={_fl.get('dep_params')} "
+                              f"unres={_fl.get('has_unresolved_call')}")
+
             # 如果有未解析的 call（目标函数尚未有摘要），且不是最后一轮，延迟处理
             has_unresolved = any(
                 f.get("has_unresolved_call")
@@ -524,6 +546,12 @@ def _trace_return_value(
     vlabel = _vattr(v, "label", "")
     vtype = _vattr(v, "type", "")
     vname = _vattr(v, "name", "")
+    if os.environ.get("KM_DBG_TRACE"):
+        _trfp = _vattr(v, "file_path", "") or ""
+        if os.environ["KM_DBG_TRACE"] in _trfp:
+            print(f"[TR] d{depth} {'  ' * depth}{vlabel}/{vtype} "
+                  f"{vname!r} taint={_vattr(v, 'taint_type', '')!r} "
+                  f"pt={_vattr(v, 'taint_passthrough', '')!r} vid={start_vid}")
 
     # ── 1. 直接命中 parameter ──
     if start_vid in param_idx:
@@ -910,8 +938,56 @@ def _trace_return_value(
 
         # 3e. new → 安全构造（无外部输入）
         #     new ClassName() 创建新实例，不传播外部污点。
-        #     TODO: 有参数时（new Foo($param)）应追踪构造函数。
+        #     Fix 143m (CVE-2026-129448): EXCEPT when the builtin knowledge
+        #     explicitly declares the constructor as carrying its argument's
+        #     taint — java ``Cls.Cls`` entries with a non-empty passthrough
+        #     list and safe=False (ObjectInputStream(bais) wraps the
+        #     attacker-controlled stream; ByteArrayInputStream(res) wraps the
+        #     decoded buffer).  The blanket-safe here certified
+        #     SerializableParser.getResult as 'safe' via ``return
+        #     ois.readObject()`` (receiver ois ← new ObjectInputStream),
+        #     and the scanner's safe-cut then severed the call-site return
+        #     edges of the whole deserialization chain.  Honor the declared
+        #     passthrough args: trace them and let the strongest verdict win;
+        #     literal/safe/absent args keep the constructor-safe verdict.
         if vtype == "new":
+            _new_cls = str(vname)
+            if _new_cls.startswith("new "):
+                _new_cls = _new_cls[4:].split("(", 1)[0].strip()
+            if (_new_cls
+                    and _vattr(v, "language", "") == "java"):
+                try:
+                    from core.core_engine.java.builtin_knowledge import KNOWLEDGE as _JAVA_BK_143M
+                    _ctor_key = f"{_new_cls}.{_new_cls}"
+                    _ctor_e = _JAVA_BK_143M.get(_ctor_key)
+                except Exception:
+                    _ctor_e = None
+                if (_ctor_e and not _ctor_e.get("safe", True)
+                        and _ctor_e.get("passthrough")):
+                    _arg_flows_143m = []
+                    for _a143_t, _a143_r, _a143_i in eidx["ast_ch"].get(start_vid, []):
+                        if not (_a143_r or "").startswith("arg"):
+                            continue
+                        _asub = _trace_return_value(
+                            graph, _a143_t, own_vids, param_idx,
+                            visited, eidx, depth + 1)
+                        if _asub:
+                            _arg_flows_143m.append(_asub)
+                    if _arg_flows_143m:
+                        _agg143, _aggp143 = _aggregate_flows(_arg_flows_143m)
+                        if _agg143 in ("source", "passthrough"):
+                            return {"origin": vname, "origin_type": _agg143,
+                                    "dep_params": [], "has_unresolved_call": False}
+                        if _agg143 == "param":
+                            return {"origin": vname, "origin_type": "param",
+                                    "dep_params": list(_aggp143),
+                                    "has_unresolved_call": False}
+                        if _agg143 == "unknown":
+                            return {"origin": vname, "origin_type": "unknown",
+                                    "dep_params": [],
+                                    "has_unresolved_call": any(
+                                        f.get("has_unresolved_call")
+                                        for f in _arg_flows_143m)}
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     # ── 3.5. Branch/Ternary 追踪 ──

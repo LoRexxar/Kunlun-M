@@ -77,8 +77,21 @@ def enrich_taint(
         is_function_def = vlabel == NodeLabel.FUNCTION.value
         is_call_node = (vlabel == NodeLabel.OPERATOR.value
                         and vtype in ("call", "method_call", "static_call"))
+        # Fix 143r (CVE-2026-129448): constructor call ops (`new X(...)`,
+        # vtype "new") were never enriched — the builtin KNOWLEDGE table
+        # carries ctor entries in the "Class.Class" form
+        # (ObjectInputStream.ObjectInputStream passthrough[0], added by
+        # Fix 140 but unreachable: the op-side loop skipped vtype "new"
+        # and the synthesized external stubs are annotation-guarded).
+        # A ctor's passthrough[0] means the constructed object carries
+        # arg0's taint — exactly the wrapper semantics the xmlrpc deser
+        # chain needs (new ObjectInputStream(bais)).  Only ops whose
+        # "X.X" key EXISTS in the table get stamped — no behavior change
+        # for ordinary news.
+        is_ctor_node = (vlabel == NodeLabel.OPERATOR.value
+                        and vtype == "new")
 
-        if not (is_function_def or is_call_node):
+        if not (is_function_def or is_call_node or is_ctor_node):
             continue
 
         # Skip nodes belonging to other languages.
@@ -121,6 +134,14 @@ def enrich_taint(
             else:
                 dot_pos = func_name.rfind(".")
                 lookup_name = func_name[dot_pos + 1:] if dot_pos >= 0 else func_name
+        elif is_ctor_node:
+            # Fix 143r: ctor KNOWLEDGE entries are keyed "Class.Class";
+            # the op name is "new Class" (Fix 143f-b may append a
+            # qualifier — take the last path segment).
+            _cls = func_name[4:] if func_name.startswith("new ") else func_name
+            _cls = _cls.rsplit(".", 1)[-1]
+            lookup_name = _cls
+            full_lookup = f"{_cls}.{_cls}"
         elif fullname and "." in fullname:
             # function_def 节点：使用 fullname 做完整名查找
             full_lookup = fullname

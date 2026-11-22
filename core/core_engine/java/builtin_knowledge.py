@@ -139,6 +139,19 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         # constructor is an unresolved empty shell and the chain dies code=3.
         "ObjectInputStream.ObjectInputStream": {"passthrough": [0], "safe": False},
         "XMLDecoder.XMLDecoder":               {"passthrough": [0], "safe": False},
+        # Fix 143e (CVE-2026-129448): SAX request-body plumbing.
+        # new InputSource(request.getInputStream()) wraps the attacker
+        # stream — the constructed InputSource carries its taint (same
+        # shape as ObjectInputStream above); xr.parse(new InputSource(s))
+        # feeds it to the ContentHandler callbacks via Fix 143d.
+        # ByteArrayInputStream likewise copies its byte[] argument into
+        # the stream (SerializableParser.getResult's
+        # new ByteArrayInputStream(res) before ObjectInputStream).
+        "InputSource.InputSource":               {"passthrough": [0], "safe": False},
+        "ByteArrayInputStream.ByteArrayInputStream": {"passthrough": [0], "safe": False},
+        # ByteArrayOutputStream.toByteArray() exposes the receiver's
+        # accumulated (mutated-by-write, Fix 143e dfg pass) buffer.
+        "ByteArrayOutputStream.toByteArray":     {"passthrough": ["this"], "safe": False},
         "StringEscapeUtils.escapeHtml4":        {"passthrough": [0], "safe": True},
         "StringEscapeUtils.escapeHtml3":        {"passthrough": [0], "safe": True},
         "StringEscapeUtils.escapeXml":          {"passthrough": [0], "safe": True},

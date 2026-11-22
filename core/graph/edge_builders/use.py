@@ -77,6 +77,12 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         # 与 接口方法判定缓存（target_vid → 接口名或 ''）
         self._iface_implementors: dict[str, set[str]] = defaultdict(set)
         self._iface_of_target: dict[int, str] = {}
+        # Fix 143a (CVE-2026-129448): java class-hierarchy indexes —
+        # extends-only child→parent map (super-call walks), and the set of
+        # corpus class-declaration names (virtual-dispatch fan gating).
+        self._cls_extends: dict[str, str] = {}
+        self._cls_decl_names: set[str] = set()
+        self._subtype_closure_cache: dict[str, tuple[str, ...]] = {}
 
         # ── 预缓存节点属性 — 避免 15s+ 的 _vattr/graph.vs 开销 ──
         n = graph.vcount()
@@ -127,6 +133,13 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                         and self._vfullname[e.source]):
                     self._iface_implementors[self._vname[e.target]].add(
                         self._vfullname[e.source])
+                    # Fix 143a (CVE-2026-129448): extends-only map for
+                    # super-call resolution (implements edges must NOT be
+                    # walked by super.X()).  crg edges carry the direction
+                    # in attrs.type (extends/implements).
+                    if _vattr(e, "type", "") == "extends":
+                        self._cls_extends[self._vname[e.source]] = \
+                            self._vname[e.target]
             elif elabel == "own":
                 self._own_to[e.target].append(e.source)
             elif elabel == "dfg":
@@ -164,6 +177,16 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             if is_ext:
                 self._func_name_ext_idx[name].append(i)
         self._func_name_ext_idx = dict(self._func_name_ext_idx)
+
+        # Fix 143c (CVE-2026-129448): corpus class-declaration names
+        # (classes actually declared in the corpus — virtual-dispatch fan
+        # only fires for receivers whose declared type is one of these).
+        for v in graph.vs:
+            i = v.index
+            if self._vlabel[i] == "class" and self._vraw_type[i]:
+                nm = self._vname[i]
+                if nm:
+                    self._cls_decl_names.add(nm)
 
         # ── enclosing function 缓存 ──
         self._enclosing_fn_cache: dict[int, int | None] = {}
@@ -234,8 +257,93 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             if op_type in (OperatorType.METHOD_CALL.value,
                            OperatorType.STATIC_CALL.value):
                 resolved_type = self._resolve_receiver_type(
-                    graph, vid, callee_name, name_index
-                )
+                    graph, vid, callee_name, name_index)
+
+            # ── Fix 143a (CVE-2026-129448): super-call resolution ──
+            # `super.execute(...)`, `super.characters(...)`,
+            # `Qualifier.super.member(...)`: the callee identifier emitted
+            # by the normalizer is literally "super", so every super call
+            # previously bound to an empty external stub and the whole
+            # superclass callgraph leg was invisible (xmlrpc chain:
+            # XmlRpcServletServer.execute → super.execute →
+            # XmlRpcStreamServer.execute carried the request stream).
+            # Resolve to the enclosing class's EXTENDS chain (implements
+            # edges are never walked by super.X()).
+            _super_method = ""
+            if callee_name == "super" and op_name and "." in op_name:
+                _super_method = op_name.rsplit(".", 1)[1]
+            if _super_method and language == "java":
+                _enc = self._enclosing_class_name_ast(graph, vid)
+                if _enc:
+                    for _anc in self._java_superclass_chain(_enc):
+                        _sv = self._func_fullname_idx.get(
+                            f"{_anc}.{_super_method}")
+                        if _sv is not None and self._vfile_path[_sv]:
+                            if (vid, _sv) not in self._use_pairs:
+                                self._use_pairs.add((vid, _sv))
+                                use_edges.append((vid, _sv))
+                                use_attrs.append({
+                                    "label": "use",
+                                    "call_type": cg_call_type,
+                                    "lineno": lineno,
+                                })
+                                count += 1
+                            break
+
+            # ── Fix 143b (CVE-2026-129448): implicit-this inherited call ──
+            # A bare method call `setResult(...)` / `.writeBuffer(...)`
+            # inside class C executes C's own method or one inherited from
+            # the superclass chain.  The generic path bound these to
+            # same-file or external stubs (ByteArrayParser.endElement's
+            # setResult never reached TypeParserImpl.setResult; Base64
+            # Decoder.write's writeBuffer hit Encoder.writeBuffer — a
+            # sibling nested class — via the same-file name fallback).
+            # Try the own-class + extends chain BEFORE generic resolution.
+            _implicit_this = (
+                language == "java"
+                and callee_name != "super"
+                and op_name
+                and not op_name.startswith("this.")
+                and ("." not in op_name or op_name.startswith("."))
+            )
+            if _implicit_this:
+                _enc = self._enclosing_class_name_ast(graph, vid)
+                if _enc:
+                    _iv = self._java_lookup_method(graph, _enc, callee_name)
+                    if _iv is not None:
+                        if (vid, _iv) not in self._use_pairs:
+                            self._use_pairs.add((vid, _iv))
+                            use_edges.append((vid, _iv))
+                            use_attrs.append({
+                                "label": "use",
+                                "call_type": cg_call_type,
+                                "lineno": lineno,
+                            })
+                            count += 1
+                        # Fix 143k (CVE-2026-129448): the own-chain hit is
+                        # an abstract/interface method (no body) — the
+                        # runtime dispatch target is an override in the
+                        # enclosing class's subtype closure (xmlrpc:
+                        # Decoder.write's writeBuffer → Base64$76 override).
+                        if not self._fn_has_body(graph, _iv):
+                            _tcls = self._class_of_function(graph, _iv)
+                            if _tcls:
+                                for _child in self._java_subtype_closure(_tcls):
+                                    _fv = self._func_fullname_idx.get(
+                                        f"{_child}.{callee_name}")
+                                    if (_fv is not None
+                                            and self._vfile_path[_fv]
+                                            and _fv != _iv
+                                            and (vid, _fv) not in self._use_pairs):
+                                        self._use_pairs.add((vid, _fv))
+                                        use_edges.append((vid, _fv))
+                                        use_attrs.append({
+                                            "label": "use",
+                                            "call_type": cg_call_type,
+                                            "lineno": lineno,
+                                        })
+                                        count += 1
+                        continue
 
             # Fix 97 (CVE-2026-29080): python duck-typed multi-target
             # dispatch.  An opaque-receiver method call
@@ -275,6 +383,16 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             # Build fullname
             if resolved_type:
                 fullname = f"{resolved_type}.{callee_name}"
+                # Fix 143i (CVE-2026-129448): java nested-class receivers
+                # resolve under the SIMPLE nested name — corpus methods of
+                # `Base64.Decoder` are indexed as `Decoder.write`, so the
+                # qualified form only ever matched (or created) an external
+                # stub and the call edge left the corpus.
+                if (language == "java" and "." in resolved_type
+                        and self._func_fullname_idx.get(fullname) is None):
+                    _simple = f"{resolved_type.rsplit('.', 1)[-1]}.{callee_name}"
+                    if self._func_fullname_idx.get(_simple) is not None:
+                        fullname = _simple
             elif op_type == OperatorType.NEW.value:
                 fullname = callee_name
             else:
@@ -344,6 +462,63 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                             })
                             count += 1
 
+                    # ── Fix 143c (CVE-2026-129448): subtype-closure
+                    # virtual dispatch ──
+                    # Two shapes the 137g direct-implementor fan misses:
+                    # (a) receiver's DECLARED type is a corpus class or
+                    #     interface but the bound target sits elsewhere
+                    #     (same-file mis-bind / base-class method): the
+                    #     runtime callee is any same-name method in the
+                    #     receiver type's SUBTYPE CLOSURE — xmlrpc
+                    #     `typeParser.getResult` (TypeParser interface,
+                    #     real target SerializableParser.getResult two
+                    #     subclass hops down).
+                    # (b) the bound target has NO body (interface method
+                    #     or abstract): overrides in the enclosing class's
+                    #     subtype closure are the real dispatch targets —
+                    #     xmlrpc Base64 Decoder.writeBuffer (abstract) →
+                    #     the anonymous override in ByteArrayParser.
+                    # Both fans only bind corpus (file-backed) nodes and
+                    # cap the closure at 16 classes.
+                    _fan_targets: set[int] = set()
+                    if language == "java":
+                        if resolved_type:
+                            _rt = resolved_type.rsplit(".", 1)[-1]
+                            if (_rt in self._cls_decl_names
+                                    or _rt in self._iface_implementors):
+                                for _child in self._java_subtype_closure(
+                                        resolved_type):
+                                    _fv = self._func_fullname_idx.get(
+                                        f"{_child}.{callee_name}")
+                                    if (_fv is not None
+                                            and self._vfile_path[_fv]
+                                            and _fv != target_vid):
+                                        _fan_targets.add(_fv)
+                        if (target_vid is not None
+                                and self._vfile_path[target_vid]
+                                and not self._fn_has_body(
+                                    graph, target_vid)):
+                            _tcls = self._class_of_function(graph, target_vid)
+                            if _tcls:
+                                for _child in self._java_subtype_closure(
+                                        _tcls):
+                                    _fv = self._func_fullname_idx.get(
+                                        f"{_child}.{callee_name}")
+                                    if (_fv is not None
+                                            and self._vfile_path[_fv]
+                                            and _fv != target_vid):
+                                        _fan_targets.add(_fv)
+                    for _fv in _fan_targets:
+                        if (vid, _fv) not in self._use_pairs:
+                            self._use_pairs.add((vid, _fv))
+                            use_edges.append((vid, _fv))
+                            use_attrs.append({
+                                "label": "use",
+                                "call_type": cg_call_type,
+                                "lineno": lineno,
+                            })
+                            count += 1
+
         # ── 批量写入 use 边 ──
         if use_edges:
             graph.add_edges(use_edges)
@@ -352,6 +527,10 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 eid = n_existing + i
                 for k, val in attrs.items():
                     graph.es[eid][k] = val
+
+        # ── Fix 143d (CVE-2026-129448): SAX parse → ContentHandler
+        # dispatch (xmlrpc-style framework callback bridging) ──
+        count += self._sax_dispatch_edges(graph)
 
         # ── Fix 106 (CVE-2026-126482): string-const callback dispatch ──
         # PHP dynamic call `$cb($out)` where the callee variable is a
@@ -1064,6 +1243,310 @@ class UseEdgeBuilder(BaseEdgeBuilder):
 
         cached[fn_vid] = result
         return result
+
+    # ── Fix 143 (CVE-2026-129448): java class-hierarchy helpers ──
+
+    def _enclosing_function_ast(self, graph: "ig.Graph", vid: int) -> int | None:
+        """Fix 143j: enclosing function via own edges, falling back to
+        ast parents.
+
+        ``_enclosing_function`` walks ``own`` edges only, but ops under
+        branch containers can sit on a branch node whose own chain ends
+        (``<else>`` hangs off the if-condition identifier via an ast
+        iffalse edge) — ``super.characters``/``xr.parse``-style ops then
+        resolved to NO enclosing function and every enclosing-scope
+        feature (super dispatch, SAX registration) silently died.  Mixed
+        bounded walk: prefer own parent, else first ast parent; stop at
+        any function node.
+        """
+        fn = self._enclosing_function(graph, vid)
+        if fn is not None:
+            return fn
+        cached = getattr(self, "_enclosing_fn_ast_cache", None)
+        if cached is None:
+            cached = self._enclosing_fn_ast_cache = {}
+        if vid in cached:
+            return cached[vid]
+        visited: set[int] = {vid}
+        current = vid
+        for _ in range(15):
+            own = self._own_to.get(current, [])
+            if own:
+                nxt = own[0]
+                if self._vlabel[nxt] == NodeLabel.FUNCTION.value:
+                    cached[vid] = nxt
+                    return nxt
+                if nxt not in visited:
+                    visited.add(nxt)
+                    current = nxt
+                    continue
+            astp = self._ast_to.get(current, [])
+            found = None
+            for p, _role in astp:
+                if self._vlabel[p] == NodeLabel.FUNCTION.value:
+                    found = p
+                    break
+            if found is not None:
+                cached[vid] = found
+                return found
+            if astp and astp[0][0] not in visited:
+                visited.add(astp[0][0])
+                current = astp[0][0]
+                continue
+            break
+        cached[vid] = None
+        return None
+
+    def _enclosing_class_name_ast(self, graph: "ig.Graph", vid: int) -> str:
+        """Fix 143j: ``_enclosing_class_name`` on the ast-fallback walk."""
+        fn_vid = self._enclosing_function_ast(graph, vid)
+        if fn_vid is None:
+            return ""
+        cached = getattr(self, "_enclosing_cls_cache", None)
+        if cached is None:
+            cached = self._enclosing_cls_cache = {}
+        if fn_vid in cached:
+            return cached[fn_vid]
+        current = fn_vid
+        visited: set[int] = set()
+        for _ in range(10):
+            if current in visited:
+                break
+            visited.add(current)
+            if self._vlabel[current] == NodeLabel.CLASS.value:
+                cached[fn_vid] = self._vname[current] or ""
+                return cached[fn_vid]
+            own = self._own_to.get(current, [])
+            if not own:
+                break
+            current = own[0]
+        cached[fn_vid] = ""
+        return ""
+
+    def _java_superclass_chain(self, cls: str) -> list[str]:
+        """Extends-only ancestor chain of a corpus class (bounded 6)."""
+        out: list[str] = []
+        seen = {cls}
+        cur = cls
+        for _ in range(6):
+            parent = self._cls_extends.get(cur)
+            if not parent or parent in seen:
+                break
+            seen.add(parent)
+            out.append(parent)
+            cur = parent
+        return out
+
+    def _java_lookup_method(self, graph: "ig.Graph", cls: str,
+                            name: str) -> int | None:
+        """Own-class + extends-chain method lookup (file-backed only).
+
+        Handles dotted declared types (``Base64.Decoder`` → try
+        ``Base64.Decoder.name`` then ``Decoder.name``), then walks the
+        superclass chain — implicit-this calls in a subclass execute
+        inherited methods (ByteArrayParser.endElement's setResult lives
+        in TypeParserImpl).
+        """
+        if not cls or not name:
+            return None
+        cands = [cls]
+        if "." in cls:
+            cands.append(cls.rsplit(".", 1)[-1])
+        for c in cands:
+            for k in [c] + self._java_superclass_chain(c):
+                fv = self._func_fullname_idx.get(f"{k}.{name}")
+                if fv is not None and self._vfile_path[fv]:
+                    return fv
+        return None
+
+    def _java_subtype_closure(self, cls: str) -> tuple[str, ...]:
+        """Transitive subtype closure (extends+implements), cap 16, cached.
+
+        Keys are simple class names (crg stub names); dotted inputs are
+        reduced to their last segment.
+        """
+        root = cls.rsplit(".", 1)[-1] if "." in cls else cls
+        cached = self._subtype_closure_cache.get(root)
+        if cached is not None:
+            return cached
+        seen: set[str] = {root}
+        out: list[str] = []
+        frontier = [root]
+        while frontier and len(out) < 16:
+            cur = frontier.pop()
+            for child in self._iface_implementors.get(cur, ()):
+                if child not in seen:
+                    seen.add(child)
+                    out.append(child)
+                    frontier.append(child)
+        result = tuple(out)
+        self._subtype_closure_cache[root] = result
+        return result
+
+    def _fn_has_body(self, graph: "ig.Graph", fn_vid: int) -> bool:
+        """True when the function node owns non-parameter children.
+
+        Fix 143k-b: body detection must look at OUTGOING own edges
+        (statements/branches the function owns); the previous version
+        inspected incoming own parents (the enclosing class), which made
+        every corpus method look like it had a body and silently disabled
+        the abstract-method override fan.
+        """
+        for eid in graph.incident(fn_vid, mode="out"):
+            e = graph.es[eid]
+            if e["label"] != EdgeLabel.OWN.value:
+                continue
+            if self._vlabel[e.target] != NodeLabel.PARAMETER.value:
+                return True
+        return False
+
+    def _class_of_function(self, graph: "ig.Graph", fn_vid: int) -> str:
+        """Fix 143k-c: name of the class DECLARING *fn_vid*.
+
+        ``_enclosing_class_name`` resolves the enclosing function of an
+        OP first — handed a function vid it walks fn→class→file, finds no
+        function, and returns '' (the shape-b fan never fired).  Walk
+        own-parents from the function directly to the nearest class node.
+        """
+        current = fn_vid
+        visited: set[int] = set()
+        for _ in range(6):
+            if current in visited:
+                break
+            visited.add(current)
+            if self._vlabel[current] == NodeLabel.CLASS.value:
+                return self._vname[current] or ""
+            own = self._own_to.get(current, [])
+            if not own:
+                break
+            current = own[0]
+        return ""
+
+    def _sax_dispatch_edges(self, graph: "ig.Graph") -> int:
+        """Fix 143d (CVE-2026-129448): SAX parse → ContentHandler dispatch.
+
+        ``xr.setContentHandler(handler); xr.parse(new InputSource(stream))``
+        — the XMLReader framework invokes the registered handler's
+        startElement/characters/endElement callbacks with the parsed
+        document's content.  There is no syntactic call edge, so the
+        whole SAX-parsing leg of the xmlrpc deserialization chain was
+        invisible.  Binding: same receiver name + same enclosing function
+        for setContentHandler/parse; handler class resolved from the
+        setter's arg0 identifier (declared java_type, else its dfg NEW
+        definition).  Callbacks bound as use edges from the parse op, so
+        dfg phase 2's arg→param binding carries the parse-arg taint
+        (attacker InputSource) into the callback parameters.
+        The SAXParser.parse(InputStream, DefaultHandler) shape (handler
+        as arg 1) is bound the same way.
+        """
+        if not self._cls_decl_names:
+            return 0
+        added = 0
+        # setter registry: (enclosing_fn, receiver) → handler class name
+        handlers: dict[tuple[int, str], str] = {}
+        parse_ops: list[tuple[int, str, int]] = []  # (op_vid, recv, fn_vid)
+        for v in graph.vs:
+            vid = v.index
+            if self._vlabel[vid] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[vid] not in _CALL_TYPES:
+                continue
+            nm = self._vname[vid] or ""
+            dot = nm.find(".")
+            recv = nm[:dot] if dot > 0 else ""
+            meth = nm[dot + 1:] if dot >= 0 else nm
+            fn_vid = self._enclosing_function_ast(graph, vid)
+            if meth == "setContentHandler" and recv and fn_vid is not None:
+                hcls = self._sax_handler_class(graph, vid)
+                if hcls:
+                    handlers[(fn_vid, recv)] = hcls
+            elif meth == "parse" and recv and fn_vid is not None:
+                parse_ops.append((vid, recv, fn_vid))
+
+        sax_callbacks = ("startElement", "characters", "endElement")
+        for vid, recv, fn_vid in parse_ops:
+            hcls = handlers.get((fn_vid, recv))
+            if hcls is None:
+                # SAXParser.parse(stream, handler) shape
+                hcls = self._sax_parse_arg_handler(graph, vid)
+            if not hcls:
+                continue
+            for cb in sax_callbacks:
+                fv = self._func_fullname_idx.get(f"{hcls}.{cb}")
+                if fv is None or not self._vfile_path[fv]:
+                    continue
+                if (vid, fv) not in self._use_pairs:
+                    self._use_pairs.add((vid, fv))
+                    self._add_use_edge_late(graph, vid, fv)
+                    added += 1
+        return added
+
+    def _add_use_edge_late(self, graph: "ig.Graph", src: int,
+                           tgt: int) -> None:
+        """Append a use edge directly (post-batch phase)."""
+        graph.add_edge(src, tgt)
+        e = graph.es[graph.ecount() - 1]
+        e["label"] = "use"
+        e["call_type"] = "method"
+        e["lineno"] = self._vlineno[src] or 0
+
+    def _sax_handler_class(self, graph: "ig.Graph", op_vid: int) -> str:
+        """Handler class name from a setContentHandler call's arg0."""
+        arg0 = None
+        for tgt, role in self._ast_src_from.get(op_vid, ()):
+            if role == "arg":
+                arg0 = tgt
+                break
+        if arg0 is None:
+            return ""
+        jt = self._vjava_type[arg0] or self._vdtype[arg0]
+        if jt:
+            return jt.rsplit(".", 1)[-1] if "." in jt else jt
+        # Fix 143h (CVE-2026-129448): bounded dfg BACK-WALK to the `new X`
+        # definition.  The one-hop lookup only reached the declaring
+        # identifier (`parser` use → `parser` decl) and stopped — the NEW
+        # op sits two+ hops upstream, so every locally-constructed handler
+        # resolved to "".
+        seen = {arg0}
+        frontier = [arg0]
+        for _ in range(6):
+            nxt: list[int] = []
+            for u in frontier:
+                for src in self._dfg_to.get(u, ()):
+                    if src in seen:
+                        continue
+                    seen.add(src)
+                    nm = self._vname[src] or ""
+                    if (self._vlabel[src] == NodeLabel.OPERATOR.value
+                            and nm.startswith("new ") and len(nm) > 4):
+                        return nm[4:].rsplit(".", 1)[-1]
+                    nxt.append(src)
+            if not nxt:
+                break
+            frontier = nxt
+        return ""
+
+    def _sax_parse_arg_handler(self, graph: "ig.Graph", op_vid: int) -> str:
+        """Handler class from SAXParser.parse(stream, handler) arg1."""
+        args = []
+        for e in graph.incident(op_vid, mode="out"):
+            if self._elabel_is_ast(e, "arg"):
+                idx = e["arg_index"] if "arg_index" in e.attributes() else -1
+                args.append((idx, e.target))
+        args.sort()
+        for idx, tgt in args:
+            if idx != 1:
+                continue
+            jt = self._vjava_type[tgt] or self._vdtype[tgt]
+            if jt:
+                return jt.rsplit(".", 1)[-1] if "." in jt else jt
+        return ""
+
+    def _elabel_is_ast(self, e, role: str) -> bool:
+        try:
+            return e["label"] == "ast" and e["role"] == role
+        except Exception:
+            return False
 
     def _java_iface_dispatch_targets(self, graph: "ig.Graph",
                                      target_vid: int,

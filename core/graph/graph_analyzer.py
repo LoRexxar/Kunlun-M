@@ -5624,6 +5624,7 @@ class GraphAnalyzer:
                                 # this branch was actually the Fix 42 G3
                                 # stub-intersection hole (see Fix 130).
                                 if not _orm_builder:
+                                    _dbg_pbarms = os.environ.get("KM_DBG_PBARMS")
                                     try:
                                         for _ae in self._edge_out(up_vid, "ast"):
                                             if _vattr(_ae, "role", "") != "arg":
@@ -5632,6 +5633,11 @@ class GraphAnalyzer:
                                             if _vattr(self.graph.vs[_av], "label", "") in (
                                                     NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
                                                 _pr = self.parameters_back(_av, context_vid=up_vid)
+                                                if _dbg_pbarms and str(callee) in _dbg_pbarms.split(","):
+                                                    print(f"[PBA] callee={callee!r} "
+                                                          f"arg={_vattr(self.graph.vs[_av], 'name', '')!r} "
+                                                          f"code={getattr(_pr, 'code', None)} "
+                                                          f"reason={getattr(_pr, 'reason', None)!r}")
                                                 if _pr.code == 1:
                                                     _pt_hit = (_av, _pr)
                                                     break
@@ -11938,8 +11944,26 @@ class GraphAnalyzer:
                 left_label = _vattr(self.graph.vs[left_vid], "label", "")
 
                 if left_name == var_name and right_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
+                    # Fix 143t (CVE-2026-129448): a comparison against a
+                    # null-family literal is a reference/identity check,
+                    # not a value constraint.  `if (baos == null)` says
+                    # nothing about the CONTENT of the object baos refers
+                    # to — and it certainly must not poison the walk of
+                    # the condition's own operand (xmlrpc
+                    # ByteArrayParser.characters: the null-guard's baos
+                    # identifier IS in the 143e write-back web; Rule 6
+                    # returned -1 'branch constraint' and killed the
+                    # whole writeBuffer→baos.write leg).  Sound for every
+                    # language: in none of them does `x == null` fix x's
+                    # payload to a safe constant.
+                    _rn = str(right_name).strip("'\"").lower()
+                    if _rn in ("null", "none", "nil", "undefined"):
+                        return False
                     return True  # var == constant
                 if right_name == var_name and left_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
+                    _ln = str(left_name).strip("'\"").lower()
+                    if _ln in ("null", "none", "nil", "undefined"):
+                        return False
                     return True  # constant == var
 
                 # strcmp(var, const) == 0 → var is constrained to const

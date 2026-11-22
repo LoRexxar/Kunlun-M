@@ -249,6 +249,17 @@ EXPECTATIONS = {
     # different declared type's read()) and MUST stay 0.
     # Frozen from task 6997 row 19053 (mini line 59 = GT line 221).
     'SnsMessageResource.java': {'6018': 1},
+    # Fix 143 (CVE-2026-129448 Apache XML-RPC roller unauth deser):
+    # XmlRpcServletServer.execute(pStream) network InputStream is the
+    # source; two taint-proven sinks — SerializableParser.getResult
+    # readObject on the base64-decoded <serializable> param bytes
+    # (ByteArrayParser characters→Base64.Decoder→baos.write→
+    # toByteArray receiver, CVI 6035; fix = PR171 drops the default
+    # SerializableParser registration) and XmlRpcStreamServer.getRequest
+    # xr.parse(InputSource(pStream)) XXE (CVI 6007).  Frozen from mini
+    # task 7182 rows 20167/20166.
+    'SerializableParser.java': {'6035': 1},
+    'XmlRpcStreamServer.java': {'6007': 1},
     # Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile type-hint
     # param is a framework source; file.filename → f-string template →
     # open(file_path, "wb+") arbitrary file write. Subdir python/ carries

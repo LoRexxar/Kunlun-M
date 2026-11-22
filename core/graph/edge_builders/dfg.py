@@ -333,6 +333,20 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # argument → container write-back
             if language == "java":
                 self._analyze_java_map_writeback()
+                # Fix 143g (CVE-2026-129448): implicit-this field
+                # write→read flow within a class family; runs BEFORE
+                # stream writeback — field flows also link field uses
+                # to same-named call receivers (baos.write /
+                # baos.toByteArray ops have no receiver identifier of
+                # their own), and the writeback pass consumes that.
+                self._analyze_java_field_flows()
+                # Fix 143e (CVE-2026-129448): ByteArrayOutputStream-family
+                # write argument → stream receiver taint
+                self._analyze_java_stream_writeback()
+                # Fix 143l (CVE-2026-129448): const lookup-table indexed
+                # reads (`result = base64ToInt[c]`) — index taint flows
+                # into the read value for write-free class-level arrays
+                self._analyze_java_const_table_reads()
             # Fix 79d (CVE-2026-32613): collection/stream higher-order
             # dispatch — receiver elements flow into lambda parameters
             self._analyze_lambda_dispatch_flows()
@@ -1947,6 +1961,211 @@ class DataFlowBuilder(BaseEdgeBuilder):
             for a in arg_vids:
                 if a != receiver_vid:
                     self._add_dfg_edge(a, receiver_vid, DfgType.FORWARD_SLICE.value)
+
+    # Fix 143e (CVE-2026-129448): JDK in-memory output-stream mutators.
+    # ByteArrayOutputStream.write(byte[]) stores its argument into the
+    # receiver's buffer — same storage semantics as Map.put (Fix 137b),
+    # on a stream instead of a map.  `toByteArray()` (builtin
+    # passthrough["this"]) then exposes it.  Gate: callee short name AND
+    # receiver declared type must BOTH match — 'write' alone is far too
+    # generic to touch untyped receivers.
+    _JAVA_STREAM_WRITE_RECEIVERS: frozenset[str] = frozenset({
+        "ByteArrayOutputStream",
+    })
+    _JAVA_STREAM_WRITE_METHODS: frozenset[str] = frozenset({
+        "write", "writeBytes",
+    })
+
+    def _analyze_java_stream_writeback(self) -> None:
+        """Fix 143e: ByteArrayOutputStream-family write → receiver taint."""
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] not in ("static_call", "method_call", "call"):
+                continue
+            vid = v.index
+            name = self._vname[vid] or ""
+            dot = name.rfind(".")
+            if dot <= 0:
+                continue
+            if name[dot + 1:] not in self._JAVA_STREAM_WRITE_METHODS:
+                continue
+            receiver_name = name[:name.find(".")]
+            if not receiver_name:
+                continue
+            jt = self._receiver_declared_java_type(vid, receiver_name)
+            if jt not in self._JAVA_STREAM_WRITE_RECEIVERS:
+                continue
+            # receiver identifier: dfg in-edge from a same-name identifier
+            receiver_vid = None
+            for eid in self.graph.incident(vid, mode="in"):
+                e = self.graph.es[eid]
+                if self._elabel[e.index] != EdgeLabel.DFG.value:
+                    continue
+                src = self.graph.vs[e.source]
+                if (self._vlabel[src.index] in (NodeLabel.IDENTIFIER.value,
+                                                NodeLabel.PARAMETER.value)
+                        and (self._vname[src.index] or "") == receiver_name):
+                    receiver_vid = src.index
+                    break
+            if receiver_vid is None:
+                for src, tgt, _t in self._dfg_edges:
+                    if (tgt == vid and self._vlabel[src] in (NodeLabel.IDENTIFIER.value,
+                                                             NodeLabel.PARAMETER.value)
+                            and (self._vname[src] or "") == receiver_name):
+                        receiver_vid = src
+                        break
+            if receiver_vid is None:
+                continue
+            arg_vids = self._get_ast_children(vid, role=AstRole.ARG.value)
+            for a in arg_vids:
+                if a != receiver_vid:
+                    self._add_dfg_edge(a, receiver_vid, DfgType.FORWARD_SLICE.value)
+
+    def _analyze_java_field_flows(self) -> None:
+        """Fix 143g (CVE-2026-129448): implicit-this field write→read flow.
+
+        A java field accessed without a qualifier (``baos.write(...)`` /
+        ``baos.toByteArray()`` in different methods of the declaring
+        class, or captured from an anonymous inner class) has no member
+        edge — the normalizer emits bare identifiers, and same-variable
+        linking is scope-local, so state written through the field in one
+        method was invisible in another (xmlrpc: the anonymous
+        Base64.Decoder's writeBuffer writes ByteArrayParser.baos;
+        endElement reads it).  For each file, names declared as CLASS-LEVEL
+        fields (identifier with java_type owned by a class node) get their
+        non-LHS identifier uses mutually linked (field-state
+        equivalence), and every assign-LHS def → every use.  Field-name
+        + same-file scoping keeps distinct classes' same-named locals in
+        OTHER files unlinked.
+        """
+        # field declarations per file: name → list of decl vids
+        file_fields: dict[str, dict[str, int]] = {}
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.IDENTIFIER.value:
+                continue
+            jt = v["java_type"] or ""
+            if not jt:
+                continue
+            # own-parent must be a class node (field decl)
+            parents = self._edges_to(v.index, EdgeLabel.OWN.value)
+            if not parents or self._vlabel[parents[0]] != NodeLabel.CLASS.value:
+                continue
+            fp = self._vfile_path[v.index]
+            if not fp:
+                continue
+            file_fields.setdefault(fp, {})[self._vname[v.index]] = v.index
+
+        for fp, fields in file_fields.items():
+            uses: dict[str, list[int]] = {f: [] for f in fields}
+            defs: dict[str, list[int]] = {f: [] for f in fields}
+            for v in self.graph.vs:
+                if self._vfile_path[v.index] != fp:
+                    continue
+                nm = self._vname[v.index]
+                if nm not in fields:
+                    continue
+                lbl = self._vlabel[v.index]
+                if lbl not in (NodeLabel.IDENTIFIER.value,):
+                    continue
+                # skip the declaration node itself
+                if v.index == fields[nm]:
+                    continue
+                is_lhs = any(
+                    e.attributes().get("role") == AstRole.LHS.value
+                    for e in self.graph.es.select(_target=v.index, label="ast"))
+                if is_lhs:
+                    defs[nm].append(v.index)
+                else:
+                    uses[nm].append(v.index)
+            for fname in fields:
+                dvids = defs[fname]
+                uvids = uses[fname]
+                # def → use
+                for d in dvids:
+                    for u in uvids:
+                        if d != u:
+                            self._add_dfg_edge(d, u, DfgType.FORWARD_SLICE.value)
+                # use ↔ use (field-state equivalence: mutation via one use
+                # is observable at the others)
+                for i, a in enumerate(uvids):
+                    for b in uvids[i + 1:]:
+                        self._add_dfg_edge(a, b, DfgType.FORWARD_SLICE.value)
+                        self._add_dfg_edge(b, a, DfgType.FORWARD_SLICE.value)
+                # Fix 143g-b: field-named call receivers.  `baos.write(..)`
+                # / `baos.toByteArray()` ops reference the field by name in
+                # the op name but carry no receiver identifier node — link
+                # the field's defs+uses to those ops so receiver taint
+                # flows (consumed by the stream writeback / passthrough
+                # receiver semantics downstream).
+                prefix = f"{fname}."
+                for v2 in self.graph.vs:
+                    if self._vfile_path[v2.index] != fp:
+                        continue
+                    if self._vlabel[v2.index] != NodeLabel.OPERATOR.value:
+                        continue
+                    nm2 = self._vname[v2.index] or ""
+                    if not nm2.startswith(prefix) or len(nm2) <= len(prefix):
+                        continue
+                    for d in dvids + uvids:
+                        if d != v2.index:
+                            self._add_dfg_edge(d, v2.index,
+                                               DfgType.FORWARD_SLICE.value)
+
+    def _analyze_java_const_table_reads(self) -> None:
+        """Fix 143l (CVE-2026-129448): const lookup-table indexed reads.
+
+        ``result = base64ToInt[c]`` — the container is a CLASS-LEVEL
+        array field that never appears as an assign-LHS in its file
+        (compile-time constant table), so the read value is a pure
+        function of the tainted index.  The normalizer now attaches the
+        subscript index to the container identifier via an ast operand
+        edge (Fix 143l); propagate index taint into the container so the
+        existing assignment container→value edge carries it on.  Params
+        and locals are excluded (own-parent must be a class node), which
+        keeps real array reads from tainting their container.
+        """
+        # single pass over vertices; Vertex objects support [] attr access
+        # (ints do NOT — the previous vid-based version raised TypeError
+        # and the pipeline's except killed ALL edge building)
+        has_lhs: dict[tuple[str, str], bool] = {}
+        decl_owned: dict[tuple[str, str], bool] = {}
+        vids_by_key: dict[tuple[str, str], list[int]] = {}
+        index_children: dict[tuple[str, str], list[int]] = {}
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.IDENTIFIER.value:
+                continue
+            fp = self._vfile_path[v.index]
+            nm = self._vname[v.index]
+            if not fp or not nm:
+                continue
+            key = (fp, nm)
+            vids_by_key.setdefault(key, []).append(v.index)
+            if any(e.attributes().get("role") == AstRole.LHS.value
+                   for e in self.graph.es.select(_target=v.index,
+                                                 label="ast")):
+                has_lhs[key] = True
+            parents = self._edges_to(v.index, EdgeLabel.OWN.value)
+            if (parents and self._vlabel[parents[0]] == NodeLabel.CLASS.value
+                    and (v["java_type"] or "")):
+                decl_owned[key] = True
+            for eid in self.graph.incident(v.index, mode="out"):
+                e = self.graph.es[eid]
+                if e["label"] == "ast" and e.attributes().get(
+                        "role") == AstRole.OPERAND.value:
+                    index_children.setdefault(key, []).append(e.target)
+        for key, vids in vids_by_key.items():
+            if has_lhs.get(key) or not decl_owned.get(key):
+                continue
+            idxs = index_children.get(key) or []
+            if not idxs:
+                continue
+            for idx in idxs:
+                for v in vids:
+                    if idx != v:
+                        self._add_dfg_edge(idx, v,
+                                           DfgType.FORWARD_SLICE.value)
+
 
     # java immutable receiver/param types — write-back must never fire on
     # them (Fix 137d): primitives, boxed numbers, String/CharSequence and
