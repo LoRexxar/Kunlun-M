@@ -460,6 +460,16 @@ EXPECTATIONS = {
     # contrast in the same file must NOT fire (Fix 108 repair set).
     # Frozen from task 7205 (openemr/ subdir scan, Fix 144 WIP applied).
     'CVE-2026-124463_rx_print.php': {'1000': 2},
+    # CVE-2026-124467 (GHSA-p4v7-crwp-qq7q): OpenEMR ESign router LFI.
+    # foreach($_REQUEST) dynamic-key store into Request::_params (property
+    # store, Fix 123/124 bridge) -> getParam('module') static-key read ->
+    # ucfirst((string)) cosmetic -> require_once '<srcdir>/ESign/'.$Module
+    # '/Controller.php' (library/ESign/Router.php:23-31 @ v8_3_0; exploit
+    # module=../../.. chains with the fax upload write primitive -> RCE,
+    # fixed 8.4.0 via closed MODULES allowlist).  Native detection, zero
+    # engine change; corpus proof task 7224 row 20355.  Frozen from task
+    # 7226 (openemr/ subdir scan, row 20356; fixed contrast file clean).
+    'CVE-2026-124467_esign_router.php': {'1007': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
@@ -480,6 +490,12 @@ FORBIDDEN = {
     # (src=/href=) is NOT a repair — that shape lives in
     # DocumentTemplateRender.php (sentinel), which must keep firing.
     'CVE-2026-124490_contact_escape.php': ('1000',),
+    # CVE-2026-124467 FIXED shape (OpenEMR 8.4.0 Router): the raw module
+    # request value resolves through the closed MODULES allowlist
+    # (resolveModule returns map constants only) — a 1007 row here means
+    # allowlist const-return semantics regressed (e.g. unresolved-call
+    # passthrough turning the tainted arg into a tainted return).
+    'CVE-2026-124467_esign_router_fixed.php': ('1007',),
     # Fix 139 (CVE-2026-128347) negative controls: non-streaming
     # ExcelJS.Workbook#addImage REJECTS parent-directory traversal and a
     # const filename is untainted — a 3101 row on either shape means the
