@@ -32,10 +32,20 @@ FILTER_FUNCTIONS = {}
 # 二阶污点源：DB 读封装返回值（library/sql.inc.php @ v8_4_1 实测三读函数）。
 # layout_options 等 admin 可编辑表经 sqlFetchArray/sqlQuery/sqlGetAssoc
 # 读回后拼入 SQL（CVE-2026-126489 列名位注入）。
+# Fix 144a (CVE-2026-124463): QueryUtils OO 读族（src/Common/Database/
+# QueryUtils.php @ v8_2_0）同语义——返回值均为 DB 存量数据，fetchArrayFromResultSet
+# 体内是 $resultSet->FetchRow()，与 sql.inc.php 全局函数无路径相通，需独立注册。
 CONTROLLED_SOURCES = [
     'sqlFetchArray(',
     'sqlQuery(',
     'sqlGetAssoc(',
+    'QueryUtils::fetchArrayFromResultSet(',
+    'self::fetchArrayFromResultSet(',
+    'QueryUtils::fetchRecords(',
+    'QueryUtils::fetchRecordsNoLog(',
+    'QueryUtils::fetchTableColumn(',
+    'QueryUtils::fetchTableColumnAssoc(',
+    'QueryUtils::fetchSingleValue(',
 ]
 
 EXTRA_SINKS = [
@@ -97,6 +107,14 @@ FILTER_FUNCTIONS = {
     # 资产。process_cols_escape（纯 explode 拆分）也不收。
     "escape_sql_column_name": [1006],      # DB 列名 schema 白名单 + 反引号包裹
     "escape_table_name": [1006],           # QueryUtils::escapeTableName（表名白名单）
+    # Fix 144a/144c (CVE-2026-124463): OO 原名注册——escape_table_name 全局
+    # 包装之外，QueryUtils 内部与第三方调用方直接走 self::/QueryUtils::
+    # 静态形态（listTableFields 等）；体内 SHOW TABLES 白名单读
+    # fetchArrayFromResultSet（Fix 144a 二阶源）曾把 def 摘要染成 source
+    # 毒化全部调用方（task 7202 46 行 SQLi FP），144c 摘要通道接入本表
+    # 后双保险。
+    "escapeTableName": [1006],
+    "QueryUtils.escapeTableName": [1006],
     "escape_identifier": [1006],           # 白名单/正则标识符消毒
     "escape_sort_order": [1006],           # asc/desc 白名单
     # clinical_rules.php:3091 — 内部自构引号上下文（'...') 内包 add_escape_custom，

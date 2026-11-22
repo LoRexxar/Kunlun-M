@@ -450,6 +450,16 @@ EXPECTATIONS = {
     'CVE-2026-124490_EtherFaxClient.php': {'1002': 1, '1017': 1},
     'CVE-2026-124490_FaxUploadStaging.php': {'1002': 1},
     'CVE-2026-124490_AppDispatch.php': {'1000': 2},
+    # Fix 144a/144b (CVE-2026-124463): OpenEMR CAMOS stored XSS — read side
+    # QueryUtils::fetchArrayFromResultSet (OO second-order source, Fix 144a)
+    # -> raw non-print_html else branch -> array_push value-arg container
+    # write-back (Fix 144b) -> print.  Two sinks fire: the CVE branch print
+    # (rx_print.php:228 @ v8_2_0; v8_3.0 wraps it in text()) + the
+    # unpatched letterhead sibling (rx_print.php:377, preg_replace is a
+    # passthrough not an encoder, still raw in v8_3.0).  The text()-wrapped
+    # contrast in the same file must NOT fire (Fix 108 repair set).
+    # Frozen from task 7205 (openemr/ subdir scan, Fix 144 WIP applied).
+    'CVE-2026-124463_rx_print.php': {'1000': 2},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

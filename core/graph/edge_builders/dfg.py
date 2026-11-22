@@ -329,6 +329,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # Fix 96c (CVE-2026-29080): list mutator (append/extend/
             # insert) argument → container write-back (python)
             self._analyze_container_writeback()
+            # Fix 144b (CVE-2026-124463): array_push/array_unshift
+            # value-arg → container write-back (php)
+            self._analyze_php_array_mutator_writeback()
             # Fix 137b (CVE-2026-83542): java Map-family put/putAll
             # argument → container write-back
             if language == "java":
@@ -2268,6 +2271,68 @@ class DataFlowBuilder(BaseEdgeBuilder):
                                     m, d, DfgType.FORWARD_SLICE.value)
             if len(self._dfg_edges) == added_before:
                 break
+
+    def _analyze_php_array_mutator_writeback(self) -> None:
+        """Fix 144b (CVE-2026-124463): PHP builtin array mutator write-back.
+
+        ``array_push($arr, $v...)`` / ``array_unshift($arr, $v...)`` store
+        the value arguments INTO the arg-0 container (passed by
+        reference).  The call returns an int and the container use node
+        at the call site has no edge back to the values, so an appended
+        tainted element never tainted the container — OpenEMR CAMOS
+        rx_print.php assembled the whole printed list through array_push
+        and the stored-XSS chain died at the push (print
+        $camos_content[0] backtracked only to the empty ``$arr = []``
+        init).
+
+        Mirror of the python list-mutator write-back (Fix 96c): link
+        every value-arg child (arg_index >= 1) and the call op itself
+        into the container use's DEF identifier(s) (dfg sources of the
+        container use at the call site).  Container-level
+        over-approximation — an appended tainted element taints the
+        container.  Scoped to php.
+        """
+        if self._language != "php":
+            return
+        mutators = ("array_push", "array_unshift")
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] != OperatorType.CALL.value:
+                continue
+            vid = v.index
+            if self._vname[vid] not in mutators:
+                continue
+            args = self._get_ast_children_by_arg_index(vid)
+            cont = args.get(0)
+            if cont is None:
+                continue
+            # def node(s) of the container (dfg source of the use).
+            # Earlier passes' dfg edges are still PENDING in
+            # self._dfg_edges (only _apply_dfg_edges writes them into
+            # the graph), so consult both.
+            def_vids = [
+                e.tuple[0] for e in self.graph.es.select(
+                    _target=cont, label=EdgeLabel.DFG.value)
+                if self._vlabel[e.tuple[0]] == NodeLabel.IDENTIFIER.value
+            ]
+            def_vids.extend(
+                src for src, tgt, _t in self._dfg_edges
+                if tgt == cont and self._vlabel[src] == NodeLabel.IDENTIFIER.value
+            )
+            if not def_vids:
+                continue
+            for idx, a in args.items():
+                if idx == 0 or a is None:
+                    continue
+                for d in def_vids:
+                    if a != d:
+                        self._add_dfg_edge(
+                            a, d, DfgType.FORWARD_SLICE.value)
+            for d in def_vids:
+                if vid != d:
+                    self._add_dfg_edge(
+                        vid, d, DfgType.FORWARD_SLICE.value)
 
     def _analyze_container_writeback(self) -> None:
         """Fix 96c (CVE-2026-29080): list mutator write-back.

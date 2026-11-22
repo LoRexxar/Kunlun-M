@@ -1878,6 +1878,58 @@ def _trace_call_to_function(
     targets = [t for t in eidx["out"].get("use", {}).get(call_vid, [])
                if _vattr(graph.vs[t], "label") == NodeLabel.FUNCTION.value]
 
+    # ── Fix 144c (CVE-2026-124463): framework repair registry (L1) —
+    # channel consistency between the analyzer's per-svid repair vetoes
+    # and summary space.  scanner.py folds each detected framework's
+    # FILTER_FUNCTIONS into the L1 registry BEFORE summaries are built
+    # (scanner.py L1 load at ~377 precedes build_function_summaries at
+    # ~714), but this tracer only consulted the svid-blind engine
+    # _REPAIR_FUNCTIONS (Pass 2 fallback) — a framework-registered
+    # sanitizer whose body reads a second-order source got its def
+    # summary stamped 'source' and poisoned every caller.  OpenEMR
+    # escape_table_name → QueryUtils::escapeTableName reads the SHOW
+    # TABLES whitelist via fetchArrayFromResultSet (Fix 144a source)
+    # and returns a whitelist member through escape_identifier (also a
+    # registered repair): 46 SQLi FPs across the CAMOS corpus
+    # (task 7202, every reason "return of source-summary function
+    # 'escapeTableName'").  A function the framework itself registers
+    # as a repair can never be a taint source (rule self-lock
+    # doctrine); its call origin is 'safe'.  Summary space is
+    # svid-blind — registered-for-ANY-svid wins, the same tradeoff the
+    # engine-set fallback below already makes.  Name forms: raw,
+    # '::'→'.' qualified, and bare tail of the SAME callee/target-def
+    # names (name-form resolution of one function, not bare-name
+    # def fanout — the 142i hijack concern does not apply).
+    try:
+        from core.filter_functions import _registry as _l1_reg_144c
+        _l1_lang_144c = (_vattr(graph.vs[call_vid], "language", "")
+                         or (targets and _vattr(graph.vs[targets[0]], "language", "")) or "")
+        if _l1_reg_144c is not None and _l1_lang_144c:
+            _names_144c = {call_vname,
+                           _vattr(graph.vs[call_vid], "callee", "") or ""}
+            _names_144c.update(_vattr(graph.vs[t], "name", "") for t in targets)
+            _forms_144c = set()
+            for _n in _names_144c:
+                if not _n:
+                    continue
+                _forms_144c.add(_n)
+                _d = _n.replace("::", ".")
+                _forms_144c.add(_d)
+                _forms_144c.add(_d.rsplit("\\", 1)[-1])
+                if "." in _d:
+                    _forms_144c.add(_d.rsplit(".", 1)[-1])
+            for _store_144c in (_l1_reg_144c._rule,
+                                _l1_reg_144c._summary,
+                                _l1_reg_144c._builtin):
+                _lang_store = _store_144c.get(_l1_lang_144c)
+                if not _lang_store:
+                    continue
+                if any(_f in _lang_store for _f in _forms_144c):
+                    return {"origin": call_vname, "origin_type": "safe",
+                            "dep_params": [], "has_unresolved_call": False}
+    except Exception:
+        pass
+
     # ── Fix 142i (CVE-2026-104126 JumpServer): identity-aware candidate
     # ordering for python calls.  Bare-name use-edge fanout binds a call
     # to EVERY same-named def corpus-wide; legacy Pass 1 read the FIRST

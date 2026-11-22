@@ -385,6 +385,23 @@ FRAMEWORK_CONFIGS = {
         # read wrappers are sqlFetchArray / sqlQuery / sqlGetAssoc.
         'global_source_functions': {
             'sqlFetchArray', 'sqlQuery', 'sqlGetAssoc',
+            # Fix 144a (CVE-2026-124463): the QueryUtils OO read family
+            # (src/Common/Database/QueryUtils.php @ v8_2_0) carries the same
+            # second-order semantics — every wrapper returns DB-stored data.
+            # fetchArrayFromResultSet() ends in `$resultSet->FetchRow()`, so
+            # no path from the sql.inc.php globals reaches it; it needs its
+            # own registration.  Qualified key matches the graph enrich pass
+            # (full_lookup = normalizer fullname "QueryUtils.<method>" for
+            # static calls); bare key matches the AST parser path
+            # (get_simple_name) and self::-form call nodes.  fetchRecords /
+            # fetchRecordsNoLog return row arrays; fetchTableColumn /
+            # fetchTableColumnAssoc / fetchSingleValue return column values.
+            'QueryUtils.fetchArrayFromResultSet', 'fetchArrayFromResultSet',
+            'QueryUtils.fetchRecords', 'fetchRecords',
+            'QueryUtils.fetchRecordsNoLog', 'fetchRecordsNoLog',
+            'QueryUtils.fetchTableColumn', 'fetchTableColumn',
+            'QueryUtils.fetchTableColumnAssoc', 'fetchTableColumnAssoc',
+            'QueryUtils.fetchSingleValue', 'fetchSingleValue',
         },
         # Fix 114a (CVE-2026-126451): the patient-portal Phreezer ORM is the
         # other second-order channel.  Portal patients persist arbitrary
