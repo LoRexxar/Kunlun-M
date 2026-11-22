@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -93,6 +94,14 @@ _FILE_CONTENT_READERS: frozenset[str] = frozenset({
 # matched via the dotted-path check below.
 _JS_SOURCE_ROOTS: frozenset[str] = frozenset()
 
+# Fix 142j (CVE-2026-104126): python container-mutator method tails whose
+# arguments are storage sources of the receiver (mirrors dfg.py
+# DataFlowBuilder._CONTAINER_MUTATORS — keep the two sets in sync).  Used
+# by the PB Rule-4d empty-shell guard to keep walking a mutator call's
+# DFG upstream instead of parking an unresolved verdict.
+_PY_CONTAINER_MUTATORS_142J: frozenset[str] = frozenset({
+    "append", "extend", "insert", "update", "add", "setdefault"})
+
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # PHP — well-known sanitizer/encoding functions
     "htmlspecialchars", "htmlentities", "strip_tags", "urlencode",
@@ -120,8 +129,15 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "cgi.escape", "markupsafe.escape",
     "os.path.basename", "os.path.realpath",
     "int", "float", "str",
-    "json.dumps", "json.loads",
-    "pickle.dumps", "pickle.loads",
+    # Fix 142c (CVE-2026-104126): json/pickle serialization removed from the
+    # repair table. A serializer neutralizes NO injection class: json.dumps
+    # escapes neither shell metacharacters ('" breakouts in sshpass
+    # ProxyCommand strings) nor ansible/jinja {{ }} template evaluation, and
+    # builtin_knowledge.py already holds the authoritative verdict
+    # ({"passthrough": [0], "safe": False}) — the two tables disagreed and
+    # the repair entry silently killed every write(json.dumps(tainted))
+    # config-injection chain (ladder L1-L5 all code=2 "calls repair
+    # 'json.dumps'" before any source lookup ran).
     "reverse",  # Django URL reverse — returns fixed internal path
     "url_for",  # Flask URL builder — returns fixed internal path
     # NOTE: "path" and "save" removed — too generic, caused TP suppression
@@ -4768,6 +4784,15 @@ class GraphAnalyzer:
                         tgt_summary = _vattr(tgt, "func_summary_type", "")
                         if (tgt_taint == "safe" or tgt_summary == "safe") \
                                 and not _src_recv_99:
+                            # Fix 142h: a different-class safe def on a
+                            # python method_call that has a same-class def
+                            # among its use targets is a bare-name hijack —
+                            # the veto may not stand (and must not even
+                            # defer this route); keep walking the
+                            # remaining use targets.
+                            _hj_142h = self._safe_veto_hijack_pred(up_vid, utype == "method_call")
+                            if _hj_142h is not None and _hj_142h(ue.target):
+                                continue
                             # Fix 131: defer (see comment above) — stash the
                             # sanitation proof, keep walking sibling routes.
                             if repaired_result is None:
@@ -4805,6 +4830,14 @@ class GraphAnalyzer:
                                         # Fix 99 veto — source receiver; the
                                         # same-name safe def is a hijack.
                                         break
+                                    # Fix 142h: same identity proof as the
+                                    # direct branch — a different-class
+                                    # same-name safe def may not veto a
+                                    # python method_call that owns a
+                                    # same-class def.
+                                    _hj_142h = self._safe_veto_hijack_pred(up_vid, utype == "method_call")
+                                    if _hj_142h is not None and _hj_142h(sv_vid):
+                                        continue
                                     if os.environ.get("KUNLUN_SAFE_DBG"):
                                         with open("/tmp/kunlun_safe_dbg.log", "a") as _f:
                                             _f.write("SAMENAME up=%d fn=%s\n" % (up_vid, tgt_name))
@@ -4887,9 +4920,51 @@ class GraphAnalyzer:
                     # Also resolve overloads: prefer function defs whose
                     # parameter count matches the call site.
                     use_targets = list(self._edge_out(up_vid, "use"))
+                    # Fix 142g (CVE-2026-104126 JumpServer): python
+                    # self-method calls bind bare-name use edges to EVERY
+                    # same-named def in the corpus.  `self.generate(path_dir)`
+                    # inside JMSInventory picked NodeAssetsUtil.generate
+                    # (arity 1 == 1 explicit arg, first in use order) over
+                    # the true JMSInventory.generate(self, path_dir) — the
+                    # implicit receiver slot skews arity and vertex order
+                    # wins the tie.  Two python-scoped refinements:
+                    # (a) a def whose first parameter is literally `self`
+                    #     has one implicit receiver slot, so for
+                    #     method_call sites its effective arity is
+                    #     param_count-1;
+                    # (b) a def owned by the SAME class as the call site
+                    #     jumps the whole candidate queue (Fix 137f java
+                    #     doctrine — enclosing-class-first resolution; the
+                    #     same-class def IS the genuine callee, so its
+                    #     annotations/vetoes also stand, Fix 101 asymmetry).
+                    _call_cls_142g = None
+                    _def_class_142g = None
+                    if self.language == "python":
+                        _hop = up_vid
+                        for _ in range(24):
+                            _pars = [e.source for e in self._edge_in(_hop, "own")] or \
+                                [e.source for e in self._edge_in(_hop, "ast")]
+                            if not _pars:
+                                break
+                            _hop = _pars[0]
+                            if _vattr(self.graph.vs[_hop], "label", "") == "class":
+                                _call_cls_142g = _hop
+                                break
+
+                        def _def_class_142g(fvid):
+                            for pe in self._edge_in(fvid, "own"):
+                                pl = _vattr(self.graph.vs[pe.source], "label", "")
+                                if pl == "class":
+                                    return pe.source
+                                if pl == "function":
+                                    for pe2 in self._edge_in(pe.source, "own"):
+                                        if _vattr(self.graph.vs[pe2.source], "label", "") == "class":
+                                            return pe2.source
+                            return None
                     # Partition: matching param count vs non-matching
                     matching_arity = []
                     other = []
+                    _same_class_142g = []
                     for ce in use_targets:
                         fv = self.graph.vs[ce.target]
                         if _vattr(fv, "label") != NodeLabel.FUNCTION.value:
@@ -4899,12 +4974,28 @@ class GraphAnalyzer:
                             1 for pe in self._edge_out(ce.target, "own")
                             if _vattr(self.graph.vs[pe.target], "label", "") == "parameter"
                         )
-                        if param_count == call_arg_count:
+                        _eff_arity = param_count
+                        if (self.language == "python"
+                                and utype == "method_call"
+                                and param_count >= 1):
+                            _fp = None
+                            for pe in self._edge_out(ce.target, "own"):
+                                if _vattr(self.graph.vs[pe.target], "label", "") == "parameter":
+                                    _fp = _vattr(self.graph.vs[pe.target], "name", "")
+                                    break
+                            if _fp == "self":
+                                _eff_arity = param_count - 1
+                        if (_call_cls_142g is not None
+                                and _def_class_142g is not None
+                                and _def_class_142g(ce.target) == _call_cls_142g):
+                            _same_class_142g.append(ce)
+                        elif _eff_arity == call_arg_count:
                             matching_arity.append(ce)
                         else:
                             other.append(ce)
-                    # Search matching-arity targets first, then fall back
-                    for ce in matching_arity + other:
+                    # Search same-class targets first, then matching-arity,
+                    # then fall back
+                    for ce in _same_class_142g + matching_arity + other:
                         fv = self.graph.vs[ce.target]
                         ft = _vattr(fv, "taint_type", "") or _vattr(fv, "func_summary_type", "")  # Fix 46e-2
                         if ft:
@@ -5618,7 +5709,29 @@ class GraphAnalyzer:
                                 # coalesce fallback (getData() ?? []) must not
                                 # poison the chain with an unresolved-method
                                 # verdict.
-                                if callee == "array":
+                                # Fix 142j (CVE-2026-104126): python container
+                                # MUTATORS (update/append/extend/insert/add/
+                                # setdefault) write their arguments INTO the
+                                # receiver — Fix 142f links the call op to the
+                                # receiver's DEF and the dict-literal member
+                                # reads aggregate ON the call op.  Skipping the
+                                # op's DFG upstream severed that arg→container
+                                # write-back whenever a foreign same-name def
+                                # made the call resolve "empty-shell-
+                                # inconclusive": ``host.update({'address':
+                                # asset.address, ...})`` went code=3
+                                # "unresolved method 'host.update'" and the
+                                # whole asset.address source leg died (ladD
+                                # L254 vs mini code=1).  Mutator args ARE real
+                                # sources of the container's value — keep
+                                # walking upstream (fallback stays recorded
+                                # for exhaustion).
+                                _py_mut_142j = (
+                                    (self.language or "") == "python"
+                                    and _vattr(uv, "type", "") == "method_call"
+                                    and str(callee).rsplit(".", 1)[-1]
+                                    in _PY_CONTAINER_MUTATORS_142J)
+                                if callee == "array" or _py_mut_142j:
                                     pass
                                 elif inconclusive_fallback is None:
                                     inconclusive_fallback = AnalysisResult(
@@ -5628,7 +5741,8 @@ class GraphAnalyzer:
                                                 "name": callee, "code": 3}],
                                         path=new_path,
                                         expr_lineno=_vattr(uv, "lineno", 0))
-                                continue  # skip DFG upstream of this call node
+                                if not _py_mut_142j:
+                                    continue  # skip DFG upstream of this call node
 
                     # Rule 4e: unknown function call — the callee is not in
                     # builtin_knowledge and analyze_function_return was
@@ -7055,6 +7169,74 @@ class GraphAnalyzer:
                 idx.setdefault((_e["label"], _e.target), []).append(_e)
             self._adj_in = idx
         return idx.get((label, vid), ())
+
+    # ── Fix 142h (CVE-2026-104126 JumpServer): safe-veto identity proof ──
+    #
+    # Rule 3a2's safe-defer treats the FIRST function use-target's (or any
+    # same-name def's) 'safe' annotation as decisive.  Use edges are
+    # bare-name: `self.generate(path_dir)` inside JMSInventory links to
+    # NodeAssetsUtil.generate AND FakeDataGenerator.generate across the
+    # corpus.  When one of those foreign defs carries a safe summary, the
+    # veto fired before Rule 4's Fix 142g same-class binding ever ran and
+    # the whole inventory write chain died (scan3/scan4 GT-miss: `data`
+    # verdict code=2 "safe function 'generate'" from the direct branch).
+    # Doctrine (Fix 137f enclosing-class-first + Fix 101 veto asymmetry):
+    # when the call site is a python method_call with a resolvable
+    # enclosing class AND a same-class def exists among the use targets,
+    # that same-class def IS the genuine callee — only ITS annotations may
+    # veto.  A different-class safe def is a bare-name hijack.
+    # source/passthrough annotations from any target remain acceptable
+    # (over-approximation favours detection); vetoes require proof.
+
+    def _enclosing_class_vid(self, vid: int, max_hops: int = 24):
+        """Nearest class node enclosing vid via own (fallback ast) parents."""
+        hop = vid
+        for _ in range(max_hops):
+            parents = [e.source for e in self._edge_in(hop, "own")] or \
+                [e.source for e in self._edge_in(hop, "ast")]
+            if not parents:
+                return None
+            hop = parents[0]
+            if _vattr(self.graph.vs[hop], "label", "") == "class":
+                return hop
+        return None
+
+    def _def_owner_class_vid(self, fvid: int):
+        """Class node owning function fvid (method, or one nesting level)."""
+        for pe in self._edge_in(fvid, "own"):
+            pl = _vattr(self.graph.vs[pe.source], "label", "")
+            if pl == "class":
+                return pe.source
+            if pl == "function":
+                for pe2 in self._edge_in(pe.source, "own"):
+                    if _vattr(self.graph.vs[pe2.source], "label", "") == "class":
+                        return pe2.source
+        return None
+
+    def _safe_veto_hijack_pred(self, call_vid: int, method_call: bool):
+        """Memoized predicate fvid -> hijacked?.  None = legacy veto stands
+        (not python, not a method_call, unresolvable call-site class, or no
+        same-class def among the call's use targets)."""
+        cache = getattr(self, "_hijack_pred_142h", None)
+        if cache is None:
+            cache = self._hijack_pred_142h = {}
+        if call_vid in cache:
+            return cache[call_vid]
+        pred = None
+        if self.language == "python" and method_call:
+            call_cls = self._enclosing_class_vid(call_vid)
+            if call_cls is not None:
+                same_class_exists = False
+                for ue in self._edge_out(call_vid, "use"):
+                    if _vattr(self.graph.vs[ue.target], "label", "") != NodeLabel.FUNCTION.value:
+                        continue
+                    if self._def_owner_class_vid(ue.target) == call_cls:
+                        same_class_exists = True
+                        break
+                if same_class_exists:
+                    pred = lambda fvid: self._def_owner_class_vid(fvid) != call_cls
+        cache[call_vid] = pred
+        return pred
 
     def _cached(self, key, result: AnalysisResult) -> AnalysisResult:
         # Fix 20b: when a pinned concat was traversed on the way to a CTRL
@@ -10835,6 +11017,20 @@ class GraphAnalyzer:
             if tail != clean:
                 entry = bk.get(tail)
                 if entry and entry.get("safe"):
+                    # Fix 142j (CVE-2026-104126): a bare MODULE-LEVEL python
+                    # builtin key (all/any/callable — safe=True because the
+                    # builtin returns a bool/int) must never qualify the
+                    # qualified TAIL of a method-call callee.  ``asset
+                    # .protocols.all()`` is a Django queryset fetch, not the
+                    # builtin all(); the tail match judged it a repair and
+                    # killed the whole JMSInventory generate→hosts ladder
+                    # (ladD repro: L389 filter code=2 "repair
+                    # 'protocols.all'").  Bare keys are only valid exact
+                    # callees (bk.get(clean) above); method semantics live
+                    # in receiver-qualified keys ('str.x', '__method__.x')
+                    # which a bare-tail get can never match anyway.
+                    if (self.language or "") == "python":
+                        return False
                     return True
         return False
 

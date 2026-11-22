@@ -586,8 +586,33 @@ def _trace_return_value(
         # CONTAINER: trace its sources and aggregate.  Pure-literal
         # containers have no dynamic in-edges (117b only links non-Constant
         # elements) and stay literal.
+        # Fix 142k (CVE-2026-104126): the 117g filter dropped CONST sources
+        # wholesale — but a NESTED container literal (dict-in-dict:
+        # ``host.update({'jms_asset': {'address': asset.address, …}})``)
+        # is itself a const whose OWN dfg in-edges carry the dynamic member
+        # reads.  Skipping it certified the whole outer literal as
+        # pure-literal, so asset_to_host summarized 'safe' (the JMSInventory
+        # generate→f.write chain died on the full corpus: ladG 173 files
+        # detects, ladH 1317 files misses — the corpus only had to grow
+        # enough same-name ``update`` defs for the 142i every-candidate
+        # safe veto to fire on ``host.update``).  Recurse: a const source
+        # with dynamic (non-const) dfg ancestry is a container, not a
+        # literal.  Python-scoped (137f doctrine — no php behavior change
+        # without anchor evidence).
+        def _has_dynamic_142k(_cvid, _d=0):
+            if _d > 6:
+                return False
+            for _s2 in (eidx["in"].get("dfg", {}).get(_cvid) or []):
+                if _vattr(graph.vs[_s2], "label", "") != NodeLabel.CONST.value:
+                    return True
+                if _has_dynamic_142k(_s2, _d + 1):
+                    return True
+            return False
+
+        _is_py_142k = _vattr(v, "language", "") == "python"
         _dyn_in = [s for s in (eidx["in"].get("dfg", {}).get(start_vid) or [])
-                   if _vattr(graph.vs[s], "label", "") != NodeLabel.CONST.value]
+                   if _vattr(graph.vs[s], "label", "") != NodeLabel.CONST.value
+                   or (_is_py_142k and _has_dynamic_142k(s))]
         if _dyn_in:
             _flows, _unres = [], False
             for _s in _dyn_in:
@@ -1517,6 +1542,82 @@ def _get_short_name_index(graph: "ig.Graph") -> dict[str, list[int]]:
     return idx
 
 
+# ── Fix 142i (CVE-2026-104126): python callee-identity caches ──────────
+_py_builtin_names_cache = None
+
+
+def _python_builtin_names():
+    """Bare (unqualified) builtin names carrying knowledge entries."""
+    global _py_builtin_names_cache
+    if _py_builtin_names_cache is None:
+        try:
+            from core.core_engine.python import builtin_knowledge as _bk
+            _py_builtin_names_cache = frozenset(
+                k for k in _bk.KNOWLEDGE if "." not in k)
+        except Exception:
+            _py_builtin_names_cache = frozenset()
+    return _py_builtin_names_cache
+
+
+_class_ctx_cache: dict[int, tuple[int, dict, dict]] = {}  # id(graph) -> (vcount, enc, own)
+
+
+def _get_class_ctx_caches(graph):
+    """Per-graph memo dicts: vid -> enclosing-class vid / def-owner-class vid."""
+    key = id(graph)
+    entry = _class_ctx_cache.get(key)
+    if entry is not None and entry[0] == graph.vcount():
+        return entry[1], entry[2]
+    if len(_class_ctx_cache) > 8:
+        for k in [k for k, v in _class_ctx_cache.items() if v[0] != graph.vcount()][:4]:
+            _class_ctx_cache.pop(k, None)
+    enc: dict[int, int] = {}
+    own: dict[int, int] = {}
+    _class_ctx_cache[key] = (graph.vcount(), enc, own)
+    return enc, own
+
+
+def _enclosing_class_fs(graph, vid, eidx, cache):
+    """Nearest class node enclosing vid via own (fallback ast) parents."""
+    from utils.igraph_compat import _vattr
+    if vid in cache:
+        return cache[vid] or None
+    hop = vid
+    found = None
+    for _ in range(24):
+        pars = (eidx["in"].get("own", {}).get(hop)
+                or eidx["in"].get("ast", {}).get(hop))
+        if not pars:
+            break
+        hop = pars[0]
+        if _vattr(graph.vs[hop], "label", "") == "class":
+            found = hop
+            break
+    cache[vid] = found or -1
+    return found
+
+
+def _owner_class_fs(graph, fvid, eidx, cache):
+    """Class node owning function fvid (method, or one nesting level)."""
+    from utils.igraph_compat import _vattr
+    if fvid in cache:
+        return cache[fvid] or None
+    found = None
+    for p in eidx["in"].get("own", {}).get(fvid, []):
+        pl = _vattr(graph.vs[p], "label", "")
+        if pl == "class":
+            found = p
+            break
+        if pl == "function":
+            for p2 in eidx["in"].get("own", {}).get(p, []):
+                if _vattr(graph.vs[p2], "label", "") == "class":
+                    found = p2
+                    break
+            break
+    cache[fvid] = found or -1
+    return found
+
+
 # Fix 52z-9 (CVE-2026-110185): ORM query-chain terminator methods.  A call
 # like ``FlowNode::where('flow_id', $id)->all()`` / ``->get()`` / ``->first()``
 # terminates a static ORM query chain — its return value is DB row data, i.e.
@@ -1701,8 +1802,43 @@ def _trace_call_to_function(
     targets = [t for t in eidx["out"].get("use", {}).get(call_vid, [])
                if _vattr(graph.vs[t], "label") == NodeLabel.FUNCTION.value]
 
+    # ── Fix 142i (CVE-2026-104126 JumpServer): identity-aware candidate
+    # ordering for python calls.  Bare-name use-edge fanout binds a call
+    # to EVERY same-named def corpus-wide; legacy Pass 1 read the FIRST
+    # target carrying a summary, so an unrelated foreign def (even a user
+    # def named ``list``/``filter``) decided the flow, and the aggregated
+    # literal/safe return flows stamped the genuine callee ``safe``
+    # (JMSInventory.generate) — the summary-tracer twin of the
+    # analyzer-side hijack fixed by 142g/142h.  Ordering, python-scoped:
+    #   same-class def > same-file def > builtin knowledge > foreign defs;
+    # and when several genuine candidates remain (polymorphic fanout), a
+    # veto-grade 'safe'/'literal' needs EVERY candidate safe/literal
+    # (Fix 101 asymmetry) — mixed/unannotated falls through unresolved.
+    _py142i = bool(targets) and _vattr(graph.vs[call_vid], "language", "") == "python"
+    _ordered_142i = targets
+    _skip_pass2_142i = False
+    if _py142i:
+        _enc_cache, _own_cache = _get_class_ctx_caches(graph)
+        _call_cls = _enclosing_class_fs(graph, call_vid, eidx, _enc_cache)
+        _call_file = _vattr(graph.vs[call_vid], "file_path", "") or ""
+        _same_cls, _same_file = [], []
+        for _t in targets:
+            if (_call_cls is not None
+                    and _owner_class_fs(graph, _t, eidx, _own_cache) == _call_cls):
+                _same_cls.append(_t)
+            elif _call_file and (_vattr(graph.vs[_t], "file_path", "") or "") == _call_file:
+                _same_file.append(_t)
+        if _same_cls or _same_file:
+            _ordered_142i = _same_cls or _same_file
+            _skip_pass2_142i = True
+        elif ((_vattr(graph.vs[call_vid], "callee", "") or call_vname or "")
+                .rsplit(".", 1)[-1] in _python_builtin_names()):
+            _ordered_142i = []
+            _skip_pass2_142i = True
+
     # ── Pass 1: a use target that already has a summary / taint ──
-    for target_vid in targets:
+    _veto_pool_142i = []
+    for target_vid in _ordered_142i:
         target = graph.vs[target_vid]
         target_summary = _vattr(target, "func_summary_type", "")
         target_pt = _vattr(target, "func_summary_pt", [])
@@ -1712,19 +1848,34 @@ def _trace_call_to_function(
         if target_summary == "source":
             return {"origin": call_vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}
         if target_summary == "safe":
+            if _py142i and len(_ordered_142i) > 1:
+                _veto_pool_142i.append("safe")
+                continue
             return {"origin": call_vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
         if target_summary in ("literal",):
+            if _py142i and len(_ordered_142i) > 1:
+                _veto_pool_142i.append("literal")
+                continue
             return {"origin": call_vname, "origin_type": "literal", "dep_params": [], "has_unresolved_call": False}
 
         # 目标无 func_summary_type → fallback 检查 enrich_taint 标注的 taint_type
         # （内置 source/safe 函数由 source_registry 通过 enrich_taint 标注）
         target_taint = _vattr(target, "taint_type", "")
         if target_taint in ("source", "safe"):
+            if _py142i and len(_ordered_142i) > 1 and target_taint == "safe":
+                _veto_pool_142i.append("safe")
+                continue
             return {"origin": call_vname, "origin_type": target_taint, "dep_params": [], "has_unresolved_call": False}
         if target_taint == "passthrough" and _vattr(target, "taint_passthrough", []):
             return _trace_passthrough_call(
                 graph, call_vid, list(_vattr(target, "taint_passthrough", [])),
                 own_vids, param_idx, visited, eidx, depth)
+        if _py142i and len(_ordered_142i) > 1:
+            _veto_pool_142i.append(None)
+    if _py142i and len(_ordered_142i) > 1 and _veto_pool_142i \
+            and all(_p in ("safe", "literal") for _p in _veto_pool_142i):
+        return {"origin": call_vname, "origin_type": "safe" if "safe" in _veto_pool_142i else "literal",
+                "dep_params": [], "has_unresolved_call": False}
 
     # ── Pass 2: short-name graph lookup ──
     # A stub use target has a bare name; the definition node's name is
@@ -1741,7 +1892,10 @@ def _trace_call_to_function(
 
     short_index = _get_short_name_index(graph)
 
-    if targets:
+    # Fix 142i: an identity-restricted (same-class/same-file) or
+    # builtin-resolved python call must not consult OTHER same-name defs —
+    # that lookup is a bare-name hijack by construction here.
+    if targets and not _skip_pass2_142i:
         stub_names = {_short(_vattr(graph.vs[t], "name", "")) for t in targets}
         stub_names.discard("")
         if stub_names:

@@ -276,6 +276,17 @@ EXPECTATIONS = {
     # (requests.Session()) — typed-receiver sink 'requests.Session.post'
     # (CVI_7004); raise-only _validate_webhook_url must not sanitize.
     'CVE-2026-64849_mlflow_webhook_ssrf.py': {'7004': 1},
+    # Fix 142a/b/c/d/e/f (CVE-2026-104126 JumpServer <=4.10.16): stored
+    # second-order Ansible inventory config injection.  DB row fields
+    # (asset.address / account.secret / gateway.username …) are sources
+    # via the jumpserver app overlay (requirements.txt marker); they flow
+    # through asset_to_host's host.update({...}) dict mutation (Fix 142f
+    # container write-back), hosts.append/extend, generate's nested
+    # data['all']['hosts'][name] = host (Fix 142d) and
+    # f.write(json.dumps(data)) — the interpreter-consumed config write
+    # is the CVI_7017 TAINT-GATED sink (Fix 142b/e); json.dumps must NOT
+    # be a repair function (Fix 142c).
+    'CVE-2026-104126_jumpserver_inventory_config_injection.py': {'7017': 1},
     # Fix 91 (CVE-2026-33078 roxy-wi <8.2.6.4): Flask route path params
     # are HTTP sources — @bp.route('/section/haproxy/<server_ip>/save')
     # binds URL vars to view params with no request.* anywhere; the param

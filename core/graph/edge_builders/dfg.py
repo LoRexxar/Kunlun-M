@@ -1860,6 +1860,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
     _APPEND_METHODS = frozenset({"append", "extend", "insert"})
 
+    # Fix 142f (CVE-2026-104126): dict/set mutators join the write-back
+    # family.  ``host.update({...tainted...})`` stores the argument INTO
+    # the receiver dict — identical storage semantics to append/extend
+    # (Fix 96c), but 'update' was missing so the whole JumpServer
+    # JMSInventory chain died: asset.address/account.secret member reads
+    # flow into host.update({'jms_asset': {...}}) (inventory.py:220) and
+    # the taint stopped inside the call node, never reaching the `host`
+    # dict, never reaching data['all']['hosts'][name] = host.  'add'
+    # (set.add) and 'setdefault' store their argument the same way.
+    _CONTAINER_MUTATORS = _APPEND_METHODS | frozenset(
+        {"update", "add", "setdefault"})
+
     def _analyze_java_map_writeback(self) -> None:
         """Fix 137b (CVE-2026-83542): java Map-family put/putAll write-back.
 
@@ -2049,11 +2061,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
         stayed untainted forever (rucio FilterEngine builds its whole
         filter structure through .append).
 
-        Edge added: every ast[arg] child of the mutator call → the
-        receiver's DEF identifier (the dfg source of the receiver use at
-        the call site).  Container-level over-approximation — an
-        appended tainted element taints the container, matching the
-        element-flow semantics of Fix 94/95.  Scoped to python.
+        Fix 142f (CVE-2026-104126): dict/set mutators (update/add/
+        setdefault) join the family — same storage semantics — and the
+        CALL node itself is linked too, because dict-literal arguments
+        collapse to const nodes while their member reads aggregate on
+        the call operator (JumpServer JMSInventory host.update chain).
+
+        Edge added: every ast[arg] child of the mutator call (and the
+        call op) → the receiver's DEF identifier (the dfg source of the
+        receiver use at the call site).  Container-level
+        over-approximation — an appended tainted element taints the
+        container, matching the element-flow semantics of Fix 94/95.
+        Scoped to python.
         """
         if self._language != "python":
             return
@@ -2063,7 +2082,7 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if self._vtype[v.index] != OperatorType.METHOD_CALL.value:
                 continue
             vid = v.index
-            if self._vname[vid] not in self._APPEND_METHODS:
+            if self._vname[vid] not in self._CONTAINER_MUTATORS:
                 continue
             # receiver use identifier: member-source of the callee
             # property node (recv --member--> .append)
@@ -2099,6 +2118,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     if a != d:
                         self._add_dfg_edge(
                             a, d, DfgType.FORWARD_SLICE.value)
+            # Fix 142f: for dict-literal arguments the member reads inside
+            # the literal (asset.address etc.) aggregate onto the CALL
+            # operator node, not onto the collapsed const argument node —
+            # also link the call op itself so literal-member taint reaches
+            # the container (no-op for the plain-identifier append form).
+            for d in def_vids:
+                if vid != d:
+                    self._add_dfg_edge(
+                        vid, d, DfgType.FORWARD_SLICE.value)
 
         # Fix 117a (CVE-2026-110279): subscript write-back.
         # ``d[key] = tainted`` — the python normalizer emits the write as
@@ -2128,12 +2156,31 @@ class DataFlowBuilder(BaseEdgeBuilder):
             sub_vid = lhs_nodes[0]
             if self._vraw_type[sub_vid] != "Subscript":
                 continue
-            # container use identifier: ast[callee] child of the subscript op
+            # container use identifier: ast[callee] child of the subscript op.
+            # Fix 142d (CVE-2026-104126): NESTED subscript targets
+            # ``data['all']['hosts'][name] = host`` — the outer Subscript's
+            # ast[callee] child is the INNER Subscript operator, not the
+            # container identifier, so the 117a walk stopped at depth 1 and
+            # config dicts built as dict-of-dicts never received item taint
+            # (JumpServer JMSInventory.generate stamped 'safe' — the whole
+            # inventory write chain died).  Descend the callee chain while it
+            # is still a Subscript operator.
             cont_use = None
-            for cv in self._get_ast_children(sub_vid, role=AstRole.CALLEE.value):
-                if self._vlabel[cv] in (NodeLabel.IDENTIFIER.value,
-                                        NodeLabel.CONST.value):
-                    cont_use = cv
+            _walk_vid = sub_vid
+            for _ in range(10):  # cycle guard
+                _found = False
+                for cv in self._get_ast_children(_walk_vid, role=AstRole.CALLEE.value):
+                    if self._vlabel[cv] in (NodeLabel.IDENTIFIER.value,
+                                            NodeLabel.CONST.value):
+                        cont_use = cv
+                        break
+                    if (self._vlabel[cv] == NodeLabel.OPERATOR.value
+                            and cv < len(self._vraw_type)
+                            and self._vraw_type[cv] == "Subscript"):
+                        _walk_vid = cv
+                        _found = True
+                        break
+                if cont_use is not None or not _found:
                     break
             if cont_use is None:
                 continue

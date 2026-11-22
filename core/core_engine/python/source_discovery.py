@@ -235,6 +235,38 @@ _APP_SOURCE_CONFIGS = {
             'store.get_webhook',
         },
     },
+    # Fix 142a (CVE-2026-104126 JumpServer <=4.10.16): second-order ORM
+    # attribute sources for the bastion-host asset/account/gateway models.
+    # These fields are STORED user input (org users create/patch assets,
+    # accounts and gateways through the REST API); the Ansible automation
+    # pipeline reads the rows back (JMSInventory over
+    # Asset.objects.filter(...) / gateway relations) and renders them into
+    # the task inventory file that ansible/ssh evaluate — unescaped
+    # ``{{ }}`` template expressions invoke Ansible lookups and unquoted
+    # f-string values break out of the ssh ProxyCommand string
+    # (inventory.py make_proxy_command / make_account_vars, fixed by
+    # cc57ba0de5f6 with escape_ansible_jinja + shlex.quote).
+    # Marker: pyproject name = "jumpserver". Fix 114a doctrine,
+    # marker-scoped — a non-JumpServer scan never sees these members.
+    'jumpserver': {
+        'detect_files': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+        'detect_packages': ['jumpserver'],
+        'source_members': {
+            # Gateway row fields (ProxyCommand injection chain)
+            'gateway.username',
+            'gateway.address',
+            'gateway.password',
+            'gateway.port',
+            'gateway.private_key',
+            # Asset row fields (inventory ansible_host / jms_asset)
+            'asset.address',
+            # Account row fields (ansible_user / ansible_password /
+            # become vars)
+            'account.secret',
+            'account.username',
+            'account.full_username',
+        },
+    },
 }
 
 
