@@ -489,6 +489,21 @@ EXPECTATIONS = {
     'InsuranceService.php': {'1006': 2},
     'EmployerService.php': {'1006': 1},
     'QueryUtils.php': {'1006': 2},
+    # CVE-2026-100358 (GHSA-4773-c8fh-3rww): SuiteCRM <7.15.2 Studio
+    # Dropdown Editor persistent PHP injection — admin $_REQUEST flows
+    # whole-array into ParserDropDown::saveDropDown (ModuleBuilder
+    # controller.php:594), $dropdown_name/$selected_lang recombine into
+    # $contents/$filename, land in sugar_file_put_contents ->
+    # file_put_contents (include/utils/sugar_file_utils.php:189, CVI_1017
+    # dual-arg: $filename path via dropdown_lang + $data content via
+    # dropdown_name).  The 5 sibling rows (:348 chmod / :371/:376 chown /
+    # :400/:405 chgrp) are the same-entry TP-family — sugar_touch($filename)
+    # -> sugar_chmod/chown/chgrp with the tainted path.  Native detection,
+    # zero engine change; corpus proof task 7267 row 21060 (graph-forensics
+    # dual-arg taint backtrace), repro subdir scan task 7268 rows 21067-
+    # 21072.  The controller.php:851 echo row is a documented FP
+    # (SugarCleaner::stripTags conditional sanitizer at source, not frozen).
+    'sugar_file_utils.php': {'1017': 6},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
