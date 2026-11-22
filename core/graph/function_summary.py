@@ -49,6 +49,163 @@ _CTOR_NODES_CACHE: dict[int, list[int]] = {}
 _CTOR_ASSIGN_CACHE: dict[tuple[int, int, str], int | None] = {}
 _CTOR_MISS = object()  # sentinel: distinguish "cached None" from "not cached"
 
+# Fix 145b (CVE-2026-124468): per-graph index of file-backed PHP
+# constructors, keyed by class name (both the fullname's class part and
+# its namespace-stripped short form).  Lets the `new X(args)` return
+# tracer distinguish "corpus class whose state includes the ctor args"
+# from framework externals (which keep the blanket constructor-safe).
+_PHP_CTOR_IDX_CACHE: dict[int, dict[str, int]] = {}
+
+# Fix 145d (CVE-2026-124468): per-graph index of php setter methods —
+# prop name -> [(setter function vid, param name the prop is assigned
+# from)].  Built in one pass: a "setter" is a php function whose body has
+# a direct `$this-><prop> = <own param>` assign (the classic fluent value
+# object: setFragment/setField).  Lets the 52z-3 property tracer resolve
+# properties written INDIRECTLY in constructors ($this->setField($field))
+# — the assign lives in the setter body, invisible to the ctor-only scan.
+# _PHP_SETTER_PARAM_CACHE carries setter_vid -> {param name -> position}.
+# _CTOR_SETTER_CALL_CACHE memoizes (graph, ctor, method name) -> call-op
+# vids inside that ctor (None = no such call).
+_PHP_SETTER_IDX_CACHE: dict[int, dict[str, list[tuple[int, str, str]]]] = {}
+_PHP_SETTER_PARAM_CACHE: dict[int, dict[int, dict[str, int]]] = {}
+_CTOR_SETTER_CALL_CACHE: dict[tuple[int, int, str], list[int] | None] = {}
+_PHP_FN_CLASS_CACHE: dict[int, dict[int, str]] = {}
+
+
+def _php_fn_class_map(graph, eidx) -> dict[int, str]:
+    """Fix 145f: fvid -> enclosing class name via own-parent walk.
+
+    145d's setter index is keyed by bare property name graph-wide; on
+    multi-class corpora (osticket class.forms.php + class.dynamic_forms
+    .php) same-named props (`ht`, `choices`) conflate ACROSS classes and
+    flip unrelated getters safe->unknown (anchor task 130 +15 FP, e.g.
+    $_POST@staff/dashboard.inc.php:2 reaching client/faq.inc.php:19
+    through `_choices`/`ht` name collisions).  Every 145d hop (reader,
+    setter writer, ctor) must now resolve to the SAME class."""
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+    _gk = id(graph)
+    m = _PHP_FN_CLASS_CACHE.get(_gk)
+    if m is not None:
+        return m
+    parent: dict[int, int] = {}
+    for _pv, _lst in eidx["own_ch"].items():
+        for _cv, _ in _lst:
+            parent.setdefault(_cv, _pv)
+    m = {}
+    for v in graph.vs:
+        if _vattr(v, "label", "") != NodeLabel.FUNCTION.value:
+            continue
+        cur = v.index
+        seen: set[int] = set()
+        cls = ""
+        while cur not in seen:
+            seen.add(cur)
+            cv = graph.vs[cur]
+            if _vattr(cv, "type", "") == "class":
+                cls = _vattr(cv, "name", "") or ""
+                break
+            nxt = parent.get(cur, -1)
+            if nxt < 0:
+                break
+            cur = nxt
+        if cls:
+            m[v.index] = cls
+    _PHP_FN_CLASS_CACHE[_gk] = m
+    return m
+
+
+def _php_prop_setter_idx(graph, eidx) -> dict[str, list[tuple[int, str, str]]]:
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+    _gk = id(graph)
+    idx = _PHP_SETTER_IDX_CACHE.get(_gk)
+    if idx is not None:
+        return idx
+    idx = {}
+    params: dict[int, dict[str, int]] = {}
+    for fv in graph.vs:
+        if (_vattr(fv, "label", "") != NodeLabel.FUNCTION.value
+                or _vattr(fv, "language", "") != "php"
+                or not _vattr(fv, "file_path", "")):
+            continue
+        fvid = fv.index
+        pidx: dict[str, int] = {}
+        for _cp, _ci in eidx["own_ch"].get(fvid, []):
+            if _vattr(graph.vs[_cp], "label", "") == NodeLabel.PARAMETER.value:
+                _cn = str(_vattr(graph.vs[_cp], "name", ""))
+                if _cn:
+                    pidx[_cn] = int(_ci) if _ci not in (None, "") else 0
+        if not pidx:
+            continue
+        _stack = [fvid]
+        _seen = set()
+        _hits: list[tuple[str, str]] = []
+        while _stack:
+            _x = _stack.pop()
+            if _x in _seen:
+                continue
+            _seen.add(_x)
+            _xv = graph.vs[_x]
+            _xl = _vattr(_xv, "label", "")
+            if _xl == NodeLabel.FUNCTION.value and _x != fvid:
+                continue  # don't cross into nested/sibling functions
+            if (_xl == NodeLabel.OPERATOR.value
+                    and _vattr(_xv, "type", "") in ("assign", "aug_assign")):
+                _lhs_name = None
+                _rhs_names: list[str] = []
+                for _t, _r, _ in eidx["ast_ch"].get(_x, []):
+                    if _r in ("lhs", "left"):
+                        _lhs_name = str(_vattr(graph.vs[_t], "name", "")).strip(chr(39) + chr(34))
+                    elif _r in ("rhs", "right"):
+                        _rhs_names.append(str(_vattr(graph.vs[_t], "name", "")))
+                if _lhs_name:
+                    for _rn in _rhs_names:
+                        if _rn in pidx:
+                            _hits.append((_lhs_name, _rn))
+                            break
+            for _t, _r, _ in eidx["ast_ch"].get(_x, []):
+                if _t not in _seen:
+                    _stack.append(_t)
+            for _t2 in eidx["out"].get("own", {}).get(_x, []):
+                if _t2 not in _seen:
+                    _stack.append(_t2)
+        if _hits:
+            params[fvid] = pidx
+            _cls145f = _php_fn_class_map(graph, eidx).get(fvid, "")
+            for _pn, _paramn in _hits:
+                lst = idx.setdefault(_pn, [])
+                if (fvid, _paramn, _cls145f) not in lst:
+                    lst.append((fvid, _paramn, _cls145f))
+    _PHP_SETTER_IDX_CACHE[_gk] = idx
+    _PHP_SETTER_PARAM_CACHE[_gk] = params
+    return idx
+
+
+def _php_corpus_ctor_idx(graph) -> dict[str, int]:
+    from core.graph.node_edge_schema import NodeLabel
+    from utils.igraph_compat import _vattr
+    _gk = id(graph)
+    idx = _PHP_CTOR_IDX_CACHE.get(_gk)
+    if idx is None:
+        idx = {}
+        for fv in graph.vs:
+            if (_vattr(fv, "label", "") != NodeLabel.FUNCTION.value
+                    or str(_vattr(fv, "name", "")) != "__construct"
+                    or _vattr(fv, "language", "") != "php"
+                    or not _vattr(fv, "file_path", "")):
+                continue
+            fn = str(_vattr(fv, "fullname", "") or "")
+            cls = fn.rsplit(".", 1)[0] if "." in fn else ""
+            if not cls:
+                continue
+            idx.setdefault(cls, fv.index)
+            _short = cls.rsplit(chr(92), 1)[-1]
+            if _short != cls:
+                idx.setdefault(_short, fv.index)
+        _PHP_CTOR_IDX_CACHE[_gk] = idx
+    return idx
+
 # 迭代轮数上限（解决 A→B→A 递归调用）
 _MAX_ITERATIONS = 5
 
@@ -353,6 +510,9 @@ def build_function_summaries(
                 processed.add(vid)
                 continue
 
+            # Fix 145f: carry the summarized function's vid on eidx so the
+            # 145d setter tracer can scope hops to the reader's class.
+            eidx["__reader_fvid145f__"] = vid
             return_flows = _collect_return_flows(
                 graph, fd["return_vids"], fd["own_vids"], fd["param_idx"], eidx
             )
@@ -988,6 +1148,50 @@ def _trace_return_value(
                                     "has_unresolved_call": any(
                                         f.get("has_unresolved_call")
                                         for f in _arg_flows_143m)}
+            # Fix 145b (CVE-2026-124468): PHP corpus-class constructors
+            # carry their argument's taint into the object state — the
+            # 143m doctrine, but driven by the CORPUS ctor instead of
+            # builtin knowledge.  OpenEMR's FhirSearchWhereClauseBuilder
+            # ends ``return new SearchQueryFragment($where,
+            # $sqlBindArray)`` where $where embeds the attacker-derived
+            # WHERE fragment: the blanket constructor-safe certified
+            # build() as 'safe', and Rule 3a2's summary veto severed the
+            # whole REST search chain at every call site.  Only classes
+            # with a file-backed __construct qualify (their state is
+            # knowable); framework externals keep the safe verdict.
+            if (_new_cls
+                    and _vattr(v, "language", "") == "php"
+                    and _php_corpus_ctor_idx(graph).get(
+                        _new_cls.rsplit(chr(92), 1)[-1]) is not None):
+                _arg_flows_145b = []
+                for _a145_t, _a145_r, _ in eidx["ast_ch"].get(start_vid, []):
+                    if not (_a145_r or "").startswith("arg"):
+                        continue
+                    _asub145 = _trace_return_value(
+                        graph, _a145_t, own_vids, param_idx,
+                        visited | {start_vid}, eidx, depth + 1)
+                    if _asub145:
+                        _arg_flows_145b.append(_asub145)
+                if _arg_flows_145b:
+                    _agg145, _aggp145 = _aggregate_flows(_arg_flows_145b)
+                    if _agg145 in ("source", "passthrough"):
+                        return {"origin": vname, "origin_type": _agg145,
+                                "dep_params": [], "has_unresolved_call": any(
+                                    f.get("has_unresolved_call")
+                                    for f in _arg_flows_145b)}
+                    if _agg145 == "param":
+                        return {"origin": vname, "origin_type": "param",
+                                "dep_params": list(_aggp145),
+                                "has_unresolved_call": any(
+                                    f.get("has_unresolved_call")
+                                    for f in _arg_flows_145b)}
+                    if _agg145 == "unknown":
+                        return {"origin": vname, "origin_type": "unknown",
+                                "dep_params": [], "has_unresolved_call": any(
+                                    f.get("has_unresolved_call")
+                                    for f in _arg_flows_145b)}
+                # no args / literal-safe args → fall through to the
+                # blanket constructor-safe below
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
 
     # ── 3.5. Branch/Ternary 追踪 ──
@@ -1243,6 +1447,7 @@ def _trace_return_value(
     #    e.g. $array[array_rand($array)] → member ← $array (parameter)
     if vlabel == NodeLabel.IDENTIFIER.value:
         _unknown_origin = None  # Fix 53-scope: hoisted — de-indent moved the
+        _pn = None  # Fix 145f static-safety init (bound in the $this branch)
         # 52z-8 consumer (L772) outside the `if isinstance(_prop_name...)`
         # block while its init stayed inside → UnboundLocalError killed
         # build_function_summaries on osticket (whole summaries silently
@@ -1375,6 +1580,104 @@ def _trace_return_value(
                             _CTOR_ASSIGN_CACHE[_assign_key] = None
                         if _resolved:
                             break
+            # Fix 145d (CVE-2026-124468): no ctor DIRECTLY assigns this
+            # property — but fluent value objects write state through
+            # setters ($this->setField($field) in the ctor, the assign
+            # living in the setter body).  Resolve prop -> setter(method,
+            # param) -> ctor call-site arg and trace THAT with the ctor's
+            # param_idx (52z-4 doctrine).  Only php ctors/php setters;
+            # only fires when the traced arg is non-literal (source/param/
+            # unknown) — a value object setter called with a literal keeps
+            # the historic safe verdict (anchor-preserving).
+            # Fix 145e: the 145d consumer sits at for-body level, but
+            # _prop_name/_pn are bound at L1418-20 INSIDE the $this/self
+            # branch — a member edge from a non-$this container ($arr[k],
+            # $obj->prop with $obj a param) reached this guard with the
+            # names unbound → UnboundLocalError killed the whole
+            # build_function_summaries (ci line-2 warning; osticket anchor
+            # first attempt +805 FP flood; AppDispatch repro row lost —
+            # task 7255).  Scope the guard to $this/self containers so the
+            # non-$this path falls through to the historic 52z-8 tail
+            # unchanged (HEAD-identical semantics); _prop_name is then
+            # always bound earlier in the same iteration.
+            if (_unknown_origin is None
+                    and isinstance(container_name, str)
+                    and container_name in ("$this", "self")
+                    and isinstance(_prop_name, str) and _prop_name):
+                # Fix 145f: scope every hop to the READER's enclosing class
+                # (the function whose summary is being built — carried on
+                # eidx by build_function_summaries).  Cross-class
+                # same-named props must not flip (osticket +15 anchor FP).
+                _reader145f = eidx.get("__reader_fvid145f__")
+                _rcls145f = (_php_fn_class_map(graph, eidx).get(_reader145f, "")
+                             if _reader145f is not None else "")
+                _setters_145d = (
+                    [(_sv, _spn) for (_sv, _spn, _scls) in _php_prop_setter_idx(graph, eidx).get(
+                        _pn if isinstance(_pn, str) else '', [])
+                     if _rcls145f and _scls == _rcls145f]
+                    if _rcls145f else [])
+                if _setters_145d:
+                    _sparams_145d = _PHP_SETTER_PARAM_CACHE.get(id(graph), {})
+                    _ctors_145d = _CTOR_NODES_CACHE.get(id(graph)) or []
+                    for _fv_idx in _ctors_145d:
+                        if _vattr(graph.vs[_fv_idx], "language", "") != "php":
+                            continue
+                        if _php_fn_class_map(graph, eidx).get(_fv_idx, "") != _rcls145f:
+                            continue
+                        _ctor_pidx_145d = {}
+                        for _cp, _ci in eidx["own_ch"].get(_fv_idx, []):
+                            if (_vattr(graph.vs[_cp], "label", "") == NodeLabel.PARAMETER.value
+                                    and _ci not in (None, "")):
+                                _ctor_pidx_145d[_cp] = int(_ci)
+                        for _sv, _spn in _setters_145d:
+                            _sname = str(_vattr(graph.vs[_sv], "name", ""))
+                            _ck145 = (id(graph), _fv_idx, _sname)
+                            _calls145 = _CTOR_SETTER_CALL_CACHE.get(_ck145, _CTOR_MISS)
+                            if _calls145 is _CTOR_MISS:
+                                _calls145 = []
+                                _stk145 = [_fv_idx]
+                                _seen145 = set()
+                                while _stk145:
+                                    _x = _stk145.pop()
+                                    if _x in _seen145:
+                                        continue
+                                    _seen145.add(_x)
+                                    _xv = graph.vs[_x]
+                                    _xl = _vattr(_xv, "label", "")
+                                    if _xl == NodeLabel.FUNCTION.value and _x != _fv_idx:
+                                        continue
+                                    if _xl == NodeLabel.OPERATOR.value:
+                                        for _t, _r, _ in eidx["ast_ch"].get(_x, []):
+                                            if (_r or "") == "callee" and str(
+                                                    _vattr(graph.vs[_t], "name", "")) == _sname:
+                                                _calls145.append(_x)
+                                                break
+                                    for _t, _r, _ in eidx["ast_ch"].get(_x, []):
+                                        if _t not in _seen145:
+                                            _stk145.append(_t)
+                                    for _t2 in eidx["out"].get("own", {}).get(_x, []):
+                                        if _t2 not in _seen145:
+                                            _stk145.append(_t2)
+                                _CTOR_SETTER_CALL_CACHE[_ck145] = _calls145 or None
+                                _calls145 = _calls145 or []
+                            if not _calls145:
+                                continue
+                            _spos145 = _sparams_145d.get(_sv, {}).get(_spn, 0)
+                            for _callv in _calls145:
+                                for _t, _r, _ai in eidx["ast_ch"].get(_callv, []):
+                                    if not (_r or "").startswith("arg"):
+                                        continue
+                                    if str(_ai if _ai not in (None, "") else 0) != str(_spos145):
+                                        continue
+                                    _sub145 = _trace_return_value(
+                                        graph, _t, own_vids, _ctor_pidx_145d,
+                                        visited | {start_vid}, eidx, depth + 1)
+                                    if _sub145.get("origin_type") in ("source", "param"):
+                                        return _sub145
+                                    if _sub145.get("dep_params"):
+                                        return _sub145
+                                    if _sub145.get("origin_type") == "unknown" and _unknown_origin is None:
+                                        _unknown_origin = _sub145
             # Fix 52z-8: a ctor assign WAS found but its RHS origin is
             # unknown — report unknown (unresolved ≠ safe).  Only when no
             # ctor assigns this property at all does the historic safe

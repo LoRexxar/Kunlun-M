@@ -5652,6 +5652,59 @@ class GraphAnalyzer:
                                                 "name": _vattr(self.graph.vs[_av], "name", ""), "code": 1}] + _pr.chain[:2],
                                         path=new_path + [_av],
                                         expr_lineno=_vattr(self.graph.vs[up_vid], "lineno", 0)))
+                                # Fix 145c (CVE-2026-124468 OpenEMR): php
+                                # receiver passthrough on stub-bound method
+                                # calls — the 137h doctrine generalized from
+                                # java `x.get(k)` to any php method whose
+                                # callee is an empty shell (no file-backed
+                                # def among the use targets).  The generic
+                                # BFS treats a call op as a semantic
+                                # boundary: only ARGS cross (the passthrough
+                                # above), the RECEIVER dfg edge is never
+                                # walked.  But an object constructed from
+                                # attacker data and then dereferenced
+                                # (`$frag = build($searchParams);
+                                # $sql .= $frag->getFragment()`) returns
+                                # object STATE — the same passthrough
+                                # doctrine the args enjoy.  Gate: receiver
+                                # must itself resolve code=1 (proven taint),
+                                # so this can never manufacture a verdict,
+                                # only carry an existing one across the
+                                # accessor hop.
+                                if (self.language == "php"
+                                        and utype == OperatorType.METHOD_CALL.value):
+                                    _argset_145 = set()
+                                    try:
+                                        for _ae in self._edge_out(up_vid, "ast"):
+                                            if _vattr(_ae, "role", "") == "arg":
+                                                _argset_145.add(_ae.target)
+                                    except Exception:
+                                        _argset_145 = set()
+                                    _recv_145 = None
+                                    try:
+                                        for _re in self._edge_in(up_vid, "dfg"):
+                                            _rsrc = _re.source
+                                            if _rsrc in _argset_145:
+                                                continue
+                                            _rl = _vattr(self.graph.vs[_rsrc], "label", "")
+                                            if _rl not in (NodeLabel.IDENTIFIER.value,
+                                                           NodeLabel.PARAMETER.value):
+                                                continue
+                                            _recv_145 = _rsrc
+                                            break
+                                    except Exception:
+                                        _recv_145 = None
+                                    if _recv_145 is not None:
+                                        _rr145 = self.parameters_back(
+                                            _recv_145, context_vid=up_vid)
+                                        if _rr145 is not None and _rr145.code == 1:
+                                            return self._cached(cache_key, AnalysisResult(
+                                                code=1,
+                                                reason=f"receiver passthrough: ({getattr(_rr145, 'reason', '')[:70]})",
+                                                chain=[{"step": "call_receiver", "vid": _recv_145,
+                                                        "name": _vattr(self.graph.vs[_recv_145], "name", ""), "code": 1}] + (_rr145.chain or [])[:2],
+                                                path=new_path + [_recv_145],
+                                                expr_lineno=_vattr(self.graph.vs[up_vid], "lineno", 0)))
                                 # Fix 137h (CVE-2026-83542 OFBiz): java
                                 # container READ through a bodyless hub.
                                 # ``x.get(k)`` bound to an external stub must

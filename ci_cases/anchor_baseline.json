@@ -18,11 +18,11 @@
    "include/staff/ticket-view.inc.php:1174",
    "include/mysqli.php:158"
   ],
-  "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains). | 2026-11-14 Fix84 (CVE-2026-30530): method-body DB-probe semantic gate; installer CREATE DATABASE chain (install.php:52 $_POST → db_create_database → mysqli.php:158) human-verified real TP but flaps with cross-file dfg arg-binding races — tolerated in known_flaky_locs. | 2026-11-17 Fix 98c/99b3/102a/102b (CVE-2026-29080 rucio): python-gated summary fixes; PHP returns to HEAD form (Removed DFG 27361) +1 stable TP ticket-preview.tmpl.php:59 (preview renders POSTed draft ticket; file-scoped annotation family, in 6164+6172).",
+  "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains). | 2026-11-14 Fix84 (CVE-2026-30530): method-body DB-probe semantic gate; installer CREATE DATABASE chain (install.php:52 $_POST → db_create_database → mysqli.php:158) human-verified real TP but flaps with cross-file dfg arg-binding races — tolerated in known_flaky_locs. | 2026-11-17 Fix 98c/99b3/102a/102b (CVE-2026-29080 rucio): python-gated summary fixes; PHP returns to HEAD form (Removed DFG 27361) +1 stable TP ticket-preview.tmpl.php:59 (preview renders POSTed draft ticket; file-scoped annotation family, in 6164+6172). | 2026-11-23 surgical +2 (Fix 145f, task 146, deterministic across retry): 1017 pear Mail/mimePart.php:551 + Net/Socket.php:393 — same-function same-param family siblings of baselined 457/384 (fwrite sink; 393 writes the same tainted $data param via substr loop branch; 551 = $this->body_file->fopen->fgets->quotedPrintableEncode->fwrite, file-based sibling of 457 $this->body chain). Same-class property/param propagation is Fix 145 designed scope, not cross-class pollution.",
   "_flaky_note": "pear Net/DNS2 cache rows flicker with engine-external nondeterminism; Fix 68 baseline run: -2 (vs -23 without Fix 68)",
   "retry_on_fail": true,
-  "task_id": 7053,
-  "count": 572,
+  "task_id": 146,
+  "count": 574,
   "findings": [
    {
     "cvi": "1000",
@@ -2294,6 +2294,10 @@
    },
    {
     "cvi": "1017",
+    "loc": "include/pear/Mail/mimePart.php:551"
+   },
+   {
+    "cvi": "1017",
     "loc": "include/pear/Mail/sendmail.php:153"
    },
    {
@@ -2311,6 +2315,10 @@
    {
     "cvi": "1017",
     "loc": "include/pear/Net/Socket.php:384"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/pear/Net/Socket.php:393"
    }
   ]
  }

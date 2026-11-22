@@ -470,6 +470,25 @@ EXPECTATIONS = {
     # engine change; corpus proof task 7224 row 20355.  Frozen from task
     # 7226 (openemr/ subdir scan, row 20356; fixed contrast file clean).
     'CVE-2026-124467_esign_router.php': {'1007': 1},
+    # Fix 145b/c/d (CVE-2026-124468, GHSA-w3vv-4xjf-8mmp): OpenEMR <8.3.0
+    # REST insurance/employer SQLi — attacker-controlled query-param KEY
+    # becomes a SQL column identifier.  Chain: _rest_routes_standard.inc
+    # :524/:540 $request->getQueryParams() -> InsuranceRestController:122
+    # -> InsuranceService:96 build($search) -> FhirSearchWhereClauseBuilder
+    # :38 new StringSearchField($key,...) -> (Fix 145d: ctor $this->
+    # setField($field) indirect property write) -> SearchFieldStatement
+    # Resolver:293 "BINARY ".$searchField->getField().' = ?' -> SearchQuery
+    # Fragment ctor (Fix 145b corpus-ctor arg trace) -> return -> $sql .=
+    # $whereClause->getFragment() (Fix 145c stub receiver passthrough) ->
+    # QueryUtils::sqlStatementThrowException (CVI_1006).  EmployerService
+    # :103 same shape via fetchRecords.  InsuranceService:202 = pre-existing
+    # legacy getAll sibling (foreach-key SET column, present since first
+    # scan task 7242).  QueryUtils :334/:431 = Fix 144a second-order
+    # def-chain family rows of this tree.  Frozen from task 7247
+    # (openemr/ subdir scan, rows 20448-20452).
+    'InsuranceService.php': {'1006': 2},
+    'EmployerService.php': {'1006': 1},
+    'QueryUtils.php': {'1006': 2},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
