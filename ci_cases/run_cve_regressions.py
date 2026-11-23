@@ -664,6 +664,18 @@ EXPECTATIONS = {
     'SugarRelationship.php': {'1006': 4},
     'M2MRelationship.php': {'1006': 2},
     'SugarRestJSON.php': {'1000': 2},
+    # CVE-2026-69135 repro (suitecrm69135/, byte-faithful 7.15.1): Project
+    # module duplicate-save first-order SQLi — Save.php:58
+    # $_REQUEST['duplicateId'] -> :63 "SELECT id FROM project_task WHERE
+    # project_id = '$base_project_id'" concat -> :64 $sugarbean->db->query
+    # sink.  Upstream d6bca97 wraps :58 in DBManagerFactory quote().  Native
+    # detection zero engine change (core $_REQUEST source + Fix 146a
+    # DBManager sink); proof task 7445 row 21922 (1006 @ :64).  The
+    # accompanying 1013 row (:134 header Location $return_id) is a
+    # taint-plausible TP-shape sibling — populateFromPost copies $_POST
+    # ['id'] into a fresh bean (formbase.php:122 skips id only when the
+    # bean already has one) — NOT asserted, non-advisory.
+    'Save.php': {'1006': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
