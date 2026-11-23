@@ -374,6 +374,17 @@ class Normalizer:
         name = getattr(param_node, "name", "")
         if not name:
             return None
+        # Fix 57 (shape contract): Parameter.name must be a plain string.
+        # lphply 2.2.4 once emitted a Constant AST node here (grammar fix
+        # changed the AST shape silently); the normalizer then built a
+        # poisoned graph node whose name was an object repr, breaking the
+        # scanner far away from the root cause. Fail loud at the boundary
+        # instead of producing a corrupt graph.
+        if not isinstance(name, str):
+            raise TypeError(
+                f"phply Parameter.name must be str, got {type(name).__name__} "
+                f"({name!r:.60}) — parser/normalizer AST shape mismatch; "
+                "refusing to emit a corrupt parameter node")
         lineno = getattr(param_node, "lineno", 0)
         type_hint = getattr(param_node, "type", None) or ""
         default = getattr(param_node, "default", None)
@@ -658,11 +669,33 @@ class Normalizer:
         # Switch: cases already walked by body_attr_map above; skip duplicate
         # (body_attr_map["Switch"] = "nodes" at L587 already iterates Switch.nodes)
 
-        # Match: walk arms
+        # Match: walk arms.  Fix 89 (CVE-2026-126491): MatchArm /
+        # MatchDefaultArm are in NONE of the _*_NODES sets and phply nodes
+        # have no children() method, so delegating arms to _walk_node()
+        # silently dropped every arm body — all calls inside PHP 8 match
+        # arms were invisible (no call node → no cg edge → dead-code gate
+        # killed functions only reachable via match).  Walk arm conditions
+        # and bodies explicitly, attached to the match branch node.
         if node_type_name == "Match":
             arms = getattr(node, "arms", []) or []
             for idx, arm in enumerate(arms):
-                self._walk_node(arm, add_node, add_edge, ctx_stack, file_path, idx)
+                if arm is None:
+                    continue
+                for cond in (getattr(arm, "conditions", None) or []):
+                    cond_pos = self._walk_node(cond, add_node, add_edge, ctx_stack, file_path, idx)
+                    if cond_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": cond_pos,
+                            "attrs": {"role": "condition"},
+                        })
+                body = getattr(arm, "body", None)
+                if body is not None:
+                    body_pos = self._walk_node(body, add_node, add_edge, ctx_stack, file_path, idx)
+                    if body_pos is not None:
+                        add_edge({
+                            "label": EdgeLabel.AST.value, "source": pos, "target": body_pos,
+                            "attrs": {"role": "body"},
+                        })
 
         # For: walk start, test, count, body
         if node_type_name == "For":
@@ -1408,12 +1441,30 @@ class Normalizer:
                                         const_type=ConstType.CONSTANT)
 
             # -- Global / LexicalVariable → identifier -----------------------------
+            # Fix 116a (CVE-2026-126481): phply's Global statement carries the
+            # declared variables in ``nodes`` (Variable objects whose .name
+            # includes the ``$``) — the old single-name read silently dropped
+            # the whole statement, so `global $eraname;` left no trace in the
+            # graph and cross-scope PHP variable sharing was invisible.
+            # Emit ONE marker identifier (type=global) per declared variable;
+            # the DFG builder's Fix 116b capture pass keys on them.
             if node_type_name == "Global":
-                var_name = getattr(ast_node, "name", "")
-                if var_name:
-                    return self._emit_identifier(add_node, name=var_name, lineno=lineno,
-                                                  id_type=IdentifierType.GLOBAL, file_path=file_path)
-                return None
+                emitted = None
+                ctx = ctx_stack[-1] if ctx_stack else None
+                for child in getattr(ast_node, "nodes", []) or []:
+                    var_name = getattr(child, "name", "") or ""
+                    if var_name:
+                        emitted = self._emit_identifier(
+                            add_node, name=var_name, lineno=lineno,
+                            id_type=IdentifierType.GLOBAL, file_path=file_path)
+                        # attach the marker under the enclosing scope so the
+                        # Fix 116b capture pass can find the declaring
+                        # function (orphan markers have no scope ancestry).
+                        if ctx is not None:
+                            add_edge({"label": EdgeLabel.OWN.value,
+                                      "source": ctx[0], "target": emitted,
+                                      "attrs": {"index": depth}})
+                return emitted
 
             if node_type_name == "LexicalVariable":
                 var_name = getattr(ast_node, "name", "")

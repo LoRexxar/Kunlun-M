@@ -154,6 +154,10 @@ def get_manifest_from_crt(file_path):
     return manifest
 
 
+# Fix 43l: file-line cache (see get_line)
+_LINE_CACHE: dict[str, list[str]] = {}
+
+
 def get_line(file_path, line_rule):
     """
     搜索指定文件的指定行到指定行的内容
@@ -168,15 +172,15 @@ def get_line(file_path, line_rule):
     e_line = int(parts[1]) if len(parts) > 1 else s_line
     result = []
 
-    # with open(file_path) as file:
-    file = codecs.open(file_path, "r", encoding='utf-8', errors='ignore')
-    line_number = 0
-    for line in file:
-        line_number += 1
-        if s_line <= line_number <= e_line:
-            result.append(line)
-
-    return result
+    # Fix 43l: cache file lines — taint display calls get_line per sink
+    # result and re-reads the WHOLE file with codecs.readline each time
+    # (20M readline calls per scan).  Read once per file, serve from cache.
+    cached = _LINE_CACHE.get(file_path)
+    if cached is None:
+        with codecs.open(file_path, "r", encoding='utf-8', errors='ignore') as f:
+            cached = f.readlines()
+        _LINE_CACHE[file_path] = cached
+    return cached[s_line - 1:e_line] if s_line <= len(cached) else []
 
 
 def file_grep(file_path, rule_reg):

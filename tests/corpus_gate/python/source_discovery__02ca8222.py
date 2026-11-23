@@ -1,0 +1,624 @@
+# -*- coding: utf-8 -*-
+"""
+    TypeScript Source Discovery 预处理模块
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    自动发现 TypeScript 项目中的 source（数据入口）：
+    1. 内置 source：process.env, process.argv 等
+    2. 框架检测：从 package.json 检测 Web 框架（Express/NestJS/Fastify/Koa）
+    3. 用户自定义 source producer：遍历 tree-sitter AST 找函数定义，
+       检查函数体是否直接访问已知 source
+
+    :author:    KunLun-M
+    :license:   MIT
+"""
+
+import os
+import json
+from utils.log import logger
+
+
+class SourceInfo:
+    """source 信息"""
+    __slots__ = ('source_type', 'origin', 'is_safe', 'passthrough')
+
+    def __init__(self, source_type='builtin', origin='', is_safe=False, passthrough=False):
+        self.source_type = source_type
+        self.origin = origin
+        self.is_safe = is_safe
+        self.passthrough = passthrough
+
+    def __repr__(self):
+        return '<SourceInfo type={} origin={}>'.format(self.source_type, self.origin)
+
+
+class SourceRegistry:
+    """Source 注册表"""
+
+    def __init__(self):
+        self.source_members = set()
+        self.source_variables = set()
+        self.framework_request_methods = set()
+        self.user_source_functions = {}
+        # Fix 50-7: 文件作用域源变量(React 组件 props / Vue props 同机制)。
+        # key=filepath, value=set(变量名)。
+        self.file_scoped_source_vars = {}
+
+    def add_source_member(self, name):
+        """注册一个 source 成员表达式"""
+        self.source_members.add(name)
+
+    def add_source_variable(self, name):
+        """注册一个 source 变量名"""
+        self.source_variables.add(name)
+
+    def is_source_member(self, expr_str):
+        """检查表达式字符串是否匹配已知 source 成员。
+
+        精确匹配: ``req.query`` ∈ source_members → True
+        前缀匹配 (一层): ``window.location.href`` 以 ``window.location.`` 开头,
+        且 ``href`` 是 ``location`` 对象的已知 source 属性 → True。
+        但 ``window.location.replace`` → False，因为 ``replace`` 不是已知
+        source 属性。二层以上 → False。
+        """
+        if expr_str in self.source_members:
+            return True
+        for sm in self.source_members:
+            if expr_str.startswith(sm + '.'):
+                remainder = expr_str[len(sm) + 1:]
+                if '.' not in remainder:
+                    # One extra property level — only allow if the
+                    # remainder is a known source property (i.e., some SR
+                    # entry ends with ".<remainder>").
+                    for sm2 in self.source_members:
+                        if sm2.endswith('.' + remainder):
+                            return True
+                    for sm2 in self.source_members:
+                        if sm2 == remainder or sm2.endswith(sm.split('.')[-1] + '.' + remainder):
+                            return True
+                continue
+            if expr_str.startswith(sm + '['):
+                return True
+        return False
+
+    def is_source_variable(self, name):
+        """检查变量名是否是已知 source"""
+        return name in self.source_variables
+
+    def is_source_producer(self, func_name):
+        """检查函数是否是用户自定义 source producer"""
+        return self.user_source_functions.get(func_name)
+
+    def get_all_source_names(self):
+        """获取所有 source 名称"""
+        return list(self.source_members | self.source_variables)
+
+
+# ---------------------------------------------------------------------------
+# 内置 source 定义
+# ---------------------------------------------------------------------------
+
+_BUILTIN_SOURCE_MEMBERS = {
+    # Browser / DOM
+    'location.hash', 'location.search', 'location.href',
+    'location.pathname', 'location.origin', 'location.protocol',
+    'document.cookie', 'document.URL', 'document.documentURI',
+    'document.referrer', 'document.domain', 'document.baseURI',
+    'window.name', 'window.location',
+    # Common HTTP request sources (Express/Koa/NestJS/Fastify)
+    'req.query', 'req.body', 'req.params', 'req.headers', 'req.cookies',
+    'req.files', 'req.url', 'req.method',
+    'request.query', 'request.body', 'request.params',
+    'request.headers', 'request.cookies',
+    'ctx.query', 'ctx.querystring', 'ctx.params',
+    'ctx.request.body', 'ctx.request.query',
+}
+
+_BUILTIN_SOURCE_VARIABLES = {
+    'process', 'arguments',
+}
+
+# ---------------------------------------------------------------------------
+# 框架配置
+# ---------------------------------------------------------------------------
+
+_FRAMEWORK_CONFIGS = {
+    'express': {
+        'detect_package': ['express'],
+        'source_members': {
+            'req.query', 'req.body', 'req.params', 'req.headers',
+            'req.cookies', 'req.files', 'req.url', 'req.method',
+            'request.query', 'request.body', 'request.params',
+            'request.headers', 'request.cookies',
+        },
+        'request_methods': {
+            ('req', 'query'), ('req', 'param'), ('req', 'header'),
+            ('req', 'cookie'), ('req', 'get'),
+            ('request', 'query'), ('request', 'param'),
+            ('request', 'header'), ('request', 'get'),
+        },
+    },
+    'nestjs': {
+        'detect_package': ['@nestjs/core', '@nestjs/common'],
+        'source_members': {
+            'req.query', 'req.body', 'req.params', 'req.headers',
+            'request.query', 'request.body', 'request.params',
+            'request.headers',
+        },
+        'request_methods': {
+            ('req', 'query'), ('req', 'param'), ('req', 'header'),
+            ('request', 'query'), ('request', 'param'),
+        },
+    },
+    'fastify': {
+        'detect_package': ['fastify'],
+        'source_members': {
+            'request.query', 'request.body', 'request.params',
+            'request.headers',
+        },
+        'request_methods': {
+            ('request', 'query'), ('request', 'body'),
+            ('request', 'params'),
+        },
+    },
+    'koa': {
+        'detect_package': ['koa'],
+        'source_members': {
+            'ctx.query', 'ctx.querystring', 'ctx.params',
+            'ctx.request.body', 'ctx.request.query',
+            'ctx.request.header', 'ctx.request.headers',
+        },
+        'request_methods': {
+            ('ctx', 'query'), ('ctx', 'querystring'),
+            ('ctx', 'params'), ('ctx', 'get'),
+        },
+    },
+    'hapi': {
+        'detect_package': ['@hapi/hapi', 'hapi'],
+        'source_members': {
+            'request.query', 'request.params', 'request.payload',
+            'request.headers',
+        },
+        'request_methods': {
+            ('request', 'query'), ('request', 'param'),
+            ('request', 'payload'),
+        },
+    },
+    # Fix 49b: SPA 前端(Vue/Nuxt/React)的 HTTP 客户端——存储型 XSS 的
+    # 污点入口是 API 响应体 (CVE-2026-116554: argilla DatasetRepository.ts
+    # 的 this.axios.get 解构 data → Dataset.name → v-html)。
+    'axios': {
+        'detect_package': ['axios', '@nuxtjs/axios'],
+        'source_members': set(),
+        'request_methods': set(),
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# 框架检测
+# ---------------------------------------------------------------------------
+
+def detect_framework(project_dir):
+    """从 package.json 检测 TypeScript Web 框架。
+
+    向上遍历最多 5 级目录查找 package.json。
+    返回 framework_name 或 None
+    """
+    search_dir = os.path.abspath(project_dir)
+    for _ in range(5):
+        if not search_dir or search_dir == '/':
+            break
+
+        pkg_json = os.path.join(search_dir, 'package.json')
+        if os.path.isfile(pkg_json):
+            try:
+                with open(pkg_json, 'r', encoding='utf-8', errors='replace') as f:
+                    pkg = json.load(f)
+                deps = {}
+                for key in ('dependencies', 'devDependencies', 'peerDependencies'):
+                    deps.update(pkg.get(key, {}))
+                for fw_name, fw_config in _FRAMEWORK_CONFIGS.items():
+                    for pkg_name in fw_config['detect_package']:
+                        if pkg_name in deps:
+                            return fw_name
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        parent = os.path.dirname(search_dir)
+        if parent == search_dir:
+            break
+        search_dir = parent
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# tree-sitter AST 遍历：source producer 发现
+# ---------------------------------------------------------------------------
+
+# Fix 49b: axios 实例宿主链 + 请求方法名
+_AXIOS_HOST_CHAINS = {
+    'axios', '$axios', 'this.axios', 'this.$axios',
+    'app.$axios', 'ctx.$axios', 'context.$axios', 'Vue.axios', 'http',
+}
+_AXIOS_METHODS = {'get', 'post', 'put', 'patch', 'delete', 'request', '$get', '$post', '$put', '$delete'}
+
+
+def _mark_axios_response_bindings(nodes, registry):
+    """遍历 tree-sitter AST,把 axios 响应绑定(含解构)登记为源变量。
+
+    形态: lexical_declaration > variable_declarator
+      (name: object_pattern 'data' | identifier,
+       value: await_expression > call_expression (this.axios.get ...))
+    """
+    if isinstance(nodes, list):
+        for node in nodes:
+            _mark_axios_response_bindings(node, registry)
+        return
+    if nodes is not None and hasattr(nodes, 'root_node') and not hasattr(nodes, 'type'):
+        nodes = nodes.root_node
+    if nodes is None or not hasattr(nodes, 'type'):
+        return
+
+    if nodes.type == 'variable_declarator':
+        val = nodes.child_by_field_name('value')
+        name_node = nodes.child_by_field_name('name')
+        while val is not None and val.type == 'await_expression':
+            _named = [c for c in val.named_children] if hasattr(val, 'named_children') else []
+            val = _named[0] if _named else None
+        if val is not None and val.type == 'call_expression':
+            fn = val.child_by_field_name('function')
+            fn_s = _node_text(fn) or ''
+            host, _, method = fn_s.rpartition('.')
+            if method in _AXIOS_METHODS and (host in _AXIOS_HOST_CHAINS or host.split('.')[-1] in ('axios', '$axios')):
+                if name_node is not None:
+                    nt = name_node.type
+                    if nt in ('identifier', 'shorthand_property_identifier_pattern'):
+                        registry.add_source_variable(_node_text(name_node))
+                    elif nt == 'object_pattern':
+                        for ch in name_node.children:
+                            if ch.type in ('shorthand_property_identifier_pattern', 'pair_pattern'):
+                                v = ch.child_by_field_name('value') if ch.type == 'pair_pattern' else ch
+                                if v is not None and hasattr(v, 'text'):
+                                    registry.add_source_variable(_node_text(v))
+
+    if hasattr(nodes, 'children'):
+        for ch in nodes.children:
+            _mark_axios_response_bindings(ch, registry)
+
+def _node_text(node):
+    """将 tree-sitter 节点转为字符串"""
+    if node is None:
+        return None
+    try:
+        return node.text.decode('utf-8', errors='replace')
+    except (AttributeError, UnicodeDecodeError):
+        return None
+
+
+def _node_contains_source(node, registry, _depth=0):
+    """递归检查 tree-sitter 节点是否直接访问已知 source"""
+    if node is None or _depth > 15:
+        return False
+
+    expr_str = _node_text(node)
+    if expr_str:
+        if registry.is_source_member(expr_str):
+            return True
+        if registry.is_source_variable(expr_str.split('.')[0]):
+            return True
+
+    node_type = node.type
+
+    # member_expression: e.g. req.query, process.env
+    if node_type == 'member_expression':
+        full_str = _node_text(node)
+        if full_str and registry.is_source_member(full_str):
+            return True
+
+    # call_expression / call_member_expression: e.g. req.query('id')
+    if node_type in ('call_expression', 'call_member_expression'):
+        for child in node.children:
+            if child.type in ('identifier', 'member_expression',
+                              'property_identifier'):
+                func_str = _node_text(child)
+                if func_str:
+                    for sm in registry.source_members:
+                        if func_str == sm or func_str.startswith(sm + '.'):
+                            return True
+
+    if hasattr(node, 'children') and node.children:
+        for child in node.children:
+            if hasattr(child, 'type'):
+                if _node_contains_source(child, registry, _depth + 1):
+                    return True
+
+    return False
+
+
+def _function_returns_source(func_node, registry):
+    """检查函数的 return 语句是否包含已知 source"""
+    if func_node is None:
+        return False
+
+    def _walk_return(node):
+        if node is None or not hasattr(node, 'type'):
+            return False
+        if node.type == 'return_statement':
+            for child in node.children:
+                if hasattr(child, 'type') and child.type != 'return':
+                    if _node_contains_source(child, registry):
+                        return True
+            return False
+        if node.type in ('function_declaration', 'arrow_function',
+                         'method_definition', 'class_declaration'):
+            return False
+        for child in node.children:
+            if _walk_return(child):
+                return True
+        return False
+
+    for child in func_node.children:
+        if _walk_return(child):
+            return True
+    return False
+
+
+def _walk_for_functions(root_node, file_path, registry):
+    """遍历 tree-sitter AST 找函数定义，检查函数体是否直接访问已知 source"""
+    if root_node is None:
+        return
+
+    for child in root_node.children:
+        if child is None or not hasattr(child, 'type'):
+            continue
+
+        if child.type in ('function_declaration', 'arrow_function',
+                         'method_definition', 'generator_function_declaration'):
+            _check_single_function(child, file_path, registry)
+
+        # 递归进入 class_declaration, abstract_class_declaration
+        if child.type in ('class_declaration', 'abstract_class_declaration'):
+            for sub in child.children:
+                if hasattr(sub, 'type') and sub.type == 'class_body':
+                    for method in sub.children:
+                        if hasattr(method, 'type') and method.type == 'method_definition':
+                            _check_single_function(method, file_path, registry)
+
+        # 递归进入 statement_block, export_statement
+        if child.type in ('statement_block', 'export_statement'):
+            _walk_for_functions(child, file_path, registry)
+
+
+def _check_single_function(func_node, file_path, registry):
+    """检查单个函数节点"""
+    func_name_node = None
+    for c in func_node.children:
+        if c.type in ('identifier', 'property_identifier'):
+            func_name_node = c
+            break
+    if not func_name_node:
+        return
+    func_name = _node_text(func_name_node)
+    if not func_name or func_name in ('main', 'constructor'):
+        return
+
+    if not _function_returns_source(func_node, registry):
+        return
+
+    if func_name not in registry.user_source_functions:
+        lineno = func_node.start_point[0] + 1 if hasattr(func_node, 'start_point') else '?'
+        source_info = SourceInfo(
+            source_type='user_defined',
+            origin='{}:{}'.format(os.path.basename(file_path), lineno),
+            is_safe=False,
+            passthrough=True,
+        )
+        registry.user_source_functions[func_name] = source_info
+        logger.debug('[SourceDiscovery][TypeScript] User source producer: {} in {}'.format(
+            func_name, file_path))
+
+
+# ---------------------------------------------------------------------------
+# 主入口
+# ---------------------------------------------------------------------------
+
+def _react_props_of_file(root):
+    """Fix 50-7: 提取文件内全部 React 组件的 props 变量名。
+
+    组件识别(tree-sitter TSX 语法):
+      export default function Comp(props) / function Comp({a, b}) /
+      const Comp = (props) => ... / export const Comp = ({a}) => ...
+    大写开头 + 是函数 → 首参数为 props。
+    解构 object_pattern 展开叶子名;整参直接取名。
+    """
+    names = set()
+
+    def _emit_param(param_node):
+        _collect_pattern_names(param_node, names)
+
+    def _visit(node):
+        ntype = getattr(node, 'type', '')
+        # function_declaration: function Comp(props) {...}
+        if ntype == 'function_declaration':
+            _decl_name = _first_child(node, 'identifier')
+            if _decl_name is not None and _is_component_name(_text(_decl_name)):
+                _param = _first_param(node)
+                if _param is not None:
+                    _emit_param(_param)
+        # 变量声明: const Comp = (props) => / function(props){} — 仅当
+        # 声明名大写且初始化是函数形态
+        elif ntype == 'variable_declarator':
+            _vn = _first_child(node, 'identifier')
+            _init = _declarator_value(node)
+            if _vn is not None and _is_component_name(_text(_vn)) and _init is not None:
+                _it = getattr(_init, 'type', '')
+                if _it in ('arrow_function', 'function_expression'):
+                    _param = _first_child(_init, _formal_param_types())
+                    if _param is not None:
+                        _emit_param(_param)
+        for i in range(getattr(node, 'child_count', 0) or 0):
+            _visit(node.child(i))
+
+    _visit(root)
+    return names
+
+def _formal_param_types():
+    return ('required_parameter', 'identifier', 'object_pattern', 'shorthand_property_identifier_pattern')
+
+def _is_component_name(name):
+    return bool(name) and name[0].isupper()
+
+def _text(node):
+    raw = getattr(node, 'text', b'')
+    if isinstance(raw, bytes):
+        return raw.decode('utf-8', errors='ignore')
+    return str(raw)
+
+def _first_child(node, *types):
+    for i in range(getattr(node, 'child_count', 0) or 0):
+        c = node.child(i)
+        if c.type in types:
+            return c
+    return None
+
+def _declarator_value(node):
+    # variable_declarator 的 value 子节点(= 右侧)
+    seen_eq = False
+    for i in range(getattr(node, 'child_count', 0) or 0):
+        c = node.child(i)
+        if c.type == '=':
+            seen_eq = True
+            continue
+        if seen_eq and c.type not in ('=',):
+            return c
+    return None
+
+def _first_param(fn_node):
+    # formal_parameters 的第一个子参数(function);arrow 直接取首 child
+    fp = _first_child(fn_node, 'formal_parameters')
+    if fp is not None:
+        for i in range(fp.child_count):
+            c = fp.child(i)
+            if c.type in ('required_parameter', 'optional_parameter'):
+                return _first_child(c, 'identifier', 'object_pattern') or c
+            if c.type in ('identifier', 'object_pattern'):
+                return c
+        return None
+    # arrow_function: (x) => 或 x => (无 formal_parameters 包装时)
+    return _first_child(fn_node, *_formal_param_types())
+
+def _collect_pattern_names(node, out):
+    """解构模式递归收集变量名叶子。"""
+    if node is None:
+        return
+    ntype = getattr(node, 'type', '')
+    if ntype == 'identifier':
+        out.add(_text(node))
+    elif ntype in ('shorthand_property_identifier_pattern',
+                   'shorthand_property_identifier'):
+        out.add(_text(node))
+    elif ntype == 'object_pattern':
+        for i in range(getattr(node, 'child_count', 0) or 0):
+            c = node.child(i)
+            if c.type == 'pair':
+                # { toolCall: x } — 别名模式,值侧是新变量
+                _val = None
+                seen_colon = False
+                for j in range(c.child_count):
+                    cc = c.child(j)
+                    if cc.type == ':':
+                        seen_colon = True
+                        continue
+                    if seen_colon:
+                        _val = cc
+                        break
+                _collect_pattern_names(_val, out)
+            else:
+                _collect_pattern_names(c, out)
+    elif ntype == 'required_parameter':
+        _collect_pattern_names(_first_child(node, 'identifier', 'object_pattern'), out)
+
+
+def discover_sources(project_dir, tree, file_path=None, extra_sources=None):
+    """发现 TypeScript 项目中的 source
+
+    :param project_dir: 项目目录路径
+    :param tree: tree-sitter Tree 对象
+    :param file_path: 当前文件路径
+    :param extra_sources: 额外 source 列表，避免循环导入
+    :return: SourceRegistry 实例
+    """
+    registry = SourceRegistry()
+
+    # 1. 加载内置 source
+    for sm in _BUILTIN_SOURCE_MEMBERS:
+        registry.add_source_member(sm)
+    for sv in _BUILTIN_SOURCE_VARIABLES:
+        registry.add_source_variable(sv)
+
+    # 1b. 加载额外 source
+    if extra_sources:
+        for sm in extra_sources:
+            registry.add_source_member(sm)
+
+    # 2. 检测框架
+    framework = detect_framework(project_dir)
+    if framework and framework in _FRAMEWORK_CONFIGS:
+        fw_config = _FRAMEWORK_CONFIGS[framework]
+        for sm in fw_config['source_members']:
+            registry.add_source_member(sm)
+        for rm in fw_config.get('request_methods', set()):
+            registry.framework_request_methods.add(rm)
+        logger.debug('[SourceDiscovery][TypeScript] Detected framework: {}'.format(framework))
+    else:
+        logger.debug('[SourceDiscovery][TypeScript] No TypeScript framework detected')
+
+    # 2b. Fix 50-7: React/TSX 组件 props —— 文件作用域源。
+    # React 组件 = 大写开头函数,首参数(props)可能是:
+    #   a) 解构模式 ({ toolCall, onClick }) → 每个解构名都是外部输入
+    #   b) 整参 (props) → 参数名本身是源(member 链 toolCall.command 的基座)
+    # 与 Vue 49c 同机制: file_scoped_source_vars + enrich_taint 3z 标注。
+    try:
+        _proj_files = getattr(tree, 'pre_result', None) or {}
+        import os as _os
+        for _fp, _fi in _proj_files.items():
+            if not str(_fp).endswith(('.tsx', '.jsx', '.ts', '.js')):
+                continue
+            _tree = _fi.get('ast_nodes') if isinstance(_fi, dict) else None
+            _root = getattr(_tree, 'root_node', None)
+            if _root is None:
+                continue
+            _names = _react_props_of_file(_root)
+            if _names:
+                registry.file_scoped_source_vars.setdefault(_fp, set()).update(_names)
+    except Exception as _e:
+        logger.debug('[SourceDiscovery][TypeScript] react props scan skipped: {}'.format(_e))
+
+    # 3. 遍历 AST 发现用户自定义 source producer
+    if tree and hasattr(tree, 'root_node'):
+        _walk_for_functions(tree.root_node, file_path or project_dir, registry)
+
+    # Fix 49b: scanner 传入的是全局 ast_object(Pretreatment 单例,无 root_node)
+    # → 遍历其 pre_result 中所有 TS 文件的 tree-sitter Tree:标记 axios 响应
+    # 绑定为源变量,并把引用源变量的方法登记为源生产者。
+    if tree is not None and not hasattr(tree, 'root_node') and hasattr(tree, 'pre_result'):
+        for _fp, _info in (tree.pre_result or {}).items():
+            _nodes = _info.get('ast_nodes')
+            if not _nodes:
+                continue
+            try:
+                _mark_axios_response_bindings(_nodes, registry)
+                _root = _nodes.root_node if hasattr(_nodes, 'root_node') else None
+                if _root is not None:
+                    _walk_for_functions(_root, _fp, registry)
+            except Exception as e:
+                logger.debug('[SourceDiscovery][TypeScript] Error processing {0}: {1}'.format(_fp, e))
+
+    if registry.user_source_functions:
+        names = sorted(registry.user_source_functions.keys())
+        logger.debug('[SourceDiscovery][TypeScript] User source producers ({}): {}'.format(
+            len(names), names))
+
+    return registry

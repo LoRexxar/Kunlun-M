@@ -1,28 +1,29 @@
 {
   "meta": {
     "target": "/home/ubuntu/.hermes/hermes-agent/Kunlun-M/ci_cases",
-    "task_id": 90,
-    "project_id": 90,
-    "started_at": "2026-08-04T12:50:43.458496+00:00",
-    "finished_at": "2026-08-04T12:50:44.675170+00:00",
+    "task_id": 5513,
+    "project_id": 1152,
+    "started_at": "2026-11-13T02:01:22.566846+00:00",
+    "finished_at": "2026-11-13T02:03:37.801674+00:00",
     "fail_on": "none",
     "include_unconfirm": false,
     "with_vendor": false,
-    "settings_module": "Kunlun_M.settings_ci",
+    "settings_module": "Kunlun_M.settings",
     "mode": "expected_comparison"
   },
   "summary": {
-    "total": 5,
+    "total": 24,
     "by_severity": {
-      "critical": 0,
-      "high": 4,
-      "medium": 1,
-      "low": 0
+      "critical": 4,
+      "high": 15,
+      "medium": 4,
+      "low": 1
     },
-    "max_severity": "high",
-    "expected_count": 5,
+    "max_severity": "critical",
+    "expected_count": 9,
     "missing_count": 0,
-    "unexpected_count": 0
+    "unexpected_count": 14,
+    "forbidden_count": 0
   },
   "expected": [
     {
@@ -49,35 +50,335 @@
       "file": "xss.js",
       "cvi_id": "3002",
       "severity": "high"
+    },
+    {
+      "file": "eval_inject.py",
+      "cvi_id": "7001",
+      "severity": "high"
+    },
+    {
+      "file": "cross_lang_pollution.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "Must detect even when cross_lang_pollution.js defines app.get"
+    },
+    {
+      "file": "sanitizer_escape.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "shlex.quote called but result not assigned back to cmd"
+    },
+    {
+      "file": "chain_trace.py",
+      "cvi_id": "7000",
+      "severity": "high",
+      "reason": "Source passes through run_command() to sink"
     }
   ],
   "missing": [],
-  "unexpected": [],
+  "unexpected": [
+    {
+      "id": 12894,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-115934_craft_sprintf_sql.php:4",
+      "is_unconfirm": false,
+      "result_type": "presence-of-sink: 'fromshellcommandline' called with non-constant argument(s) Variable('$app') (static); static taint unverifiable inside library boundary (parameter-controlled URL risk)",
+      "source_code": "fromshellcommandline"
+    },
+    {
+      "id": 12895,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-118755_symfony_process.php:11",
+      "is_unconfirm": false,
+      "result_type": "source function 'get'",
+      "source_code": "Process.fromShellCommandline"
+    },
+    {
+      "id": 12896,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-121429_top_level_cg.php:17",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_GET' (via member chain from 'c')",
+      "source_code": "system"
+    },
+    {
+      "id": 12897,
+      "cvi_id": "1000",
+      "rule_name": "Reflected XSS",
+      "severity": "medium",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-62007_array_writeback.php:10",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_POST' via subscript member chain",
+      "source_code": "echo"
+    },
+    {
+      "id": 12898,
+      "cvi_id": "1004",
+      "rule_name": "Unknown Rule",
+      "severity": "low",
+      "language": "php",
+      "file": "cve_regressions/php-generic/CVE-2026-93997_pdo_query_sqli.php:9",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_GET' (via member chain from 'id')",
+      "source_code": "$dbh.query"
+    },
+    {
+      "id": 12899,
+      "cvi_id": "1006",
+      "rule_name": "SQLI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/wordpress/CVE-2026-114189_wp_posts_where.php:9",
+      "is_unconfirm": false,
+      "result_type": "framework call source '$wp_query.get' (Fix 69)",
+      "source_code": "$wpdb.esc_like"
+    },
+    {
+      "id": 12900,
+      "cvi_id": "1000",
+      "rule_name": "Reflected XSS",
+      "severity": "medium",
+      "language": "php",
+      "file": "sanitizer_noescape.php:4",
+      "is_unconfirm": false,
+      "result_type": "def-chain '$id' → superglobal '$_GET' via member access",
+      "source_code": "echo"
+    },
+    {
+      "id": 12901,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "sanitizer_php.php:4",
+      "is_unconfirm": false,
+      "result_type": "def-chain '$cmd' → superglobal '$_GET' via member access",
+      "source_code": "system"
+    },
+    {
+      "id": 12903,
+      "cvi_id": "1007",
+      "rule_name": "RFI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/php-generic/CVE-2026-71550_aow_require_once.php:10",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_REQUEST' via subscript member chain",
+      "source_code": "require_once"
+    },
+    {
+      "id": 12904,
+      "cvi_id": "1007",
+      "rule_name": "RFI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/php-generic/CVE-2026-71550_aow_require_once.php:13",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_REQUEST' via subscript member chain",
+      "source_code": "require_once"
+    },
+    {
+      "id": 12905,
+      "cvi_id": "1006",
+      "rule_name": "SQLI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-115934_craft_sprintf_sql.php:5",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_GET' via subscript member chain",
+      "source_code": "sprintf"
+    },
+    {
+      "id": 12909,
+      "cvi_id": "6035",
+      "rule_name": "Insecure Deserialization (function-param-controllable)",
+      "severity": "high",
+      "language": "java",
+      "file": "cve_regressions/CVE-2026-15564_iiop_readparams.java:15",
+      "is_unconfirm": false,
+      "result_type": "network stream parameter 'in' (type: InputStream)",
+      "source_code": "SkeletonStrategy.readParams"
+    },
+    {
+      "id": 12914,
+      "cvi_id": "7004",
+      "rule_name": "SSRF",
+      "severity": "medium",
+      "language": "python",
+      "file": "cve_regressions/CVE-2026-63489_aql_write.py:10",
+      "is_unconfirm": false,
+      "result_type": "presence-of-sink: 'requests.get' called with non-constant argument(s) url (variable), params (variable), get (method_call); static taint unverifiable inside library boundary (parameter-controlled URL risk)",
+      "source_code": "requests.get"
+    },
+    {
+      "id": 12915,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "cve_regressions/iot2050/board-bootup-conf.py:26",
+      "is_unconfirm": false,
+      "result_type": "return of source-summary function 'getExternalDB9InitMode'",
+      "source_code": "subprocess.call"
+    }
+  ],
+  "forbidden": [],
   "vulnerabilities": [
     {
-      "id": 345,
+      "id": 12894,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-115934_craft_sprintf_sql.php:4",
+      "is_unconfirm": false,
+      "result_type": "presence-of-sink: 'fromshellcommandline' called with non-constant argument(s) Variable('$app') (static); static taint unverifiable inside library boundary (parameter-controlled URL risk)",
+      "source_code": "fromshellcommandline"
+    },
+    {
+      "id": 12895,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-118755_symfony_process.php:11",
+      "is_unconfirm": false,
+      "result_type": "source function 'get'",
+      "source_code": "Process.fromShellCommandline"
+    },
+    {
+      "id": 12896,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-121429_top_level_cg.php:17",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_GET' (via member chain from 'c')",
+      "source_code": "system"
+    },
+    {
+      "id": 12897,
+      "cvi_id": "1000",
+      "rule_name": "Reflected XSS",
+      "severity": "medium",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-62007_array_writeback.php:10",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_POST' via subscript member chain",
+      "source_code": "echo"
+    },
+    {
+      "id": 12898,
+      "cvi_id": "1004",
+      "rule_name": "Unknown Rule",
+      "severity": "low",
+      "language": "php",
+      "file": "cve_regressions/php-generic/CVE-2026-93997_pdo_query_sqli.php:9",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_GET' (via member chain from 'id')",
+      "source_code": "$dbh.query"
+    },
+    {
+      "id": 12899,
+      "cvi_id": "1006",
+      "rule_name": "SQLI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/wordpress/CVE-2026-114189_wp_posts_where.php:9",
+      "is_unconfirm": false,
+      "result_type": "framework call source '$wp_query.get' (Fix 69)",
+      "source_code": "$wpdb.esc_like"
+    },
+    {
+      "id": 12900,
+      "cvi_id": "1000",
+      "rule_name": "Reflected XSS",
+      "severity": "medium",
+      "language": "php",
+      "file": "sanitizer_noescape.php:4",
+      "is_unconfirm": false,
+      "result_type": "def-chain '$id' → superglobal '$_GET' via member access",
+      "source_code": "echo"
+    },
+    {
+      "id": 12901,
+      "cvi_id": "1011",
+      "rule_name": "RCE",
+      "severity": "critical",
+      "language": "php",
+      "file": "sanitizer_php.php:4",
+      "is_unconfirm": false,
+      "result_type": "def-chain '$cmd' → superglobal '$_GET' via member access",
+      "source_code": "system"
+    },
+    {
+      "id": 12902,
       "cvi_id": "1005",
       "rule_name": "SQLI",
       "severity": "high",
       "language": "php",
       "file": "sqli.php:3",
       "is_unconfirm": false,
-      "result_type": "superglobal '$_GET.id' (via member chain from 'id')",
+      "result_type": "superglobal '$_GET' (via member chain from 'id')",
       "source_code": "mysql_query"
     },
     {
-      "id": 346,
+      "id": 12903,
+      "cvi_id": "1007",
+      "rule_name": "RFI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/php-generic/CVE-2026-71550_aow_require_once.php:10",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_REQUEST' via subscript member chain",
+      "source_code": "require_once"
+    },
+    {
+      "id": 12904,
+      "cvi_id": "1007",
+      "rule_name": "RFI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/php-generic/CVE-2026-71550_aow_require_once.php:13",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_REQUEST' via subscript member chain",
+      "source_code": "require_once"
+    },
+    {
+      "id": 12905,
+      "cvi_id": "1006",
+      "rule_name": "SQLI",
+      "severity": "high",
+      "language": "php",
+      "file": "cve_regressions/CVE-2026-115934_craft_sprintf_sql.php:5",
+      "is_unconfirm": false,
+      "result_type": "superglobal '$_GET' via subscript member chain",
+      "source_code": "sprintf"
+    },
+    {
+      "id": 12906,
       "cvi_id": "3100",
       "rule_name": "命令注入",
       "severity": "high",
       "language": "javascript",
       "file": "cmd_inject_node.js:7",
       "is_unconfirm": false,
-      "result_type": "superglobal 'req.query.cmd' (operator member chain)",
+      "result_type": "superglobal 'req.query' (operator member chain)",
       "source_code": "exec"
     },
     {
-      "id": 347,
+      "id": 12907,
       "cvi_id": "3002",
       "rule_name": "XSS",
       "severity": "medium",
@@ -88,26 +389,114 @@
       "source_code": "document.write"
     },
     {
-      "id": 348,
+      "id": 12908,
       "cvi_id": "6003",
       "rule_name": "Command Injection",
       "severity": "high",
       "language": "java",
       "file": "cmd_inject.java:7",
       "is_unconfirm": false,
-      "result_type": "superglobal 'request.getParameter' (operator member chain)",
+      "result_type": "framework call source 'request.getParameter' (Fix 68)",
       "source_code": "ProcessBuilder"
     },
     {
-      "id": 349,
+      "id": 12909,
+      "cvi_id": "6035",
+      "rule_name": "Insecure Deserialization (function-param-controllable)",
+      "severity": "high",
+      "language": "java",
+      "file": "cve_regressions/CVE-2026-15564_iiop_readparams.java:15",
+      "is_unconfirm": false,
+      "result_type": "network stream parameter 'in' (type: InputStream)",
+      "source_code": "SkeletonStrategy.readParams"
+    },
+    {
+      "id": 12910,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "chain_trace.py:8",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.GET' via method 'GET.get'",
+      "source_code": "os.system"
+    },
+    {
+      "id": 12911,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "cmd_inject.py:4",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.GET' via method 'GET.get'",
+      "source_code": "os.system"
+    },
+    {
+      "id": 12912,
       "cvi_id": "7000",
       "rule_name": "命令注入",
       "severity": "high",
       "language": "python",
       "file": "cmd_inject.py:5",
       "is_unconfirm": false,
-      "result_type": "superglobal 'request.GET' via method 'get'",
+      "result_type": "superglobal 'request.GET' via method 'GET.get'",
       "source_code": "subprocess.call"
+    },
+    {
+      "id": 12913,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "cross_lang_pollution.py:3",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.GET' via method 'GET.get'",
+      "source_code": "os.system"
+    },
+    {
+      "id": 12914,
+      "cvi_id": "7004",
+      "rule_name": "SSRF",
+      "severity": "medium",
+      "language": "python",
+      "file": "cve_regressions/CVE-2026-63489_aql_write.py:10",
+      "is_unconfirm": false,
+      "result_type": "presence-of-sink: 'requests.get' called with non-constant argument(s) url (variable), params (variable), get (method_call); static taint unverifiable inside library boundary (parameter-controlled URL risk)",
+      "source_code": "requests.get"
+    },
+    {
+      "id": 12915,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "cve_regressions/iot2050/board-bootup-conf.py:26",
+      "is_unconfirm": false,
+      "result_type": "return of source-summary function 'getExternalDB9InitMode'",
+      "source_code": "subprocess.call"
+    },
+    {
+      "id": 12916,
+      "cvi_id": "7001",
+      "rule_name": "代码执行",
+      "severity": "high",
+      "language": "python",
+      "file": "eval_inject.py:3",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.POST' via method 'POST.get'",
+      "source_code": "eval"
+    },
+    {
+      "id": 12917,
+      "cvi_id": "7000",
+      "rule_name": "命令注入",
+      "severity": "high",
+      "language": "python",
+      "file": "sanitizer_escape.py:6",
+      "is_unconfirm": false,
+      "result_type": "superglobal 'request.GET' via method 'GET.get'",
+      "source_code": "os.system"
     }
   ],
   "exit": {

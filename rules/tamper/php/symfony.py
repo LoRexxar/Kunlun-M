@@ -6,8 +6,21 @@ DEPENDENCIES = {'composer': ['symfony/framework-bundle', 'symfony/symfony']}
 
 
 def detect(project_dir, language='php'):
-    """检测是否为 Symfony 项目"""
-    return os.path.isfile(os.path.join(project_dir, 'config', 'bundles.php'))
+    """检测是否为 Symfony 项目
+
+    Fix 67: symfony 1.x (1.4-era) projects ship the framework vendored
+    inside the project tree (qdPM: core/lib/vendor/symfony; classic
+    apps: lib/symfony).  Aligns the tamper/CLI detection line with
+    core_engine php source_discovery.detect_framework so both lines
+    agree on symfony 1.x targets.
+    """
+    if os.path.isfile(os.path.join(project_dir, 'config', 'bundles.php')):
+        return True
+    for sub in (('core', 'lib', 'vendor', 'symfony'), ('core', 'lib', 'symfony'),
+                ('lib', 'symfony'), ('lib', 'vendor', 'symfony')):
+        if os.path.isdir(os.path.join(project_dir, *sub)):
+            return True
+    return False
 
 
 FILTER_FUNCTIONS = {
@@ -18,6 +31,10 @@ FILTER_FUNCTIONS = {
 }
 
 CONTROLLED_SOURCES = [
+    # Fix 67: symfony 1.x sfWebRequest surface
+    '$request->getParameter',
+    '$request->getParameterHolder',
+    '$request->getFiles',
     '$request->get',
     '$request->request->get',
     '$request->query->get',

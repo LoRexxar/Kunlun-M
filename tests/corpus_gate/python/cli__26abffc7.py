@@ -1,0 +1,527 @@
+# -*- coding: utf-8 -*-
+
+"""
+    cli
+    ~~~
+
+    Implements CLI mode
+
+    :author:    Feei <feei@feei.cn>
+    :homepage:  https://github.com/wufeifei/cobra
+    :license:   MIT, see LICENSE for more details.
+    :copyright: Copyright (c) 2017 Feei. All rights reserved
+"""
+
+import os
+import codecs
+import pprint
+import traceback
+from prettytable import PrettyTable
+
+from .detection import Detection
+from .engine import scan, Running
+from .vendors import Vendors
+
+from core.pretreatment import ast_object
+from utils.export import write_to_file
+from utils.log import logger, logger_console
+from utils.file import Directory, load_kunlunmignore
+from utils.utils import show_context
+from utils.utils import ParseArgs
+from utils.utils import md5, random_generator
+from core.vendors import get_project_by_version, get_and_save_vendor_vuls
+from Kunlun_M.settings import RULES_PATH
+from Kunlun_M.const import VUL_LEVEL, VENDOR_VUL_LEVEL
+
+from web.index.models import ScanTask, ScanResultTask, Rules, FrameworkTamper, Project, ProjectVendors, VendorVulns
+from web.index.models import get_and_check_scantask_project_id, check_and_new_project_id, get_and_check_scanresult
+
+import importlib
+
+
+_rule_meta_cache = None
+
+
+def _get_rule_meta():
+    """从规则文件直接加载元数据缓存，用于 DB 无记录时的兜底"""
+    global _rule_meta_cache
+    if _rule_meta_cache is None:
+        _rule_meta_cache = {}
+        rules_root = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'rules')
+        if os.path.isdir(rules_root):
+            for lan in os.listdir(rules_root):
+                lan_path = os.path.join(rules_root, lan)
+                if not os.path.isdir(lan_path) or lan in ('tamper', 'test'):
+                    continue
+                for fn in os.listdir(lan_path):
+                    if not (fn.startswith('CVI_') and fn.endswith('.py')):
+                        continue
+                    try:
+                        mod = importlib.import_module('rules.{}.{}'.format(lan, fn[:-3]))
+                        cls = getattr(mod, fn[:-3])
+                        inst = cls()
+                        svid = str(getattr(inst, 'svid', '')).strip()
+                        if svid:
+                            _rule_meta_cache[svid] = {
+                                'rule_name': getattr(inst, 'vulnerability', '') or fn[:-3],
+                                'level': int(getattr(inst, 'level', 1)),
+                                'author': getattr(inst, 'author', 'Unknown'),
+                            }
+                    except Exception:
+                        continue
+    return _rule_meta_cache
+
+
+def get_sid(target, is_a_sid=False):
+    target = target
+    if isinstance(target, list):
+        target = ';'.join(target)
+    sid = md5(target)[:5]
+    if is_a_sid:
+        pre = 'a'
+    else:
+        pre = 's'
+    sid = '{p}{sid}{r}'.format(p=pre, sid=sid, r=random_generator())
+    return sid.lower()
+
+
+def check_scantask(task_name, target_path, parameter_config, project_origin, project_des="", auto_yes=False):
+    s = ScanTask.objects.filter(task_name=task_name, target_path=target_path, parameter_config=parameter_config, is_finished=1).order_by("-id").first()
+
+    if s and not auto_yes:
+        logger.warning("[INIT] ScanTask for {} has been executed.".format(task_name))
+        logger.warning("[INIT] whether rescan Task {}?(Y/N) (Default N)".format(task_name))
+
+        if input().lower() != 'y':
+            logger.warning("[INIT] whether Show Last Scan Result?(Y/N) (Default Y)")
+
+            if input().lower() != 'n':
+                display_result(s.id, is_ask=True)
+        else:
+            s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
+            s.save()
+
+            # check and new project
+            check_and_new_project_id(scantask_id=s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
+
+    else:
+        s = ScanTask(task_name=task_name, target_path=target_path, parameter_config=parameter_config)
+        s.save()
+
+        # check and new project
+        check_and_new_project_id(s.id, task_name=task_name, project_origin=project_origin, project_des=project_des)
+
+    return s
+
+
+def display_result(scan_id, is_ask=False):
+
+    table = PrettyTable(
+        ['#', 'CVI', 'Rule(ID/Name)', 'Lang/CVE-id', 'Level', 'Target-File:Line-Number',
+         'Commit(Author)', 'Source Code Content', 'Analysis'])
+    table.align = 'l'
+
+    # check unconfirm
+    if is_ask:
+        logger.warning("[INIT] whether Show Unconfirm Result?(Y/N) (Default Y)")
+
+    project_id = get_and_check_scantask_project_id(scan_id)
+
+    if is_ask:
+        if input().lower() != 'n':
+            srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True)
+        else:
+            srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True,
+                                                                   is_unconfirm=False)
+    else:
+        srs = get_and_check_scanresult(scan_id).objects.filter(scan_project_id=project_id, is_active=True,
+                                                               is_unconfirm=False)
+    logger.info("[INIT] Project ID is {}".format(project_id))
+
+    if srs:
+        logger.info("[MainThread] Scan id {} Result: ".format(scan_id))
+
+        for sr in srs:
+
+            # for vendor scan
+            if sr.cvi_id == '9999':
+                vendor_vuls_id = int(sr.vulfile_path.split(':')[-1])
+                vv = VendorVulns.objects.filter(id=vendor_vuls_id).first()
+
+                if vv:
+                    rule_name = vv.title
+                    author = 'SCA'
+                    level = VENDOR_VUL_LEVEL[int(vv.severity)]
+                    # sr.source_code = vv.description
+                else:
+                    rule_name = 'SCA Scan'
+                    author = 'SCA'
+                    level = VENDOR_VUL_LEVEL[1]
+
+            else:
+                rule = Rules.objects.filter(svid=sr.cvi_id).first()
+                if rule:
+                    rule_name = rule.rule_name
+                    author = rule.author
+                    level = VUL_LEVEL[rule.level]
+                else:
+                    # 规则表缺失或未初始化时，从规则文件直接读取
+                    rm = _get_rule_meta().get(str(sr.cvi_id))
+                    if rm:
+                        rule_name = rm.get('rule_name', 'Unknown')
+                        author = rm.get('author', 'Unknown')
+                        level = VUL_LEVEL[rm.get('level', 1)]
+                    else:
+                        rule_name = "Unknown Rule"
+                        author = "Unknown"
+                        level = VUL_LEVEL[1]
+                        logger.warning("[SCAN] Rule CVI_{} not found in database or rule files.".format(sr.cvi_id))
+
+            row = [sr.id, sr.cvi_id, rule_name, sr.language, level, sr.vulfile_path,
+                   author, sr.source_code, sr.result_type]
+
+            table.add_row(row)
+
+            # show Vuls Chain
+            from web.index.models import TaintChain
+            chains = TaintChain.objects.filter(vul_result=sr.id).order_by('chain_index', 'step_order')
+
+            logger.info("[Chain] Vul {}".format(sr.id))
+            for tc in chains:
+                logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
+
+                try:
+                    if author == 'SCA':
+                        continue
+
+                    if not show_context(tc.file_path, tc.lineno):
+                        logger_console.info(tc.source_code)
+                except:
+                    logger.error("[SCAN] Error: {}".format(traceback.print_exc()))
+                    continue
+
+            logger.info(
+                "[SCAN] ending\r\n -------------------------------------------------------------------------")
+
+        logger.info("[SCAN] Trigger Vulnerabilities ({vn})\r\n{table}".format(vn=len(srs), table=table))
+
+    else:
+        logger.info("[MainThread] Scan id {} has no Result.".format(scan_id))
+
+
+def start(target, formatter, output, special_rules, a_sid=None, language=None, tamper_name=None, black_path=None, is_unconfirm=False, is_unprecom=False, template_path=None, no_cache=False, auto_yes=False):
+    """
+    Start CLI
+    :param black_path: 
+    :param tamper_name:
+    :param language: 
+    :param target: File, FOLDER, GIT
+    :param formatter:
+    :param output:
+    :param special_rules:
+    :param a_sid: all scan id
+    :return:
+    """
+    global ast_object
+    # generate single scan id
+    s_sid = get_sid(target)
+    r = Running(a_sid)
+    data = (s_sid, target)
+    r.init_list(data=target)
+    r.list(data)
+
+    report = '?sid={a_sid}'.format(a_sid=a_sid)
+    d = r.status()
+    d['report'] = report
+    r.status(d)
+
+    task_id = a_sid
+
+    # 加载 kunlunmignore
+    load_kunlunmignore()
+
+    # parse target mode and output mode
+    pa = ParseArgs(target, formatter, output, special_rules, language, black_path, a_sid=None)
+    target_mode = pa.target_mode
+    output_mode = pa.output_mode
+    black_path_list = pa.black_path_list
+
+    # target directory
+    try:
+        logger.info('[CLI] Target Mode: {}'.format(target_mode))
+        target_directory = pa.target_directory(target_mode)
+        logger.info('[CLI] Target : {d}'.format(d=target_directory))
+
+        # static analyse files info
+        files, file_count, time_consume = Directory(target_directory, black_path_list).collect_files()
+
+        # vendor check
+        project_id = get_and_check_scantask_project_id(task_id)
+        Vendors(task_id, project_id, target_directory, files)
+
+        # detection main language and framework
+        if language and str(language).strip().lower() == 'all':
+            dt = Detection(target_directory, files)
+            detected_languages = dt.language
+            main_framework = dt.framework
+            main_language = detected_languages  # 扫描所有 chiefly 语言
+            logger.info('[CLI] [STATISTIC] All-mode detected languages: %s',
+                        ','.join(detected_languages))
+        elif not language or (language and str(language).lower() == 'auto'):
+            dt = Detection(target_directory, files)
+            detected_languages = dt.language
+            main_framework = dt.framework
+            # auto 模式：只以主语言（文件数最多的 chiefly 语言）为主扫描
+            main_language = [detected_languages[0]] if detected_languages else []
+            logger.info('[CLI] [STATISTIC] Auto-detected languages: %s, primary: %s',
+                        ','.join(detected_languages), main_language[0] if main_language else 'none')
+        else:
+            main_language = pa.language
+            main_framework = pa.language
+
+        logger.info('[CLI] [STATISTIC] Language: {l} Framework: {f}'.format(l=",".join(main_language), f=main_framework))
+        print('[CI] DEBUG: Detected languages: {}'.format(','.join(main_language)))
+        logger.info('[CLI] [STATISTIC] Files: {fc}, Extensions:{ec}, Consume: {tc}'.format(fc=file_count,
+                                                                                           ec=len(files),
+                                                                                           tc=time_consume))
+
+        if pa.special_rules is not None:
+            logger.info('[CLI] [SPECIAL-RULE] only scan used by {r}'.format(r=','.join(pa.special_rules)))
+
+        # Pretreatment ast object
+        ast_object.init_pre(target_directory, files)
+        ast_object.pre_ast_all(main_language, is_unprecom=is_unprecom)
+
+        # 注入 JAR 反编译产生的 .java 文件到扫描列表
+        if hasattr(ast_object, 'decompiled_files') and ast_object.decompiled_files:
+            java_entry_index = None
+            for i, (ext, data) in enumerate(files):
+                if ext == '.java':
+                    java_entry_index = i
+                    break
+
+            decompiled_count = len(ast_object.decompiled_files)
+            if java_entry_index is not None:
+                ext, data = files[java_entry_index]
+                data['list'].extend(ast_object.decompiled_files)
+                data['count'] = len(data['list'])
+                files[java_entry_index] = (ext, data)
+            else:
+                files.append(('.java', {
+                    'count': decompiled_count,
+                    'list': ast_object.decompiled_files
+                }))
+            logger.info("[SCAN] JAR 反编译产生 {} 个 .java 文件已加入扫描列表".format(decompiled_count))
+
+        # scan
+        scan(target_directory=target_directory, a_sid=a_sid, s_sid=s_sid, special_rules=pa.special_rules,
+             language=main_language, framework=main_framework, file_count=file_count, extension_count=len(files),
+             files=files, tamper_name=tamper_name, is_unconfirm=is_unconfirm, no_cache=no_cache, auto_yes=auto_yes)
+
+        # show result
+        display_result(task_id)
+
+    except KeyboardInterrupt as e:
+        logger.error("[!] KeyboardInterrupt, exit...")
+        exit()
+    except Exception:
+        result = {
+            'code': 1002,
+            'msg': 'Exception'
+        }
+        Running(s_sid).data(result)
+        raise
+
+    # 输出写入文件
+    write_to_file(target=target, sid=s_sid, output_format=formatter, filename=output, template_path=template_path)
+
+
+def show_info(type, key):
+    """
+    展示信息
+    """
+    def list_parse(rules_path, istamp=False):
+
+        files = os.listdir(rules_path)
+        result = []
+
+        for f in files:
+
+            if f.startswith("_") or f.endswith("pyc"):
+                continue
+
+            if os.path.isdir(os.path.join(rules_path, f)):
+                if f not in ['test', 'tamper']:
+                    result.append(f)
+
+            if f.startswith("CVI_"):
+                result.append(f)
+
+            if istamp:
+                if f not in ['test.py', 'demo.py', 'none.py']:
+                    result.append(f)
+
+        return result
+
+    info_dict = {}
+
+    if type == "rule":
+
+        rule_lan_list = list_parse(RULES_PATH)
+        rule_dict = {}
+        if key == "all":
+            # show all
+            for lan in rule_lan_list:
+                info_dict[lan] = []
+                rule_lan_path = os.path.join(RULES_PATH, lan)
+
+                info_dict[lan] = list_parse(rule_lan_path)
+
+        elif key in rule_lan_list:
+            info_dict[key] = []
+            rule_lan_path = os.path.join(RULES_PATH, key)
+
+            info_dict[key] = list_parse(rule_lan_path)
+
+        elif str(int(key)) == key:
+            for lan in rule_lan_list:
+                info_dict[lan] = []
+                rule_lan_path = os.path.join(RULES_PATH, lan)
+
+                info_dict[lan] = list_parse(rule_lan_path)
+
+            for lan in info_dict:
+                if "CVI_{}.py".format(key) in info_dict[lan]:
+                    f = codecs.open(os.path.join(RULES_PATH, lan, "CVI_{}.py".format(key)), encoding='utf-8', errors="ignore")
+                    return f.read()
+
+            logger.error('[Show] no CVI id {}.'.format(key))
+            return ""
+        else:
+            logger.error('[Show] error language/CVI id input.')
+            return ""
+
+        i = 0
+        table = PrettyTable(
+            ['#', 'CVI', 'Lang/CVE-id', 'Rule(ID/Name)', 'Match', 'Status'])
+
+        table.align = 'l'
+
+        for lan in info_dict:
+            for rule in info_dict[lan]:
+                i += 1
+                rulename = rule.split('.')[0]
+                rulefile = "rules." + lan + "." + rulename
+
+                rule_obj = __import__(rulefile, fromlist=rulename)
+                p = getattr(rule_obj, rulename)
+
+                ruleclass = p()
+
+                table.add_row([i, ruleclass.svid, ruleclass.language, ruleclass.vulnerability, ruleclass.match, ruleclass.status])
+
+        return table
+
+    elif type == "tamper":
+
+        table = PrettyTable(
+            ['#', 'TamperName', 'Language', 'FilterFunc', 'ExtraSinks', 'ControlledSources'])
+
+        table.align = 'l'
+        i = 0
+
+        if key == "all":
+            for ft in FrameworkTamper.objects.all().order_by("name"):
+                i += 1
+                table.add_row([i, ft.name, ft.language,
+                               len(ft.filter_functions) if ft.filter_functions else 0,
+                               len(ft.extra_sinks) if ft.extra_sinks else 0,
+                               len(ft.controlled_sources) if ft.controlled_sources else 0])
+
+            return table
+        else:
+            ft = FrameworkTamper.objects.filter(name__iexact=key).first()
+            if ft:
+                return """
+Tamper Name:
+    {}
+
+Language:
+    {}
+
+Filter Func:
+{}
+
+Extra Sinks:
+{}
+
+Controlled Sources:
+{}
+""".format(ft.name, ft.language,
+           pprint.pformat(ft.filter_functions, indent=4) if ft.filter_functions else "    None",
+           pprint.pformat(ft.extra_sinks, indent=4) if ft.extra_sinks else "    None",
+           pprint.pformat(ft.controlled_sources, indent=4) if ft.controlled_sources else "    None")
+            else:
+                logger.error("[Info] no tamper name {}".format(key))
+
+    return ""
+
+
+def search_project(search_type, keyword, keyword_value, with_vuls=False):
+    """
+    根据信息搜索项目信息
+    :param with_vuls:
+    :param search_type:
+    :param keyword:
+    :param keyword_value:
+    :return:
+    """
+    if search_type == 'vendor':
+        ps = get_project_by_version(keyword, keyword_value)
+        table = PrettyTable(
+            ['#', 'ProjectId', 'Project Name', 'Project Origin', 'Vendor', 'Version'])
+
+        table.align = 'l'
+
+        table2 = PrettyTable(
+            ['#', 'Vuln ID', 'Title', 'level', 'CVE', 'Reference', 'Vendor', 'Affected Version'])
+
+        table2.align = 'l'
+        i = 0
+        j = 0
+
+        if not ps:
+            logger.info("Search result is empty.")
+            return False
+
+        for p in ps:
+            pid = p.id
+            pname = p.project_name
+            porigin = p.project_origin
+            vs = ps[p]
+
+            for v in vs:
+                i += 1
+                vendor_name = v.name
+                vendor_vension = v.version
+
+                table.add_row([i, pid, pname, porigin, vendor_name, vendor_vension])
+
+                if with_vuls:
+                    vvs = get_and_save_vendor_vuls(0, vendor_name, vendor_vension, v.language, v.ext)
+
+                    for vv in vvs:
+                        j += 1
+
+                        table2.add_row([i, vv.vuln_id, vv.title, VENDOR_VUL_LEVEL[vv.severity], vv.cves, vv.reference, vv.vendor_name, vv.affected_versions])
+
+        logger.info("Project List (Small than {} {}):\n{}".format(keyword, keyword_value, table))
+
+        if with_vuls:
+            if j == 0:
+                logger.info("Vendor {}:{} Vul List is empty.".format(keyword, keyword_value))
+            else:
+                logger.info("Vendor {}:{} Vul List:\n{}".format(keyword, keyword_value, table2))
+
+    return True
+

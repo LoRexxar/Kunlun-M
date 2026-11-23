@@ -1,0 +1,512 @@
+[
+ {
+  "file": "scaffold__17649188.py",
+  "source": "core/scaffold.py",
+  "bytes": 5753
+ },
+ {
+  "file": "reset__7c4958e9.py",
+  "source": "core/reset.py",
+  "bytes": 6233
+ },
+ {
+  "file": "console__5c9bec04.py",
+  "source": "core/console.py",
+  "bytes": 70806
+ },
+ {
+  "file": "filters__844f89e9.py",
+  "source": "core/filters.py",
+  "bytes": 4045
+ },
+ {
+  "file": "cli__26abffc7.py",
+  "source": "core/cli.py",
+  "bytes": 19113
+ },
+ {
+  "file": "cast__49b1ca00.py",
+  "source": "core/cast.py",
+  "bytes": 21529
+ },
+ {
+  "file": "filter_functions__a647ebe9.py",
+  "source": "core/filter_functions.py",
+  "bytes": 9211
+ },
+ {
+  "file": "detection__9eeddc9a.py",
+  "source": "core/detection.py",
+  "bytes": 18066
+ },
+ {
+  "file": "engine__8a564f64.py",
+  "source": "core/engine.py",
+  "bytes": 156
+ },
+ {
+  "file": "rule__2e367090.py",
+  "source": "core/rule.py",
+  "bytes": 25015
+ },
+ {
+  "file": "__version____711c0641.py",
+  "source": "core/__version__.py",
+  "bytes": 2663
+ },
+ {
+  "file": "matcher__0ae8b29d.py",
+  "source": "core/matcher.py",
+  "bytes": 39163
+ },
+ {
+  "file": "migrate_chains__abecdcc7.py",
+  "source": "core/migrate_chains.py",
+  "bytes": 4902
+ },
+ {
+  "file": "rule_generator__f570136d.py",
+  "source": "core/rule_generator.py",
+  "bytes": 7302
+ },
+ {
+  "file": "dependencies__e6136cd7.py",
+  "source": "core/dependencies.py",
+  "bytes": 4765
+ },
+ {
+  "file": "scanner__2c18e870.py",
+  "source": "core/scanner.py",
+  "bytes": 160511
+ },
+ {
+  "file": "pretreatment__878e0573.py",
+  "source": "core/pretreatment.py",
+  "bytes": 59153
+ },
+ {
+  "file": "utils__bdda3b4e.py",
+  "source": "core/utils.py",
+  "bytes": 3799
+ },
+ {
+  "file": "import_export__9f562b65.py",
+  "source": "core/import_export.py",
+  "bytes": 18219
+ },
+ {
+  "file": "__init____8987c727.py",
+  "source": "core/__init__.py",
+  "bytes": 36978
+ },
+ {
+  "file": "vendors__250f65d0.py",
+  "source": "core/vendors.py",
+  "bytes": 25281
+ },
+ {
+  "file": "neo4j_export__cc75fc4a.py",
+  "source": "core/neo4j_export.py",
+  "bytes": 18686
+ },
+ {
+  "file": "__init____e4384f43.py",
+  "source": "core/plugins/__init__.py",
+  "bytes": 1184
+ },
+ {
+  "file": "main__7e95a423.py",
+  "source": "core/plugins/entrancefinder/main.py",
+  "bytes": 6293
+ },
+ {
+  "file": "__init____0f7dc809.py",
+  "source": "core/plugins/entrancefinder/__init__.py",
+  "bytes": 300
+ },
+ {
+  "file": "main__42b707dc.py",
+  "source": "core/plugins/phpunserializechain/main.py",
+  "bytes": 32800
+ },
+ {
+  "file": "dataflowgenerate__5df77aa6.py",
+  "source": "core/plugins/phpunserializechain/dataflowgenerate.py",
+  "bytes": 45007
+ },
+ {
+  "file": "__init____87172d38.py",
+  "source": "core/plugins/phpunserializechain/__init__.py",
+  "bytes": 332
+ },
+ {
+  "file": "__init____9367d73d.py",
+  "source": "core/plugins/baseplugin/__init__.py",
+  "bytes": 1983
+ },
+ {
+  "file": "branch_constraint__7a65cc12.py",
+  "source": "core/core_engine/branch_constraint.py",
+  "bytes": 1615
+ },
+ {
+  "file": "trace_cache__6fa53446.py",
+  "source": "core/core_engine/trace_cache.py",
+  "bytes": 3488
+ },
+ {
+  "file": "function_summary__47fd897e.py",
+  "source": "core/core_engine/function_summary.py",
+  "bytes": 6714
+ },
+ {
+  "file": "__init____e192a3b2.py",
+  "source": "core/core_engine/__init__.py",
+  "bytes": 156
+ },
+ {
+  "file": "parser__8c577502.py",
+  "source": "core/core_engine/rust/parser.py",
+  "bytes": 36826
+ },
+ {
+  "file": "source_discovery__4c9fd2a2.py",
+  "source": "core/core_engine/rust/source_discovery.py",
+  "bytes": 13779
+ },
+ {
+  "file": "engine__9f7b81b6.py",
+  "source": "core/core_engine/rust/engine.py",
+  "bytes": 1765
+ },
+ {
+  "file": "builtin_knowledge__2240cfc4.py",
+  "source": "core/core_engine/rust/builtin_knowledge.py",
+  "bytes": 14090
+ },
+ {
+  "file": "__init____16ca7322.py",
+  "source": "core/core_engine/rust/__init__.py",
+  "bytes": 46
+ },
+ {
+  "file": "summary_generator__edb3e8e3.py",
+  "source": "core/core_engine/rust/summary_generator.py",
+  "bytes": 19672
+ },
+ {
+  "file": "parser__8acd88c7.py",
+  "source": "core/core_engine/javascript/parser.py",
+  "bytes": 158829
+ },
+ {
+  "file": "source_discovery__805971d7.py",
+  "source": "core/core_engine/javascript/source_discovery.py",
+  "bytes": 26804
+ },
+ {
+  "file": "engine__b51d0f1f.py",
+  "source": "core/core_engine/javascript/engine.py",
+  "bytes": 5138
+ },
+ {
+  "file": "builtin_knowledge__f88ace3d.py",
+  "source": "core/core_engine/javascript/builtin_knowledge.py",
+  "bytes": 75788
+ },
+ {
+  "file": "__init____41a91c99.py",
+  "source": "core/core_engine/javascript/__init__.py",
+  "bytes": 156
+ },
+ {
+  "file": "summary_generator__1a7ec4a3.py",
+  "source": "core/core_engine/javascript/summary_generator.py",
+  "bytes": 29976
+ },
+ {
+  "file": "parser__6bc66655.py",
+  "source": "core/core_engine/typescript/parser.py",
+  "bytes": 37029
+ },
+ {
+  "file": "source_discovery__02ca8222.py",
+  "source": "core/core_engine/typescript/source_discovery.py",
+  "bytes": 24388
+ },
+ {
+  "file": "engine__9d518972.py",
+  "source": "core/core_engine/typescript/engine.py",
+  "bytes": 1375
+ },
+ {
+  "file": "builtin_knowledge__f10b8d1d.py",
+  "source": "core/core_engine/typescript/builtin_knowledge.py",
+  "bytes": 17053
+ },
+ {
+  "file": "__init____084150ef.py",
+  "source": "core/core_engine/typescript/__init__.py",
+  "bytes": 61
+ },
+ {
+  "file": "summary_generator__880c551a.py",
+  "source": "core/core_engine/typescript/summary_generator.py",
+  "bytes": 24416
+ },
+ {
+  "file": "parser__86cb4eb2.py",
+  "source": "core/core_engine/php/parser.py",
+  "bytes": 166059
+ },
+ {
+  "file": "source_discovery__ae6aa810.py",
+  "source": "core/core_engine/php/source_discovery.py",
+  "bytes": 22731
+ },
+ {
+  "file": "engine__33db9ffa.py",
+  "source": "core/core_engine/php/engine.py",
+  "bytes": 2721
+ },
+ {
+  "file": "builtin_knowledge__95383fb5.py",
+  "source": "core/core_engine/php/builtin_knowledge.py",
+  "bytes": 131388
+ },
+ {
+  "file": "summary_generator__a6216eeb.py",
+  "source": "core/core_engine/php/summary_generator.py",
+  "bytes": 22465
+ },
+ {
+  "file": "parser__53aa3267.py",
+  "source": "core/core_engine/lua/parser.py",
+  "bytes": 18900
+ },
+ {
+  "file": "source_discovery__efd3511b.py",
+  "source": "core/core_engine/lua/source_discovery.py",
+  "bytes": 10085
+ },
+ {
+  "file": "engine__246185eb.py",
+  "source": "core/core_engine/lua/engine.py",
+  "bytes": 1350
+ },
+ {
+  "file": "builtin_knowledge__0d936209.py",
+  "source": "core/core_engine/lua/builtin_knowledge.py",
+  "bytes": 8142
+ },
+ {
+  "file": "summary_generator__49503062.py",
+  "source": "core/core_engine/lua/summary_generator.py",
+  "bytes": 18207
+ },
+ {
+  "file": "parser__3d4bc372.py",
+  "source": "core/core_engine/c/parser.py",
+  "bytes": 111577
+ },
+ {
+  "file": "source_discovery__49e39947.py",
+  "source": "core/core_engine/c/source_discovery.py",
+  "bytes": 14386
+ },
+ {
+  "file": "engine__d4cdfd18.py",
+  "source": "core/core_engine/c/engine.py",
+  "bytes": 2491
+ },
+ {
+  "file": "builtin_knowledge__8fd4ef1c.py",
+  "source": "core/core_engine/c/builtin_knowledge.py",
+  "bytes": 13432
+ },
+ {
+  "file": "__init____d41d8cd9.py",
+  "source": "core/core_engine/c/__init__.py",
+  "bytes": 0
+ },
+ {
+  "file": "summary_generator__e1b23b89.py",
+  "source": "core/core_engine/c/summary_generator.py",
+  "bytes": 27569
+ },
+ {
+  "file": "parser__e3243da1.py",
+  "source": "core/core_engine/python/parser.py",
+  "bytes": 98189
+ },
+ {
+  "file": "source_discovery__098559ea.py",
+  "source": "core/core_engine/python/source_discovery.py",
+  "bytes": 14981
+ },
+ {
+  "file": "engine__279a2512.py",
+  "source": "core/core_engine/python/engine.py",
+  "bytes": 4270
+ },
+ {
+  "file": "builtin_knowledge__0f6567a4.py",
+  "source": "core/core_engine/python/builtin_knowledge.py",
+  "bytes": 24682
+ },
+ {
+  "file": "summary_generator__7d9429c5.py",
+  "source": "core/core_engine/python/summary_generator.py",
+  "bytes": 16368
+ },
+ {
+  "file": "parser__f9f967bd.py",
+  "source": "core/core_engine/csharp/parser.py",
+  "bytes": 39373
+ },
+ {
+  "file": "source_discovery__54131085.py",
+  "source": "core/core_engine/csharp/source_discovery.py",
+  "bytes": 12289
+ },
+ {
+  "file": "engine__7874d218.py",
+  "source": "core/core_engine/csharp/engine.py",
+  "bytes": 1526
+ },
+ {
+  "file": "builtin_knowledge__870f87d6.py",
+  "source": "core/core_engine/csharp/builtin_knowledge.py",
+  "bytes": 19107
+ },
+ {
+  "file": "cmd_inject__afba4362.py",
+  "source": "ci_cases/cmd_inject.py",
+  "bytes": 100
+ },
+ {
+  "file": "chain_trace__07b7041c.py",
+  "source": "ci_cases/chain_trace.py",
+  "bytes": 148
+ },
+ {
+  "file": "cross_lang_pollution__84b7a6f6.py",
+  "source": "ci_cases/cross_lang_pollution.py",
+  "bytes": 57
+ },
+ {
+  "file": "run_cve_regressions__9d2a4917.py",
+  "source": "ci_cases/run_cve_regressions.py",
+  "bytes": 4258
+ },
+ {
+  "file": "sanitizer_escape__6af7cdf5.py",
+  "source": "ci_cases/sanitizer_escape.py",
+  "bytes": 195
+ },
+ {
+  "file": "sanitizer_python__e7c789e9.py",
+  "source": "ci_cases/sanitizer_python.py",
+  "bytes": 81
+ },
+ {
+  "file": "eval_inject__f3e772af.py",
+  "source": "ci_cases/eval_inject.py",
+  "bytes": 52
+ },
+ {
+  "file": "CVE-2026-63489_aql_write__fef064d3.py",
+  "source": "ci_cases/cve_regressions/CVE-2026-63489_aql_write.py",
+  "bytes": 689
+ },
+ {
+  "file": "package__ba04bf1d.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/observables/package.py",
+  "bytes": 198
+ },
+ {
+  "file": "attack_pattern__2ed753cb.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/entities/attack_pattern.py",
+  "bytes": 280
+ },
+ {
+  "file": "producer__6f74cba8.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/events/producer.py",
+  "bytes": 4157
+ },
+ {
+  "file": "artifacts__c7a9812e.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/feeds/public/artifacts.py",
+  "bytes": 2123
+ },
+ {
+  "file": "model__4d1a5b94.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/model.py",
+  "bytes": 9942
+ },
+ {
+  "file": "query__8f2f0aa5.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/indicators/query.py",
+  "bytes": 310
+ },
+ {
+  "file": "miningpoolstats__1924bd29.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/feeds/public/miningpoolstats.py",
+  "bytes": 4553
+ },
+ {
+  "file": "rulezskbruteforceblocker__fda36dfd.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/feeds/public/rulezskbruteforceblocker.py",
+  "bytes": 1741
+ },
+ {
+  "file": "urlscanio__1659a9f3.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/analytics/deprecated/urlscanio.py",
+  "bytes": 4793
+ },
+ {
+  "file": "user__f46180aa.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/user.py",
+  "bytes": 4907
+ },
+ {
+  "file": "phone__a59c20b9.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/entities/phone.py",
+  "bytes": 179
+ },
+ {
+  "file": "bic__a06686a2.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/schemas/observables/bic.py",
+  "bytes": 417
+ },
+ {
+  "file": "interface__bdac534b.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/clients/file_storage/classes/interface.py",
+  "bytes": 607
+ },
+ {
+  "file": "dfiq__10839553.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/tests/schemas/dfiq.py",
+  "bytes": 4576
+ },
+ {
+  "file": "hash_file__a57266ac.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/analytics/deprecated/hash_file.py",
+  "bytes": 1404
+ },
+ {
+  "file": "interfaces__2086ff99.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/core/interfaces.py",
+  "bytes": 4629
+ },
+ {
+  "file": "dockerhub__1c050d0d.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/analytics/public/dockerhub.py",
+  "bytes": 9260
+ },
+ {
+  "file": "blocklistde_apache__c93f2a01.py",
+  "source": "/tmp/cve63489/yeti-2.5.0/plugins/feeds/public/blocklistde_apache.py",
+  "bytes": 1071
+ }
+]

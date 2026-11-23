@@ -20,19 +20,19 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     # ================================================================
 
     # ===== ENV / ARGV / STDIN Sources =====
-    "ENV":                  {"passthrough": [], "safe": False},
-    "gets":                 {"passthrough": [], "safe": False},
-    "gets.chomp":          {"passthrough": [], "safe": False},
-    "readline":            {"passthrough": [], "safe": False},
-    "ARGV":                 {"passthrough": [], "safe": False},
+    "ENV":                  {"passthrough": [], "safe": False, "source": True},
+    "gets":                 {"passthrough": [], "safe": False, "source": True},
+    "gets.chomp":          {"passthrough": [], "safe": False, "source": True},
+    "readline":            {"passthrough": [], "safe": False, "source": True},
+    "ARGV":                 {"passthrough": [], "safe": False, "source": True},
 
     # ===== Web 框架 Sources =====
-    "params":               {"passthrough": [], "safe": False},
-    "request":              {"passthrough": [], "safe": False},
-    "request.body":         {"passthrough": [], "safe": False},
-    "cookies":              {"passthrough": [], "safe": False},
-    "session":              {"passthrough": [], "safe": False},
-    "flash":                {"passthrough": [], "safe": False},
+    "params": {"passthrough": [], "safe": False, "source": True},
+    "request": {"passthrough": [], "safe": False, "source": True},
+    "request.body": {"passthrough": [], "safe": False, "source": True},
+    "cookies": {"passthrough": [], "safe": False, "source": True},
+    "session": {"passthrough": [], "safe": False, "source": True},
+    "flash": {"passthrough": [], "safe": False, "source": True},
 
     # ===== 文件读取 Sources =====
     # File/IO operations removed: CLI/file, not web sources

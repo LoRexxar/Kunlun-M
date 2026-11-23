@@ -1,4 +1,62 @@
 ## 更新日志
+- 2026-11-23
+  - KunLun-M 3.1.0
+  - **CVE 复现战役驱动的引擎加固（Fix 31 → 146，137 个 commit，2026-10-12 → 11-23）**
+    - 全部修复由真实 CVE 复现驱动：情报 → 源码 → ground truth → 首扫 → 修引擎 → 回归 repro 冻结 → commit，覆盖 PHP / Java / JS·TS / Python 四大语言的真实项目（OpenEMR、pfSense、SuiteCRM、OpenAM、Apache OFBiz / Axis1 / Roller、JumpServer、Craft CMS、Symfony、Laravel、CakePHP、froxlor、Spinnaker、n8n、MLflow、langflow、rucio、MISP、Yeti、GeoTools、WildFly 等）
+    - 每场战役以 `ci_cases/cve_regressions/<lang>/CVE-*` 最小 repro 落盘，期望值冻结进 `run_cve_regressions.py`，成为后续每次推送的回归门禁
+
+  - **PHP**
+    - Fix 34：callgraph 标签 + 嵌套调用边 + 污点路由（CVE-2026-108970 过程间 SQLi）
+    - Fix 42 系列（a–w）：跨文件属性 store/load、callee 解析（stub use 边 / passthrough 函数体 / 数组字面量跳过）、foreach 污点链 + def-chain SSA 精度、动态分派 sink 展开与接收者类闭包收窄、循环守卫 + 白名单净化语义、字段 store kill 守卫（CVE-2026-110895）
+    - Fix 43：存储型 XSS 的 DB 表桥接 + CI 视图桥接 + afr SSA 回退（CVE-2026-115534）；Fix 44：方法接收者 passthrough + 同名参数使用点（CVE-2026-38158）
+    - Fix 46/47/48：守卫作用域、request 包装源、concat 聚合、嵌套 return；per-svid repair 注册表接入图引擎（CVE-2026-115982 / 115999）
+    - Fix 51：fwrite/fputs sink + concat 逐操作数安全判定（CVE-2026-58256）；Fix 52 系列：pb 桥接 + 摘要 repair（CVE-2026-110185）；Fix 53：Symfony Process sink（CVE-2026-118755）
+    - Fix 55：文件级代码是隐式 CG 调用者；Fix 59：Slim 路由闭包是框架入口而非死代码；Fix 60：53b presence 门不再误杀精确限定提名；Fix 61：无语言外部 stub 不得污染跨语言污点（callee 劫持根因）
+    - Fix 67：symfony 1.x 框架支持（CVE-2020-7246 qdPM 主链）；Fix 69：WP_Query filter-callback 污点源（CVE-2026-114189）；Fix 70：sprintf SQL 字面量拼接哨兵（CVE-2026-115934 Craft CMS）；Fix 71：PDO 通用 DB 探针（CVE-2026-93997）；Fix 73：include/require 语言构造 sink（CVE-2026-71550）
+    - Fix 74-77：froxlor RFI + API 污点链（CVE-2026-41228 / 41229）；Fix 86：OpenEMR 框架识别 + sqlStatement sink（CVE-2026-126489）；Fix 89：PHP 8 match 分支 AST 覆盖（CVE-2026-126491）；CVE-2026-36236 `$_POST` 插值 SQLi repro
+    - Fix 103/104：`.=` concat 读-改-写 DFG + 白名单守卫精度（CVE-2026-126483）；Fix 105：def-chain 弱走查器遵循 repair 语义（lphply 2.2.7 org-profile 丢行事件的根因，FP 方向）
+    - OpenEMR 系列：Fix 106/108-110 ERA 上传文件链 + 框架 repair 管道 + 确定性（CVE-2026-126482）、Fix 111-113 Ccr 参数名 SQLi + QueryUtils 静态 sink + CDR 引擎包装 sink（CVE-2026-126480）、Fix 114a/b Phreezer ORM 二阶源 + URL 属性转义哨兵（CVE-2026-126451）、Fix 115 Zend getPost 源 + getter CG 推断（CVE-2026-126478）、Fix 116 `$GLOBALS` 捕获 + 形状谓词（CVE-2026-126481）、Fix 144 QueryUtils 二阶源（CVE-2026-124463 CAMOS 存储型 XSS）、Fix 145 ctor/setter 索引属性写污点 + 类级链接（CVE-2026-124468 REST SQLi）；CVE-2026-124469 / 124490 / 124467 原生检出 repro
+    - pfSense 系列：Fix 120 `.inc` PHP 库发现（CVE-2026-111215）、Fix 123-131 配置路径桥接 + 语料级返回值 DFG + 桥接源 BFS 作用域（CVE-2026-111217）、Fix 141 `$GLOBALS` 统一 + sound 守卫否决（CVE-2026-111216）、CVE-2026-111214 QinQ repro
+    - SuiteCRM：CVE-2026-100358 Studio 下拉编辑器 PHP 注入原生检出；Fix 146a-c：SugarBean ORM mutator 二阶 ORDER BY SQLi（CVE-2026-100365）；Fix 119：MISP/CakePHP 属性源作用域（CVE-2026-44381）
+
+  - **Java**
+    - Fix 37：字段加载污点传播（构造写 → getter 读）；Fix 38：累加器对象流（写侧 → 读侧）；Fix 36/39：GeoTools jsonArrayContains SQLi + CVI_6080 库边界 SQL 构造器规则与 sanitizer 感知过滤（CVE-2026-76904）
+    - Fix 45：JMX MBean 方法参数作为污点源 + CVI_6081（CVE-2026-42588）；Fix 53：IIOP readParams sink + Java 网络流入口参数（CVE-2026-15564 WildFly）；Fix 68：Java 框架调用污点源
+    - Fix 133：OpenAM ID-FF RelayState 未校验转发（CVE-2026-123551）；Fix 135：Axis1 Callback 源 + 反射 sink（CVE-2026-90436 SOAP fault RCE）；Fix 136：外部 hub safe-stamp 否决扩展到 Java（CVE-2026-45049）；Fix 138：TemplateRepresentation.setDataModel CVI 6082（CVE-2026-44203 预认证反射 XSS）；Fix 140：匿名 SNS push callback 不安全反序列化（CVE-2026-45794）
+    - Fix 137（8 个子修复）：OFBiz screen-context 污点链（CVE-2026-83542 未授权 RCE，CVSS 9.8）；Fix 142a-k：JumpServer Ansible inventory 二阶配置注入（CVE-2026-104126）；Fix 143a-t：Roller XML-RPC 反序列化完整 dispatch 链（CVE-2026-129448）
+
+  - **JavaScript / TypeScript**
+    - Fix 49 系列：Vue SFC 支持 + axios/props 文件作用域源（CVE-2026-116554 Argilla）；Fix 49g：无正则的 `.vue` 抽取（BeautifulSoup + esprima AST）；Fix 50：TSX 语法 + JSX 属性 sink + React props 源（CVE-2026-116004 Onyx Craft XSS）
+    - Fix 78：解构 / 闭包捕获污点链（CVE-2026-41478 Saltcorn）；Fix 139：类型化接收者 sink + 对象流（CVE-2026-128347 ExcelJS WorkbookWriter.addImage 任意文件读）；n8n copyBinaryFile presence sink（CVE-2026-21858）
+
+  - **Python**
+    - Fix 72：配置文件污点源链 json.load / yaml.load → getter 摘要 → 命令注入（CVE-2026-109830）；Fix 84：方法体通用 DB 探针语义门（CVE-2026-30530）；Fix 85：FastAPI UploadFile 源 + f-string 模板污点（CVE-2026-44566）；Fix 91：Flask URL 路径参数作为污点源（CVE-2026-33078）
+    - Fix 92：ORM query-builder FP 族——未解析 builder 返回值参数化；Fix 97-102b：rucio FilterEngine SQLi 的 Python 摘要/DFG 链（CVE-2026-29080）；CVE-2026-63489 Yeti AQL 注入 aql.execute sink
+    - Fix 117：容器 / await / 下标链 + 下标写回、comprehension、别名传播（CVE-2026-110279 MCP Gateway passthrough-headers 凭据覆盖）；Fix 118：langflow Pydantic body 参数源 + 字面量接收者幻影（CVE-2026-42048）；Fix 134：类型化接收者 sink + app 源叠加（CVE-2026-64849 MLflow webhook SSRF）
+    - 新规则 CVI_7016：出站请求头注入
+
+  - **其他语言与通用项**
+    - Fix 31（Ruby）：block 迭代器 & append 数据流、裸调用 use 边；Fix 33：规则声明的方法 sink + 库边界 SSRF presence 上报；Fix 35：CVE-2026-95634（c2pa-rs）五层检测链
+
+  - **质量闭环与可观测性**
+    - Fix 66：锚基线系统——整项目 ground-truth 回归（osTicket 锚 87 → 572 行，每次语义改动都做逐行定性 + regen）；Fix 57：形状契约 + CVE 最小 repro 回归门
+    - 四语言冻结语料门：Java（Fix 61）、JS、Python（Fix 64，PEP 695 边界锁定）parse gate 入 CI；Fix 58/58b：parse 覆盖率与死代码门可观测；Fix 61b：safe-cleanup 可观测
+    - Fix 88-obs：sink 循环内存遥测（RSS + VmSwap）；Fix 132：`KM_DISABLE_AI_TRIAGE` 环境开关（CLI 自动 triage 可关）
+
+  - **性能**
+    - Fix 63/63b/63c：`find_function_def` 索引化（原为 parameters_back 热路径上的 O(F) 扫描）、ctor 属性赋值查找 / `_resolve_function` / `_has_function_body` 记忆化；Fix 63d：sink 循环 2/4 段抽取到模块级 + 六个语义分段标注
+    - Fix 87：同名摘要并集的属性名桶索引（4.5h → 30min）；Fix 90：`_trace_return_value` 平行 DFG 源去重；Fix 43 / 48 / 51 / 53 / 131 系列各自的 memoization 与索引优化
+
+  - **解析器与运行时**
+    - 引擎运行时升级到 CPython 3.12（Fix 65），CI runner 同步 3.12；lphply 下限 2.2.2 → 2.2.9（当前 2.2.10，含 Fix 52 / 55 / 108 等语法产品修复），ljavalang 2.1.1 → 2.1.4（上下文关键字 `to`/`with`、EOF 哨兵、显式泛型见证）
+    - Fix 40：单文件扫描模式不再产出空图；Fix 41：跳过 PHP 数组数据文件（字体/CID 表）；Fix 62：不再把 `.xml` 喂给 Java 解析器
+    - docs：tree-sitter 前端评估结论——不迁移
+
+  - **Web 界面与工程**
+    - 漏洞结果 CVE 标记（linked_cve）+ 列表搜索覆盖 linked_cve；chain-panel.js 缺失 `escapeHtml` 修复（每次打开链面板抛 ReferenceError）
+    - 统一标签样式 pill 系统（km-pill）；项目详情扫描记录卡片折叠沉底；首页 / 概览最近扫描表重设计（展示扫描实际发现）
+    - 日志体积：逐节点 `[Chain]` 结果行降为 DEBUG（`KUNLUN_LOG_LEVEL=DEBUG` 可恢复），单任务日志 300MB → KB 级；清除泄漏的 tmp.js 产物与 DBG 探针；修复 `.gitignore tests/*` 吞掉 JS 语料门的问题
+
 - 2026-10-12
   - KunLun-M 3.0.1
   - **引擎精度专项 — 污点分析守卫与净化识别（Fix 22 → 30）**

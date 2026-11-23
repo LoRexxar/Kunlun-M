@@ -62,14 +62,36 @@ def enrich_taint(
         标注的 function 节点数量
     """
     count = 0
+    # Fix 119f (CVE-2026-44381 perf): one-shot per-stub 72b hit verdicts —
+    # computed once per language pass, consumed by every call node.
+    _stub_hits = None
+    if source_registry is not None and hasattr(source_registry, 'is_source_member'):
+        try:
+            _ua, _aa, _ = _get_enrich_adjacency(graph)
+            _stub_hits = _build_stub_source_hits(graph, _ua, _aa, source_registry)
+        except Exception:
+            _stub_hits = None
     for v in graph.vs:
         vlabel = _vattr(v, "label", "")
         vtype = _vattr(v, "type", "")
         is_function_def = vlabel == NodeLabel.FUNCTION.value
         is_call_node = (vlabel == NodeLabel.OPERATOR.value
                         and vtype in ("call", "method_call", "static_call"))
+        # Fix 143r (CVE-2026-129448): constructor call ops (`new X(...)`,
+        # vtype "new") were never enriched — the builtin KNOWLEDGE table
+        # carries ctor entries in the "Class.Class" form
+        # (ObjectInputStream.ObjectInputStream passthrough[0], added by
+        # Fix 140 but unreachable: the op-side loop skipped vtype "new"
+        # and the synthesized external stubs are annotation-guarded).
+        # A ctor's passthrough[0] means the constructed object carries
+        # arg0's taint — exactly the wrapper semantics the xmlrpc deser
+        # chain needs (new ObjectInputStream(bais)).  Only ops whose
+        # "X.X" key EXISTS in the table get stamped — no behavior change
+        # for ordinary news.
+        is_ctor_node = (vlabel == NodeLabel.OPERATOR.value
+                        and vtype == "new")
 
-        if not (is_function_def or is_call_node):
+        if not (is_function_def or is_call_node or is_ctor_node):
             continue
 
         # Skip nodes belonging to other languages.
@@ -78,6 +100,19 @@ def enrich_taint(
         # taint pollution (e.g. PHP TraceCache marking Python's "get" as safe).
         node_lang = _vattr(v, "language", "")
         if node_lang and node_lang != language:
+            continue
+        # Fix 61 (callee-hijack family, CI regression of 70cd5ce9): synthesized
+        # EXTERNAL function stubs (is_external=True, e.g. JS `app.get`) carry
+        # no language attribute, so the guard above passed them through and
+        # the PHP pass annotated the JS express-route stub `get` as
+        # taint_type=safe. Downstream, graph_analyzer's same-name safe lookup
+        # then poisoned every Python `request.GET.get(...)` backtrace
+        # (code=2 safe) — one foreign stub silenced a whole language's
+        # findings in mixed-directory scans. An external stub's semantics are
+        # those of ITS OWN library, not of the user-code language whose
+        # builtin table happens to share the short name — so never annotate
+        # language-less external stubs from any per-language pass.
+        if not node_lang and _vattr(v, "is_external", False):
             continue
 
         func_vid = v.index
@@ -99,6 +134,14 @@ def enrich_taint(
             else:
                 dot_pos = func_name.rfind(".")
                 lookup_name = func_name[dot_pos + 1:] if dot_pos >= 0 else func_name
+        elif is_ctor_node:
+            # Fix 143r: ctor KNOWLEDGE entries are keyed "Class.Class";
+            # the op name is "new Class" (Fix 143f-b may append a
+            # qualifier — take the last path segment).
+            _cls = func_name[4:] if func_name.startswith("new ") else func_name
+            _cls = _cls.rsplit(".", 1)[-1]
+            lookup_name = _cls
+            full_lookup = f"{_cls}.{_cls}"
         elif fullname and "." in fullname:
             # function_def 节点：使用 fullname 做完整名查找
             full_lookup = fullname
@@ -111,14 +154,18 @@ def enrich_taint(
         #    传完整 func_name（如 "document.cookie"），内部用短名查 source producer，
         #    用完整 chain 查 source member。
         if source_registry is not None:
-            if _enrich_from_source_registry(graph, func_vid, full_lookup, source_registry):
+            if _enrich_from_source_registry(graph, func_vid, full_lookup, source_registry,
+                                            _stub_hits=_stub_hits):
                 count += 1
                 continue
 
         # 2. TraceCache builtin（内置函数的返回值可控性知识库）
         #    仅在 source_registry 未匹配时使用。先短名查，再完整名查。
+        #    Fix 93c: 传调用形态（call/method_call/static_call），让
+        #    _enrich_from_builtin 的 __method__ 覆盖条目优先生效。
         if trace_cache is not None:
-            if _enrich_from_builtin(graph, func_vid, lookup_name, full_lookup, trace_cache):
+            if _enrich_from_builtin(graph, func_vid, lookup_name, full_lookup, trace_cache,
+                                    node_type=_vattr(v, "type", "")):
                 count += 1
                 continue
 
@@ -126,6 +173,38 @@ def enrich_taint(
     #    这些是 identifier 节点而非 function/call，需要在 function/call 循环外处理
     source_var_count = _enrich_source_variables(graph)
     count += source_var_count
+
+    # 3p. Fix 75: php://input raw-request-body reads are taint sources.
+    _pinput_count = _enrich_php_input_sources(graph, language)
+    count += _pinput_count
+
+    # 3z. Fix 49c: 文件作用域源变量(Vue props)—— registry.file_scoped_source_vars
+    #     记录了「.vue 组件的 props 名 → 该组件 tmp.js 路径」。Vue props 是
+    #     父级传入的外部数据(组件边界输入),在该文件作用域内视作 source。
+    #     按 file_path 精准标注,不污染其他文件的同名标识符。
+    _fs = getattr(source_registry, 'file_scoped_source_vars', None) if source_registry is not None else None
+    if _fs:
+        _marked = 0
+        for v in graph.vs:
+            if _vattr(v, "taint_type"):
+                continue
+            if _vattr(v, "label") != "identifier":
+                continue
+            _fp = _vattr(v, "file_path", "")
+            _pname = _vattr(v, "name", "")
+            if not _fp or not _pname:
+                continue
+            _names = None
+            for _k, _v in _fs.items():
+                if _fp.endswith(_k) or _k.endswith(_fp):
+                    _names = _v
+                    break
+            if _names and _pname in _names:
+                graph.vs[v.index]["taint_type"] = "source"
+                _marked += 1
+        if _marked:
+            logger.info('[KnowledgeBridge] Fix 49c: marked %d Vue-prop source identifiers', _marked)
+            count += _marked
 
     # 3b. Mark superglobal use-site nodes as taint_type=safe when they were
     #     reassigned by a safe function (e.g. $_GET['x'] = strtr(...)).
@@ -136,12 +215,34 @@ def enrich_taint(
     # 4. 注解标注（Java @RequestParam/@PathVariable 等标记参数为 source）
     annotated_param_count = _enrich_annotated_params(graph)
     count += annotated_param_count
+    mbean_param_count = _enrich_jmx_mbean_params(graph)
+    count += mbean_param_count
 
     # 5. 框架 request 参数标注（PHP $request, Python flask.request 等）
     #    当检测到框架时，函数参数中名为 $request / request 的参数标注为 source
     if source_registry is not None:
         fw_param_count = _enrich_framework_request_params(graph, source_registry)
         count += fw_param_count
+
+    # 5b. Fix 85 (CVE-2026-44566 Open WebUI): FastAPI UploadFile 参数标注。
+    #     ``file: UploadFile = File(...)`` —— UploadFile 对象整体是攻击者可控
+    #     的 HTTP 输入（filename / content_type / 字节流），路径穿越链
+    #     file.filename → f"{DIR}/{...}" → open(path, "wb") 只有在该参数
+    #     种下污点后才可达。纯图判定（parameter 节点 type_hint），
+    #     以 registry.framework 为语义门。
+    if language == "python":
+        count += _enrich_fastapi_upload_params(graph, source_registry)
+        # 5c. Fix 91 (CVE-2026-33078 roxy-wi): Flask route path params —
+        #     URL 规则 <var> 段绑定到 view 函数参数，全程不出现 request.*，
+        #     member-based source 永远打不中；从 Decorator 节点的 rule 串
+        #     （normalizer Fix 91 存入 signature）解析 <var> 并种污点。
+        count += _enrich_flask_route_params(graph, source_registry)
+        # 5d. Fix 118 (CVE-2026-42048 langflow): FastAPI Pydantic body 参数 —
+        #     路由 handler 的 ``request: BulkDeleteRequest`` 参数整体是请求
+        #     体（JSON），成员读取 request.kb_names 全程不出现 request.* 框架
+        #     source 成员，member-based source 永远打不中。以项目内
+        #     BaseModel 子类闭包（CRG EXTENDS 边）为判据注源。
+        count += _enrich_fastapi_body_params(graph, source_registry)
 
     # 6. 框架 safe 方法标注
     #    某些框架方法返回值经过安全转换（hash/枚举/常量），不应传播污点。
@@ -158,7 +259,18 @@ def enrich_taint(
     #     are built-in sanitizers. Mark their call nodes as taint_type=safe
     #     so that function_summary._trace_return_value can detect them.
     from core.graph.graph_analyzer import _REPAIR_FUNCTIONS
-    repair_count = _enrich_repair_calls(graph, _REPAIR_FUNCTIONS)
+    repair_funcs = _REPAIR_FUNCTIONS
+    # Fix 108 (CVE-2026-126482): framework-scoped repair set (e.g. OpenEMR
+    # text/attr/js_escape/xlt... official escape helpers).  Extends the
+    # svid-blind enrich-time safe marks ONLY when that framework was
+    # detected for this scan; the per-svid registry veto (Fix 48i) at
+    # analysis time keeps them from leaking across sink families.
+    if source_registry is not None and hasattr(source_registry, 'framework') and source_registry.framework:
+        _cfg108 = getattr(source_registry, '_fw_config', None) or {}
+        _fw_repairs = _cfg108.get('repair_functions', set())
+        if _fw_repairs:
+            repair_funcs = _REPAIR_FUNCTIONS | frozenset(_fw_repairs)
+    repair_count = _enrich_repair_calls(graph, repair_funcs)
     count += repair_count
 
     # 7. 传播 safe taint: 将 sanitizer call 的 safe 标记传播到赋值 LHS 变量
@@ -176,6 +288,99 @@ def enrich_taint(
 
 # receiver passthrough 的字符串标记 ("this"/"self")
 _RECEIVER_PT_NAMES: frozenset[str] = frozenset({"this", "self"})
+
+# Fix 133c (CVE-2026-123551): per-graph name→declared-type index for the
+# typed-receiver fallback — {name: [(vid, java_type, file_path, lineno)]}.
+# Built lazily once per enrichment pass (keyed like _ENRICH_EIDX_CACHE).
+_RECV_TYPE_IDX_CACHE: dict = {}
+
+
+def _recv_declared_type_index(graph: ig.Graph) -> dict:
+    key = (id(graph), graph.vcount(), graph.ecount())
+    cached = _RECV_TYPE_IDX_CACHE.get(id(graph))
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    idx: dict = {}
+    for v in graph.vs:
+        jt = str(_vattr(v, "java_type", "") or "").split("<")[0].strip()
+        if not jt:
+            continue
+        nm = str(_vattr(v, "name", "") or "")
+        if not nm or "." in nm:
+            continue
+        if _vattr(v, "label", "") not in ("identifier", "parameter"):
+            continue
+        idx.setdefault(nm, []).append(
+            (v.index, jt, str(_vattr(v, "file_path", "") or ""),
+             _vattr(v, "lineno", 0) or 0))
+    _RECV_TYPE_IDX_CACHE[id(graph)] = (key, idx)
+    return idx
+
+
+def _receiver_typed_lookup_name(graph: ig.Graph, call_vid: int, short_name: str) -> str:
+    """Fix 79 (CVE-2026-32613): derive ``<ReceiverType>.<method>`` from the
+    call node's receiver identifier java_type (declared type).
+
+    Only meaningful for operator nodes (call/method_call) whose name carries
+    a receiver segment (``e.getValue``). Returns "" when no typed receiver
+    is resolvable — the caller then falls back to the bare short name.
+    """
+    try:
+        v = graph.vs[call_vid]
+        if _vattr(v, "label") != "operator":
+            return ""
+        recv_seg = ""
+        nm = str(_vattr(v, "name", ""))
+        if "." in nm:
+            recv_seg = nm.rsplit(".", 1)[0]
+        # dfg/member in-edges to identifier nodes carrying a declared type
+        # (Fix 119e: bucket-indexed instead of EdgeSeq.select(_target=vid)
+        # full-edge scan per call node; same edges, same order.)
+        for src_vid in _get_enrich_adjacency(graph)[2].get(call_vid, ()):
+            src = graph.vs[src_vid]
+            if _vattr(src, "label", "") not in ("identifier", "parameter"):
+                # Fix 79: Java method receivers resolve through dfg to the
+                # enclosing function's PARAMETER node (label='parameter')
+                # when the receiver is a parameter variable — e.g.
+                # `transformMap(Map artifactMap, ...)` calling
+                # `artifactMap.entrySet()`. The parameter node carries the
+                # declared java_type ('Map'), so accept it alongside plain
+                # identifier uses.
+                continue
+            jt = str(_vattr(src, "java_type", "") or "")
+            if not jt:
+                continue
+            if recv_seg and _vattr(src, "name", "") != recv_seg:
+                continue
+            if jt:
+                # strip generic args and whitespace; keep dotted type text
+                jt = jt.split("<")[0].strip()
+                if jt:
+                    return f"{jt}.{short_name}"
+        # Fix 133c (CVE-2026-123551): the dfg receiver in-edge source is the
+        # REACHING-DEFINITION use node (Fix 133b), which carries no
+        # java_type — the declared type lives on the declaration/parameter
+        # node. Fall back to a file-scoped name→declared-type index: same
+        # name, same file, nearest line to the call (deterministic tie-break
+        # by vid). Without this the lookup returns "" and enrichment falls
+        # through to the bare positional entry ("substring" passthrough[0]
+        # = the numeric index arg), re-killing receiver chains.
+        if recv_seg and "." not in recv_seg:
+            _call_fp = str(_vattr(v, "file_path", "") or "")
+            _call_ln = _vattr(v, "lineno", 0) or 0
+            _best_t = None
+            for (_dvid, _djt, _dfp, _dln) in _recv_declared_type_index(graph).get(recv_seg, ()):
+                if _dfp != _call_fp:
+                    continue
+                _dist = abs((_dln or 0) - _call_ln)
+                if (_best_t is None or _dist < _best_t[0]
+                        or (_dist == _best_t[0] and _dvid < _best_t[1])):
+                    _best_t = (_dist, _dvid, _djt)
+            if _best_t is not None:
+                return f"{_best_t[2]}.{short_name}"
+        return ""
+    except Exception:
+        return ""
 
 # 正则替换/匹配函数 — pattern 为固定常量且不含 dot wildcard 时标为 safe
 _REGEX_SANITIZE_FUNCS: frozenset[str] = frozenset({
@@ -271,19 +476,201 @@ def _is_regex_sanitize_safe(graph, func_vid: int) -> bool:
     return False
 
 
-def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache) -> bool:
-    """从 TraceCache 内置知识库标注。先短名查，再完整名查。"""
-    knowledge = trace_cache.lookup_builtin(short_name)
-    if not knowledge and full_name != short_name:
+# Fix 52z-9: names whose KNOWLEDGE safe=True entry is an ORM query-chain
+# terminator verdict; re-verified against the graph chain shape before use.
+_ORM_TERMINATOR_NAMES = frozenset({
+    "all", "get", "first", "firstOrFail", "find", "findMany",
+    "findOrFail", "pluck", "whereKey", "value", "lists",
+})
+# per-graph edge-index cache for the ORM chain-shape check: id(graph) ->
+# (vcount_at_build, edge_index).  vcount guard cheaply invalidates when the
+# graph is rebuilt (same id reuse across loads is possible only after GC).
+_ORM_EIDX_CACHE: dict = {}
+
+
+# Fix 119e (CVE-2026-44381 perf): per-graph labeled-adjacency index for the
+# enrich hot path.  _enrich_from_source_registry's Fix 72b fallback and
+# _receiver_typed_lookup_name's Fix 79 lookup used to run
+# graph.es.select(_source=vid, label=...) PER CALL NODE — a full-edge
+# predicate scan per node, O(N*E) overall.  On the MISP corpus (964k nodes /
+# 2M edges) that alone burned >26 CPU-minutes (py-spy: 65% in the 72b loop).
+# Build the three buckets ONCE per graph (same id+vcount+ecount guard
+# discipline as _ORM_EIDX_CACHE); per-node lookups become O(degree).
+_ENRICH_EIDX_CACHE: dict = {}
+
+
+def _get_enrich_adjacency(graph: ig.Graph):
+    """Return (use_adj, alias_adj, dfg_member_in) for this graph.
+
+    use_adj/alias_adj: source vid -> [target vid] for label 'use'/'alias'
+    (iteration order = global edge order, same as EdgeSeq.select).
+    dfg_member_in:    target vid -> [source vid] for labels 'dfg'/'member'.
+    """
+    key = id(graph)
+    sig = (graph.vcount(), graph.ecount())
+    cached = _ENRICH_EIDX_CACHE.get(key)
+    if cached is not None and cached[0] == sig:
+        return cached[1]
+    use_adj: dict = {}
+    alias_adj: dict = {}
+    dfg_member_in: dict = {}
+    for e in graph.es:
+        lbl = e["label"]
+        if lbl == "use":
+            use_adj.setdefault(e.source, []).append(e.target)
+        elif lbl == "alias":
+            alias_adj.setdefault(e.source, []).append(e.target)
+        elif lbl == "dfg" or lbl == "member":
+            dfg_member_in.setdefault(e.target, []).append(e.source)
+    idx = (use_adj, alias_adj, dfg_member_in)
+    _ENRICH_EIDX_CACHE[key] = (sig, idx)
+    return idx
+
+
+def _build_stub_source_hits(graph: ig.Graph, use_adj: dict, alias_adj: dict,
+                            source_registry) -> frozenset:
+    """Fix 119f (CVE-2026-44381 perf): precompute the set of stub vids whose
+    72b candidate names contain a source-member hit.
+
+    The 72b fallback used to expand, for EVERY (call-node, stub) use pair,
+    the stub's full alias fan-out — on the MISP corpus a single hub stub
+    (43,532 alias edges, referenced by 46,570 call nodes) alone produced
+    2.03e9 candidate expansions.  The same any-match predicate computed
+    once per DISTINCT stub is O(use_targets + alias_edges).
+    """
+    ism = source_registry.is_source_member
+    use_targets = {t for targets in use_adj.values() for t in targets}
+    hits = set()
+    for stub_vid in use_targets:
+        n = _vattr(graph.vs[stub_vid], "name", "")
+        # Fix 119g: scoped consult — gated property members only match in
+        # their class context; registries without the 2-arg form fall back.
+        _sf119g = (_vattr(graph.vs[stub_vid], "file_path", "")
+                   or _vattr(graph.vs[stub_vid], "path", ""))
+        if _sf119g:
+            def _ism2(_n, _fp=_sf119g):
+                try:
+                    return ism(_n, _fp)
+                except TypeError:
+                    return ism(_n)
+        else:
+            _ism2 = ism
+        ok = bool(n) and "." in n and _ism2(n)
+        if not ok:
+            for av in alias_adj.get(stub_vid, ()):
+                an = _vattr(graph.vs[av], "name", "")
+                if "." in an and _ism2(an):
+                    ok = True
+                    break
+        if ok:
+            hits.add(stub_vid)
+    return frozenset(hits)
+
+
+def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_name: str, trace_cache,
+                         node_type: str = "") -> bool:
+    """从 TraceCache 内置知识库标注。先完整名查，再短名查。
+
+    Fix 78k (CVE-2026-41478): 限定名优先。JS 的 Object.entries 与
+    Array.prototype.entries 撞名——短名先查会让静态方法命中原型方法条目
+    （receiver passthrough + safe），Object.entries(tainted) 被标
+    taint_type=safe，for-of-over-Object.entries 的污点链在迭代处断裂。
+    限定名条目语义更具体，必须赢过短名条目（与 sink 匹配的 qualified
+    fullname 纪律一致）。lookup() 内部对带点名的短名回退保留：receiver
+    形态（x.entries()）仍能落到原型条目。
+
+    Fix 93c (CVE-2026-29080): 方法形态覆盖。method_call 的短名会撞上
+    内建【函数】条目（`tmpl.format(k, v)` 短名 'format' 命中内建函数
+    format(value, spec) 的 passthrough=[0]），函数条目的位置语义对方法
+    形态是错的——str.format 把所有实参内插进结果。带 "__method__.<名>"
+    键的条目是方法形态专属知识，method_call 先查它再落到 bare 函数条目
+    （与 Fix 78k 的限定名优先纪律同构：更具体的形态赢）。
+    """
+    knowledge = None
+    # Fix 93c: __method__ 覆盖必须最先查——full_name 查询内部带短名兜底
+    # （"json_exists.format" → 'format'），会先撞上 bare 函数条目。
+    if node_type == "method_call":
+        knowledge = trace_cache.lookup_builtin(f"__method__.{short_name}")
+    # Fix 133 (CVE-2026-123551): typed-receiver qualified lookup BEFORE the
+    # full_name query. lookup_builtin()'s per-language dotted→short fallback
+    # makes a VARIABLE-form full_name ("newUrl.substring") resolve to the
+    # bare entry "substring" — whose positional passthrough[0] points at the
+    # numeric begin-index argument, not the receiver string — so the
+    # receiver-flow entry "String.substring" (Fix 79 typed lookup, from the
+    # receiver's DECLARED java_type) was unreachable and the chain died as
+    # code=3 'unresolved substring'. Ordering is precision-ordered and safe:
+    # a static "Class.method" call has no typed identifier receiver (class
+    # refs carry no java_type → "" → falls through), and PHP/JS nodes have
+    # no java_type at all, so this only ever wins for genuinely typed java
+    # receivers — the Fix 78k qualified-wins discipline, extended.
+    if not knowledge:
+        _typed = _receiver_typed_lookup_name(graph, func_vid, short_name)
+        if _typed:
+            knowledge = trace_cache.lookup_builtin(_typed)
+    if not knowledge and full_name and full_name != short_name:
         knowledge = trace_cache.lookup_builtin(full_name)
+    if not knowledge:
+        # Fix 79 (CVE-2026-32613): receiver-declared-type qualified lookup.
+        # A call like `e.getValue()` has no typed fullname — full_name is the
+        # variable form "e.getValue". JDK interface accessors
+        # (Map.Entry.getValue/getKey, Map.entrySet, Function.apply) are only
+        # distinguishable from same-name domain getters by the receiver's
+        # DECLARED type. Look up f"{receiver.java_type}.{short_name}" before
+        # falling back to the bare short name, so qualified entries keep
+        # winning (Fix 78k discipline) without whitelisting bare "getValue".
+        _typed = _receiver_typed_lookup_name(graph, func_vid, short_name)
+        if _typed:
+            knowledge = trace_cache.lookup_builtin(_typed)
+    if not knowledge:
+        knowledge = trace_cache.lookup_builtin(short_name)
     if not knowledge:
         return False
 
     safe = knowledge.get("safe", False)
     passthrough: list = knowledge.get("passthrough", [])
 
+    # Fix 31d: explicit source entries (safe=False, no passthrough -- the
+    # call RETURNS attacker-controlled data, e.g. Ruby gets/ENV/ARGV).
+    # These must not fall through the neutral bucket: without this the
+    # node stayed unannotated and every builtin-source chain died as
+    # code=3.  Falls back to Rule 3c (operator taint_type="source").
+    if knowledge.get("source") and not safe:
+        graph.vs[func_vid]["taint_type"] = "source"
+        return True
+
+    # Fix 52z-9 (CVE-2026-110185): ORM query-chain terminators carry a
+    # historical safe=True KNOWLEDGE entry (Laravel baseline: "DB records
+    # are not user input").  When the graph shape proves a static ORM chain
+    # (X::where(...)->all()/get()/first()...), the return is DB row data —
+    # stored user input — annotate as source instead of safe.  Bare
+    # accessor calls ($collection->all(), $http->get()) keep safe.
+    if safe and _get_simple_name(short_name) in _ORM_TERMINATOR_NAMES:
+        from core.graph.function_summary import (
+            _build_edge_index as _fs_build_edge_index,
+            _is_orm_query_chain_terminator as _fs_is_orm_term,
+        )
+        # per-graph edge-index cache (enrich_taint visits every safe call)
+        _gkey = id(graph)
+        _now = graph.vcount()
+        _c = _ORM_EIDX_CACHE.get(_gkey)
+        if _c is not None and _c[0] == _now:
+            _eidx = _c[1]
+        else:
+            try:
+                _eidx = _fs_build_edge_index(graph)
+                _ORM_EIDX_CACHE[_gkey] = (_now, _eidx)
+            except Exception:
+                _eidx = None
+        if _eidx is not None and _fs_is_orm_term(graph, func_vid, _eidx):
+            graph.vs[func_vid]["taint_type"] = "source"
+            graph.vs[func_vid]["taint_origin"] = "orm_db_read"
+            return True
+
     # 分离 receiver passthrough ("this"/"self") 和位置参数 passthrough (int 索引)
     receiver_pt = any(isinstance(x, str) and x in _RECEIVER_PT_NAMES for x in passthrough)
+    # Fix 93c: "all" = 无界元数透传（str.format 内插每个实参）——注记为
+    # taint_passthrough=['all']，消费端见 'all' 即全实参追踪，不做索引过滤。
+    all_args = any(isinstance(x, str) and x == "all" for x in passthrough)
     param_indices = [i for i in passthrough if isinstance(i, int)]
 
     if safe:
@@ -298,10 +685,10 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
 
     if passthrough:
         graph.vs[func_vid]["taint_type"] = "passthrough"
-        graph.vs[func_vid]["taint_passthrough"] = param_indices
+        graph.vs[func_vid]["taint_passthrough"] = ["all"] if all_args else param_indices
         if receiver_pt:
             graph.vs[func_vid]["taint_receiver_pt"] = True
-        if param_indices:
+        if param_indices and not all_args:
             _mark_passthrough_params(graph, func_vid, param_indices)
         return True
 
@@ -317,6 +704,7 @@ def _enrich_from_builtin(graph: ig.Graph, func_vid: int, short_name: str, full_n
 
 def _enrich_from_source_registry(
     graph: ig.Graph, func_vid: int, func_name: str, source_registry,
+    _stub_hits=None,
 ) -> bool:
     """从 SourceRegistry 标注框架 source producer 和 builtin source member。"""
     simple_name = _get_simple_name(func_name)
@@ -329,7 +717,11 @@ def _enrich_from_source_registry(
         graph.vs[func_vid]["taint_type"] = "source"
         # Encode origin in existing attribute to avoid igraph dynamic attr issues.
         # Format: "source" for framework/builtin, "source:user" for user_defined.
-        if info.type == "user_defined":
+        # Fix 49b: TypeScript SourceInfo 的字段名是 source_type(JS 是 type),
+        # 直接访问 .type 会 AttributeError → 整个语言的 taint enrichment
+        # 中断(argilla TS 25 个源生产者全部没上图)。
+        _info_type = getattr(info, "type", None) or getattr(info, "source_type", "")
+        if _info_type == "user_defined":
             graph.vs[func_vid]["taint_type"] = "source:user"
         return True
 
@@ -340,6 +732,49 @@ def _enrich_from_source_registry(
     if hasattr(source_registry, 'is_source_member') and source_registry.is_source_member(func_name):
         graph.vs[func_vid]["taint_type"] = "source"
         return True
+
+    # Fix 72b: import-qualified fallback.  Module-attribute calls
+    # (json.load, yaml.safe_load, os.system...) reach enrich_taint with
+    # func_name='load' — the short attribute name — while the import
+    # normalizer wrote a fully-qualified stub ('json.load') linked via
+    # use → short-stub → alias edges.  Follow that two-hop chain before
+    # giving up so qualified builtin sources (CVE-2026-109830 config-file
+    # read) taint.
+    if hasattr(source_registry, 'is_source_member'):
+        # Fix 119e/119f: bucket-indexed adjacency + precomputed per-stub hit
+        # verdicts instead of per-pair alias fan-out expansion (the MISP
+        # corpus quadratic: 2.03e9 expansions → O(use_targets+alias_edges)).
+        _use_adj, _alias_adj, _ = _get_enrich_adjacency(graph)
+        _stubs = _use_adj.get(func_vid, ())
+        if _stub_hits is not None:
+            for _sv in _stubs:
+                if _sv in _stub_hits:
+                    graph.vs[func_vid]["taint_type"] = "source"
+                    return True
+        else:
+            for stub_vid in _stubs:
+                stub = graph.vs[stub_vid]
+                candidates = [_vattr(stub, "name", "")]
+                for alias_vid in _alias_adj.get(stub_vid, ()):
+                    candidates.append(_vattr(graph.vs[alias_vid], "name", ""))
+                for cand in candidates:
+                    if "." in cand and source_registry.is_source_member(cand):
+                        graph.vs[func_vid]["taint_type"] = "source"
+                        return True
+
+    # Fix 79 (CVE-2026-32613): typed-receiver qualified fallback.  A Java
+    # framework source member registered as "Pipeline.getExpectedArtifacts"
+    # (TYPE-qualified to avoid bare-name FPs) can never match the call-node
+    # name "inputPipeline.getExpectedArtifacts" — the receiver is a local
+    # variable.  Rebuild "<ReceiverDeclaredType>.<method>" from the
+    # receiver identifier's java_type and consult the registry with that,
+    # so only calls whose receiver is DECLARED as the framework type hit.
+    if hasattr(source_registry, 'is_source_member'):
+        _t79 = _receiver_typed_lookup_name(
+            graph, func_vid, func_name.rsplit(".", 1)[-1])
+        if _t79 and source_registry.is_source_member(_t79):
+            graph.vs[func_vid]["taint_type"] = "source"
+            return True
 
     return False
 
@@ -404,14 +839,75 @@ def _propagate_safe_taint(graph: ig.Graph) -> int:
         if _vattr(graph.vs[lhs_vid], "taint_type", ""):
             continue
 
-        # 检查 RHS AST 子树中是否含 safe call 节点
-        if _rhs_has_safe_call(graph, rhs_vid):
+        # 检查 RHS AST 子树中是否含 safe call 节点。
+        # Fix 51d: concat(二元拼接)链 safe 是 per-operand 的 —
+        # "a".addslashes($x)."b".$tainted 只有一个操作数被 sanitize,
+        # 其余裸操作数仍可污染整个字符串。仅当 concat 树的【全部
+        # 数据操作数】safe(或字面量)时才传播 safe 到 LHS。
+        _root = graph.vs[rhs_vid]
+        _root_is_call = (_vattr(_root, "label", "") == NodeLabel.OPERATOR.value
+                         and _vattr(_root, "type", "") in ("call", "method_call", "static_call"))
+        _root_safe = _vattr(_root, "taint_type", "") == "safe"
+        # Fix 52d: when the RHS root is itself a call, the safe verdict
+        # must come from the ROOT call (esc_attr-style).  A safe call
+        # nested inside a passthrough/unresolved call (e.g. trim() inside
+        # Utility::getFilePath — str_replace passthrough) does not decide
+        # the LHS: passthrough semantics propagate taint from args, so
+        # sanitizing one nested arg cannot sanitize the returned value.
+        _allow_subtree_safe = (not _root_is_call) or _root_safe
+        if (_rhs_has_safe_call(graph, rhs_vid) and _allow_subtree_safe
+                and _rhs_concat_fully_safe(graph, rhs_vid)):
             graph.vs[lhs_vid]["taint_type"] = "safe"
             count += 1
 
     if count:
         logger.debug("_propagate_safe_taint: marked %d LHS variables as safe", count)
     return count
+
+
+def _rhs_concat_fully_safe(graph: ig.Graph, root_vid: int) -> bool:
+    """Fix 51d: RHS concat 树的每个数据操作数都必须是 safe 的。
+
+    数据操作数 = identifier / const / call / member。
+    - concat/encapsulated binary 节点 → 递归检查全部操作数
+    - operator call 且 taint_type='safe' → 该操作数 safe
+    - const(字面量) → safe
+    - identifier 且 taint_type='safe' → safe
+    - 其余(identifier/operator 未标 safe) → 不 safe → 整链不传播
+    """
+    from core.graph.node_edge_schema import EdgeLabel
+
+    v = graph.vs[root_vid]
+    vlabel = _vattr(v, "label", "")
+    vtype = _vattr(v, "type", "")
+    raw_type = _vattr(v, "raw_type", "")
+
+    # concat / binary 拼接节点: 递归全部操作数
+    _is_concat = (
+        vlabel == NodeLabel.OPERATOR.value
+        and (vtype in ("binary_op", "assign")
+             or raw_type in ("BinaryOp", "encapsulated", "interpolated_string",
+                             "template_string", "binary_expression"))
+        and str(_vattr(v, "name", "")) in (".", "+", "concat", "")
+    ) or raw_type == "encapsulated"
+    if _is_concat:
+        operands = [
+            e.target for e in graph.es.select(_source=root_vid, label=EdgeLabel.AST.value)
+            if _vattr(e, "role", "") in ("operand", "lhs", "rhs", "value", "left", "right")
+        ]
+        if not operands:
+            return True
+        return all(_rhs_concat_fully_safe(graph, o) for o in operands)
+
+    # 单操作数形态
+    if vlabel == NodeLabel.CONST.value:
+        return True  # 字面量
+    if vlabel == NodeLabel.OPERATOR.value:
+        return _vattr(v, "taint_type", "") == "safe"
+    if vlabel == NodeLabel.IDENTIFIER.value:
+        return _vattr(v, "taint_type", "") == "safe"
+    # 其余(function 引用等)保守视为不 safe
+    return False
 
 
 def _rhs_has_safe_call(graph: ig.Graph, root_vid: int) -> bool:
@@ -478,7 +974,7 @@ def _enrich_source_variables(graph: ig.Graph) -> int:
         if _vattr(v, "taint_type"):  # 已标注，跳过
             continue
         name = _vattr(v, "name", "")
-        if _is_source_var(name):
+        if _is_source_var(name, _vattr(v, "language", "")):
             graph.vs[v.index]["taint_type"] = "source"
             count += 1
     return count
@@ -490,6 +986,66 @@ def _enrich_source_variables(graph: ig.Graph) -> int:
 _SUPERGLOBAL_SUBSCRIPT_PARENTS: frozenset[str] = frozenset({
     "$_GET", "$_POST", "$_REQUEST", "$_COOKIE", "$_FILES",
 })
+
+
+# PHP stream wrappers that read the raw HTTP request body. Reading them
+# returns fully attacker-controlled data — same trust level as $_POST.
+# (CVE-2026-41229: froxlor API reads php://input, json_decodes it and lets
+# params flow into userdata.inc.php via file_put_contents.)
+_PHP_INPUT_READ_FUNCS: frozenset[str] = frozenset({
+    "file_get_contents", "file", "fopen", "stream_get_contents", "readfile",
+})
+
+
+def _enrich_php_input_sources(graph: ig.Graph, language: str) -> int:
+    """Fix 75: mark ``file_get_contents('php://input')``-style call nodes
+    (first argument is the literal stream wrapper) as taint sources.
+
+    Only fires on the exact php://input literal — reading a VARIABLE path
+    stays unannotated (its taint flows via the builtin passthrough[0]
+    entry).  Runs after the builtin pass so the generic passthrough
+    annotation on these calls is overridden to ``source``.
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    if language != "php":
+        return 0
+    marked = 0
+    for v in graph.vs:
+        if _vattr(v, "label", "") != NodeLabel.OPERATOR.value:
+            continue
+        if _vattr(v, "type", "") not in ("call", "method_call"):
+            continue
+        name = (_vattr(v, "name", "") or "").rsplit(".", 1)[-1]
+        if name not in _PHP_INPUT_READ_FUNCS:
+            continue
+        if _vattr(v, "taint_type", "") == "source":
+            continue
+        # First positional argument must be a string const naming the wrapper
+        arg0_vid: int | None = None
+        for eid in graph.incident(v.index, mode="out"):
+            e = graph.es[eid]
+            if _vattr(e, "label", "") != "ast" or _vattr(e, "role", "") != "arg":
+                continue
+            idx = _vattr(e, "index", "")
+            aidx = _vattr(e, "arg_index", "")
+            if str(idx) in ("", "0") or str(aidx) in ("", "0"):
+                arg0_vid = e.target
+                break
+        if arg0_vid is None:
+            continue
+        av = graph.vs[arg0_vid]
+        if _vattr(av, "label", "") != NodeLabel.CONST.value:
+            continue
+        raw = str(_vattr(av, "name", "") or _vattr(av, "value", "") or "").strip().strip("'\"")
+        if "php://input" not in raw.lower():
+            continue
+        graph.vs[v.index]["taint_type"] = "source"
+        graph.vs[v.index]["taint_origin"] = "php_input"
+        marked += 1
+    if marked:
+        logger.info('[KnowledgeBridge] Fix 75: marked %d php://input source calls', marked)
+    return marked
 
 
 def _find_enclosing_function(graph: ig.Graph, vid: int) -> int | None:
@@ -703,6 +1259,59 @@ def _record_sanitized_superglobal_members(graph: ig.Graph) -> None:
         )
 
 
+def _enrich_jmx_mbean_params(graph: ig.Graph) -> int:
+    """Fix 45: JMX MBean 实现类的方法参数 = source。
+
+    类 -crg-> 名字以 MBean 结尾的接口（implements XxxMBean）意味着该类的
+    public 方法通过 MBeanServer 暴露给 JMX 客户端（Jolokia HTTP 桥、
+    jconsole 等）远程 exec 并传任意参数。CVE-2026-42588 即 Jolokia exec
+    BrokerView.addNetworkConnector(String) 触发 VM transport brokerConfig
+    加载任意 Spring XML。
+
+    建模：实现类每个方法中类型为 String/ObjectName/Object 的参数标注
+    taint_type=source, taint_origin=jmx-mbean。
+    """
+    from core.graph.node_edge_schema import NodeLabel
+
+    mbean_iface_targets = set()
+    for e in graph.es.select(label="crg"):
+        tname = _vattr(graph.vs[e.target], "name", "")
+        if isinstance(tname, str) and tname.endswith("MBean"):
+            mbean_iface_targets.add(e.target)
+    if not mbean_iface_targets:
+        return 0
+
+    impl_classes = set()
+    for e in graph.es.select(label="crg"):
+        if e.target in mbean_iface_targets:
+            impl_classes.add(e.source)
+    if not impl_classes:
+        return 0
+
+    _SOURCE_PARAM_TYPES = {"String", "ObjectName", "Object", "java.lang.String"}
+    count = 0
+    for cls_vid in impl_classes:
+        for fe in graph.es.select(_source=cls_vid, label="own"):
+            fnode = graph.vs[fe.target]
+            if _vattr(fnode, "label") != NodeLabel.FUNCTION.value:
+                continue
+            for pe in graph.es.select(_source=fe.target, label="own"):
+                pnode = graph.vs[pe.target]
+                if _vattr(pnode, "label") != NodeLabel.PARAMETER.value:
+                    continue
+                if _vattr(pnode, "taint_type"):
+                    continue
+                ptype = _vattr(pnode, "java_type", "") or _vattr(pnode, "param_type", "") or ""
+                bare = str(ptype).split("<")[0].strip()
+                if "." in bare:
+                    bare = bare.rsplit(".", 1)[-1]
+                if bare in _SOURCE_PARAM_TYPES:
+                    graph.vs[pe.target]["taint_type"] = "source"
+                    graph.vs[pe.target]["taint_origin"] = "jmx-mbean"
+                    count += 1
+    return count
+
+
 def _enrich_annotated_params(graph: ig.Graph) -> int:
     """标注图中带有 source 注解的 parameter 节点。
 
@@ -846,6 +1455,270 @@ def _enrich_framework_request_params(graph: ig.Graph, source_registry) -> int:
         count += 1
     return count
 
+
+def _enrich_fastapi_upload_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 85 (CVE-2026-44566 Open WebUI): FastAPI/Starlette ``UploadFile``
+    route parameters are HTTP sources.
+
+    FastAPI uploads arrive as dependency-injected params
+    (``file: UploadFile = File(...)``).  The whole object is
+    attacker-controlled — filename, content_type and the byte stream —
+    and path-traversal chains (``file.filename`` → f-string →
+    ``open(path, "wb")``) only become reachable when the parameter node
+    seeds taint.  Detection is purely graph-native: the Python
+    normalizer stores the annotation on parameter nodes
+    (``type_hint``), so no AST re-walk is needed.
+
+    Semantic gate: when the project's requirements explicitly declare a
+    DIFFERENT framework (flask/django), an ``UploadFile``-annotated
+    parameter is more likely an unrelated user class — skip.  Unknown /
+    fastapi / no marker → apply (the annotation is strong evidence).
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "fastapi":
+        return 0
+
+    import re as _re
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != "parameter":
+            continue
+        if _vattr(v, "taint_type"):
+            continue
+        node_lang = _vattr(v, "language", "")
+        if node_lang and node_lang != "python":
+            continue
+        th = _vattr(v, "type_hint", "") or ""
+        # \b keeps MyUploadFileX / UploadFileHelper from matching.
+        if not _re.search(r"\bUploadFile\b", th):
+            continue
+        graph.vs[v.index]["taint_type"] = "source"
+        graph.vs[v.index]["taint_origin"] = "fastapi_upload_param"
+        count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 85: marked %d FastAPI UploadFile param(s) as sources",
+            count,
+        )
+    return count
+
+def _enrich_fastapi_body_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 118 (CVE-2026-42048 langflow <=1.8.4): FastAPI Pydantic body-model
+    route parameters are HTTP sources.
+
+    FastAPI binds the JSON request body to a route-handler parameter whose
+    annotation is a Pydantic ``BaseModel`` subclass::
+
+        class BulkDeleteRequest(BaseModel):
+            kb_names: List[str]
+
+        @router.delete("")
+        async def delete_knowledge_bases_bulk(request: BulkDeleteRequest, ...):
+            for kb_name in request.kb_names: ...
+
+    Every member read off that parameter is attacker-controlled, yet no
+    ``request.args``-style framework member ever appears — member-based
+    sources can never fire.  Chains like ``request.kb_names`` →
+    ``kb_user_path / kb_name`` → ``shutil.rmtree`` only become reachable
+    when the parameter seeds taint.
+
+    Discriminators (all graph-native):
+    1. *Model set*: project-local classes whose CRG EXTENDS closure reaches
+       ``BaseModel`` (the pydantic root is an external stub node).  Depends
+       aliases such as ``CurrentActiveUser = Annotated[User, Depends(...)]``
+       are Assign aliases, not ClassDefs — they never join the set.
+    2. *Route scope*: only parameters of functions carrying a router
+       decorator whose last segment is an HTTP verb (``router.delete``,
+       ``app.post``, ``api_router.api_route``…).  Internal helpers typed
+       with the same DTO stay untainted.
+    3. *Depends exclusion*: an inline ``Annotated[X, Depends(...)`` hint is
+       dependency injection, not a body binding — skipped even when X is a
+       BaseModel subclass.
+
+    Semantic gate mirrors Fix 85: skip when requirements declare a
+    DIFFERENT framework.  Unknown / fastapi → apply.
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "fastapi":
+        return 0
+
+    import re as _re
+
+    # --- 1. BaseModel subclass closure over CRG EXTENDS edges -------------
+    _ROOT_BASES = {"BaseModel"}
+    # child_class_name -> [base_class_names]
+    extends_map: dict[str, list[str]] = {}
+    has_type_attr = "type" in graph.es.attributes()
+    for e in graph.es:
+        if e["label"] != "crg":
+            continue
+        if not has_type_attr or e["type"] != "extends":
+            continue
+        child = graph.vs[e.source]
+        base = graph.vs[e.target]
+        if _vattr(child, "label") != "class" or _vattr(base, "label") != "class":
+            continue
+        c_name = _vattr(child, "name", "")
+        b_name = _vattr(base, "name", "")
+        if c_name and b_name:
+            extends_map.setdefault(c_name, []).append(b_name)
+
+    model_set = set(_ROOT_BASES)
+    changed = True
+    while changed:  # fixpoint: class extends anything already in the set
+        changed = False
+        for c_name, bases in extends_map.items():
+            if c_name in model_set:
+                continue
+            if any(b in model_set for b in bases):
+                model_set.add(c_name)
+                changed = True
+    model_set -= _ROOT_BASES  # the root stub itself is not a project class
+
+    if not model_set:
+        return 0
+
+    # --- 2. functions owning a route decorator -----------------------------
+    _route_dec = _re.compile(
+        r"(?:^|\.)(?:get|post|put|delete|patch|head|options|api_route|route)$")
+    route_funcs: set[int] = set()
+    for v in graph.vs:
+        if _vattr(v, "label") != "annotation":
+            continue
+        if _vattr(v, "raw_type") != "Decorator":
+            continue
+        if not _route_dec.search(_vattr(v, "name", "") or ""):
+            continue
+        for e in graph.incident(v.index, mode="in"):
+            edge = graph.es[e]
+            if edge["label"] == "own":
+                route_funcs.add(edge.source)
+    if not route_funcs:
+        return 0
+
+    # params of route functions (own edges from function nodes)
+    route_params: set[int] = set()
+    for fidx in route_funcs:
+        for e in graph.incident(fidx, mode="out"):
+            edge = graph.es[e]
+            if edge["label"] != "own":
+                continue
+            tgt = graph.vs[edge.target]
+            if _vattr(tgt, "label") == "parameter":
+                route_params.add(edge.target)
+
+    # --- 3. mark params typed with a project BaseModel subclass ------------
+    model_pat = {m: _re.compile(r"\b{}\b".format(_re.escape(m))) for m in model_set}
+    count = 0
+    for pidx in route_params:
+        v = graph.vs[pidx]
+        if _vattr(v, "taint_type"):
+            continue
+        th = _vattr(v, "type_hint", "") or ""
+        if not th or "Depends" in th:
+            continue
+        if not any(pat.search(th) for pat in model_pat.values()):
+            continue
+        graph.vs[pidx]["taint_type"] = "source"
+        graph.vs[pidx]["taint_origin"] = "fastapi_body_param"
+        count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 118: marked %d FastAPI body-model param(s) as sources",
+            count,
+        )
+    return count
+
+
+def _enrich_flask_route_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 91 (CVE-2026-33078 roxy-wi): Flask route path parameters are HTTP sources.
+
+    Flask binds URL path variables to view-function parameters
+    (``@bp.route('/section/haproxy/<server_ip>/save')`` →
+    ``haproxy_section_save(server_ip)``).  Each binding is attacker-
+    controlled request-path data, yet no ``request.*`` member appears
+    anywhere — member-based sources can never fire.  roxy-wi 8.2.6.3
+    chains such a param through ``master_slave_upload_and_restart()``
+    into ``is_master()`` where it lands in ``'%s'``-formatted SQL executed
+    by ``cursor.execute()`` (fixed in 8.2.6.4 via common.is_ip_or_dns).
+
+    Evidence is graph-native: the Python normalizer (Fix 91) stores the
+    router rule string on the Decorator annotation node (``signature``).
+    This pass parses ``<var>`` segments and marks the owning view
+    function's matching parameter nodes as sources.
+
+    Semantic gate mirrors Fix 85: skip when requirements declare a
+    DIFFERENT framework.  Unknown / flask → apply.  When the rule string
+    is missing (non-Call decorator / pre-Fix-91 graph) only an explicit
+    flask detection allows the mark-all-params fallback — in Flask every
+    view parameter is URL-bound.
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "flask":
+        return 0
+
+    import re as _re
+    _route_name = _re.compile(r"(?:^|\.)route$")
+    # <var>, <converter:var>, <any(a, b):var> — Flask URL rule variables.
+    _url_var = _re.compile(
+        r"<(?:(?:string|int|float|path|uuid|any)(?:\([^)]*\))?:)?([A-Za-z_]\w*)>")
+
+    # annotation node → owning node via incoming own edge (function/class).
+    ann_parent: dict[int, int] = {}
+    for e in graph.es:
+        if e["label"] == "own":
+            tgt = _vattr(graph.vs[e.target], "label")
+            if tgt == "annotation":
+                ann_parent[e.target] = e.source
+
+    count = 0
+    for v in graph.vs:
+        if _vattr(v, "label") != "annotation":
+            continue
+        if _vattr(v, "raw_type") != "Decorator":
+            continue
+        node_lang = _vattr(v, "language", "")
+        if node_lang and node_lang != "python":
+            continue
+        name = _vattr(v, "name", "") or ""
+        if not _route_name.search(name):
+            continue
+        func_vid = ann_parent.get(v.index)
+        if func_vid is None:
+            continue
+        rule = _vattr(v, "signature", "") or ""
+        if rule:
+            varnames = set(_url_var.findall(rule))
+        elif fw == "flask":
+            varnames = None  # explicit Flask: every view param is URL-bound
+        else:
+            continue
+        for eid in graph.incident(func_vid, mode="out"):
+            e = graph.es[eid]
+            if e["label"] != "own":
+                continue
+            pv = graph.vs[e.target]
+            if _vattr(pv, "label") != "parameter":
+                continue
+            if _vattr(pv, "taint_type"):
+                continue
+            pname = _vattr(pv, "name", "") or ""
+            if not pname:
+                continue
+            if varnames is not None and pname not in varnames:
+                continue
+            graph.vs[pv.index]["taint_type"] = "source"
+            graph.vs[pv.index]["taint_origin"] = "flask_route_path_param"
+            count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 91: marked %d Flask route path param(s) as sources",
+            count,
+        )
+    return count
+
+
 def _get_simple_name(name: str) -> str:
     """提取短名：'trim' / 'MyClass::method' → 'method'。"""
     if "::" in name:
@@ -855,13 +1728,22 @@ def _get_simple_name(name: str) -> str:
     return name
 
 
-def _is_source_var(name: str) -> bool:
+def _is_source_var(name: str, node_language: str | None = None) -> bool:
     """判断是否是 source variable。
 
     注意：$_SESSION 不在此列表中——session 数据是服务端持久化的状态，
     非用户直接可控输入。$_SERVER 仍保留，因为 graph_analyzer 的 member chain
     检查会按 key 过滤（_SERVER_UNCONTROLLED_KEYS），整体保留 source 标注
     可让 DFG/AST 的污点预传播覆盖 HTTP_* 等可控字段。
+
+    Fix 137a (CVE-2026-83542 OFBiz): JS DOM 源根 {location, document,
+    window} 原先无语言门控地标记任意语言的同名 identifier —— Java 项目里
+    变量名 `location` 极常见（OFBiz FlexibleLocation.resolveLocation(String
+    location) 全链都叫这个名），整族被误标 taint_type=source，再经
+    _file_scoped_source_named 兑现成假 source。analyzer 侧的
+    _is_source_variable 早已有语言门（且连 JS 裸根都不是 source，只认
+    location.hash 等 registry 成员链）——enrich 侧与之对齐：裸 JS 根只对
+    JS 家族语言的节点生效。
     """
     if not name:
         return False
@@ -875,5 +1757,9 @@ def _is_source_var(name: str) -> bool:
     # JS/TS source roots（通过 member chain 访问的根对象）
     # "process" removed: only process.env is a source (via SourceRegistry)
     if clean in {"location", "document", "window"}:
-        return True
+        if node_language is None:
+            return True
+        _nl = str(node_language).lower()
+        # only JS-family nodes (legacy graphs may leave language empty)
+        return _nl in ("", "javascript", "typescript", "js", "ts", "jsx", "tsx")
     return False

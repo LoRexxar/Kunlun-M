@@ -17,6 +17,24 @@
 .vul-table col.vc-lang   { width: 55px; }
 .vul-table col.vc-task   { width: 110px; }
 .vul-table col.vc-file   { width: 260px; }
+/* CVE 徽标 → 统一药丸 (violet=漏洞编号体系; 行内链接态) */
+.km-cve-badge, .km-cve-badge:visited {
+  display: inline-block;
+  background: #ede9fe;
+  color: #6d28d9 !important;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-decoration: none;
+  margin-left: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.km-cve-badge:hover { background: #ddd6fe; color: #5b21a6 !important; }
+.km-cve-badge-inline { margin-left: 0; }
+
 .vul-table col.vc-chain  { width: auto; }
 .vul-table col.vc-level  { width: 60px; }
 .vul-table col.vc-type   { width: 90px; }
@@ -215,6 +233,28 @@
 .vuls-page .vp-stat-card { flex: 1; padding: 10px; border-radius: 8px; background: #f8fafc; border: 1px solid #e5e7eb; }
 .vuls-page .vp-sub { font-size: 11px; color: #6c757d; margin-bottom: 4px; }
 .vuls-page .vp-code-chip { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+/* ===== 统一标签(药丸)体系: 全平台一套 ===== */
+.km-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  font-family: inherit;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.km-pill-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.km-pill-red    { background: #fee2e2; color: #b91c1c; }
+.km-pill-green  { background: #dcfce7; color: #15803d; }
+.km-pill-amber  { background: #fef3c7; color: #b45309; }
+.km-pill-blue   { background: #dbeafe; color: #1d4ed8; }
+.km-pill-gray   { background: #f3f4f6; color: #4b5563; }
+.km-pill-violet { background: #ede9fe; color: #6d28d9; }
+/* 高危/严重需要强提醒, 用实色(全平台唯二的实色药丸) */
+.km-pill-solid-red    { background: #b91c1c; color: #fff; font-weight: 600; }
+.km-pill-solid-amber  { background: #b45309; color: #fff; font-weight: 600; }
 .vuls-page .vp-pill { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 11px; cursor: pointer; }
 .vuls-page .vp-pill-green { background: #dcfce7; color: #15803d; }
 .vuls-page .vp-pill-red { background: #fee2e2; color: #b91c1c; }
@@ -396,22 +436,22 @@
         <tr data-level="{{ r.level_lower }}" data-vul-id="{{ r.id }}" data-has-chain="{% if r.has_chain %}1{% else %}0{% endif %}" class="km-vul-row vp-click" onclick="toggleVulDetail(this)" tabindex="-1">
           <td onclick="event.stopPropagation();"><input type="checkbox" class="vul-sel" value="{{ r.id }}"></td>
           <td>{{ r.id }}</td>
-          <td><code class="vp-code-chip">CVI-{{ r.cvi_id }}</code></td>
+          <td><code class="vp-code-chip">CVI-{{ r.cvi_id }}</code>{% if r.linked_cve %} <a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name={{ r.linked_cve }}" target="_blank" rel="noopener" class="km-cve-badge" onclick="event.stopPropagation();" title="已关联 {{ r.linked_cve }}（{{ r.linked_cve }} 点击查看 CVE 详情）">{{ r.linked_cve }}</a>{% endif %}</td>
           <td>{{ r.language }}</td>
           <td title="{{ r.project_name|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.project_name|truncatechars:12 }}</a></td>
           <td title="{{ r.vulfile_path|escape }}"><a href="{% url 'dashboard:project_detail' r.project_id %}" onclick="event.stopPropagation();" class="vp-no-deco">{{ r.vulfile_path|truncatechars:46 }}</a></td>
           <td class="vc-chain-cell" title="{{ r.chain_summary|escape }}">{{ r.chain_summary|default:'-' }}</td>
           <td>
-            {% if r.level_lower == 'critical' %}<span class="badge vp-sev-red-deep">严重</span>
-            {% elif r.level_lower == 'high' %}<span class="badge bg-danger">高危</span>
-            {% elif r.level_lower == 'medium' %}<span class="badge bg-warning">中危</span>
-            {% elif r.level_lower == 'low' %}<span class="badge bg-info">低危</span>
-            {% else %}<span class="badge bg-light text-dark border">{{ r.level }}</span>{% endif %}
+            {% if r.level_lower == 'critical' %}<span class="km-pill km-pill-solid-red">严重</span>
+            {% elif r.level_lower == 'high' %}<span class="km-pill km-pill-red">高危</span>
+            {% elif r.level_lower == 'medium' %}<span class="km-pill km-pill-amber">中危</span>
+            {% elif r.level_lower == 'low' %}<span class="km-pill km-pill-blue">低危</span>
+            {% else %}<span class="km-pill km-pill-gray">{{ r.level }}</span>{% endif %}
           </td>
           <td title="{{ r.result_type|escape }} · 规则: {{ r.rule_name|escape }}">
             {{ r.rule_name|truncatechars:16 }}
-            {% if r.cred and r.cred.0 == 2 %}<span class="badge bg-light text-muted border" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 {{ r.cred.1|floatformat:0 }}% 为FP——历史结论回馈，优先级已沉底">FP热</span>
-            {% elif r.cred and r.cred.0 == 0 %}<span class="badge bg-danger" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
+            {% if r.cred and r.cred.0 == 2 %}<span class="km-pill km-pill-gray" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 {{ r.cred.1|floatformat:0 }}% 为FP——历史结论回馈，优先级已沉底">FP热</span>
+            {% elif r.cred and r.cred.0 == 0 %}<span class="km-pill km-pill-red" style="font-size:.65em" title="该规则历史 {{ r.cred.2 }} 例人工判定 ≥90% 为TP——高价值规则，优先级置顶">TP热</span>{% endif %}
           </td>
           <td>
             {% if r.row_contested %}<span class="vp-pill vp-pill-amber" style="opacity:.8;font-size:.62em"
@@ -456,6 +496,13 @@
                 <div class="meta-row"><span class="meta-label">触发代码</span><code title="{{ r.source_code|escape }}">{{ r.source_code|escape }}</code></div>
                 <div class="meta-row"><span class="meta-label">项目</span><span class="meta-value">{{ r.project_name }}</span></div>
                 <div class="meta-row"><span class="meta-label">分析</span><span class="meta-value" title="{{ r.result_type|escape }}">{{ r.result_type }}</span></div>
+                <div class="meta-row"><span class="meta-label">CVE 关联</span>
+                  <span class="meta-value">
+                    <code id="cveBadge_{{ r.id }}" class="{% if r.linked_cve %}km-cve-badge-inline{% else %}vp-muted{% endif %}">{{ r.linked_cve|default:'未关联' }}</code>
+                    <button class="btn btn-default btn-xs" onclick="markCve({{ r.id }})" title="标记/修改 CVE 编号"><i class="fa fa-tag"></i> 标记CVE</button>
+                    {% if r.linked_cve %}<button class="btn btn-default btn-xs" onclick="unmarkCve({{ r.id }})" title="取消 CVE 关联"><i class="fa fa-times"></i></button>{% endif %}
+                  </span>
+                </div>
               </div>
               <div class="km-vul-chain-sidebar" id="chainSidebar_{{ r.id }}"></div>
               <div class="km-vul-chain-code" id="chainCode_{{ r.id }}"></div>
@@ -1097,6 +1144,49 @@ function aiAnalyzeVul(vulId, el){
   }).catch(function(e){
     body.innerHTML = '<div class="alert alert-danger">请求失败: ' + e + '</div>';
   });
+}
+
+/* CVE 关联标记 (Fix: cve-tagging) */
+function markCve(vulId) {
+  var cur = (document.getElementById('cveBadge_' + vulId) || {}).textContent || '';
+  if (cur === '未关联') cur = '';
+  var cve = prompt('输入要关联的 CVE 编号（留空=取消关联）：\n格式 CVE-YYYY-NNNN，如 CVE-2026-110185', cur.trim());
+  if (cve === null) return;
+  postCveMark(vulId, cve.trim());
+}
+function unmarkCve(vulId) { postCveMark(vulId, ''); }
+function postCveMark(vulId, cve) {
+  var fd = new FormData();
+  fd.append('vul_id', vulId);
+  fd.append('cve', cve);
+  var m = document.cookie.match(/csrftoken=([^;]+)/);
+  var headers = m ? {'X-CSRFToken': m[1]} : {};
+  fetch("{% url 'dashboard:vul_cve_mark' %}", {method: 'POST', body: fd, credentials: 'same-origin', headers: headers})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) { alert(d.msg || '标记失败'); return; }
+      var badge = document.getElementById('cveBadge_' + vulId);
+      if (badge) {
+        badge.textContent = d.cve || '未关联';
+        badge.className = d.cve ? 'km-cve-badge-inline' : 'vp-muted';
+      }
+      // 列表行内徽标: 无刷新就地补一个/删掉
+      var row = document.querySelector('tr.km-vul-row[data-vul-id="' + vulId + '"] td:nth-child(3)');
+      if (row) {
+        var old = row.querySelector('.km-cve-badge');
+        if (d.cve && !old) {
+          var a = document.createElement('a');
+          a.href = 'https://cve.mitre.org/cgi-bin/cvename.cgi?name=' + d.cve;
+          a.target = '_blank'; a.rel = 'noopener'; a.className = 'km-cve-badge';
+          a.onclick = function(e){ e.stopPropagation(); };
+          a.textContent = d.cve;
+          row.appendChild(document.createTextNode(' '));
+          row.appendChild(a);
+        } else if (!d.cve && old) { old.remove(); }
+        else if (d.cve && old) { old.textContent = d.cve; old.href = 'https://cve.mitre.org/cgi-bin/cvename.cgi?name=' + d.cve; }
+      }
+    })
+    .catch(function(e){ alert('请求失败: ' + e); });
 }
 </script>
 {% endblock %}

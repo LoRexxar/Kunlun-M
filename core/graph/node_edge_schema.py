@@ -235,6 +235,7 @@ class DfgType(str, Enum):
     FORWARD_SLICE = "forward_slice"
     SAME = "same"
     CROSS_FILE = "cross_file"
+    SUPERGLOBAL = "superglobal"
 
 
 class CrgType(str, Enum):

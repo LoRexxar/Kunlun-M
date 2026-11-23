@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -76,6 +77,15 @@ _FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
     "type",
 })
 
+# Fix 106 (CVE-2026-126482): builtins whose passthrough[0] models
+# "content read from a path" (fopen handle / file_get_contents return).
+# When parameters_back walks the PATH argument of one of these, a
+# $_FILES[...]['tmp_name'] chain is an UPLOADED-FILE source: the path value
+# itself is server-generated, but the file it points to is attacker content.
+_FILE_CONTENT_READERS: frozenset[str] = frozenset({
+    "fopen", "file_get_contents",
+})
+
 # JS/TS source roots — kept EMPTY intentionally.
 # Bare identifiers like "location", "document", "window" are NOT valid
 # taint sources.  They cause FP when user code uses them as variable/param
@@ -83,6 +93,14 @@ _FILES_SOURCE_MEMBERS: frozenset[str] = frozenset({
 # window.name, process.env, etc.) are registered in SourceRegistry and
 # matched via the dotted-path check below.
 _JS_SOURCE_ROOTS: frozenset[str] = frozenset()
+
+# Fix 142j (CVE-2026-104126): python container-mutator method tails whose
+# arguments are storage sources of the receiver (mirrors dfg.py
+# DataFlowBuilder._CONTAINER_MUTATORS — keep the two sets in sync).  Used
+# by the PB Rule-4d empty-shell guard to keep walking a mutator call's
+# DFG upstream instead of parking an unresolved verdict.
+_PY_CONTAINER_MUTATORS_142J: frozenset[str] = frozenset({
+    "append", "extend", "insert", "update", "add", "setdefault"})
 
 _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # PHP — well-known sanitizer/encoding functions
@@ -92,7 +110,13 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "mysql_real_escape_string", "mysqli_real_escape_string",
     "pg_escape_string", "pg_escape_bytea",
     "SQLite3::escapeString", "PDO::quote",
-    "trim", "stripslashes", "filter_var", "filter_input",
+    # NOTE: "trim" removed (Fix 52z-7, CVE-2026-110185) — trim only strips
+    # leading/trailing whitespace; it neutralizes NO injection class (path
+    # traversal, XSS, SQLi payloads carry no leading/trailing blanks).
+    # As a repair function it wrongly suppressed the whole
+    # Utility::getFilePath(trim($filePath)) chain → WP_Filesystem
+    # get_contents pre-auth LFI (bit-pi ImageHelperTool:492).
+    "stripslashes", "filter_var", "filter_input",
     "htmlspecialchars_decode", "basename", "realpath",
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
@@ -105,8 +129,15 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "cgi.escape", "markupsafe.escape",
     "os.path.basename", "os.path.realpath",
     "int", "float", "str",
-    "json.dumps", "json.loads",
-    "pickle.dumps", "pickle.loads",
+    # Fix 142c (CVE-2026-104126): json/pickle serialization removed from the
+    # repair table. A serializer neutralizes NO injection class: json.dumps
+    # escapes neither shell metacharacters ('" breakouts in sshpass
+    # ProxyCommand strings) nor ansible/jinja {{ }} template evaluation, and
+    # builtin_knowledge.py already holds the authoritative verdict
+    # ({"passthrough": [0], "safe": False}) — the two tables disagreed and
+    # the repair entry silently killed every write(json.dumps(tainted))
+    # config-injection chain (ladder L1-L5 all code=2 "calls repair
+    # 'json.dumps'" before any source lookup ran).
     "reverse",  # Django URL reverse — returns fixed internal path
     "url_for",  # Flask URL builder — returns fixed internal path
     # NOTE: "path" and "save" removed — too generic, caused TP suppression
@@ -176,7 +207,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Format.input",  # osTicket Format::input — alias of Format::htmlchars
     #    (NEVER add bare "input": it would match Laravel $request->input etc.)
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
-    "sanitize_file_name", "sanitize_title", "sanitize_text_field",  # WordPress
+    "sanitize_file_name", "sanitize_title",  # WordPress (sanitize_text_field: Fix 69 — tags only, quotes survive; XSS verdict via tamper registry per-svid)
     "sanitize_url",  # WordPress (alias of esc_url since WP 5.3)
     "wp_kses", "wp_filter_post_kses", "wp_kses_post",  # WordPress
     # Java type conversions — numeric/hash output cannot carry payload
@@ -194,6 +225,26 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
 # because sprintf('%s', $x) passes taint straight through.
 _FORMAT_STRING_SANITIZERS: frozenset[str] = frozenset({
     "sprintf", "printf", "vsprintf", "fprintf",
+})
+
+# Fix 114b (CVE-2026-126451): HTML-entity escaper family — functions whose
+# job is encoding HTML-special characters (& < > " ').  They neutralize
+# quote/tag breakout but leave URI schemes intact (`javascript:` survives
+# htmlspecialchars with ENT_QUOTES), so their output concatenated into a
+# URL-loading attribute literal (src='…' href='…') is still injectable.
+# Members are publicly-recognized encoding functions plus verified thin
+# wrappers (OpenEMR attr/text = htmlspecialchars ENT_QUOTES in
+# library/htmlspecialchars.inc.php).  Deliberately EXCLUDED: urlencode /
+# rawurlencode (encode ':' → scheme dies), json_encode (quotes the value),
+# full-entity encoders like cleanValue (encode everything).
+# Used only by the Path F URL-attribute sentinel, always paired with the
+# enrich-time taint_type=='safe' gate — a bare name never fires alone.
+_HTML_ENTITY_ESCAPERS: frozenset[str] = frozenset({
+    "htmlspecialchars", "htmlentities",
+    "html_escape", "escape_html", "escapeHtml",
+    "esc_html", "esc_attr",  # WordPress — html-entity escapers
+    "attr", "text",  # OpenEMR htmlspecialchars wrappers (Fix 108 set)
+    "hsc", "htmlchars", "Format.htmlchars", "Format.input",  # DokuWiki / osTicket aliases
 })
 
 # Fix 14: PHP type cast operators that sanitize taint.
@@ -219,6 +270,7 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "usort", "uasort", "array_map", "array_filter",
     "echo", "print", "printf", "vprintf", "sprintf", "vsprintf", "print_r", "var_dump",
     "file_put_contents", "file_get_contents", "fopen", "readfile",
+    "fwrite", "fputs",
     "include", "require", "include_once", "require_once",
     "header", "setcookie", "mail", "mb_send_mail",
     "unlink", "rmdir", "mkdir", "rename", "copy", "move_uploaded_file",
@@ -251,6 +303,23 @@ _SINK_FUNCTIONS: frozenset[str] = frozenset({
     "loadstring", "dofile", "require",
 })
 
+# Fix 92 (CVE-2026-33078 roxy-wi): ORM query-builder method names whose
+# UNRESOLVED (library) call returns are parameterized query objects — the
+# call's tainted args bind as SQL parameters, so the return must NOT
+# inherit arg taint via the Fix 50-11 passthrough.  Deliberately excludes
+# generic names whose return legitimately carries tainted data (join =
+# str.join, replace = str.replace, get = dict.get, filter/values builtin,
+# union = set.union) — an ORM-builder chain still dies at its first
+# select/where/annotate segment, so excluding them costs no ORM coverage.
+# A user-defined builder with a return statement resolves through
+# analyze_function_return and never reaches this set.
+_ORM_QUERY_BUILDER_METHODS: frozenset[str] = frozenset({
+    "select", "where", "update", "insert", "delete", "exclude",
+    "order_by", "group_by", "having", "limit", "offset", "distinct",
+    "on_conflict", "get_or_none", "get_or_create", "except_",
+    "annotate", "aggregate", "outerjoin", "paginate",
+})
+
 # Java parameter annotations that indicate user-controlled input
 _USER_INPUT_PARAM_ANNOTATIONS: frozenset[str] = frozenset({
     "RequestParam", "RequestBody", "PathVariable", "CookieValue",
@@ -270,6 +339,41 @@ _FRAMEWORK_INJECTED_TYPES: frozenset[str] = frozenset({
     "MultipartFile[]", "MultipartFile",
     "ApplicationContext", "Environment", "WebGoatUser",
 })
+
+# Fix 53 (CVE-2026-15564, WFLY-22156): Java stream-typed entry parameters
+# that carry REMOTE peer data are sources.  The CORBA IIOP request stream
+# (org.omg.CORBA[_2_3].portable.InputStream) arrives straight off the
+# network socket — EjbCorbaServant._invoke(opName, InputStream in, handler)
+# unmarshals it into Java objects (readParams) BEFORE authentication.
+# Deliberately EXCLUDES file streams (FileInputStream/FileReader/...) and
+# in-JVM streams (ByteArrayInputStream/StringReader/...) — those are not
+# remote peer input.  Mirrors the legacy matcher's 'InputStream in
+# param_type' heuristic but restricted to network-facing stream types.
+_JAVA_STREAM_SOURCE_TYPES: frozenset[str] = frozenset({
+    "InputStream",                   # org.omg.CORBA.portable.InputStream (IIOP)
+    "ObjectInput",                   # RMI/IIOP unmarshalling
+    "Reader",                        # servlet-style char streams (rare, network)
+    "Socket", "DatagramSocket",      # raw network endpoints
+    "Channel", "SocketChannel", "ServerSocketChannel", "DatagramChannel",
+})
+
+# Fix 135a (CVE-2026-90436, Apache Axis1): Java framework callback interface
+# entry params are remote-content sources.  org.apache.axis.encoding.
+# Callback is the Axis SOAP deserialization contract — the SAX framework
+# invokes setValue(value, hint) with the freshly parsed element content of
+# the INBOUND SOAP body (parsed pre-authentication during service
+# dispatch), so every implementer's `value` param is attacker XML.  Keyed
+# by interface bare name -> {method: (source positions, min param count)}.
+# The (value, hint) shape is pinned by the min param count (>= 2): a
+# single-arg `setValue(String)` on an unrelated class named Callback can
+# never satisfy it.  Bare-name interface matching is acceptable here
+# because the pair (interface "Callback", method "setValue", two params)
+# is the Axis contract itself; extend with other deserializer callback
+# contracts as corpora demand (SAX DefaultHandler-style entry params
+# belong here too, with their own shapes).
+_JAVA_CALLBACK_SOURCE_INTERFACES: dict[str, dict[str, tuple[tuple[int, ...], int]]] = {
+    "Callback": {"setValue": ((0,), 2)},
+}
 
 # Go types that carry user-controlled HTTP request data.
 # Parameters with these types in Go handler functions are SOURCES (controllable),
@@ -302,11 +406,19 @@ _TYPE_VALIDATION_FUNCS: frozenset[str] = frozenset({
     #   is_alnum/is_alpha — alphanumeric / alphabetic wrappers
     "is_version", "is_alnum", "is_alpha", "is_alphanumeric",
     # Python
-    "isinstance", "issubclass", "hasattr", "callable",
     "isdigit", "isalpha", "isalnum", "isdecimal", "isnumeric",
     "isupper", "islower", "istitle", "isspace",
     "isascii", "isidentifier", "isprintable",
     "isfinite", "isinf", "isnan",
+    # NOTE Fix 99 (CVE-2026-29080): isinstance/issubclass/hasattr/callable
+    # are TYPE/REFLECTION checks, not content validators — the true branch
+    # of `if isinstance(key, InstrumentedAttribute)` still carries an
+    # arbitrary attacker string.  Crediting them as function-level guards
+    # let ONE isinstance anywhere in a function kill every taint trace on
+    # the checked variable (rucio FilterEngine: 21 isinstance branches
+    # suppressed the whole filters→text() SQLi chain).  isascii also does
+    # NOT exclude quotes but is kept (pre-existing behavior, charset-only
+    # relaxation is out of scope here).
     # Django open-redirect / URL validation guards
     "url_has_allowed_host_and_scheme", "is_safe_url",
     "validate_unicode_slug", "iri_to_uri",
@@ -322,6 +434,19 @@ _EXISTENCE_CHECK_FUNCS: frozenset[str] = frozenset({
     # PHP
     "isset", "empty", "is_null", "array_key_exists", "property_exists",
     "in_array",  # membership only — content unchanged
+    # Fix 116c (CVE-2026-126481): PHP type-check predicates return a bool
+    # about the argument's SHAPE, not its content — the same neutral class
+    # as isset/empty (mirrors _NEUTRAL_GUARD_PREDS, Fix 42u).  That
+    # `is_string($tmp_name)` passes proves nothing about the string's
+    # content; these builtins carry safe=True (bool return value) which
+    # Fix 20a's safe-predicate branch guard must not misread as a value
+    # constraint.  Observed live: `if (is_string($tmp_name) && $tmp_name
+    # !== '')` around the OpenEMR 835 upload handler vetoed the whole
+    # tmp_name → ParseERA → global $eraname → rename() chain.
+    "is_string", "is_bool", "is_scalar", "is_int", "is_integer",
+    "is_float", "is_double", "is_long", "is_array", "is_object",
+    "is_iterable", "is_countable", "is_callable", "is_resource",
+
     # Python
     "hasattr",
     # Java
@@ -398,12 +523,26 @@ class GraphAnalyzer:
     """
 
     def __init__(self, graph: ig.Graph, language: str = "php",
-                 source_registry=None, framework_method_sinks: set[str] | None = None) -> None:
+                 source_registry=None, framework_method_sinks: set[str] | None = None,
+                 db_probe_methods: set[str] | None = None,
+                 framework_static_sinks: set[str] | None = None) -> None:
         self.graph = graph
         self.language = language
+        # Fix 48a: per-svid repair context (None = svid-blind legacy mode)
+        self._sink_svid = None
+        self._repair_registry = None
         self._decision_cache: dict[int, AnalysisResult] = {}
         self._builtin_knowledge_cache: dict | None = None
+        # Fix 106: depth of nested parameters_back calls that walk the PATH
+        # argument of a _FILE_CONTENT_READERS builtin (fopen etc.).
+        self._file_read_arg_depth = 0
         self._call_stack: list[str] = []
+        # Fix 83 (CVE-2026-32613 anchor FP root-cause): call-site bindings
+        # for inline return traces.  While analyze_function_return recurses
+        # into a callee body, each formal param node maps to THIS call's
+        # actual arg (context-sensitive substitution).  Each frame dict is
+        # {param_vid: (arg_vid, call_vid)} plus a "__sig__" cache signature.
+        self._afr_bindings: list[dict] = []
         self._source_registry = source_registry
         # Framework method sinks: short method names from tamper EXTRA_SINKS
         # that are safe to match without qualified-name resolution because they
@@ -412,6 +551,28 @@ class GraphAnalyzer:
         # These are receiver-type-agnostic: any ->raw() / ->query() call is a
         # potential sink regardless of the object's resolved type.
         self._framework_method_sinks: set[str] = framework_method_sinks or set()
+        # Fix 71d: rule-driven generic-DB probes (PHP ->query/->exec), kept
+        # SEPARATE from framework_method_sinks: Path C admits them (static
+        # receiver method calls) but Path D dynamic-dispatch expansion must
+        # NOT use them — `$this->CI->$rule($postdata, $param)` CodeIgniter
+        # validator callbacks exploded into 4 FPs when 'query' entered the
+        # framework whitelist (hm Form_validation anchor).
+        self._db_probe_methods: set[str] = db_probe_methods or set()
+        # Fix 112 (CVE-2026-126480): framework STATIC sinks — `Class::method`
+        # patterns from tamper EXTRA_SINKS, stored as the dotted two-segment
+        # tail ("queryutils.sqlstatementthrowexception").  Same contract as
+        # _framework_method_sinks (receiver-agnostic), but for static calls:
+        # the call site may carry the FULLY-QUALIFIED name
+        # (\OpenEMR\...\QueryUtils::sqlStatementThrowException) while the
+        # declared pattern is the short form (QueryUtils::sql...).  Path B
+        # exact-matching on the use-edge fullname missed those; the tail
+        # match requires BOTH class and method, so it stays qualified.
+        self._framework_static_sinks: set[str] = framework_static_sinks or set()
+        # Fix 93 (CVE-2026-29080): lazy per-file python from-import alias map
+        # ({file_path: {local_name: module}}), used by find_sinks to resolve
+        # bare calls like `text(...)` (from sqlalchemy import text) to their
+        # library-qualified sink name.
+        self._py_import_aliases: dict[str, dict[str, str]] | None = None
 
         # --- 预构建 O(1) 索引 ---
         # 边索引: label → {src_vid: [tgt_vid, ...]}
@@ -427,12 +588,25 @@ class GraphAnalyzer:
         self._nlbl: dict[str, list[int]] = {}
         # 节点索引: (label, name) → [vid, ...]
         self._nname: dict[tuple[str, str], list[int]] = {}
+        # Fix 63 (perf): function-node lookup indexes for find_function_def —
+        # exact fullname bucket and namespace-tail bucket ('\'-separated,
+        # matching the legacy endswith('\' + name) arm exactly).
+        self._ffull: dict[str, list[int]] = {}
+        self._ftail: dict[str, list[int]] = {}
         for v in graph.vs:
+            _via_db_probe = False
             vl = _vattr(v, 'label', '') or ''
             vn = _vattr(v, 'name', '') or ''
             self._nlbl.setdefault(vl, []).append(v.index)
             if vn:
                 self._nname.setdefault((vl, vn), []).append(v.index)
+            if vl == NodeLabel.FUNCTION.value:
+                vf = _vattr(v, 'fullname', '') or ''
+                if vf:
+                    self._ffull.setdefault(vf, []).append(v.index)
+                    tail = vf.rsplit('\\', 1)[-1]
+                    if tail and tail != vf:
+                        self._ftail.setdefault(tail, []).append(v.index)
 
         # _nfile 索引延迟构建：只在 _find_identifier_by_name 首次调用时构建
         self._nfile: dict[tuple[str, str, str], list[int]] | None = None
@@ -441,6 +615,7 @@ class GraphAnalyzer:
         # 用于 _has_function_level_guard 等函数的快速局部查找
         self._nfile_lineno: dict[tuple[str, str], list[tuple[int, int]]] = {}
         for v in graph.vs:
+            _via_db_probe = False
             vl = _vattr(v, 'label', '') or ''
             vf = _vattr(v, 'file_path', '') or _vattr(v, 'path', '')
             vln = int(_vattr(v, 'lineno', 0) or 0)
@@ -456,6 +631,359 @@ class GraphAnalyzer:
         self._mark_branch_safe_dfg()
 
     # --- Sink discovery ---------------------------------------------------
+
+    # Fix 70c: does the sprintf call at vid use a CONSTANT first argument
+    # (the template literal) that carries a SQL-quote-interpolation shape?
+    # Used by the scanner's fmt-only exception: PHP sprintf with a SQL-shaped
+    # const template is the SQL literal-concat sentinel — its VALUE args are
+    # the injection carriers and must remain taint-checkable.
+    # Fix 70q: strongly-SQL shapes only (see find_sinks Path E) — the bare
+    # "= '%s'" form matched HTML attribute templates and produced FPs.
+    _SQL_TMPL_RE = re.compile(
+        r"""%s[\s,]*'%s'|"""
+        r"""(?:LIKE|SIMILAR\s+TO|POSIX|~)\s*'?%s'?|"""
+        r"""VALUES?\s*\(\s*[^)]*'%s'|"""
+        r"""MATCH\s*\([^)]*\)\s*AGAINST\s*\(\s*'%s'""", re.IGNORECASE)
+
+    def _db_probe_arg_has_internal_source(self, call_vid: int,
+                                          max_hops: int = 14) -> bool:
+        """Fix 84 (CVE-2026-30530): in-function generic-DB probe gate.
+
+        Fix 71e restricted the ->query()/->exec() probes to file scope
+        because library wrappers (CI mysql_driver::query($sql), osticket
+        db_query) would report the wrapper itself — there the SQL arg is an
+        entry parameter whose safety is decided at each CALLER (structural
+        FP).  But application action methods (sourcecodester
+        Actions::save_customer: foreach($_POST) -> $data -> $this->query())
+        hold the WHOLE chain inside the method body: taint originates from
+        a superglobal INSIDE the same function, not from an entry
+        parameter.  Semantic gate replaces the scope gate for in-function
+        call sites: bind the probe only when a bounded backward dfg walk
+        from the call's argument(s) reaches        a source node (superglobal /
+        registry source).  Fix 84b: the walk must TERMINATE at entry
+        'parameter' nodes — dfg arg-binding edges cross the call graph
+        (caller $_POST → Installer.$vars → db_create_database($database)
+        → query), and without the boundary the osticket wrapper anchors
+        light up again exactly like Fix 71e's original FPs.  An entry
+        parameter's safety is decided at each CALLER.
+        """
+        try:
+            arg_vids = [e.target for e in self._edge_out(call_vid, "ast")
+                        if _vattr(e, "role") == "arg"]
+            if not arg_vids:
+                arg_vids = [de.source
+                            for de in self._edge_in(call_vid, "dfg")]
+            seen: set[int] = set()
+            frontier = list(arg_vids)
+            for _hop in range(max_hops):
+                if not frontier:
+                    return False
+                nxt: list[int] = []
+                for vid in frontier:
+                    if vid in seen:
+                        continue
+                    seen.add(vid)
+                    nv = self.graph.vs[vid]
+                    if _vattr(nv, "label") == NodeLabel.IDENTIFIER.value:
+                        nm = _vattr(nv, "name", "")
+                        if nm and (self._is_source_variable(nm)
+                                   or self._is_source_via_member_chain(vid, nm)):
+                            return True
+                    # Fix 84b: entry parameters end this path — taint from
+                    # a CALLER is decided at the caller, not here.
+                    if _vattr(nv, "label") == "parameter":
+                        continue
+                    for de in self._edge_in(vid, "dfg"):
+                        if de.source not in seen:
+                            nxt.append(de.source)
+                frontier = nxt
+            return False
+        except Exception:
+            return False
+
+    def _sprintf_sql_template_guard(self, vid: int) -> bool:
+        try:
+            args = [e.target for e in self._edge_out(vid, "ast")
+                    if _vattr(e, "role", "") == "arg"]
+            if not args:
+                return False
+            tmpl = str(_vattr(self.graph.vs[args[0]], "name", "") or "")
+            # Fix 70e: phply stores string literals WITHOUT their quotes
+            # ('"(%s %s \'%s\')"'), so a startswith-quote requirement never
+            # holds; the SQL-shape regex alone discriminates.
+            return ("%s" in tmpl and bool(self._SQL_TMPL_RE.search(tmpl)))
+        except Exception:
+            return False
+
+    def _import_alias_map(self) -> dict[str, dict[str, str]]:
+        """Fix 93 (CVE-2026-29080): build {file_path: {local_name: module}}
+        from python `from X import a[, b as c]` import nodes (once per graph).
+
+        Import nodes carry structured attributes (type='from_import',
+        module='sqlalchemy', names="['text']"), so no source re-parsing is
+        needed.  Used to resolve bare calls to library-qualified sink names.
+        """
+        if self._py_import_aliases is not None:
+            return self._py_import_aliases
+        amap: dict[str, dict[str, str]] = {}
+        try:
+            import ast as _ast
+            for iv in self._nlbl.get(NodeLabel.IMPORT.value, []):
+                v = self.graph.vs[iv]
+                if _vattr(v, 'type', '') != 'from_import':
+                    continue
+                if _vattr(v, 'language', '') != 'python':
+                    continue
+                mod = _vattr(v, 'module', '') or ''
+                fp = _vattr(v, 'file_path', '') or ''
+                names_raw = _vattr(v, 'names', '') or ''
+                if not mod or not fp or not names_raw:
+                    continue
+                try:
+                    names = _ast.literal_eval(names_raw)
+                    if not isinstance(names, (list, tuple)):
+                        names = [names]
+                except Exception:
+                    names = [n.strip().strip('\'"')
+                             for n in names_raw.strip('[]').split(',')
+                             if n.strip()]
+                d = amap.setdefault(fp, {})
+                for n in names:
+                    n = str(n).strip()
+                    if not n:
+                        continue
+                    if ' as ' in n:
+                        _alias = n.partition(' as ')[2].strip()
+                        if _alias:
+                            d[_alias] = mod
+                    else:
+                        d[n] = mod
+        except Exception:
+            pass
+        self._py_import_aliases = amap
+        return amap
+
+    def _python_receiver_typed_candidate(self, vid: int, short_name: str) -> str:
+        """Fix 134 (CVE-2026-64849): receiver-typed qualified name for a
+        python method call — ``requests.Session.post`` for
+        ``session.post(...)``.
+
+        The receiver identifier is the member-edge source of the callee
+        identifier (``session`` --member--> ``post``).  Its type comes from
+        either form of python typing evidence, walked over reaching-def
+        (dfg in-) edges, bounded:
+
+        1. ANNOTATION — a function PARAMETER carrying ``type_hint``
+           (``def f(..., session: requests.Session, ...)``).  The java
+           analog is declared ``java_type`` (Fix 79/133c); python
+           annotations are its counterpart.
+        2. CONSTRUCTOR — a reaching def that is a call op resolving
+           (use-edge) to a QUALIFIED external stub
+           (``session = requests.Session()``).
+
+        QUALIFIED-only discipline: a type must carry >= 2 dotted segments
+        (single-segment annotations like 'Webhook'/'Session' cannot bind
+        to a qualified sink without becoming short-name matches).  The
+        annotation form additionally requires the parameter to live in
+        the call's own file (Fix 133c same-file doctrine); constructor
+        stubs are file-less externals, qualified by module instead.
+        Returns "" when nothing resolvable.
+        """
+        try:
+            g = self.graph
+            op = g.vs[vid]
+            op_fp = str(_vattr(op, "file_path", "") or "")
+            # callee identifier (ast role=callee)
+            callee_vid = None
+            for e in self._edge_out(vid, "ast"):
+                if (_vattr(e, "role") == "callee"
+                        and _vattr(g.vs[e.target], "label")
+                        in ("identifier", "property")):
+                    callee_vid = e.target
+                    break
+            if callee_vid is None:
+                return ""
+            # receiver identifier = member-edge source of the callee
+            recv_vid = None
+            for e in self._edge_in(callee_vid, "member"):
+                if _vattr(g.vs[e.source], "label") == "identifier":
+                    recv_vid = e.source
+                    break
+            if recv_vid is None:
+                return ""
+            # bounded reaching-def walk over dfg in-edges
+            seen: set[int] = set()
+            frontier = [recv_vid]
+            for _ in range(3):
+                nxt: list[int] = []
+                for rvid in frontier:
+                    if rvid in seen:
+                        continue
+                    seen.add(rvid)
+                    rnode = g.vs[rvid]
+                    rlbl = _vattr(rnode, "label")
+                    if rlbl == "parameter":
+                        th = str(_vattr(rnode, "type_hint", "") or "")
+                        th = th.split("<")[0].strip()
+                        if ("." in th
+                                and str(_vattr(rnode, "file_path", "") or "")
+                                == op_fp):
+                            return f"{th}.{short_name}"
+                        continue
+                    if rlbl == "operator":
+                        # constructor reaching def: qualified callee via the
+                        # use-edge external stub and its alias edges
+                        # (op 'Session' -> use stub 'Session' -> alias
+                        # 'requests.Session', resolved_name carries the
+                        # qualified form — the Fix 72b two-hop chain)
+                        for ue in self._edge_out(rvid, "use"):
+                            stub_names = [str(_vattr(g.vs[ue.target], "name", "") or "")]
+                            for ae in self._edge_out(ue.target, "alias"):
+                                _rn = _vattr(ae, "resolved_name", "")
+                                if _rn:
+                                    stub_names.append(str(_rn))
+                                stub_names.append(
+                                    str(_vattr(g.vs[ae.target], "name", "") or ""))
+                            for nm in stub_names:
+                                if "." in nm:
+                                    return f"{nm}.{short_name}"
+                        continue
+                    # identifier: keep walking its own reaching defs
+                    for e in self._edge_in(rvid, "dfg"):
+                        if e.source not in seen:
+                            nxt.append(e.source)
+                frontier = nxt
+                if not frontier:
+                    break
+            return ""
+        except Exception:
+            return ""
+
+    def _js_receiver_typed_candidates(self, vid: int, short_name: str) -> list[str]:
+        """Fix 139 (CVE-2026-128347): receiver-typed qualified candidates for
+        a javascript method call — ``WorkbookWriter.addImage`` for
+        ``wb.addImage(...)`` where ``const wb = new
+        ExcelJS.stream.xlsx.WorkbookWriter()``.
+
+        JS graph shape (normalizer emits the member chain as one qualified
+        op name): the receiver identifier is the ``member``-edge SOURCE of
+        the CALL op (``wb --member--> wb.addImage``), and its type comes
+        from a bounded dfg reaching-def walk landing on a qualified
+        member-chain operator (``ExcelJS.stream.xlsx.WorkbookWriter``).
+        Returns candidates longest-first (full chain, then progressively
+        shorter tails down to the two-segment ``Type.method`` form) so a
+        rule may declare either the full or the short qualified sink.
+        QUALIFIED-only discipline: a type name without a dot (bare
+        ``new Workbook()`` / a require alias) yields NO candidate — those
+        stay short-name territory and never bind here.
+        """
+        try:
+            g = self.graph
+            # receiver identifier = member-edge source of the CALL op
+            recv_vid = None
+            for e in self._edge_in(vid, "member"):
+                if _vattr(g.vs[e.source], "label") == "identifier":
+                    recv_vid = e.source
+                    break
+            if recv_vid is None:
+                return []
+            # bounded reaching-def walk over dfg in-edges
+            seen: set[int] = set()
+            frontier = [recv_vid]
+            type_names: list[str] = []
+            for _ in range(3):
+                nxt: list[int] = []
+                for rvid in frontier:
+                    if rvid in seen:
+                        continue
+                    seen.add(rvid)
+                    rn = g.vs[rvid]
+                    nm = str(_vattr(rn, "name", "") or "")
+                    if _vattr(rn, "label") == "operator" and "." in nm:
+                        # qualified member-chain op (new-expression value)
+                        type_names.append(nm)
+                        continue
+                    # identifier / other: keep walking its reaching defs
+                    for e in self._edge_in(rvid, "dfg"):
+                        if e.source not in seen:
+                            nxt.append(e.source)
+                frontier = nxt
+                if not frontier:
+                    break
+            cands: list[str] = []
+            for tn in type_names:
+                parts = [p for p in tn.split(".") if p]
+                if len(parts) < 2:
+                    continue
+                for k in range(len(parts)):
+                    cands.append(".".join(parts[k:] + [short_name]))
+            return cands
+        except Exception:
+            return []
+
+    def _is_framework_callback_param(self, param_vid: int) -> tuple[str, str] | None:
+        """Fix 135a (CVE-2026-90436): is this entry param a source because
+        its enclosing method implements a known framework callback interface
+        (e.g. Axis ``Callback.setValue(value, hint)`` — SAX hands the
+        implementer the deserialized inbound-XML element content)?
+
+        Graph-local proof chain (all edges walked, nothing name-searched):
+        param --own--> method(function node) --own--> class --crg
+        implements--> interface node whose bare name is configured, the
+        method name matches, the param's position among the method's
+        parameter children is a configured source position, and the
+        method's parameter count meets the configured minimum (pins the
+        (value, hint) shape).  Returns (interface, method) or None.
+        """
+        try:
+            g = self.graph
+            # param --own--> enclosing method (function node)
+            method_vid = None
+            for e in self._edge_in(param_vid, "own"):
+                if _vattr(g.vs[e.source], "label", "") == "function":
+                    method_vid = e.source
+                    break
+            if method_vid is None:
+                return None
+            mname = _vattr(g.vs[method_vid], "name", "")
+            if not mname:
+                return None
+            # quick reject: method name must appear in some config entry
+            _cfg_hit = None
+            for _iface, _methods in _JAVA_CALLBACK_SOURCE_INTERFACES.items():
+                if mname in _methods:
+                    _cfg_hit = (_iface, _methods[mname])
+                    break
+            if _cfg_hit is None:
+                return None
+            iface_name, (positions, min_params) = _cfg_hit
+            # param position among the method's parameter children
+            param_order: list[int] = []
+            for e in self._edge_out(method_vid, "own"):
+                if _vattr(g.vs[e.target], "label", "") == "parameter":
+                    param_order.append(e.target)
+            if param_vid not in param_order:
+                return None
+            if len(param_order) < min_params:
+                return None
+            pos = param_order.index(param_vid)
+            if pos not in positions:
+                return None
+            # method --own--> enclosing class --crg implements--> interface
+            class_vid = None
+            for e in self._edge_in(method_vid, "own"):
+                if _vattr(g.vs[e.source], "label", "") == "class":
+                    class_vid = e.source
+                    break
+            if class_vid is None:
+                return None
+            for e in self._edge_out(class_vid, "crg"):
+                if (_vattr(e, "type", "") == "implements"
+                        and _vattr(g.vs[e.target], "name", "") == iface_name):
+                    return (iface_name, mname)
+            return None
+        except Exception:
+            return None
 
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
         """Locate sink operator nodes (call/static_call/method_call matching
@@ -491,7 +1019,7 @@ class GraphAnalyzer:
             try:
                 has_arg = any(
                     _vattr(e, "role") == "arg"
-                    for e in self.graph.es.select(_source=ct_vid, label="ast")
+                    for e in self._edge_out(ct_vid, "ast")
                 )
             except KeyError:
                 has_arg = False
@@ -517,8 +1045,30 @@ class GraphAnalyzer:
                     _vattr(v, "raw_type") == "MemberExpression" and
                     v.index not in callee_with_args and
                     not any(_vattr(e, "role") == "arg"
-                            for e in self.graph.es.select(_source=v.index, label="ast"))):
+                            for e in self._edge_out(v.index, "ast"))):
                 continue
+            # Fix 117n/117n2 (CVE-2026-110279): python Subscript operators
+            # are CONTAINER accesses, never calls — but the python
+            # normalizer emits them with type='call' and name=<container
+            # identifier>, so a bare vul_function entry (CVI_7002's
+            # Django-ORM 'extra') collided with tainted local containers
+            # named alike (``extra["user_id"] = tainted`` in mcpgateway
+            # auth.py was nominated as a SQL sink).  Skip ONLY bare-container
+            # nominations: a qualified container chain (``response.text[:n]``
+            # → name 'response.text[...]') is a real semantic entity whose
+            # resolved callee legitimately matches qualified sinks (7008 XSS
+            # response.text — the blanket Subscript skip of 117n lost 4
+            # corpus TPs, task6456 vs task6453).
+            # ⚠ the name format is '<container>[...]': the ellipsis itself
+            # contains '.' characters, so a raw `'.'
+            # in name` qualification test is ALWAYS true (117n2's bug —
+            # scan task6467 regressed to the full pre-117n 168-row set).
+            # Test the CONTAINER PART before the first '[' instead.
+            if (self.language == "python"
+                    and _vattr(v, "raw_type") == "Subscript"):
+                _sub_container = (_vattr(v, "name", "") or "").split("[", 1)[0]
+                if "." not in _sub_container and "::" not in _sub_container:
+                    continue
             callee_name = self._resolve_callee_name(v.index)
             if not callee_name:
                 callee_name = _vattr(v, "callee", "")
@@ -607,17 +1157,149 @@ class GraphAnalyzer:
                         _is_qualified_match = True
                         break
 
+            # Fix 93 (CVE-2026-29080): python `from sqlalchemy import text`
+            # makes the sink a BARE call `text(...)` — the callee at the call
+            # site is only the local alias, so every direct candidate misses.
+            # Resolve the alias through the file's from-import map and match
+            # the QUALIFIED name against the sink set.  Libraries commonly
+            # re-export at package level (`from sqlalchemy.sql.expression
+            # import text` → canonical `sqlalchemy.text`), so every module
+            # prefix boundary of the import module is tried: for module
+            # `a.b.c` the candidates are `a.b.c.x`, `a.b.x`, `a.x` — the full
+            # path first, shortest prefix last.  Qualified-name-only matching
+            # is preserved: no bare name enters the sink set, so unrelated
+            # local `text()` functions (different module) never bind; a
+            # cross-package collision would require another package with the
+            # same root name exporting the same alias.
+            if (not matched_name and _is_bare_call
+                    and self.language == 'python'
+                    and '.' not in normalized_callee):
+                _fp = _vattr(v, 'file_path', '') or ''
+                _amap = self._import_alias_map().get(_fp)
+                if _amap:
+                    for _cand in _candidates:
+                        if not _cand or '.' in _cand:
+                            continue
+                        _mod = _amap.get(_cand)
+                        if _mod:
+                            _parts = _mod.split('.')
+                            _qs = ['.'.join(_parts[:i] + [_cand])
+                                   for i in range(len(_parts), 0, -1)]
+                            for _q in _qs:
+                                if _q in normalized_set or _q.lower() in normalized_lower:
+                                    matched_name = _q
+                                    callee_name = _q
+                                    _is_qualified_match = True
+                                    break
+                        if matched_name:
+                            break
+
+            if not matched_name:
+                # Fix 134 (CVE-2026-64849 MLflow): python typed-receiver
+                # sink candidate.  For a session-form python method call
+                # the resolved callee is the VARIABLE-qualified form
+                # ('session.post' — receiver is a local/param, not a
+                # module), which can never equal a qualified sink name
+                # ('requests.Session.post') textually: the module-level
+                # ``requests.post`` form matches but the session form
+                # never does.  When the receiver segment is a single
+                # (unqualified) name, resolve the receiver's type
+                # (parameter ``type_hint`` annotation, e.g.
+                # ``session: requests.Session``; or constructor reaching
+                # def ``session = requests.Session()``) and try
+                # ``<QualifiedType>.<method>`` — a QUALIFIED candidate,
+                # preserving the no-bare-name sink discipline (single-
+                # segment annotations like 'Session' are rejected).
+                if (self.language == 'python'
+                        and call_type == OperatorType.METHOD_CALL.value
+                        and "." in normalized_callee
+                        and "." not in normalized_callee.rsplit(".", 1)[0]):
+                    _typed = self._python_receiver_typed_candidate(
+                        vid, normalized_callee.rsplit(".", 1)[-1])
+                    if _typed and (_typed in normalized_set
+                                   or _typed.lower() in normalized_lower):
+                        matched_name = _typed
+                        callee_name = _typed
+                        _is_qualified_match = True
+
+            if not matched_name:
+                # Fix 135c (CVE-2026-90436, Apache Axis1): java
+                # typed-receiver sink candidate.  A java method call like
+                # ``faultClass.newInstance()`` carries only the
+                # receiver-qualified op name ("faultClass.newInstance" —
+                # the receiver is a local/field, not the class literal),
+                # which can never equal a qualified sink name
+                # ("Class.newInstance") textually.  Resolve the receiver
+                # identifier's declared java_type (dfg/member reaching-def
+                # carrying java_type, plus the Fix 133c file-scoped
+                # declared-type index fallback — the same lookup the
+                # enrichment path uses via
+                # knowledge_bridge._receiver_typed_lookup_name) and try
+                # ``<Type>.<method>``.  Single-segment java types
+                # (Class/Constructor/String) are canonical simple names in
+                # this engine (Fix 79/133 receiver catalog doctrine); the
+                # candidate stays QUALIFIED (Type.method), preserving the
+                # no-bare-name sink discipline.
+                if (self.language == "java"
+                        and call_type in (OperatorType.METHOD_CALL.value,
+                                          OperatorType.STATIC_CALL.value)
+                        and "." in normalized_callee):
+                    _recv_seg135 = normalized_callee.rsplit(".", 1)[0]
+                    if _recv_seg135 and "." not in _recv_seg135:
+                        try:
+                            from core.graph.knowledge_bridge import (
+                                _receiver_typed_lookup_name as _rtln135,
+                            )
+                            _typed135 = _rtln135(self.graph, v.index,
+                                                 normalized_callee.rsplit(".", 1)[-1])
+                        except Exception:
+                            _typed135 = ""
+                        if _typed135 and (_typed135 in normalized_set
+                                          or _typed135.lower() in normalized_lower):
+                            matched_name = _typed135
+                            callee_name = _typed135
+                            _is_qualified_match = True
+
+            if not matched_name:
+                # Fix 139 (CVE-2026-128347, ExcelJS): javascript
+                # typed-receiver sink candidate.  A JS method call carries
+                # only the receiver-qualified op name ("wb.addImage" — the
+                # receiver is a local), which can never equal a qualified
+                # sink name ("WorkbookWriter.addImage") textually.  Resolve
+                # the receiver's constructor chain over dfg (``wb = new
+                # ExcelJS.stream.xlsx.WorkbookWriter()``) and try every
+                # qualified tail.  This keeps the sink match QUALIFIED, so
+                # the vulnerable streaming writer fires while the
+                # traversal-REJECTING non-streaming ``new ExcelJS.
+                # Workbook()`` receiver never binds.
+                if (self.language == "javascript"
+                        and call_type == OperatorType.METHOD_CALL.value
+                        and "." in normalized_callee
+                        and "." not in normalized_callee.rsplit(".", 1)[0]):
+                    _cands139 = self._js_receiver_typed_candidates(
+                        v.index, normalized_callee.rsplit(".", 1)[-1])
+                    for _q139 in _cands139:
+                        if (_q139 in normalized_set
+                                or _q139.lower() in normalized_lower):
+                            matched_name = _q139
+                            callee_name = _q139
+                            _is_qualified_match = True
+                            break
+
             if not matched_name:
                 # Path B: qualified fullname match via use-edge function node.
                 # This is the ONLY path for bare method_call/static_call.
-                for ue in self.graph.es.select(_source=v.index, label="use"):
+                for ue in self._edge_out(v.index, "use"):
                     tgt = self.graph.vs[ue.target]
                     if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                         continue
                     tgt_fullname = _vattr(tgt, "fullname", "")
                     if not tgt_fullname:
                         continue
-                    norm_fn = tgt_fullname.replace("::", ".")
+                    # Fix 112: a leading backslash is PHP's global-namespace
+                    # marker (\OpenEMR\...\QueryUtils::method) — pure syntax,
+                    # no matching semantics; strip before normalizing.
+                    norm_fn = tgt_fullname.replace("::", ".").lstrip("\\")
                     # Fix 14: A bare fullname (no "." or "::") provides no
                     # receiver-type resolution for method_call/static_call.
                     # Without a qualifier, the match is indistinguishable from a
@@ -640,20 +1322,201 @@ class GraphAnalyzer:
                         callee_name = tgt_fullname
                         _is_qualified_match = True
                         break
+                    # Fix 112 (CVE-2026-126480): framework STATIC sink —
+                    # `Class::method` EXTRA_SINKS patterns are declared in the
+                    # short form (QueryUtils::sqlStatementThrowException) but
+                    # the use-edge fullname may carry the whole namespace
+                    # (\OpenEMR\Common\Database\QueryUtils::...).  Tail match
+                    # on the last TWO dotted segments (class.method) — both
+                    # must agree, so this stays a QUALIFIED match; bare names
+                    # can never hit it.  Scoped to static calls and to the
+                    # framework-declared set (zero effect on other sinks).
+                    if (self._framework_static_sinks and "." in norm_fn
+                            and call_type == "static_call"):
+                        _tail2 = ".".join(norm_fn.lower().rsplit(".", 2)[-2:])
+                        if _tail2 in self._framework_static_sinks:
+                            matched_name = norm_fn
+                            callee_name = norm_fn
+                            _is_qualified_match = True
+                            break
 
             # Path C: framework method sink — short name whitelist.
             # Framework tamper EXTRA_SINKS define method-call sinks like
             # ->query(), ->raw(), ->render() that are receiver-type-agnostic.
             # These cannot be resolved via use-edge (no user-defined function
             # node), so they need an explicit short-name match path.
-            if not matched_name and self._framework_method_sinks:
-                _short_lower = normalized_callee.lower()
-                if _short_lower in self._framework_method_sinks:
+            if not matched_name and (self._framework_method_sinks or self._db_probe_methods):
+                # Short-name match: compare the BARE method name (last
+                # dotted segment).  _resolve_callee_name returns the
+                # receiver-qualified form ("_session.fetch_token"), and a
+                # strict whole-string compare made every qualified call
+                # miss the whitelist.  The whitelist's contract is
+                # receiver-agnostic ("any .fetch_token(...) call").
+                _short_lower = normalized_callee.lower().rsplit(".", 1)[-1]
+                # Fix 71e: db probes are FILE-SCOPE only.  The generic-DB
+                # probe targets application pages calling their DB handle
+                # directly ($dbh->query("... $id") in a top-level script —
+                # CVE-2026-93997 edit_symptom.php).  Inside library code
+                # (CI mysql_driver::query($sql), osticket db_query wrapper)
+                # the SQL arg is a pass-through parameter whose safety is
+                # decided at each CALLER — reporting the wrapper itself is a
+                # structural FP (hm/osticket anchors, both 'query' family).
+                # Walk the OWN chain upward — the owning function may sit
+                # several levels above (call > branch > branch > function).
+                _in_function = False
+                _ow = v.index
+                for _ in range(24):
+                    _ins = self._edge_in(_ow, "own")
+                    if not _ins:
+                        break
+                    _ow = _ins[0].source
+                    if _vattr(self.graph.vs[_ow], "label") in ("function", "method"):
+                        _in_function = True
+                        break
+                # Fix 84 (CVE-2026-30530): Fix 71e's flat file-scope gate
+                # also excluded application action methods that hold the
+                # whole source->sink chain INSIDE the method
+                # (Actions::save_customer: foreach($_POST) -> $data ->
+                # $this->query($sql)).  Replace the scope gate with a
+                # semantic one for in-function call sites: admit the probe
+                # when a bounded backward dfg walk from the call args
+                # reaches a source node (superglobal/registry).  Wrapper
+                # pass-through params and constant SQL still never bind.
+                _via_db_probe = (_short_lower in self._db_probe_methods
+                                 and _short_lower not in self._framework_method_sinks
+                                 and (not _in_function
+                                      or self._db_probe_arg_has_internal_source(v.index)))
+                if (_short_lower in self._framework_method_sinks or _via_db_probe):
                     matched_name = normalized_callee
                     _is_qualified_match = False
 
+            # Path D: dynamic dispatch — `$obj->{$expr}(...)` (PHP) or
+            # computed member calls.  The callee name is an EXPRESSION
+            # string (e.g. "ArrayOffset(Variable('$src_item'), 'prop')"),
+            # never a plain identifier, so every name-based path above
+            # misses.  CVE-2026-110895: `$mainobj->{$src_item['prop']}(...)`
+            # dispatches to like/order_by with attacker-chosen names.
+            # Semantics: the possible targets include every method the
+            # project defines; expand the call into one virtual sink per
+            # FRAMEWORK-WHITELISTED method that actually exists in the
+            # graph.  Downstream taint analysis (pb on arg_vids) filters
+            # harmless cases, exactly like Path C.
+            # Fix 78g (CVE-2026-41478): JS method-chain names like
+            # 'res.status().json' contain '(' from the INNER CALL, but they
+            # are static chains, not dynamic-dispatch expression strings.
+            # A '()' segment marks a call in the chain — exclude it.
+            _is_dyn_expr_name = bool(callee_name) and "()" not in callee_name and (
+                "(" in callee_name or ")" in callee_name or " " in callee_name.strip())
+            # Fix 118b (CVE-2026-42048 langflow): a callee name that STARTS
+            # with a quote char is a STRING-LITERAL receiver — "', '.join",
+            # '"{}".format'. The spaces live inside the literal; the call is
+            # fully static, never a computed dispatch. Without this guard
+            # every tainted ", ".join(list) / "...".format(...) expanded into
+            # every framework-whitelisted method that exists in the graph
+            # (CVI_7002 method_sinks 'execute') → phantom SQLi rows on
+            # join/format lines (langflow task6479 kb:646/655). Expression
+            # strings (ArrayOffset(...), Variable('a b')) never start with a
+            # quote, so the dispatch detector loses no real target.
+            if callee_name[:1] in ("'", '"'):
+                _is_dyn_expr_name = False
+            if (not matched_name and _is_dyn_expr_name
+                    and self._framework_method_sinks
+                    and _vattr(v, "type", "") == OperatorType.METHOD_CALL.value):
+                # Fix 42t: narrow the expansion to the RECEIVER's class
+                # closure (its class + base-class chain via 'crg' edges).
+                # `$h->{$t}($t)` where $h = new DataHolder can only reach
+                # DataHolder(+'bases) methods — expanding all 13
+                # whitelist names produces FPs (synthetic f42t site 1).
+                # Escape hatch: when the closure defines __call/__callStatic
+                # (PHP magic forwarding, sgx ApbdWpsModel::__call), any
+                # name is reachable — keep the full expansion.
+                _wl_names = self._framework_method_sinks
+                _recv_classes = self._dyn_call_receiver_classes(v.index)
+                if _recv_classes is not None:
+                    _closure: set[str] = set()
+                    _has_magic = False
+                    # Union every same-named class node: the crg edge may
+                    # land on a per-file STUB (phply emits one empty
+                    # class node per `extends X` reference, L=0, no own
+                    # children) while the real definition with __call/
+                    # methods lives on another node of the same name.
+                    _names: set[str] = set()
+                    for _cvid in _recv_classes:
+                        _cn = str(_vattr(self.graph.vs[_cvid], "name", "")
+                                  or _vattr(self.graph.vs[_cvid], "fullname", "")
+                                  or "").strip("'\"").lower()
+                        if _cn:
+                            _names.add(_cn)
+                    _name_to_vids: dict[str, list[int]] = {}
+                    for cv2 in self._nlbl.get(NodeLabel.CLASS.value, []):
+                        _cn2 = str(_vattr(self.graph.vs[cv2], "name", "")
+                                   or _vattr(self.graph.vs[cv2], "fullname", "")
+                                   or "").strip("'\"").lower()
+                        if _cn2 in _names:
+                            _name_to_vids.setdefault(_cn2, []).append(cv2)
+                    for _cvid in _recv_classes:
+                        _cn = str(_vattr(self.graph.vs[_cvid], "name", "")
+                                  or _vattr(self.graph.vs[_cvid], "fullname", "")
+                                  or "").strip("'\"").lower()
+                        _vids = _name_to_vids.get(_cn, [_cvid])
+                        for _vid2 in _vids:
+                            for e in self._edge_out(_vid2, "own"):
+                                tv = self.graph.vs[e.target]
+                                if _vattr(tv, "label", "") != NodeLabel.FUNCTION.value:
+                                    continue
+                                _fn = _vattr(tv, "fullname", "") or ""
+                                _short = _fn.replace("::", ".").rsplit(".", 1)[-1].lower()
+                                _closure.add(_short)
+                                if _short in ("__call", "__callstatic"):
+                                    _has_magic = True
+                    if not _has_magic:
+                        _wl_names = {
+                            m for m in self._framework_method_sinks
+                            if m in _closure}
+                _fn_short: set[str] = set()
+                try:
+                    for fvid in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+                        _fn = _vattr(self.graph.vs[fvid], "fullname", "")
+                        if _fn:
+                            _fn_short.add(_fn.replace("::", ".").rsplit(".", 1)[-1].lower())
+                except Exception:
+                    _fn_short = set()
+                _dyn_targets = sorted(
+                    m for m in _wl_names if m in _fn_short)
+                if _dyn_targets:
+                    # Collect shared sink fields once
+                    _base = {
+                        "lineno": _vattr(v, "lineno", 0),
+                        "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                        "type": _vattr(v, "type", ""),
+                    }
+                    _arg_vids = [
+                        e.target for e in self._edge_out(v.index, "ast")
+                        if _vattr(e, "role") == "arg"
+                    ]
+                    if not _arg_vids:
+                        for de in self._edge_in(v.index, "dfg"):
+                            if _vattr(self.graph.vs[de.source], "label", "") == NodeLabel.OPERATOR.value:
+                                continue
+                            _arg_vids.append(de.source)
+                    for _m in _dyn_targets:
+                        results.append({
+                            "vid": v.index, "name": _m,
+                            "dynamic_dispatch": True,
+                            "arg_vids": list(_arg_vids),
+                            **_base,
+                        })
+                # Path D fully handles this node — skip default emission below
+                matched_name = None
+                if _dyn_targets:
+                    continue
+
             if not matched_name:
                 continue
+            # Fix 71f: db-probe provenance rides on the sink dict so the
+            # scanner-side matcher (71b) binds ONLY probe-originated sinks
+            # to the SQLi rules — framework-whitelist hits (CodeIgniter
+            # '->query(' CVI 1004) keep their own rule binding.
 
             # Skip sinks inside dead-code branches (e.g. if (false) { ... })
             if self._is_in_dead_code(v.index):
@@ -661,7 +1524,7 @@ class GraphAnalyzer:
 
             # Collect argument vids via ast[role=arg] edges
             arg_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "arg"
             ]
             # Only collect DFG sources if there are NO AST arg children.
@@ -670,7 +1533,7 @@ class GraphAnalyzer:
             # creating false positive taint chains. BFS from AST args will
             # correctly encounter the safe call node.
             if not arg_vids:
-                for de in self.graph.es.select(_target=v.index, label="dfg"):
+                for de in self._edge_in(v.index, "dfg"):
                     src = de.source
                     if src in arg_vids:
                         continue
@@ -696,7 +1559,158 @@ class GraphAnalyzer:
                 "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
                 "type": _vattr(v, "type", ""),
                 "arg_vids": arg_vids,
+                # Fix 71f: probe provenance — True only when Path C admitted
+                # this sink via the db-probe channel (not the framework
+                # whitelist, not a rule-name match).  try/except instead of
+                # a bare local: Path C sits in a sibling branch, so the name
+                # is NOT always bound here (UnboundLocalError killed every
+                # find_sinks call in subprocess scans when unbound).
+                "via_db_probe": _via_db_probe if "_via_db_probe" in dir() else False,
             })
+
+        # Fix 70 (Path E): sprintf SQL-literal-concat sentinel (PHP).
+        # CVE-2026-115934 (Craft CMS craft.search): sprintf("(%s %s '%s')",
+        # $key, $oper, $val) builds a SQL WHERE fragment with the value
+        # interpolated inside single quotes with NO escaping — the classic
+        # SQL string-literal concatenation shape, hidden inside a printf
+        # template instead of a '.' concat.  Name-based matching can't see
+        # it (sprintf is everywhere); the TEMPLATE carries the SQL shape.
+        # Only fire when the 1006 (SQLi) sink set is requested and the
+        # template literal matches a strong SQL-quote-interpolation
+        # pattern; taint analysis on the non-template args filters
+        # harmless sprintf uses (i18n/log formatting).
+        if (self.language == "php"
+                and any(_s in name_set or _s in normalized_set
+                        for _s in ("sprintf", "sprintf#sql-sentinel", "1006"))):
+            # Fix 70q: tightened shapes.  The bare "= '%s'" alternative
+            # matched HTML attribute templates (sprintf("class='%s'", ...) —
+            # osticket tasks-actions.tmpl FP).  Keep only strongly-SQL
+            # shapes: printf double-interpolation (%s...'%s'), LIKE/= after
+            # a SQL keyword context, VALUES(...), and MATCH...AGAINST.
+            _sql_tmpl = re.compile(
+                r"""%s[\s,]*'%s'|"""
+                r"""(?:LIKE|SIMILAR\s+TO|POSIX|~)\s*'?%s'?|"""
+                r"""VALUES?\s*\(\s*[^)]*'%s'|"""
+                r"""MATCH\s*\([^)]*\)\s*AGAINST\s*\(\s*'%s'""", re.IGNORECASE)
+            for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                v = self.graph.vs[vid]
+                if _vattr(v, "type") not in (OperatorType.CALL.value,
+                                             OperatorType.STATIC_CALL.value):
+                    continue
+                node_lang = _vattr(v, 'language', '')
+                if node_lang and self.language and node_lang != self.language:
+                    continue
+                if _vattr(v, "name", "") not in ("sprintf", "\\sprintf"):
+                    # sentinel probe mode: name arg is the sentinel
+                    # pseudo-name; node filtering already handled by
+                    # the caller's real-name knowledge.  Accept any
+                    # sprintf call and let the template check decide.
+                    if "sprintf#sql-sentinel" not in (sink_names or []):
+                        continue
+                arg_vids = [
+                    e.target for e in self._edge_out(vid, "ast")
+                    if _vattr(e, "role") == "arg"
+                ]
+                if not arg_vids:
+                    continue
+                tmpl_v = self.graph.vs[arg_vids[0]]
+                tmpl = str(_vattr(tmpl_v, "name", "") or "")
+                # Fix 70e: literal nodes are stored unquoted — no
+                # startswith-quote check (see _sprintf_sql_template_guard).
+                if "%s" not in tmpl:
+                    continue
+                if not _sql_tmpl.search(tmpl):
+                    continue
+                # Taint-relevant args = everything after the template.
+                # rule_hint binds this sentinel sink directly to the SQLi rule
+                # (1006) — no rule's vul_function lists 'sprintf', so the
+                # scanner's name-based rule matching would drop it (Fix 42e
+                # pattern: the sink fires only via this dedicated path).
+                results.append({
+                    "vid": vid, "name": "sprintf",
+                    "lineno": _vattr(v, "lineno", 0),
+                    "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                    "type": _vattr(v, "type", ""),
+                    "arg_vids": arg_vids[1:],
+                    "rule_hint": "1006",
+                })
+
+        # Fix 114b (Path F): URL-attribute escape sentinel (PHP).
+        # CVE-2026-126451 (OpenEMR DocumentTemplateRender): an HTML-entity
+        # escaper (htmlspecialchars / attr, ENT_QUOTES) neutralizes quote
+        # breakout but NOT URI schemes — a `javascript:` value concatenated
+        # into a URL-loading attribute literal (`src='`, `href='`, …)
+        # stays executable, so the escape is NOT a repair in that context.
+        # Shape: binary '.' concat whose LEFT operand is a const ending in a
+        # URL-attr open-quote and whose RIGHT operand is a call the engine
+        # already believes is a sanitizer (taint_type == 'safe') from the
+        # HTML-entity escaper family.  The sink's taint args are the escaper
+        # call's own args (the PRE-escape value) — the isolated sub-pass
+        # re-runs parameters_back on them.
+        # Fires ONLY on the sentinel pseudo-name request (never joined to
+        # the shared sink loop — Fix 70k doctrine).
+        if (self.language == "php"
+                and "concat#url-attr-sentinel" in (sink_names or [])):
+            _url_attr_open = re.compile(
+                r"""(?:src|href|action|formaction|data|xlink:href)\s*=\s*['"]\s*$""",
+                re.IGNORECASE)
+            for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                v = self.graph.vs[vid]
+                if _vattr(v, "type") != OperatorType.BINARY_OP.value:
+                    continue
+                if _vattr(v, "name", "") != ".":
+                    continue
+                node_lang = _vattr(v, 'language', '')
+                if node_lang and self.language and node_lang != self.language:
+                    continue
+                _left = _right = None
+                for e in self._edge_out(vid, "ast"):
+                    _role = _vattr(e, "role", "")
+                    if _role == "left":
+                        _left = e.target
+                    elif _role == "right":
+                        _right = e.target
+                if _left is None or _right is None:
+                    continue
+                lv = self.graph.vs[_left]
+                if _vattr(lv, "label", "") != NodeLabel.CONST.value:
+                    continue
+                # literal names carry their own quotes — strip a matching
+                # outer pair before testing the URL-attr-open tail
+                lit = str(_vattr(lv, "name", "") or "")
+                if len(lit) >= 2 and lit[0] in "'\"" and lit[-1] == lit[0]:
+                    lit = lit[1:-1]
+                if not _url_attr_open.search(lit):
+                    continue
+                rv = self.graph.vs[_right]
+                if _vattr(rv, "type", "") not in _CALL_TYPES:
+                    continue
+                # gate 1: the engine must already consider this call a
+                # sanitizer (enrich marked it safe via a repair set)
+                if _vattr(rv, "taint_type", "") != "safe":
+                    continue
+                # gate 2: HTML-entity escaper family only — these encode
+                # HTML-special chars and leave URI schemes intact.
+                # Publicly-recognized encoding functions / their verified
+                # thin wrappers (OpenEMR attr/text = htmlspecialchars).
+                _short = _vattr(rv, "callee", "") or str(_vattr(rv, "name", "") or "")
+                _short = _short.replace("::", ".").rsplit(".", 1)[-1]
+                if _short not in _HTML_ENTITY_ESCAPERS:
+                    continue
+                esc_args = [
+                    e.target for e in self._edge_out(_right, "ast")
+                    if _vattr(e, "role") == "arg"
+                ]
+                if not esc_args:
+                    continue
+                results.append({
+                    "vid": vid, "name": "concat",
+                    "lineno": _vattr(v, "lineno", 0),
+                    "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                    "type": _vattr(v, "type", ""),
+                    "arg_vids": esc_args,
+                    "rule_hint": "1000",
+                })
 
         # 第三轮：查找 import 类型节点（PHP include/require）
         # import 节点的 type 就是 include/require/include_once/require_once
@@ -716,7 +1730,7 @@ class GraphAnalyzer:
                 continue
             # Collect argument vid via ast[role=arg] edge
             arg_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "arg"
             ]
             results.append({
@@ -741,7 +1755,7 @@ class GraphAnalyzer:
                 continue
             # 查找 LHS 边
             lhs_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "lhs"
             ]
             lhs_name = None
@@ -764,7 +1778,7 @@ class GraphAnalyzer:
                 elif lhs_label == "operator":
                     # LHS 是 operator（如 document.getElementById().innerHTML）
                     # 检查其 ast 子节点中是否有 identifier/property 匹配 sink
-                    for ce in self.graph.es.select(_source=lhs_vid, label="ast"):
+                    for ce in self._edge_out(lhs_vid, "ast"):
                         child = self.graph.vs[ce.target]
                         cl = _vattr(child, "label", "")
                         cn = _vattr(child, "name", "")
@@ -780,7 +1794,7 @@ class GraphAnalyzer:
                 continue
             # 查找 RHS 边作为 arg_vids（被赋值的表达式）
             rhs_vids = [
-                e.target for e in self.graph.es.select(_source=v.index, label="ast")
+                e.target for e in self._edge_out(v.index, "ast")
                 if _vattr(e, "role") == "rhs"
             ]
             results.append({
@@ -790,6 +1804,51 @@ class GraphAnalyzer:
                 "file_path": _vattr(v, "file_path", ""),
                 "type": _vattr(v, "type", ""),
                 "arg_vids": rhs_vids,
+            })
+        # Round 2b: JSX 属性 sink（React dangerouslySetInnerHTML）。
+        # TSX 图形态: identifier 'dangerouslySetInnerHTML' ← jsx_expression
+        # (object (pair key:__html value: <expr>))。属性名 identifier 匹配
+        # name_set 时,取其值表达式(JSX expression 内的 identifier/operator)
+        # 作为 arg_vids。React 的 dangerouslySetInnerHTML 语义等价于
+        # innerHTML 赋值 — {{__html: tainted}} 直接注入原始 HTML。
+        # Fix 51c: JSX 只存在于 JS/TS — 其他语言的 identifier 重名
+        # (如 PHP 的 callee fputs identifier)不是 jsx_attribute sink。
+        if self.language not in ("javascript", "typescript"):
+            name_set = set()
+        for vid in self._nlbl.get(NodeLabel.IDENTIFIER.value, []):
+            v = self.graph.vs[vid]
+            vname = _vattr(v, "name", "")
+            if not isinstance(vname, str) or vname not in name_set:
+                continue
+            node_lang = _vattr(v, 'language', '')
+            if node_lang and self.language and node_lang != self.language:
+                continue
+            # Fix 50-4: 属性名 identifier 的值表达式沿【出边 attr_value】
+            # 直达(TS normalizer _walk_jsx_attribute 建 attr-name → value 边,
+            # 属性名节点无父 jsx_attribute 节点 — walker 不 emit 容器)。
+            # {{__html: expr}} 的 expr 可能是 identifier 或 operator;
+            # 嵌套对象下探一层 attr_value(如 {{__html: obj.prop}} 的
+            # member_expression operator)。
+            arg_vids: list[int] = []
+            for oe in self._edge_out(vid, "ast"):
+                if _vattr(oe, "role", "") != "attr_value":
+                    continue
+                _t = self.graph.vs[oe.target]
+                _tl = _vattr(_t, "label", "")
+                if _tl in ("identifier", "operator"):
+                    arg_vids.append(oe.target)
+                else:
+                    for oe2 in self._edge_out(oe.target, "ast"):
+                        _t2 = self.graph.vs[oe2.target]
+                        if _vattr(_t2, "label", "") in ("identifier", "operator"):
+                            arg_vids.append(oe2.target)
+            results.append({
+                "vid": vid,
+                "name": vname,
+                "lineno": _vattr(v, "lineno", 0),
+                "file_path": _vattr(v, "file_path", ""),
+                "type": "jsx_attribute",
+                "arg_vids": arg_vids,
             })
         # 第四轮：前缀标志匹配（a: 注解, r: return 节点）
         annotation_sinks = {sn for sn in name_set if sn.startswith('a:')}
@@ -839,7 +1898,7 @@ class GraphAnalyzer:
                         })
                         for func_vid in class_to_funcs.get(parent_vid, []):
                             has_mapping = False
-                            for fe in self.graph.es.select(_source=func_vid, label='own'):
+                            for fe in self._edge_out(func_vid, "own"):
                                 cn = _vattr(self.graph.vs[fe.target], 'name', '')
                                 cl = _vattr(self.graph.vs[fe.target], 'label', '')
                                 if cl == NodeLabel.ANNOTATION.value and cn in _http_mapping_annos:
@@ -858,12 +1917,12 @@ class GraphAnalyzer:
                     # 只处理有 function-return scope own 边的 return 节点
                     has_func_scope = any(
                         _vattr(e, 'scope') == 'function-return' and _vattr(self.graph.vs[e.source], 'label') == NodeLabel.FUNCTION.value
-                        for e in self.graph.es.select(_target=vid, label='own')
+                        for e in self._edge_in(vid, "own")
                     )
                     if not has_func_scope:
                         continue
                     ret_arg_vids = [
-                        e.target for e in self.graph.es.select(_source=v.index, label='ast')
+                        e.target for e in self._edge_out(v.index, "ast")
                         if _vattr(e, 'role') == 'value'
                     ]
                     results.append({
@@ -897,7 +1956,7 @@ class GraphAnalyzer:
         # 浏览器不会将 JSON 解析为 HTML，XSS 不成立。
         # 只有当方法显式声明 text/html Content-Type 时才 unsafe。
         is_json_ct = True
-        for fe in self.graph.es.select(_source=func_vid, label='own'):
+        for fe in self._edge_out(func_vid, "own"):
             child_name = _vattr(self.graph.vs[fe.target], 'name', '')
             for html_pat in ('TEXT_HTML_VALUE', 'text/html', '"text/html"'):
                 if html_pat in child_name:
@@ -906,7 +1965,7 @@ class GraphAnalyzer:
             if not is_json_ct:
                 break
 
-        for fe in self.graph.es.select(_source=func_vid, label='own'):
+        for fe in self._edge_out(func_vid, "own"):
             if _vattr(fe, 'scope') != 'function-return':
                 continue
             ret_vid = fe.target
@@ -914,7 +1973,7 @@ class GraphAnalyzer:
             if ret_label != NodeLabel.RETURN.value:
                 continue
             ret_arg_vids = [
-                e.target for e in self.graph.es.select(_source=ret_vid, label='ast')
+                e.target for e in self._edge_out(ret_vid, "ast")
                 if _vattr(e, 'role') == 'value'
             ]
             results.append({
@@ -948,7 +2007,7 @@ class GraphAnalyzer:
             return False
         # owning call: ast parent that is a call node
         call_vid = None
-        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+        for pe in self._edge_in(arg_vid, "ast"):
             pv = self.graph.vs[pe.source]
             if _vattr(pv, "type", "") in ("call", "method_call", "static_call"):
                 call_vid = pe.source
@@ -969,10 +2028,24 @@ class GraphAnalyzer:
             fname = _vattr(self.graph.vs[fn_vids[0]], "name", "")
             if fname:
                 seen = set(fn_vids)
-                for sv2 in self.graph.vs.select(name=fname, label="function"):
-                    if sv2.index not in seen:
-                        seen.add(sv2.index)
-                        fn_vids.append(sv2.index)
+                # Fix 51h: one-shot (name → function vids) index instead of
+                # a whole-graph vs.select per call — 8023 sinks × N args
+                # after 51d's deeper pb recursion made this the hot path.
+                _fn_idx = getattr(self, "_fname_fn_index", None)
+                if _fn_idx is None:
+                    _fn_idx = {}
+                    try:
+                        for fv in self.graph.vs.select(label=NodeLabel.FUNCTION.value):
+                            _nm = _vattr(fv, "name", "")
+                            if _nm:
+                                _fn_idx.setdefault(_nm, []).append(fv.index)
+                    except Exception:
+                        pass
+                    self._fname_fn_index = _fn_idx
+                for _fvid2 in _fn_idx.get(fname, ()):
+                    if _fvid2 not in seen:
+                        seen.add(_fvid2)
+                        fn_vids.append(_fvid2)
         for fvid in fn_vids:
             # walk the callee's own subtree for a sanitizing re-assign
             own_ids = [e.target for e in self.graph.es.select(
@@ -994,15 +2067,102 @@ class GraphAnalyzer:
                             return True
         return False
 
+    # Fix 129 (CVE-2026-111217 perf): bounded-resource semantics for the PB
+    # cluster.  _SIG_WINDOW caps how much call-path context disambiguates
+    # decision-cache keys (see _parameters_back_impl); _PB_WORK_BUDGET caps
+    # total parameters_back invocations PER SINK (reset by the scanner's
+    # sink loop) so pathological interprocedural enumeration degrades to
+    # code=3 (inconclusive) instead of stalling the scan for hours.
+    _SIG_WINDOW = 6
+    # 500k: normal osticket sinks measure 1-111 invocations (Fix 129
+    # telemetry, task 6675); pfSense's full 20-31 min scans imply no sink
+    # above ~90k, so 500k keeps a 5x margin over the worst known-good sink
+    # while capping pathological enumeration at ~3-4 min.
+    _PB_WORK_BUDGET = 500_000
+
     def parameters_back(self, start_vid: int, context_vid: int | None = None,
                         max_depth: int = 50) -> AnalysisResult:
         """Public entry — runs the BFS impl, then applies Fix 20b two-pass
         redirect resolution."""
+        # Fix 129: deterministic per-sink work budget (invocation count, not
+        # wall-clock — reproducible across runs).  Trips only on pathological
+        # enumeration (normal sinks: first 1000 osticket sinks averaged well
+        # under 0.1 s / tens of thousands of invocations each).
+        _wc = getattr(self, "_pb_work_count", 0) + 1
+        self._pb_work_count = _wc
+        if _wc > GraphAnalyzer._PB_WORK_BUDGET:
+            if not getattr(self, "_pb_budget_tripped", False):
+                self._pb_budget_tripped = True
+                _tv = self.graph.vs[start_vid]
+                logger.warning(
+                    "[GRAPH] [FIX129] pb work budget tripped after %d "
+                    "invocations (node %s:%s '%s') — remaining recursion "
+                    "for this sink returns code=3",
+                    _wc, _vattr(_tv, "file_path", "") or _vattr(_tv, "path", ""),
+                    _vattr(_tv, "lineno", 0), _vattr(_tv, "name", ""))
+            return AnalysisResult(
+                code=3,
+                reason="pb work budget exhausted (Fix 129)",
+                chain=[{"step": "work_budget", "vid": start_vid, "code": 3}],
+                path=[start_vid])
+        # Fix 53-perf (v2): hard frame cap at the PUBLIC ENTRY.  The 52k/52s
+        # internal caps can be bypassed when other call sites (analyze_function_return
+        # at 4893, Rule 4c passthrough, etc.) recurse through this entry with
+        # their own budgets — osticket still hit 1000+ frames.  A single
+        # counter here bounds the whole mutual-recursion cluster.
+        _pd = getattr(self, "_pb_frame_depth", 0)
+        if _pd >= 24:
+            return AnalysisResult(
+                code=3,
+                reason="pb frame-depth cap (Fix 53-perf v2)",
+                chain=[{"step": "frame_cap", "vid": start_vid, "code": 3}],
+                path=[start_vid])
+        self._pb_frame_depth = _pd + 1
+        try:
+            return self._parameters_back_entry(start_vid, context_vid, max_depth)
+        finally:
+            self._pb_frame_depth = _pd
+
+    def _parameters_back_entry(self, start_vid: int, context_vid: int | None,
+                               max_depth: int) -> AnalysisResult:
+        # Fix 109 (CVE-2026-126482): call-site bridges (Fix 83/52t) bind a
+        # callee param to the caller's arg TOP node — which may itself be a
+        # sanitizing type cast (osticket scp/plugins.php:14:
+        # getInstance((int)$_REQUEST['xid']) -> getInfoForPath -> @include
+        # class.plugin.php:324 was reported as request-controlled RFI).
+        # The mid-walk _TYPE_CAST_SAFE checks never see the START node, so
+        # the walk pierced the cast to its operand. A walk that starts at a
+        # safe cast must be sanitized, full stop: (int)/(float)/(bool)
+        # destroy string content; there is no taint on the far side.
+        _sv109 = self.graph.vs[start_vid]
+        if (_vattr(_sv109, "type", "") == "type_cast"
+                and _vattr(_sv109, "name", "") in _TYPE_CAST_SAFE):
+            return self._cached(
+                "pb_cast_start:%s" % start_vid,
+                AnalysisResult(
+                    code=2,
+                    reason=("start node is a sanitizing type cast "
+                            "(%s)" % _vattr(_sv109, "name", "")),
+                    chain=[{"step": "cast_start", "vid": start_vid,
+                            "name": _vattr(_sv109, "name", ""), "code": 2}],
+                    path=[start_vid],
+                    expr_lineno=_vattr(_sv109, "lineno", 0)))
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # Fix 26: argument sanitized inside the callee (param re-assigned
         # with a repair function in the function body) — no need to trace.
+        # Fix 51e: memoize the (expensive, whole-graph vs.select) verdict
+        # per start_vid — nested pb recursion re-enters this check for the
+        # same arg on every frame (51d removed the concat-safe short-circuit
+        # that previously pruned most of these recursions).
         try:
-            if self._arg_sanitized_inside_callee(start_vid):
+            _asc_cache = getattr(self, "_arg_sanitized_cache", None)
+            if _asc_cache is None:
+                _asc_cache = self._arg_sanitized_cache = {}
+            _asc = _asc_cache.get(start_vid)
+            if _asc is None:
+                _asc = self._arg_sanitized_inside_callee(start_vid)
+                _asc_cache[start_vid] = _asc
+            if _asc:
                 return self._cached(
                     "pb_sanitized_callee:%s" % start_vid,
                     AnalysisResult(
@@ -1045,7 +2205,29 @@ class GraphAnalyzer:
         # A literal of just "http://" does NOT qualify — the host chars must
         # appear inside the same literal, otherwise the host itself is the
         # tainted part (true SSRF stays reported).
-        _f23 = self._fixed_host_url_guard(start_vid)
+        # Fix 48q: the Fix-23 guard's 5-level dfg walk is O(subgraph) per
+        # entry and ran on EVERY pb call; Fix 47 concat descent multiplied pb
+        # calls ~20x, making it 92% of pb cost on large corpora (phpIPAM
+        # timeout).  The guard can only fire for entries whose neighborhood
+        # reaches a curl_setopt call, so precompute that vid set ONCE by
+        # walking outward from every curl_setopt call (mirroring the guard's
+        # own ast-parent + bidirectional-dfg exploration).  Entries outside
+        # the set skip the guard entirely (equivalent: they can never satisfy
+        # it); entries inside run it with per-vid memoization.
+        _f23 = False
+        if self.language == "php":
+            _rel = getattr(self, "_f23_relevant_vids", None)
+            if _rel is None:
+                _rel = self._f23_relevant_vids = self._precompute_f23_relevant()
+            if start_vid in _rel:
+                _f23_cache = getattr(self, "_f23_vid_cache", None)
+                if _f23_cache is None:
+                    _f23_cache = self._f23_vid_cache = {}
+                if start_vid in _f23_cache:
+                    _f23 = _f23_cache[start_vid]
+                else:
+                    _f23 = self._fixed_host_url_guard(start_vid)
+                    _f23_cache[start_vid] = _f23
         self._f23_guard_cache = _f23
 
         r1 = self._parameters_back_impl(start_vid, context_vid=context_vid,
@@ -1086,9 +2268,10 @@ class GraphAnalyzer:
                 path=list(r1.path), expr_lineno=_vattr(
                     self.graph.vs[start_vid], "lineno", 0))
         _sv = self.graph.vs[start_vid]
-        if self.language == "php" and r1.code == 1:
+        if self.language == "php" and r1.code == 1 and not getattr(
+                self, "_pb_excluded_names", None):
             _guard_reason = self._negated_whitelist_guard_for_result(
-                r1, sink_vid=start_vid)
+                r1, sink_vid=start_vid, context_vid=context_vid)
             if _guard_reason:
                 return AnalysisResult(
                     code=-1,
@@ -1125,7 +2308,7 @@ class GraphAnalyzer:
                 # scanner typically enters parameters_back at the sink's
                 # ARG node — find an XML-parse call this node feeds as an
                 # ast argument (api.php:29 enters at '$_POST[data]').
-                for pe in self.graph.es.select(_target=start_vid, label="ast"):
+                for pe in self._edge_in(start_vid, "ast"):
                     if _vattr(pe, "role", "") != "arg":
                         continue
                     pv = self.graph.vs[pe.source]
@@ -1194,7 +2377,7 @@ class GraphAnalyzer:
                                     "vid": _se.target, "code": -1}],
                             path=list(r1.path),
                             expr_lineno=_vattr(_sv, "lineno", 0))
-            for _me in self.graph.es.select(_source=start_vid, label="member"):
+            for _me in self._edge_out(start_vid, "member"):
                 if self._ctor_property_whitelist_guard(_me.target):
                     return AnalysisResult(
                         code=-1,
@@ -1204,7 +2387,7 @@ class GraphAnalyzer:
                                 "vid": _me.target, "code": -1}],
                         path=list(r1.path),
                         expr_lineno=_vattr(_sv, "lineno", 0))
-            for _pe in self.graph.es.select(_target=start_vid, label="ast"):
+            for _pe in self._edge_in(start_vid, "ast"):
                 if _vattr(_pe, "role", "") != "arg":
                     continue
                 _pv = self.graph.vs[_pe.source]
@@ -1262,7 +2445,7 @@ class GraphAnalyzer:
     def _ast_children_role(self, vid: int, role: str) -> list[int]:
         """Ast out-edges of vid with the given role."""
         out = []
-        for e in self.graph.es.select(_source=vid, label="ast"):
+        for e in self._edge_out(vid, "ast"):
             if (e["role"] or "") == role:
                 out.append(e.target)
         return out
@@ -1280,12 +2463,12 @@ class GraphAnalyzer:
             if (v["label"] == NodeLabel.IDENTIFIER.value
                     and _vattr(v, "name", "") == prop_name
                     and _vattr(v, "type", "") == "property"):
-                for e in self.graph.es.select(_target=vid, label="member"):
+                for e in self._edge_in(vid, "member"):
                     src = self.graph.vs[e.source]
                     if (_vattr(src, "label", "") == NodeLabel.IDENTIFIER.value
                             and _vattr(src, "name", "") == sg_name):
                         return True
-            for e in self.graph.es.select(_source=vid, label="ast"):
+            for e in self._edge_out(vid, "ast"):
                 stack.append((e.target, depth + 1))
         return False
 
@@ -1310,7 +2493,7 @@ class GraphAnalyzer:
             prop_name = _vattr(pv, "name", "")
             # superglobal owner of this property read
             sg_name = None
-            for e in self.graph.es.select(_target=pvid, label="member"):
+            for e in self._edge_in(pvid, "member"):
                 src = self.graph.vs[e.source]
                 n = _vattr(src, "name", "")
                 if n.startswith("$") and n.upper() in (
@@ -1324,7 +2507,7 @@ class GraphAnalyzer:
             cur = pvid
             assign_vid = None
             for _ in range(8):
-                ups = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+                ups = [e.source for e in self._edge_in(cur, "ast")]
                 if not ups:
                     break
                 cur = ups[0]
@@ -1336,7 +2519,7 @@ class GraphAnalyzer:
             if assign_vid is None:
                 continue
             guarded = False
-            for own_src in self.graph.es.select(_target=assign_vid, label="own"):
+            for own_src in self._edge_in(assign_vid, "own"):
                 bv = self.graph.vs[own_src.source]
                 if _vattr(bv, "label", "") != NodeLabel.BRANCH.value:
                     continue
@@ -1360,7 +2543,7 @@ class GraphAnalyzer:
                                         break
                             if guarded:
                                 break
-                        for e in self.graph.es.select(_source=cvid, label="ast"):
+                        for e in self._edge_out(cvid, "ast"):
                             stack.append((e.target, depth + 1))
                     if guarded:
                         break
@@ -1417,7 +2600,8 @@ class GraphAnalyzer:
         return False
 
     def _negated_whitelist_guard_for_result(self, result: AnalysisResult,
-                                            sink_vid: int | None = None) -> str | None:
+                                            sink_vid: int | None = None,
+                                            context_vid: int | None = None) -> str | None:
         """Fix 21a post-check: walk the result path; for each tainted var
         name, ask whether a terminating negated whitelist guard on that
         name precedes the sink in the sink's function.  Returns a reason
@@ -1467,6 +2651,41 @@ class GraphAnalyzer:
                         probe_lineno = None
                 if self._negated_whitelist_guard_before(
                         probe_vid, pname, sink_lineno=probe_lineno):
+                    # Fix 141c (CVE-2026-111216): a terminating guard on
+                    # ONE path variable whitelists only THAT variable's
+                    # content.  When the sink arg has another source path
+                    # that avoids *pname* entirely, the veto is unsound
+                    # (pfSense gwlb.inc: $gwifip — a sibling array member
+                    # validated by !is_ipaddrv6() — must not sanitize the
+                    # tainted ['monitor'] member flowing through the same
+                    # array object).  Re-trace with *pname* excluded: a
+                    # surviving controllable verdict means the guard does
+                    # not constrain the sink's content, so no veto.
+                    _f141c_cache = getattr(self, "_f141c_retrace_cache", None)
+                    if _f141c_cache is None:
+                        _f141c_cache = self._f141c_retrace_cache = {}
+                    _f141c_key = (start_vid, context_vid, pname)
+                    if _f141c_key in _f141c_cache:
+                        if _f141c_cache[_f141c_key]:
+                            continue
+                        return (f"whitelist guard: '{pname}' constrained by "
+                                f"terminating negated predicate before sink")
+                    _excl_prev = getattr(self, "_pb_excluded_names", None)
+                    self._pb_excluded_names = {pname}
+                    try:
+                        _r2 = self.parameters_back(
+                            start_vid, context_vid=context_vid)
+                    finally:
+                        if _excl_prev is None:
+                            self.__dict__.pop("_pb_excluded_names", None)
+                        else:
+                            self._pb_excluded_names = _excl_prev
+                    _f141c_lift = bool(
+                        _r2 is not None and getattr(
+                            _r2, "is_controllable", False))
+                    _f141c_cache[_f141c_key] = _f141c_lift
+                    if _f141c_lift:
+                        continue
                     return (f"whitelist guard: '{pname}' constrained by "
                             f"terminating negated predicate before sink")
         return None
@@ -1484,6 +2703,33 @@ class GraphAnalyzer:
         6. Max depth / no more upstream → code=3
         """
         cache_key = (start_vid, context_vid)
+        # Fix 83 (CVE-2026-32613): verdicts computed under an active AFR
+        # call-site binding depend on WHICH call's args the params resolve
+        # to — the same (vid, ctx) can be clean under one call site and
+        # tainted under another.  Fold a binding-frame signature (call vid
+        # per frame, innermost-last) into the cache key so nested traces
+        # never share verdicts across call sites.
+        _ab83 = getattr(self, "_afr_bindings", None)
+        if _ab83:
+            # Fix 129 (CVE-2026-111217 perf): context-sensitivity window.
+            # Fix 124's corpus-wide return-value binding made the AFR
+            # mutual recursion enumerate distinct interprocedural paths —
+            # with the FULL binding-stack signature in the key, every path
+            # prefix is a fresh cache key and shared subproblems are
+            # recomputed combinatorially (osticket: one sink region ran
+            # >90 min without finishing).  Only the innermost
+            # _SIG_WINDOW binding frames now disambiguate the key; verdicts
+            # for chains deeper than the window fall back to pre-Fix-83
+            # context-insensitive sharing for the ancient frames (bindings
+            # themselves stay active — only the cache key truncates).
+            cache_key = (start_vid, context_vid,
+                         tuple(_f83.get("__sig__", ()) for _f83 in _ab83[-GraphAnalyzer._SIG_WINDOW:]))
+        _pb_excl = getattr(self, "_pb_excluded_names", None)
+        if _pb_excl:
+            # Fix 141c (CVE-2026-111216): whitelist-guard soundness
+            # re-traces exclude one variable name; their verdicts must
+            # never collide with normal-trace cache entries.
+            cache_key = cache_key + (tuple(sorted(_pb_excl)),)
         if cache_key in self._decision_cache:
             return self._decision_cache[cache_key]
 
@@ -1496,7 +2742,7 @@ class GraphAnalyzer:
         if (_vattr(sv, "label") == NodeLabel.OPERATOR.value and
                 _vattr(sv, "type", "") in _CALL_TYPES):
             start_lang = _vattr(sv, "language", "")
-            for ue in self.graph.es.select(_source=start_vid, label="use"):
+            for ue in self._edge_out(start_vid, "use"):
                 tgt = self.graph.vs[ue.target]
                 if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
                     continue
@@ -1509,7 +2755,21 @@ class GraphAnalyzer:
                 if not tgt_lang:
                     tgt_file = _vattr(tgt, "file_path", "") or _vattr(tgt, "path", "")
                     if not tgt_file:
-                        continue
+                        # Fix 52z-12 (CVE-2026-110185): language-less,
+                        # file-less STUB nodes still carry enrich-time
+                        # passthrough knowledge (e.g. builtin trim, tp=[0]).
+                        # The old hard continue skipped them, so the 52z-10
+                        # start-point passthrough mapping never ran for
+                        # stub-bound builtins and the chain mis-reported
+                        # "unresolved method 'trim'".  Fall through ONLY for
+                        # annotated passthrough stubs; unannotated stubs keep
+                        # being skipped (cross-language guard intact).
+                        _stub_tp = (_vattr(tgt, "taint_passthrough", [])
+                                    or _vattr(tgt, "func_summary_pt", []))
+                        _stub_taint = (tgt_taint
+                                       or _vattr(tgt, "func_summary_type", ""))
+                        if not (_stub_taint == "passthrough" and _stub_tp):
+                            continue
                 tgt_summary = _vattr(tgt, "func_summary_type", "")
                 if tgt_taint == "safe" or tgt_summary == "safe":
                     return self._cached(cache_key, AnalysisResult(
@@ -1518,6 +2778,45 @@ class GraphAnalyzer:
                         chain=[{"step": "safe_func_precheck", "vid": start_vid,
                                 "name": _vattr(tgt, "name", ""), "code": -1}],
                         path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+                # Fix 52z-10 (CVE-2026-110185): start node is a call whose
+                # callee is a builtin/annotated PASSTHROUGH (e.g. PHP trim —
+                # KNOWLEDGE passthrough=[0]; Utility::getFilePath(trim($x))).
+                # The generic BFS below never re-enters Rule 4c for the START
+                # node, so the chain dead-ends in a loop back to the LHS
+                # identifier and reports the wrong verdict.  The return value
+                # of a passthrough call IS its mapped argument — recurse on
+                # the positional args first.
+                _pt_idx = (_vattr(tgt, "taint_passthrough", [])
+                           or _vattr(tgt, "func_summary_pt", []))
+                _pt_taint = tgt_taint or tgt_summary
+                if _pt_taint == "passthrough" and _pt_idx:
+                    _args_by_idx: dict[int, int] = {}
+                    for _ae in self._edge_out(start_vid, "ast"):
+                        if _vattr(_ae, "role", "") != "arg":
+                            continue
+                        try:
+                            _ai = int(_vattr(_ae, "index", 0))
+                        except (TypeError, ValueError):
+                            _ai = 0
+                        _args_by_idx[_ai] = _ae.target
+                    for _pi in _pt_idx:
+                        if _pi == "all":
+                            # Fix 93c: 无界元数透传 — 递归全部实参。
+                            for _tv in _args_by_idx.values():
+                                _sub = self.parameters_back(
+                                    _tv, context_vid=context_vid,
+                                    max_depth=max_depth - 1)
+                                if _sub is not None and _sub.is_controllable:
+                                    _sub.path = [start_vid] + (_sub.path or [])
+                                    return self._cached(cache_key, _sub)
+                            continue
+                        if isinstance(_pi, int) and _pi in _args_by_idx:
+                            _sub = self.parameters_back(
+                                _args_by_idx[_pi], context_vid=context_vid,
+                                max_depth=max_depth - 1)
+                            if _sub is not None and _sub.is_controllable:
+                                _sub.path = [start_vid] + (_sub.path or [])
+                                return self._cached(cache_key, _sub)
                 break
 
         # Pre-check: branch constraint on start node
@@ -1603,12 +2902,37 @@ class GraphAnalyzer:
                     chain=[{"step": "source", "vid": start_vid, "name": sname, "code": 1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
 
+        # Fix 50-8: TS/TSX member_expression 基座判定。
+        # TS normalizer 把 toolCall.command 压成 name='command' 的 identifier
+        # (full_text 保留全名),并建 ast[operand] → 基座 identifier 的边。
+        # Vue/React props(file-scoped source 标注)打在基座上 — pb 到达
+        # member 节点时沿 operand 边查基座 taint_type。
+        if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value and \
+                _vattr(sv, "raw_type", "") == "member_expression":
+            for _oe in self._edge_out(start_vid, "ast"):
+                if _vattr(_oe, "role", "") != "operand":
+                    continue
+                _bv = self.graph.vs[_oe.target]
+                if _vattr(_bv, "label") == NodeLabel.IDENTIFIER.value and \
+                        _vattr(_bv, "taint_type", "") == "source":
+                    return self._cached(cache_key, AnalysisResult(
+                        code=1,
+                        reason=f"annotated source variable '{_vattr(_bv, 'name', '')}' via member base (file-scoped props)",
+                        chain=[{"step": "source", "vid": _oe.target,
+                                "name": _vattr(_bv, "name", ""), "code": 1},
+                               {"step": "member", "vid": start_vid,
+                                "name": sname, "code": 1}],
+                        path=[start_vid, _oe.target],
+                        expr_lineno=_vattr(sv, "lineno", 0)))
+
         # Quick check: field/property full_text (e.g., "process.argv" for node named "argv")
         if _vattr(sv, "label") == NodeLabel.IDENTIFIER.value:
             stype = _vattr(sv, "type", "")
             if stype in ("field", "property"):
                 full_text = _vattr(sv, "full_text", "")
-                if full_text and full_text != sname and self._is_source_variable(full_text):
+                if full_text and full_text != sname and self._is_source_variable(
+                        full_text,
+                        _vattr(sv, "file_path", "") or _vattr(sv, "path", "")):
                     if self._is_superglobal_member_blocked(start_vid):
                         pass
                     else:
@@ -1632,7 +2956,7 @@ class GraphAnalyzer:
             # interpolated variables (e.g. userInput → dfg → "User: #{userInput}").
             # Continue BFS through these incoming DFG edges instead of returning constant.
             has_dfg_in = False
-            for e in self.graph.es.select(_target=start_vid, label="dfg"):
+            for e in self._edge_in(start_vid, "dfg"):
                 has_dfg_in = True
                 break
             if not has_dfg_in:
@@ -1657,17 +2981,31 @@ class GraphAnalyzer:
             # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
             # The parent variable may trace back to the superglobal via DFG, but
             # this specific member access returns a server-generated value.
-            if sname in _FILES_NON_SOURCE_MEMBERS:
+            # Fix 106: tmp_name inside a file-content reader's path arg is an
+            # uploaded-file source — fall through instead of rejecting.
+            if sname in _FILES_NON_SOURCE_MEMBERS and not (
+                    sname == "tmp_name" and self._file_read_arg_depth > 0):
                 return self._cached(cache_key, AnalysisResult(
                     code=-1,
                     reason=f"member key '{sname}' is a non-source property (server-generated)",
                     chain=[{"step": "non_source_member", "vid": start_vid,
                             "name": sname, "code": -1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Fix 106: positive verdict for the tmp_name chain a file-content
+            # reader's path arg addresses (uploaded-file content source).
+            _uf106 = self._uploaded_file_tmp_name_source(start_vid)
+            if _uf106:
+                return self._cached(cache_key, AnalysisResult(
+                    code=1,
+                    reason=(f"uploaded file path '{_uf106}' — file content "
+                            f"is attacker-controlled"),
+                    chain=[{"step": "uploaded_file_source", "vid": start_vid,
+                            "name": _uf106, "code": 1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
             chain_names_start: list[str] = [sname]
             for _ in range(10):
-                member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                member_edges = list(self._edge_in(cur_member, "member"))
                 if not member_edges:
                     break
                 obj_vid = member_edges[0].source
@@ -1749,9 +3087,51 @@ class GraphAnalyzer:
                 else:
                     break
 
+            # Fix 42: cross-file property store→load chaining.
+            #
+            # PHP plugin architecture (Support Genix CVE-2026-110895 shape):
+            # the parent class file assigns a request-sourced value to an
+            # instance property —
+            #     class Apbd_Wps_APIBase {          // APIBase.php
+            #         function LoadPayload() {
+            #             self::$payload_obj = json_decode($_POST['payload'], true);
+            #             $this->payload = &self::$payload_obj;   // WRITE
+            #     } }
+            # and a DIFFERENT file reads it —
+            #     class ApbdWpsAPI_Ticket extends Apbd_Wps_APIBase {  // Ticket.php
+            #         function grid() {
+            #             $x = $this->payload['sort_by'][0]['prop'];   // READ
+            #     } }
+            #
+            # The graph builder creates separate property nodes per file and
+            # the dfg builder deliberately skips self/this member edges
+            # (field-insensitivity FPs), so the store in APIBase.php has no
+            # out-edge and the load in Ticket.php has no dfg in-edge — the
+            # taint chain is severed at the file boundary.
+            #
+            # Fallback: when the member-chain walk above terminated without
+            # finding a source, look for same-name property WRITE nodes
+            # (assign lhs) in other files whose class is in an extends
+            # relationship with the reader's class (either direction), and
+            # trace the stored value with _trace_dfg_direct (bounded, no
+            # recursion into parameters_back).
+            if _vattr(sv, "type") in ("field", "property"):
+                _r42 = self._cross_file_property_source(start_vid, sname)
+                if _r42 is not None:
+                    return self._cached(cache_key, _r42)
+                # Fix 43: stored-XSS DB table bridge.  Property reads on
+                # DB row objects ($h->nama where $h came from
+                # db->get('t')->result()) trace to nothing (the DB is
+                # outside the graph).  Bridge to db->insert('t', $data)
+                # sites whose data array has the SAME key stored from a
+                # superglobal.
+                _r43 = self._db_table_bridge_source(start_vid, sname)
+                if _r43 is not None:
+                    return self._cached(cache_key, _r43)
+
         if _vattr(sv, "label") == NodeLabel.OPERATOR.value \
                 and _vattr(sv, "type") in _CALL_TYPES:
-            callee = self._resolve_callee_name(start_vid)
+            callee = self._qualify_callee(start_vid, self._resolve_callee_name(start_vid))
             if callee and self._is_repair_function(callee):
                 return self._cached(cache_key, AnalysisResult(
                     code=2, reason=f"calls repair '{callee}'",
@@ -1783,7 +3163,10 @@ class GraphAnalyzer:
                 pt_indices: set[int] = set(
                     int(i) for i in tp if isinstance(i, int)
                 )
-                if pt_indices:
+                # Fix 93c: 'all' = 无界元数透传（str.format）——每个实参
+                # 都流入返回值，不做索引过滤。
+                pt_all = "all" in tp
+                if pt_indices or pt_all:
                     arg_counter = 0
                     for ae in self.graph.es.select(
                         _source=start_vid, label="ast"
@@ -1792,7 +3175,7 @@ class GraphAnalyzer:
                             continue
                         idx = _vattr(ae, "index")
                         actual_idx = int(idx) if idx else arg_counter
-                        if actual_idx in pt_indices:
+                        if actual_idx in pt_indices or pt_all:
                             r = self.parameters_back(
                                 ae.target,
                                 max_depth=max_depth - 1,
@@ -1806,6 +3189,40 @@ class GraphAnalyzer:
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int, list[int]]] = deque()
         queue.append((start_vid, 0, [start_vid]))
+        # Fix 48g: concat operand identifiers hang off the binary_op chain via
+        # ast edges only (no dfg), so a pure-dfg BFS never reaches them.  Seed
+        # the queue with the ast leaf operands of any binary_op '.' on the
+        # start path — mirrors Fix 47's concat-chain semantics (linear string
+        # concatenation is not nested structure).
+        def _concat_ast_leaves(vid: int, depth: int = 0, out=None, seen=None) -> list[int]:
+            if out is None:
+                out, seen = [], set()
+            if vid in seen or depth > 24:
+                return out
+            seen.add(vid)
+            v = self.graph.vs[vid]
+            if (_vattr(v, "label", "") == "operator"
+                    and _vattr(v, "type", "") == "binary_op"
+                    and _vattr(v, "name", "") == "."):
+                for _le in self._edge_out(vid, "ast"):
+                    if _vattr(_le, "role", "") in ("left", "right", "arg"):
+                        _t = _le.target
+                        _tv = self.graph.vs[_t]
+                        if (_vattr(_tv, "label", "") == "operator"
+                                and _vattr(_tv, "type", "") == "binary_op"):
+                            _concat_ast_leaves(_t, depth + 1, out, seen)
+                        elif _vattr(_tv, "label", "") != "const":
+                            out.append(_t)
+            return out
+        for _leaf in _concat_ast_leaves(start_vid):
+            if _leaf not in visited:
+                visited.add(_leaf)
+                queue.append((_leaf, 1, [start_vid, _leaf]))
+        # Fix 48h: a call sink's concat ARG is reachable via dfg (call <- dfg -
+        # concat), but the concat's variable operands are only reachable via
+        # ast.  When the BFS pops a concat node, splice its ast leaves into
+        # the frontier (same linear-chain semantics as Fix 47/48g).
+        _spliced_concat_leaves: set[int] = set()
 
         # Pre-check: if start_vid itself is a property in a member chain,
         # walk the chain to find a source variable (e.g., $_FILES['uploaded']['tmp_name'])
@@ -1816,17 +3233,31 @@ class GraphAnalyzer:
             # of a superglobal (e.g., tmp_name for $_FILES), don't waste BFS cycles.
             # The parent variable may trace back to the superglobal via DFG, but
             # this specific member access returns a server-generated value.
-            if sname in _FILES_NON_SOURCE_MEMBERS:
+            # Fix 106: tmp_name inside a file-content reader's path arg is an
+            # uploaded-file source — fall through instead of rejecting.
+            if sname in _FILES_NON_SOURCE_MEMBERS and not (
+                    sname == "tmp_name" and self._file_read_arg_depth > 0):
                 return self._cached(cache_key, AnalysisResult(
                     code=-1,
                     reason=f"member key '{sname}' is a non-source property (server-generated)",
                     chain=[{"step": "non_source_member", "vid": start_vid,
                             "name": sname, "code": -1}],
                     path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
+            # Fix 106: positive verdict for the tmp_name chain a file-content
+            # reader's path arg addresses (uploaded-file content source).
+            _uf106 = self._uploaded_file_tmp_name_source(start_vid)
+            if _uf106:
+                return self._cached(cache_key, AnalysisResult(
+                    code=1,
+                    reason=(f"uploaded file path '{_uf106}' — file content "
+                            f"is attacker-controlled"),
+                    chain=[{"step": "uploaded_file_source", "vid": start_vid,
+                            "name": _uf106, "code": 1}],
+                    path=[start_vid], expr_lineno=_vattr(sv, "lineno", 0)))
             cur_member = start_vid
             chain_names_pre: list[str] = [sname]
             for _ in range(10):
-                member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                member_edges = list(self._edge_in(cur_member, "member"))
                 if not member_edges:
                     break
                 obj_vid = member_edges[0].source
@@ -1842,8 +3273,17 @@ class GraphAnalyzer:
                     # Check ALL names in the member chain (not just start node),
                     # so that $_FILES['x']['tmp_name'][$n] is correctly rejected:
                     # 'tmp_name' is a non-source member even though $n is not.
+                    # Fix 106: but inside a file-content reader's path arg the
+                    # tmp_name chain IS an uploaded-file content source.
+                    _files_ns = [n for n in chain_names_pre
+                                 if n in _FILES_NON_SOURCE_MEMBERS]
+                    _files_blocked = (obj_name == "$_FILES" and _files_ns)
+                    if (_files_blocked and obj_name == "$_FILES"
+                            and self._file_read_arg_depth > 0
+                            and set(_files_ns) == {"tmp_name"}):
+                        _files_blocked = False
                     if (obj_name == "$_SERVER" and any(n in _SERVER_UNCONTROLLED_KEYS for n in chain_names_pre)) \
-                            or (obj_name == "$_FILES" and any(n in _FILES_NON_SOURCE_MEMBERS for n in chain_names_pre)):
+                            or _files_blocked:
                         pass
                     elif self._is_subscript_key_of_non_superglobal(obj_vid):
                         pass
@@ -1901,6 +3341,22 @@ class GraphAnalyzer:
                 else:
                     break
 
+        # ── Fix 43j: CI view bridge, EARLY (pre-BFS) ──────────────────
+        # Same predicate as the exhausted-tail bridge (Fix 43c) but fired
+        # BEFORE the 50-hop BFS: a view-file variable with no DFG in-edge
+        # can only resolve through the loader bridge, and running the full
+        # BFS first costs O(sinks × 50 hops) for a guaranteed dead end.
+        if self.language == "php":
+            _sfp0 = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+            if (_sfp0 and "/views/" in _sfp0.replace("\\", "/")
+                    and _vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
+                    and _vattr(sv, "type", "") == "variable"
+                    and not self._get_dfg_sources(start_vid)
+                    and not getattr(self, "_in_view_bridge", False)):
+                _v43j = self._ci_view_bridge_source(start_vid, _vattr(sv, "name", ""))
+                if _v43j is not None and _v43j.code == 1:
+                    return self._cached(cache_key, _v43j)
+
         # Pre-compute branch chain for the sink arg (start_vid).
         # Branch constraints protect the sink location, not intermediate
         # trace nodes.  A variable assigned before a match/case but used
@@ -1931,20 +3387,81 @@ class GraphAnalyzer:
 
         while queue:
             cur_vid, depth, path = queue.popleft()
+            # Fix 37a: Java this.<field> READ reached during backward trace
+            # -- bridge to the constructor/method WRITE points of the same
+            # field (field-load propagation).  Only fires for java
+            # this.<name> method_call reads with a same-class field decl
+            # hub; PHP/JS member chains are handled by the member-access
+            # pre-check above.
+            if (self.language == "java" and depth < max_depth - 1
+                    and _vattr(self.graph.vs[cur_vid], "type", "") in ("method_call", "static_call")):
+                # Fix 38: accumulator read (toString/build/...) -- bridge
+                # to same-receiver write args (write/append/...).
+                _frag = self._java_accum_read_sources(cur_vid)
+                for _arg_vid, _wctx in _frag:
+                    _fsub = self.parameters_back(_arg_vid, context_vid=_wctx,
+                                                 max_depth=max_depth - depth - 1)
+                    if _fsub is not None and _fsub.is_controllable:
+                        _fsub.path = path + [cur_vid] + (_fsub.path or [])
+                        return self._cached(cache_key, _fsub)
+                _stores = self._java_field_store_sources(cur_vid)
+                for _rhs_vid, _wctx in _stores:
+                    _sub = self.parameters_back(_rhs_vid, context_vid=_wctx,
+                                                max_depth=max_depth - depth - 1)
+                    if _sub is not None and _sub.is_controllable:
+                        _sub.path = path + [cur_vid] + (_sub.path or [])
+                        return self._cached(cache_key, _sub)
+                    # Fix 37a-2: stored value depends on the writer
+                    # function's params (e.g. constructor param f in
+                    # this.fld = f) -- resolve through the writer's call
+                    # sites' actual args.
+                    if (_sub is not None and _wctx is not None
+                            and (_sub.has_deps
+                                 or (_sub.code in (-1, 4)
+                                     and "entry parameter" in (_sub.reason or "")))):
+                        _dep_names = list(_sub.deps or [])
+                        if not _dep_names and "entry parameter" in (_sub.reason or ""):
+                            import re as _re37
+                            _m37 = _re37.search(r"entry parameter '([^']+)'", _sub.reason or "")
+                            if _m37:
+                                _dep_names = [_m37.group(1)]
+                        _resolved = self._resolve_java_param_deps(_dep_names, _wctx,
+                                                                  max_depth - depth - 1)
+                        if _resolved is not None:
+                            _resolved.path = path + [cur_vid] + (_resolved.path or [])
+                            return self._cached(cache_key, _resolved)
+                    if _sub is not None and _sub.code == 3:
+                        if inconclusive_fallback is None:
+                            inconclusive_fallback = _sub
             # Check if cur_vid is an assign LHS identifier whose RHS is a
             # repair/safe function call. If so, taint stops here.
             if (_vattr(self.graph.vs[cur_vid], "label", "") == NodeLabel.IDENTIFIER.value
                     and not self._get_dfg_sources(cur_vid)):
                 _rhs = self._find_assign_rhs_call(cur_vid)
                 if _rhs is not None:
-                    _rhs_callee = self._resolve_callee_name(_rhs)
+                    _rhs_callee = self._qualify_callee(
+                        _rhs, self._resolve_callee_name(_rhs))
                     if _rhs_callee and self._is_repair_function(_rhs_callee):
-                        return self._cached(cache_key, AnalysisResult(
-                            code=2, reason=f"assign RHS repair '{_rhs_callee}'",
-                            chain=[{"step": "repair", "vid": _rhs,
-                                    "name": _rhs_callee, "code": 2}],
-                            path=path + [_rhs],
-                            expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
+                        # Fix 34c: record the sanitation proof and CONTINUE
+                        # the BFS instead of returning immediately.  This
+                        # stop fires on any identifier whose assignment RHS
+                        # is a repair call -- including sub-expressions of a
+                        # larger concatenation.  CVE-2026-108970: in
+                        # addNewUser, "INSERT ... VALUES('$username',...,
+                        # $time, $branch)" concat contains $time=time();
+                        # the $time route dead-ended here and returned
+                        # safe for the WHOLE concat, hiding the unquoted
+                        # $branch route.  Sibling routes must keep tracing;
+                        # the proof is only returned if ALL routes end
+                        # clean (exhausted fallback, same as Fix 21b-2).
+                        if repaired_result is None:
+                            repaired_result = AnalysisResult(
+                                code=2, reason=f"assign RHS repair '{_rhs_callee}'",
+                                chain=[{"step": "repair", "vid": _rhs,
+                                        "name": _rhs_callee, "code": 2}],
+                                path=path + [_rhs],
+                                expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0))
+                        continue
                     # Also check if RHS is a safe function call (sanitizer).
                     # When DFG cleanup has removed the safe function's
                     # arg→return edge, the LHS identifier has no DFG sources,
@@ -1956,6 +3473,134 @@ class GraphAnalyzer:
                                     "name": _rhs_callee or "", "code": -1}],
                             path=path + [_rhs],
                             expr_lineno=_vattr(self.graph.vs[cur_vid], "lineno", 0)))
+            # Fix 49d-v3: JS/TS member-chain operator (e.g. operator
+            # 'settings.dataset.name') typically has NO dfg in-edges — its
+            # value flows from the chain's base identifier.  When the BFS
+            # pops such an operator with no dfg upstream, seed the base
+            # identifier of the incoming member chain as an equivalent
+            # upstream node so the trace continues to the annotated source.
+            if not self._get_dfg_sources(cur_vid):
+                _cv = self.graph.vs[cur_vid]
+                # Fix 76: PHP $this->property LOAD with no dfg upstream —
+                # bridge to same-file writer assignments (constructor or
+                # method writes $this->prop = rhs).  PHP counterpart of the
+                # java Fix 37a field-load propagation.  CVE-2026-41229:
+                # froxlor ApiParameter::__construct stores $params into
+                # $this->cmd_params; getParam() reads it back — without the
+                # bridge every API getParam chain dead-ends at the property
+                # read.  Scoped: same file, same property name, $this-rooted
+                # read, and the read must not itself be an assign LHS.
+                if (self.language == "php"
+                        and _vattr(_cv, "label", "") == NodeLabel.IDENTIFIER.value
+                        and _vattr(_cv, "type", "") in ("field", "property")):
+                    _this_read = any(
+                        (_vattr(self.graph.vs[_me.source], "name", "") or "") == "$this"
+                        for _me in self._edge_in(cur_vid, "member"))
+                    _is_lhs = any(
+                        _vattr(_le, "role", "") == "lhs"
+                        for _le in self._edge_in(cur_vid, "ast"))
+                    if _this_read and not _is_lhs:
+                        _reader_cls76 = self._php_enclosing_class_name(cur_vid)
+                        for _rhs_vid, _wctx in self._php_property_store_sources(cur_vid):
+                            # Fix 76d: when the stored RHS is a formal
+                            # parameter of a __construct writer, the generic
+                            # parameters_back entry-param resolution binds
+                            # `new` sites of EVERY subclass of the writer's
+                            # class — but sibling instances never execute the
+                            # reader's code (osticket: new
+                            # AttachmentChunkedData($f) polluted OneSix
+                            # Attachments' $this->meta reads).  Route ctor-
+                            # param stores exclusively through the closure-
+                            # restricted resolver; when the reader's instance
+                            # set has no qualifying `new` site, the store is
+                            # untainted FOR THIS READER — no generic fallback.
+                            if (_wctx is not None
+                                    and self._php_is_ctor_param_store(_rhs_vid, _wctx)):
+                                _r76 = self._resolve_php_ctor_param_deps(
+                                    _wctx, max(max_depth - depth - 1, 12),
+                                    reader_class_name=_reader_cls76)
+                                if _r76 is not None and _r76.is_controllable:
+                                    _r76.path = (path or []) + [cur_vid] + (_r76.path or [])
+                                    return self._cached(cache_key, _r76)
+                                continue
+                            _sub = self.parameters_back(
+                                _rhs_vid, context_vid=_wctx,
+                                max_depth=max(max_depth - depth - 1, 12))
+                            if _sub is not None and _sub.is_controllable:
+                                _sub.path = (path or []) + [cur_vid] + (_sub.path or [])
+                                return self._cached(cache_key, _sub)
+                            # Fix 76b: the stored value is the writer's own
+                            # (constructor) parameter — resolve it through
+                            # `new` call sites of the writer class or any
+                            # subclass (froxlor: new MysqlServer(...) feeds
+                            # ApiParameter::__construct's $params).
+                            if (_sub is not None and _wctx is not None
+                                    and _sub.code == -1
+                                    and "entry parameter" in (_sub.reason or "")):
+                                _r76 = self._resolve_php_ctor_param_deps(
+                                    _wctx, max(max_depth - depth - 1, 12),
+                                    reader_class_name=self._php_enclosing_class_name(cur_vid))
+                                if _r76 is not None and _r76.is_controllable:
+                                    _r76.path = (path or []) + [cur_vid] + (_r76.path or [])
+                                    return self._cached(cache_key, _r76)
+                # Fix 50-10: TS member_expression identifier(压平形态,
+                # raw_type=member_expression, ast operand → 基座)。
+                # 到达此节点且无 dfg 上游时,直接判基座标注(React/Vue
+                # file-scoped props 打在基座 identifier 上)。
+                if (_vattr(_cv, "label", "") == NodeLabel.IDENTIFIER.value
+                        and _vattr(_cv, "raw_type", "") == "member_expression"):
+                    for _oe in self._edge_out(cur_vid, "ast"):
+                        if _vattr(_oe, "role", "") != "operand":
+                            continue
+                        _bv = self.graph.vs[_oe.target]
+                        if (_vattr(_bv, "label", "") == NodeLabel.IDENTIFIER.value
+                                and _vattr(_bv, "taint_type", "") == "source"):
+                            _bn = _vattr(_bv, "name", "")
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"annotated source variable '{_bn}' via member base (file-scoped props)",
+                                chain=[{"step": "annotated_source", "vid": _oe.target,
+                                        "name": _bn, "code": 1},
+                                       {"step": "member", "vid": cur_vid,
+                                        "name": _vattr(_cv, "name", ""), "code": 1}],
+                                path=path + [_oe.target],
+                                expr_lineno=_vattr(_cv, "lineno", 0)))
+                if (_vattr(_cv, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(_cv, "type", "") in ("method_call", "static_call")
+                        and "." in str(_vattr(_cv, "name", ""))):
+                    _mc = cur_vid
+                    for _ in range(10):
+                        _mins = list(self._edge_in(_mc, "member"))
+                        if not _mins:
+                            break
+                        _mc = _mins[0].source
+                        _mv = self.graph.vs[_mc]
+                        if (_vattr(_mv, "label", "") == NodeLabel.IDENTIFIER.value):
+                            # Fix 49d-v4: judge the base right here — the
+                            # queue's pop path never applies the up_vid rule
+                            # set to seeded nodes.  Annotated file-scoped
+                            # source (Vue props) or same-file same-name
+                            # annotated twin → controllable.
+                            _bn = _vattr(_mv, "name", "")
+                            _bt = _vattr(_mv, "taint_type", "")
+                            if _bn and _bt != "safe" and (
+                                    _bt == "source"
+                                    or self._file_scoped_source_named(_mc, _bn)):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"annotated source variable '{_bn}' (member-chain base, file-scoped)",
+                                    chain=[{"step": "annotated_source", "vid": _mc,
+                                            "name": _bn, "code": 1}],
+                                    path=path + [_mc],
+                                    expr_lineno=_vattr(_mv, "lineno", 0)))
+                            # Not a source — still enqueue for further dfg
+                            # tracing (e.g. base is a local var assigned
+                            # from a request somewhere).
+                            if _mc not in visited:
+                                visited.add(_mc)
+                                queue.append((_mc, depth + 1, path + [_mc]))
+                            break
+
             for up_vid in self._get_dfg_sources(cur_vid):
                 if up_vid in visited:
                     continue
@@ -1967,28 +3612,114 @@ class GraphAnalyzer:
                 # to reach the true source (argv).
                 if self._is_dfg_branch_safe(up_vid, cur_vid):
                     cur_bc = self.get_branch_chain(cur_vid)
-                    if cur_bc and (set(cur_bc) & sink_branch_set):
+                    # Fix 34e: only trust the intersection when a shared
+                    # branch actually has a condition.  Empty-condition
+                    # branches (normalizer never filled type/condition --
+                    # e.g. register()'s if-blocks in CVE-2026-108970) carry
+                    # no constraint evidence; intersecting on their vids
+                    # alone silently dropped the cross-function arg->param
+                    # route and hid the SQL injection.
+                    _shared_bc = set(cur_bc) & sink_branch_set
+                    if cur_bc and _shared_bc and any(
+                            _vattr(self.graph.vs[_b], 'condition', '')
+                            for _b in _shared_bc):
                         continue
+                # Fix 141c (CVE-2026-111216): during a whitelist-guard
+                # soundness re-trace, identifier reads of the guarded
+                # name are opaque — the tributary flowing through that
+                # variable is exactly what the guard covers; every OTHER
+                # tributary must still be explored.  (pfSense gwlb.inc:
+                # `if (!is_ipaddrv6($gwifip)) continue;` whitelists the
+                # sibling ['gwifip'] array member — it must not sanitize
+                # the tainted ['monitor'] member riding the same array.)
+                if _pb_excl and _vattr(
+                        self.graph.vs[up_vid], "label", "") == NodeLabel.IDENTIFIER.value \
+                        and _vattr(self.graph.vs[up_vid], "name", "") in _pb_excl:
+                    continue
                 visited.add(up_vid)
                 uv = self.graph.vs[up_vid]
                 # Safe node — taint propagation stops here
                 up_taint = _vattr(uv, "taint_type", "")
                 if up_taint == "safe":
-                    # Fix 21b-2: remember the sanitation proof.  If ALL routes
-                    # dead-end clean, the result is repaired (code=2), not
-                    # inconclusive.  Only trust safe marks that a call node
-                    # with a safe resolver backs (enrich_taint sets 'safe'
-                    # exactly for safe-call reassignments).
-                    if repaired_result is None:
-                        repaired_result = AnalysisResult(
-                            code=2,
-                            reason=f"'{sname}' sanitized by safe reassignment "
-                                   f"(vid={up_vid})",
-                            chain=[{"step": "safe_reassign", "vid": up_vid,
-                                    "name": _vattr(uv, "name", ""), "code": 2}],
-                            path=path + [up_vid],
-                            expr_lineno=_vattr(uv, "lineno", 0))
-                    continue
+                    # Fix 48c/48e/48f/48i: enrich-time safe marks come from
+                    # the svid-blind global set (_enrich_repair_calls /
+                    # _propagate_safe_taint).  When the sink svid is set, the
+                    # per-svid registry is authoritative.  Two node shapes
+                    # carry the propagated mark:
+                    #   a) the sanitizer CALL node itself — its callee name is
+                    #      the registry key (48f);
+                    #   b) the assigned LHS identifier — resolve the assigning
+                    #      RHS callee (48e).
+                    # If the registry knows that function but does not bind it
+                    # to this sink's svid, the mark is NOT a sanitizer here:
+                    # veto the safe short-circuit entirely (48i) so the node
+                    # is processed as an ordinary one and the BFS keeps
+                    # expanding its dfg upstream (e.g. $town(def) → trim call
+                    # → strip_tags call → $_POST member).
+                    _vetoed = False
+                    # Fix 52f: a safe-marked CALL nested as an ARGUMENT of
+                    # a non-safe outer call must not short-circuit the BFS.
+                    # (trim inside Utility::getFilePath — the outer
+                    # passthrough returns arg-derived data, so the inner
+                    # sanitize does not decide the outer return value.)
+                    if (_vetoed is False
+                            and _vattr(uv, "label", "") == NodeLabel.OPERATOR.value
+                            and _vattr(uv, "type", "") in ("call", "method_call", "static_call")):
+                        for _pe in self._edge_in(up_vid, "ast"):
+                            if _vattr(_pe, "role", "") != "arg":
+                                continue
+                            _outer = self.graph.vs[_pe.source]
+                            if (_vattr(_outer, "label", "") == NodeLabel.OPERATOR.value
+                                    and _vattr(_outer, "type", "") in ("call", "method_call", "static_call")
+                                    and _vattr(_outer, "taint_type", "") != "safe"
+                                    and _pe.source != up_vid):
+                                _vetoed = True
+                                break
+                    # Fix 52e: an LHS identifier's propagated safe mark is
+                    # only meaningful when the assigning RHS ROOT call is
+                    # itself a sanitizer (esc_attr-style).  When the RHS
+                    # root is a passthrough/unresolved call, the nested
+                    # safe call (trim inside Utility::getFilePath) cannot
+                    # decide the LHS — drop the short-circuit and keep
+                    # tracing (paired with knowledge_bridge Fix 52d).
+                    if _vattr(uv, "label", "") == NodeLabel.IDENTIFIER.value:
+                        _r52e = self._find_assign_rhs_call(up_vid)
+                        if _r52e is not None and _vattr(
+                                self.graph.vs[_r52e], "taint_type", "") != "safe":
+                            _r52e_t = _vattr(self.graph.vs[_r52e], "type", "")
+                            if _r52e_t in ("call", "method_call", "static_call"):
+                                _vetoed = True
+                    if self._sink_svid is not None and not _vetoed:
+                        _up_clean = ""
+                        if _vattr(uv, "label", "") == "operator":
+                            _up_clean = (self._resolve_callee_name(up_vid) or "")
+                        else:
+                            _rhs_call = self._find_assign_rhs_call(up_vid)
+                            _up_clean = (self._resolve_callee_name(_rhs_call)
+                                         if _rhs_call is not None else "")
+                        if _up_clean:
+                            _up_clean = _up_clean.lstrip("\\").replace("::", ".")
+                            if "." in _up_clean:
+                                _up_clean = _up_clean.rsplit(".", 1)[-1]
+                            if self._registry_safe_for_sink(_up_clean) is False:
+                                _vetoed = True
+                    if not _vetoed:
+                        # Fix 21b-2: remember the sanitation proof.  If ALL
+                        # routes dead-end clean, the result is repaired
+                        # (code=2), not inconclusive.  Only trust safe marks
+                        # that a call node with a safe resolver backs
+                        # (enrich_taint sets 'safe' exactly for safe-call
+                        # reassignments).
+                        if repaired_result is None:
+                            repaired_result = AnalysisResult(
+                                code=2,
+                                reason=f"'{sname}' sanitized by safe reassignment "
+                                       f"(vid={up_vid})",
+                                chain=[{"step": "safe_reassign", "vid": up_vid,
+                                        "name": _vattr(uv, "name", ""), "code": 2}],
+                                path=path + [up_vid],
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                 # Fix 14: type cast operators also sanitize taint.
                 # (int), (float), (bool) etc. destroy string content.
                 if _vattr(uv, "type", "") == "type_cast" and _vattr(uv, "name", "") in _TYPE_CAST_SAFE:
@@ -2049,6 +3780,55 @@ class GraphAnalyzer:
                                     "name": uname, "code": 1}],
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Fix 83 (CVE-2026-32613 anchor FP root-cause):
+                    # context-sensitive parameter binding.  When this BFS
+                    # runs inside analyze_function_return's inline return
+                    # trace, the formal param reached here belongs to a
+                    # callee whose value AT THIS CALL SITE is the mapped
+                    # actual arg — NOT the merged dfg in-edges of every
+                    # caller in the graph (the `__()` translation-hub
+                    # family: one caller passing $_POST polluted the param
+                    # node, and every `__('literal')` call site in
+                    # osticket then inherited XSS taint ×152).  Redirect to
+                    # this call's arg; never expand the param's cross-caller
+                    # dfg in-edges while a binding is active.
+                    _bind = None
+                    for _frm83 in reversed(getattr(self, "_afr_bindings", ()) or ()):
+                        if up_vid in _frm83:
+                            _bind = _frm83[up_vid]
+                            break
+                    if _bind is not None:
+                        _arg83, _call83 = _bind
+                        _al83 = _vattr(self.graph.vs[_arg83], "label", "")
+                        if _al83 == NodeLabel.CONST.value:
+                            if param_fallback is None:
+                                param_fallback = AnalysisResult(
+                                    code=-1,
+                                    reason=f"entry parameter '{uname}' (bound to constant at this call)",
+                                    chain=[{"step": "afr_binding", "vid": up_vid,
+                                            "name": uname, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
+                        try:
+                            self._pb_frame_depth = getattr(self, "_pb_frame_depth", 0) + 1
+                            _bres83 = self.parameters_back(
+                                _arg83, context_vid=_call83,
+                                max_depth=max(max_depth - depth, 12))
+                        finally:
+                            self._pb_frame_depth -= 1
+                        if _bres83 is not None and _bres83.is_controllable:
+                            _bres83.path = new_path + (_bres83.path or [])
+                            return self._cached(cache_key, _bres83)
+                        if param_fallback is None:
+                            param_fallback = AnalysisResult(
+                                code=-1,
+                                reason=f"entry parameter '{uname}' (call-bound arg not controllable)",
+                                chain=[{"step": "afr_binding", "vid": up_vid,
+                                        "name": uname, "code": -1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                     # For Go: *http.Request etc. are user-controlled sources
                     # Checked here (after taint_type=source, before Java type checks)
                     # so Go source types are recognized without needing enrich_taint annotations.
@@ -2080,6 +3860,44 @@ class GraphAnalyzer:
                                 code=1,
                                 reason=f"user-controlled annotation on '{uname}'",
                                 chain=[{"step": "source", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Fix 53: network stream-typed entry parameters are
+                        # remote-peer sources (IIOP InputStream → readParams
+                        # pre-auth deserialization, CVE-2026-15564).
+                        _stream_t53 = _vattr(uv, "java_type", "")
+                        if _stream_t53 in _JAVA_STREAM_SOURCE_TYPES:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (network stream type '%s', controllable)",
+                                uname, up_vid, _stream_t53,
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"network stream parameter '{uname}' (type: {_stream_t53})",
+                                chain=[{"step": "source_type", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
+                        # Fix 135a (CVE-2026-90436): entry parameter of a
+                        # method implementing a known framework CALLBACK
+                        # interface is a remote-content source — the Axis
+                        # deserialization framework hands setValue(value,
+                        # hint) the freshly parsed inbound-SOAP-XML element
+                        # content (pre-authentication), so every implementer
+                        # receives attacker XML (see
+                        # _JAVA_CALLBACK_SOURCE_INTERFACES).
+                        _cb135 = self._is_framework_callback_param(up_vid)
+                        if _cb135 is not None:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (framework callback %s.%s, controllable)",
+                                uname, up_vid, _cb135[0], _cb135[1],
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=(f"framework callback parameter '{uname}' "
+                                        f"({_cb135[0]}.{_cb135[1]}, deserialized XML content)"),
+                                chain=[{"step": "callback_source", "vid": up_vid,
                                         "name": uname, "code": 1}],
                                 path=new_path,
                                 expr_lineno=_vattr(uv, "lineno", 0)))
@@ -2121,8 +3939,184 @@ class GraphAnalyzer:
                                             "name": uname, "code": -1}],
                                     path=new_path,
                                     expr_lineno=_vattr(uv, "lineno", 0))
-                            continue
-                    # If this parameter has no DFG upstream, it's an entry point
+                            # Fix 79 (CVE-2026-32613): NUMERIC types terminate —
+                            # a copied int/long can never carry a payload. But
+                            # COLLECTION types (Map/List/Set...) are references
+                            # whose CONTENTS flow in from the caller's argument
+                            # (dfg arg→param edge, e.g. transformMap(artifactMap)
+                            # receiving user-authored pipeline maps evaluated as
+                            # SpEL). The old blanket `continue` cut the
+                            # cross-call-boundary taint path at every collection
+                            # parameter; only numeric types may stop the BFS.
+                            if param_java_type in _NUMERIC_JAVA_TYPES:
+                                continue
+                    # Fix 52s: constructor entry-param bridge.  A ctor
+                    # parameter with no DFG upstream gets its value from the
+                    # CALL SITE (new ClassName($arg)) — trace the matching
+                    # actual argument instead of concluding entry-parameter.
+                    if not list(self._get_dfg_sources(up_vid)):
+                        _own_in = [e.source for e in self._edge_in(up_vid, "own")
+                                   if _vattr(self.graph.vs[e.source], "label", "")
+                                   == NodeLabel.FUNCTION.value]
+                        # Fix 52s v2/v3/v4 + 52t/52t-2 (consolidated):
+                        # non-ctor functions use the 52t callsite bridge below;
+                        # ctors keep the new-call bridge (52s), extended with
+                        # the dual-node stub strip (52s-4): use-edge targets
+                        # are file-only stubs whose names carry quotes.
+                        _ctor_fn = None
+                        _is_ctor = False
+                        if _own_in:
+                            _nm = str(_vattr(self.graph.vs[_own_in[0]], "name", "")) \
+                                .rsplit(".", 1)[-1]
+                            _is_ctor = (_nm == "__construct")
+                            if _is_ctor:
+                                _ctor_fn = _own_in[0]
+                        # Fix 52z-11 (CVE-2026-110185): the 52t call-site
+                        # bridge below must run for NON-ctor functions, but
+                        # this guard read _ctor_fn — which is only assigned
+                        # for ctors — so the bridge was dead code and every
+                        # static-call formal (FlowToolsFactory::createFlowTool
+                        # $currentNodeInfo ← FlowNodeTestController L146
+                        # $nodeData) dead-ended as "unresolved entry
+                        # parameter".  Use the owning function node directly.
+                        _bridge_fn = _ctor_fn if _is_ctor else (_own_in[0] if _own_in else None)
+                        if _bridge_fn is not None and not _is_ctor:
+                            # 52t: regular function/method — call-site bridge.
+                            _fparams = [
+                                pe.target for pe in
+                                sorted(self._edge_out(_bridge_fn, "own"), key=lambda e: e.target)
+                                if _vattr(self.graph.vs[pe.target], "label", "")
+                                == NodeLabel.PARAMETER.value]
+                            try:
+                                _fpos = _fparams.index(up_vid)
+                            except ValueError:
+                                _fpos = -1
+                            if _fpos >= 0:
+                                _sites = [ue.source for ue in self._edge_in(_bridge_fn, "use")]
+                                if not _sites:
+                                    # 52t-2: static calls have no use edges —
+                                    # scan same-name call nodes (memoized).
+                                    _short = str(_vattr(self.graph.vs[_bridge_fn], "name", "")
+                                                 ).rsplit(".", 1)[-1].strip(chr(39) + chr(34))
+                                    _memo2 = getattr(self, "_callsite_memo", None)
+                                    if _memo2 is None:
+                                        _memo2 = {}
+                                        self._callsite_memo = _memo2
+                                    if _short in _memo2:
+                                        _sites = list(_memo2[_short])
+                                    else:
+                                        _sites = [
+                                            v2.index for v2 in self.graph.vs
+                                            if _vattr(v2, "label", "") == "operator"
+                                            and str(_vattr(v2, "name", "")).rsplit(".", 1)[-1]
+                                                .strip(chr(39) + chr(34)) == _short
+                                            and _vattr(v2, "type", "") in _CALL_TYPES]
+                                        _memo2[_short] = list(_sites)
+                                for _csite in _sites:
+                                    _cargs = [
+                                        ae.target for ae in
+                                        sorted(self._edge_out(_csite, "ast"), key=lambda e: e.target)
+                                        if _vattr(ae, "role", "") == "arg"]
+                                    if len(_cargs) <= _fpos:
+                                        continue
+                                    # Fix 53-perf: same frame-cap as the 52k
+                                    # dep recursion — the 52s callsite bridge
+                                    # recursed with max_depth-depth which does
+                                    # not shrink across frames; osticket hit
+                                    # 900+ frames here.  Reuse _pb_dep_depth.
+                                    _pd52s = getattr(self, "_pb_dep_depth", 0)
+                                    if _pd52s > 4:
+                                        continue
+                                    self._pb_dep_depth = _pd52s + 1
+                                    try:
+                                        _res = self.parameters_back(
+                                            _cargs[_fpos], context_vid=None,
+                                            max_depth=max_depth - depth)
+                                    finally:
+                                        self._pb_dep_depth = _pd52s
+                                    if _res is not None and _res.is_controllable:
+                                        return self._cached(cache_key, _res)
+                        if _own_in and _is_ctor and _ctor_fn is not None:
+                            _ctor_fn2 = _ctor_fn
+                            _cname = str(_vattr(self.graph.vs[_ctor_fn2], "fullname", "")) \
+                                .rsplit(".", 1)[0]
+                            _pidx = _vattr(uv, "index", 0)
+                            try:
+                                _pidx = int(_pidx)
+                            except (TypeError, ValueError):
+                                _pidx = 0
+                            # sibling new-calls of the same class
+                            # Fix 52s-4: class keys can carry quotes (dual-node
+                            # stub form 'ClassName'); strip and retry.
+                            _argv = None
+                            _coc = self._esrc.get("call_of_ctor") \
+                                if isinstance(self._esrc.get("call_of_ctor"), dict) else {}
+                            _sites52s = list(_coc.get(_cname, []))
+                            if not _sites52s:
+                                _sites52s = list(_coc.get(_cname.strip(chr(39) + chr(34)), []))
+                            # Fix 52s-3: also union the ctor's own use-edge
+                            # callers (new-call binds use → CLASS node; when
+                            # the use target is this ctor's class, its ast args
+                            # are the actuals).
+                            for _ue5 in self._edge_in(_ctor_fn2, "use"):
+                                if _ue5.source not in _sites52s:
+                                    _sites52s.append(_ue5.source)
+                            # Fix 52z-14 (CVE-2026-110185): the
+                            # "call_of_ctor" edge label does not exist in the
+                            # graph schema — _sites52s was empty for every
+                            # project whose new-calls bind use → QUOTED
+                            # dual-node class stub (e.g. new ImageHelperTool:
+                            # use → "'ImageHelperTool'"), never to the ctor.
+                            # Fall back to a memoized scan: new-call
+                            # operators whose use-target name (quotes
+                            # stripped) equals the ctor's class name have
+                            # matching actuals.
+                            if not _sites52s:
+                                _cls_short = _cname.strip(chr(39) + chr(34))
+                                _memo3 = getattr(self, "_newcall_memo", None)
+                                if _memo3 is None:
+                                    _memo3 = {}
+                                    self._newcall_memo = _memo3
+                                if _cls_short in _memo3:
+                                    _sites52s = list(_memo3[_cls_short])
+                                else:
+                                    _found = []
+                                    for v2 in self._nlbl.get(
+                                            NodeLabel.OPERATOR.value, []):
+                                        v2n = _vattr(self.graph.vs[v2], "type", "")
+                                        if v2n != "new":
+                                            continue
+                                        for _ue6 in self._edge_out(v2, "use"):
+                                            _t6 = self.graph.vs[_ue6.target]
+                                            if _vattr(_t6, "label", "") != NodeLabel.FUNCTION.value:
+                                                continue
+                                            _t6n = str(_vattr(_t6, "name", "")) \
+                                                .strip(chr(39) + chr(34))
+                                            if _t6n == _cls_short:
+                                                _found.append(v2)
+                                                break
+                                    _memo3[_cls_short] = list(_found)
+                                    _sites52s = list(_found)
+                            for _nv in _sites52s:
+                                for _ae in self._edge_out(_nv, "ast"):
+                                    if _vattr(_ae, "role", "") != "arg":
+                                        continue
+                                    _ai = _vattr(_ae, "index")
+                                    try:
+                                        _ai = int(_ai)
+                                    except (TypeError, ValueError):
+                                        _ai = 0
+                                    if _ai == _pidx:
+                                        _argv = _ae.target
+                                        break
+                                if _argv is not None:
+                                    break
+                            if _argv is not None:
+                                _res = self.parameters_back(
+                                    _argv, context_vid=None, max_depth=max_depth - depth)
+                                if _res is not None and _res.is_controllable:
+                                    return self._cached(cache_key, _res)
+                                # fall through to entry-param fallback below
                     if not list(self._get_dfg_sources(up_vid)):
                         # For Java/Kotlin: check if this is a framework-injected
                         # parameter type (e.g. Authentication, HttpServletRequest).
@@ -2196,7 +4190,38 @@ class GraphAnalyzer:
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0))
 
+                # Fix 42: property node reached mid-BFS — the member-access
+                # pre-check at parameters_back entry never ran for it (the
+                # trace started at a plain variable).  Run the cross-file
+                # property store→load search here so `$q = ... $this->payload[...]`
+                # chains resolve when BFS walks var -> property.
+                if (_vattr(uv, "label", "") == NodeLabel.IDENTIFIER.value
+                        and _vattr(uv, "type", "") in ("field", "property")
+                        and uname):
+                    _r42b = self._cross_file_property_source(up_vid, uname)
+                    if _r42b is not None:
+                        _r42b.path = (path + [cur_vid]
+                                      + (_r42b.path or []))
+                        return self._cached(cache_key, _r42b)
+
                 # Rule 1: superglobal
+                # Fix 49d: node-level source annotation (enrich_taint 3z) —
+                # file-scoped source variables (Vue props, JS/TS).  The BFS
+                # never consumed identifier taint_type, so a 'settings' prop
+                # standing right on the source node was reported Inconclusive.
+                # 49d-v2: sink 所指实例可能不是被标注的那个(文件内同名标识符
+                # 多个实例)—— 本节点无标注时回退查「同文件同名」的标注。
+                if ulabel == NodeLabel.IDENTIFIER.value and uname:
+                    _nt = _vattr(uv, "taint_type", "")
+                    if _nt == "safe":
+                        pass  # 显式安全标注优先
+                    elif _nt == "source" or self._file_scoped_source_named(up_vid, uname):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"annotated source variable '{uname}' (file-scoped)",
+                            chain=[{"step": "annotated_source", "vid": up_vid,
+                                    "name": uname, "code": 1}],
+                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
                 if self._is_source_variable(uname):
                     # $_SERVER/$_FILES have mixed controllability per key — check if all
                     # member children in this file are non-source keys
@@ -2282,9 +4307,26 @@ class GraphAnalyzer:
                 # Rule 1b: member/field identifier — check full_text and member
                 # chain for source (e.g., environ → os.environ → source)
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
+                    # Fix 106 (CVE-2026-126482): BFS reached a $_FILES member
+                    # node mid-walk (e.g. past a `?? null` wrapper — dfg
+                    # attaches to the mid-chain node, the tmp_name leaf is a
+                    # member-OUT child). The pb-entry pre-check never ran for
+                    # it. Judge the uploaded-file tmp_name chain HERE.
+                    _uf106 = self._uploaded_file_tmp_name_source(up_vid)
+                    if _uf106:
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=(f"uploaded file path '{_uf106}' — file "
+                                    f"content is attacker-controlled"),
+                            chain=[{"step": "uploaded_file_source",
+                                    "vid": up_vid, "name": _uf106, "code": 1}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
                     full_text = _vattr(uv, "full_text", "")
                     if full_text and full_text != uname:
-                        if self._is_source_variable(full_text):
+                        if self._is_source_variable(
+                                full_text,
+                                _vattr(uv, "file_path", "") or _vattr(uv, "path", "")):
                             # Respect taint_type=safe from enrich_taint
                             if _vattr(uv, "taint_type", "") == "safe":
                                 pass
@@ -2322,6 +4364,21 @@ class GraphAnalyzer:
 
                 # Rule 2: constant — skip, keep searching
                 if ulabel == NodeLabel.CONST.value:
+                    # Fix 85b (CVE-2026-44566 Open WebUI): a CONST node that
+                    # HAS dfg in-edges is a string-interpolation template
+                    # (python f-string/JoinedStr: the normalizer links each
+                    # interpolated expression into the const node via dfg).
+                    # The old unconditional skip made every f-string a taint
+                    # dead-end — `f"{DIR}/{file.filename}"` never traced back
+                    # to its placeholders. A pure literal has NO dfg in-edges
+                    # and stays terminal. Only enqueue the interpolated parts;
+                    # the const itself is never a source.
+                    _f85 = [s for s in self._get_dfg_sources(up_vid)
+                            if s not in visited]
+                    if _f85 and depth + 1 < max_depth:
+                        for _f85v in _f85:
+                            visited.add(_f85v)
+                            queue.append((_f85v, depth + 1, new_path + [_f85v]))
                     continue
 
                 # Rule 2b: binary_op / subscript / call / statement (e.g., sys.argv[0],
@@ -2329,6 +4386,85 @@ class GraphAnalyzer:
                 # variable (the object being indexed/called).  DFG only flows
                 # from the operator to its result; the indexed/called object is
                 # connected via ast edges, not dfg.
+                # Fix 68: framework method-call sources (Java) — the call's
+                # own dotted name (request.getInputStream) IS the source.
+                # Rule 2b below (a) only fires for binary_op/subscript/call
+                # types (static_call misses it) and (b) only checks ast
+                # children (the receiver identifier 'request'), so bare
+                # receiver names miss member-registered sources.  Check the
+                # call node's own name first, for every call form.
+                # Fix 69: PHP framework method-call sources too.  A bare
+                # method-call op node ('get') never carries the receiver; the
+                # registry knows '$wp_query.get'.  Reconstruct $recv.method
+                # from the ast callee + dfg receiver and consult the registry.
+                if (ulabel == NodeLabel.OPERATOR.value
+                        and utype in _CALL_TYPES
+                        and self.language == 'php'):
+                    _meth69 = ""
+                    for _e69 in self._edge_out(up_vid, "ast"):
+                        if _vattr(_e69, "role", "") == "callee":
+                            _meth69 = _vattr(self.graph.vs[_e69.target], "name", "")
+                            break
+                    if _meth69:
+                        _recv69 = ""
+                        for _e69r in self._edge_in(up_vid, "dfg"):
+                            _rv = self.graph.vs[_e69r.source]
+                            if (_vattr(_rv, "label", "") == NodeLabel.IDENTIFIER.value
+                                    and str(_vattr(_rv, "name", "")).startswith("$")):
+                                _recv69 = _vattr(_rv, "name", "")
+                                break
+                        if _recv69:
+                            _n69 = f"{_recv69}.{_meth69}"
+                            if self._is_source_variable(_n69):
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"framework call source '{_n69}' (Fix 69)",
+                                    chain=[{"step": "call_source", "vid": up_vid,
+                                            "name": _n69, "code": -1}],
+                                    path=[start_vid, up_vid],
+                                    expr_lineno=_vattr(sv, "lineno", 0)))
+                if (self.language == 'java'
+                        and ulabel == NodeLabel.OPERATOR.value
+                        and utype in _CALL_TYPES):
+                    _c68 = _vattr(self.graph.vs[up_vid], "name", "")
+                    if _c68 and "." in _c68 and self._is_java_call_source(_c68):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=f"framework call source '{_c68}' (Fix 68)",
+                            chain=[{"step": "call_source", "vid": up_vid,
+                                    "name": _c68, "code": -1}],
+                            path=[start_vid, up_vid],
+                            expr_lineno=_vattr(sv, "lineno", 0)))
+                # Fix 93 (CVE-2026-29080): python member-chain receiver
+                # sources — `request.args.get('k')` is the canonical Flask
+                # idiom, semantically `request.args['k']`.  The method-call op
+                # node's name is only the bare method ('get') and the receiver
+                # ('request.args') connects via a dfg edge, not ast — so Rule
+                # 2b's ast-children scan below can never see it.  Rebuild the
+                # receiver's member chain and consult the registry: an
+                # accessor call on a source container returns source data.
+                # Scoped to python (php has Fix 69 registry reconstruction).
+                if (self.language == "python"
+                        and ulabel == NodeLabel.OPERATOR.value
+                        and utype == "method_call"):
+                    for _e93 in self._edge_in(up_vid, "dfg"):
+                        _rv93 = self.graph.vs[_e93.source]
+                        if _vattr(_rv93, "label", "") != NodeLabel.IDENTIFIER.value:
+                            continue
+                        _rn93 = _vattr(_rv93, "name", "")
+                        if not _rn93:
+                            continue
+                        if _vattr(_rv93, "taint_type", "") == "safe":
+                            continue
+                        _chain93 = self._is_source_via_member_chain(_e93.source, _rn93)
+                        if _chain93:
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=f"superglobal '{_chain93}' via member-chain accessor call",
+                                chain=[{"step": "member_chain_source", "vid": _e93.source,
+                                        "name": _chain93, "code": 1}],
+                                path=new_path + [_e93.source],
+                                expr_lineno=_vattr(sv, "lineno", 0)))
                 if (ulabel == NodeLabel.OPERATOR.value and utype in (
                     "binary_op", "subscript", "call",
                 )):
@@ -2375,14 +4511,14 @@ class GraphAnalyzer:
                                 _is_safe_call = True
                             else:
                                 # Check func_summary_type via use edge
-                                for _ue in self.graph.es.select(_source=up_vid, label="use"):
+                                for _ue in self._edge_out(up_vid, "use"):
                                     _fvid = _ue.target
                                     if _fvid < self.graph.vcount():
                                         _fv = self.graph.vs[_fvid]
                                         if _vattr(_fv, "func_summary_type", "") == "safe":
                                             _is_safe_call = True
                                             break
-                    for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                    for ae in self._edge_out(up_vid, "ast"):
                         # If this call's callee is a known safe function (sanitizer),
                         # skip all AST children — the return value is not tainted.
                         if _is_safe_call:
@@ -2504,26 +4640,130 @@ class GraphAnalyzer:
                             path=new_path,
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
+                # Fix 78j (CVE-2026-41478): JS/TS property READ.  The JS
+                # normalizer folds every MemberExpression into an operator
+                # typed method_call — including pure reads like
+                # `syncInfo.maxLoadedId` (no call parens).  Distinguisher:
+                # a real call carries ast[arg] children, a read does not.
+                # Without this guard the call rules (3/3b/4) treat the read
+                # as an unresolved method call, record an inconclusive
+                # fallback and skip its DFG upstream — every
+                # tainted-property-read chain died at the read site.  Reads
+                # must fall through to the generic BFS continuation and
+                # Rule 5 member handling (base object via member edge).
+                _js_prop_read = (
+                    ulabel == NodeLabel.OPERATOR.value
+                    and utype in _CALL_TYPES
+                    and not any(
+                        _vattr(_ae, "role", "") == "arg"
+                        for _ae in self._edge_out(up_vid, "ast"))
+                    and (_vattr(uv, "language", "")
+                         or self.language or "") in (
+                        "javascript", "typescript", "nodejs", "js")
+                    and _vattr(uv, "raw_type", "") in (
+                        "MemberExpression", "StaticMemberExpression",
+                        "ComputedMemberExpression")
+                )
+
                 # Rule 3: repair function
-                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
-                    callee = self._resolve_callee_name(up_vid)
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES \
+                        and not _js_prop_read:
+                    callee = self._qualify_callee(
+                        up_vid, self._resolve_callee_name(up_vid))
+                    # Fix 52g: a repair call nested as an ARG of a non-safe
+                    # outer call does not decide the outer return value
+                    # (same semantics as the 52f safe short-circuit veto).
                     if callee and self._is_repair_function(callee):
-                        return self._cached(cache_key, AnalysisResult(
-                            code=2, reason=f"repair '{callee}'",
-                            chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
-                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                        _nested_arg = False
+                        for _pe in self._edge_in(up_vid, "ast"):
+                            if _vattr(_pe, "role", "") != "arg":
+                                continue
+                            _outer = self.graph.vs[_pe.source]
+                            if (_vattr(_outer, "label", "") == NodeLabel.OPERATOR.value
+                                    and _vattr(_outer, "type", "") in ("call", "method_call", "static_call")
+                                    and _vattr(_outer, "taint_type", "") != "safe"
+                                    and _pe.source != up_vid):
+                                _nested_arg = True
+                                break
+                        if not _nested_arg:
+                            # Fix 74: a repair verdict on ONE operand of a
+                            # multi-source merge (concat operand, or an
+                            # identifier with several assignments) must not
+                            # decide the whole trace — sibling routes may
+                            # still reach a source.  CVE-2026-41228:
+                            # dirname(__DIR__, 2) . sprintf(..., $iso) —
+                            # dirname was judged repair and returned code=2
+                            # for the entire concat before the sprintf/$iso
+                            # side was ever visited.  Record the proof and
+                            # CONTINUE (same semantics as Fix 34c for
+                            # assign-RHS repair); it only becomes the result
+                            # at exhaustion, when every route ends clean.
+                            _sib_sources = [
+                                s for s in self._get_dfg_sources(cur_vid)
+                                if s != up_vid]
+                            if _sib_sources:
+                                if repaired_result is None:
+                                    repaired_result = AnalysisResult(
+                                        code=2, reason=f"repair '{callee}' (sibling operands present)",
+                                        chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
+                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                                continue
+                            return self._cached(cache_key, AnalysisResult(
+                                code=2, reason=f"repair '{callee}'",
+                                chain=[{"step": "dfg", "vid": up_vid, "name": callee, "code": 2}],
+                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 3b: superglobal method call (e.g., request.GET.get() in Python)
-                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES \
+                        and not _js_prop_read:
                     # Rule 3a2: call to function with func_summary_type="safe"
                     # or taint_type="safe" on the function definition node.
                     # This catches user-defined sanitizer functions (e.g.,
                     # stripinput() that wraps htmlspecialchars) that were
                     # marked safe by build_function_summaries.
                     call_lang = _vattr(self.graph.vs[up_vid], "language", "")
-                    for ue in self.graph.es.select(_source=up_vid, label="use"):
+                    # Fix 99 (CVE-2026-29080): source-receiver veto for the
+                    # bare-name safe lookups below. `request.args.get('k')`
+                    # binds the bare method name 'get' via its use edge to an
+                    # unrelated same-language `def get()` marked safe
+                    # (bare-name hijack, the FP/FP-blindness mirror of the
+                    # sink short-name ban) — the safe verdict then kills the
+                    # chain at its FIRST hop. An accessor call whose dfg
+                    # receiver is a registry source container returns source
+                    # data and can never be safe. Mirrors the repair-side
+                    # source-registry veto (_is_repair_function).
+                    _src_recv_99 = None
+                    if (self.language == "python"
+                            and ulabel == NodeLabel.OPERATOR.value
+                            and utype == "method_call"):
+                        for _e99 in self._edge_in(up_vid, "dfg"):
+                            _rv99 = self.graph.vs[_e99.source]
+                            if _vattr(_rv99, "label", "") != NodeLabel.IDENTIFIER.value:
+                                continue
+                            _rn99 = _vattr(_rv99, "name", "")
+                            if not _rn99 or _vattr(_rv99, "taint_type", "") == "safe":
+                                continue
+                            _c99 = self._is_source_via_member_chain(_e99.source, _rn99)
+                            if _c99:
+                                _src_recv_99 = _c99
+                                break
+                    # Fix 131 (CVE-2026-111217 anchor W1): a safe-callee route
+                    # must NOT terminate the whole walk when other routes are
+                    # still pending.  Http::redirect($url)'s param node carries
+                    # dfg in-edges from 13 call-site bindings; the BFS popped
+                    # thread_actions.php:472's getCreateTicketUrl() (safe
+                    # summary) before main.inc.php:43's tainted $_SERVER
+                    # concat, so the first examined binding masked the tainted
+                    # one — order-dependent blindness (osticket
+                    # class.http.php:79 anchor row).  Defer the proof into
+                    # repaired_result (Fix 34c exhausted-fallback family) and
+                    # skip to the next queue item WITHOUT descending into the
+                    # safe call's arguments (its params are sanitized by
+                    # definition — walking them would FP every safe wrapper).
+                    _route_safe_131 = False
+                    for ue in self._edge_out(up_vid, "use"):
                         tgt = self.graph.vs[ue.target]
-                        if _vattr(tgt, "label") != NodeLabel.FUNCTION.value:
+                        if _vattr(tgt, "label", "") != NodeLabel.FUNCTION.value:
                             continue
                         # In multi-language graphs, skip functions from
                         # other languages to prevent cross-language taint
@@ -2542,29 +4782,82 @@ class GraphAnalyzer:
                                 continue
                         tgt_taint = _vattr(tgt, "taint_type", "")
                         tgt_summary = _vattr(tgt, "func_summary_type", "")
-                        if tgt_taint == "safe" or tgt_summary == "safe":
-                            return self._cached(cache_key, AnalysisResult(
-                                code=2, reason=f"safe function '{_vattr(tgt, 'name', '')}'",
-                                chain=[{"step": "dfg", "vid": up_vid,
-                                        "name": _vattr(tgt, "name", ""), "code": 2}],
-                                path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                        if (tgt_taint == "safe" or tgt_summary == "safe") \
+                                and not _src_recv_99:
+                            # Fix 142h: a different-class safe def on a
+                            # python method_call that has a same-class def
+                            # among its use targets is a bare-name hijack —
+                            # the veto may not stand (and must not even
+                            # defer this route); keep walking the
+                            # remaining use targets.
+                            _hj_142h = self._safe_veto_hijack_pred(up_vid, utype == "method_call")
+                            if _hj_142h is not None and _hj_142h(ue.target):
+                                continue
+                            # Fix 131: defer (see comment above) — stash the
+                            # sanitation proof, keep walking sibling routes.
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=2, reason=f"safe function '{_vattr(tgt, 'name', '')}'",
+                                    chain=[{"step": "dfg", "vid": up_vid,
+                                            "name": _vattr(tgt, "name", ""), "code": 2}],
+                                    path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                            _route_safe_131 = True
+                            break
                         # Check all same-name function nodes for safe summary.
                         # PHP normalizer sometimes creates duplicate function
                         # nodes (definition vs reference). If ANY same-name
                         # node has summary=safe, treat as safe.
                         tgt_name = _vattr(tgt, "name", "")
                         if tgt_name and tgt_summary != "safe" and tgt_taint != "safe":
-                            for sv in self.graph.vs.select(name=tgt_name, label=NodeLabel.FUNCTION.value):
+                            # Fix 53-perf: graph.vs.select(name=...) is a full
+                            # O(V) scan fired per call-edge check; use the
+                            # _nname index bucket instead.
+                            for sv_vid in self._nname.get((NodeLabel.FUNCTION.value, tgt_name), []):
+                                sv = self.graph.vs[sv_vid]
                                 sv_lang = _vattr(sv, "language", "")
                                 if sv_lang and sv_lang != self.language:
                                     continue
+                                # Fix 61: language-less EXTERNAL stubs (e.g. JS
+                                # express `app.get` synthesized into a mixed
+                                # graph) must never contribute a safe verdict
+                                # to another language's backtrace via the
+                                # same-name shortcut. Only same-language
+                                # definitions may declare a name "safe".
+                                if not sv_lang and _vattr(sv, "is_external", False):
+                                    continue
                                 if _vattr(sv, "func_summary_type", "") == "safe" or _vattr(sv, "taint_type", "") == "safe":
-                                    return self._cached(cache_key, AnalysisResult(
-                                        code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
-                                        chain=[{"step": "dfg", "vid": up_vid,
-                                                "name": tgt_name, "code": 2}],
-                                        path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                                    if _src_recv_99:
+                                        # Fix 99 veto — source receiver; the
+                                        # same-name safe def is a hijack.
+                                        break
+                                    # Fix 142h: same identity proof as the
+                                    # direct branch — a different-class
+                                    # same-name safe def may not veto a
+                                    # python method_call that owns a
+                                    # same-class def.
+                                    _hj_142h = self._safe_veto_hijack_pred(up_vid, utype == "method_call")
+                                    if _hj_142h is not None and _hj_142h(sv_vid):
+                                        continue
+                                    if os.environ.get("KUNLUN_SAFE_DBG"):
+                                        with open("/tmp/kunlun_safe_dbg.log", "a") as _f:
+                                            _f.write("SAMENAME up=%d fn=%s\n" % (up_vid, tgt_name))
+                                    # Fix 131: defer — same exhausted-fallback
+                                    # treatment as the direct-callee branch.
+                                    if repaired_result is None:
+                                        repaired_result = AnalysisResult(
+                                            code=2, reason=f"safe function '{tgt_name}' (via same-name lookup)",
+                                            chain=[{"step": "dfg", "vid": up_vid,
+                                                    "name": tgt_name, "code": 2}],
+                                            path=new_path, expr_lineno=_vattr(uv, "lineno", 0))
+                                    _route_safe_131 = True
+                                    break
                         break  # only check first function target
+                    if _route_safe_131:
+                        # Fix 131: this route is provably clean — skip it (do
+                        # NOT walk the safe call's arguments) and let the BFS
+                        # try the remaining queue items; the stashed proof is
+                        # returned only if every route ends clean.
+                        continue
 
                     is_sg, sg_name = self._is_superglobal_method_call(up_vid)
                     if is_sg:
@@ -2587,7 +4880,7 @@ class GraphAnalyzer:
                         if node_taint == "source:user":
                             # Find function def via use edge
                             func_def_vid = None
-                            for ue in self.graph.es.select(_source=up_vid, label="use"):
+                            for ue in self._edge_out(up_vid, "use"):
                                 if _vattr(self.graph.vs[ue.target], "label") == NodeLabel.FUNCTION.value:
                                     func_def_vid = ue.target
                                     break
@@ -2606,12 +4899,13 @@ class GraphAnalyzer:
                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
 
                 # Rule 4: function call — cg → function(taint_type) → parameter(passthrough_arg)
-                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES:
+                if ulabel == NodeLabel.OPERATOR.value and utype in _CALL_TYPES \
+                        and not _js_prop_read:
                     callee = self._resolve_callee_name(up_vid)
 
                     # Count actual args at the call site for overload resolution.
                     call_arg_count = 0
-                    for _ae in self.graph.es.select(_source=up_vid, label="ast"):
+                    for _ae in self._edge_out(up_vid, "ast"):
                         if _vattr(_ae, "role", "") == "arg":
                             call_arg_count += 1
 
@@ -2625,31 +4919,89 @@ class GraphAnalyzer:
                     # can miss safe/passthrough annotations on the real def.
                     # Also resolve overloads: prefer function defs whose
                     # parameter count matches the call site.
-                    use_targets = list(self.graph.es.select(_source=up_vid, label="use"))
+                    use_targets = list(self._edge_out(up_vid, "use"))
+                    # Fix 142g (CVE-2026-104126 JumpServer): python
+                    # self-method calls bind bare-name use edges to EVERY
+                    # same-named def in the corpus.  `self.generate(path_dir)`
+                    # inside JMSInventory picked NodeAssetsUtil.generate
+                    # (arity 1 == 1 explicit arg, first in use order) over
+                    # the true JMSInventory.generate(self, path_dir) — the
+                    # implicit receiver slot skews arity and vertex order
+                    # wins the tie.  Two python-scoped refinements:
+                    # (a) a def whose first parameter is literally `self`
+                    #     has one implicit receiver slot, so for
+                    #     method_call sites its effective arity is
+                    #     param_count-1;
+                    # (b) a def owned by the SAME class as the call site
+                    #     jumps the whole candidate queue (Fix 137f java
+                    #     doctrine — enclosing-class-first resolution; the
+                    #     same-class def IS the genuine callee, so its
+                    #     annotations/vetoes also stand, Fix 101 asymmetry).
+                    _call_cls_142g = None
+                    _def_class_142g = None
+                    if self.language == "python":
+                        _hop = up_vid
+                        for _ in range(24):
+                            _pars = [e.source for e in self._edge_in(_hop, "own")] or \
+                                [e.source for e in self._edge_in(_hop, "ast")]
+                            if not _pars:
+                                break
+                            _hop = _pars[0]
+                            if _vattr(self.graph.vs[_hop], "label", "") == "class":
+                                _call_cls_142g = _hop
+                                break
+
+                        def _def_class_142g(fvid):
+                            for pe in self._edge_in(fvid, "own"):
+                                pl = _vattr(self.graph.vs[pe.source], "label", "")
+                                if pl == "class":
+                                    return pe.source
+                                if pl == "function":
+                                    for pe2 in self._edge_in(pe.source, "own"):
+                                        if _vattr(self.graph.vs[pe2.source], "label", "") == "class":
+                                            return pe2.source
+                            return None
                     # Partition: matching param count vs non-matching
                     matching_arity = []
                     other = []
+                    _same_class_142g = []
                     for ce in use_targets:
                         fv = self.graph.vs[ce.target]
                         if _vattr(fv, "label") != NodeLabel.FUNCTION.value:
                             continue
                         # Count function def parameters
                         param_count = sum(
-                            1 for pe in self.graph.es.select(_source=ce.target, label="own")
+                            1 for pe in self._edge_out(ce.target, "own")
                             if _vattr(self.graph.vs[pe.target], "label", "") == "parameter"
                         )
-                        if param_count == call_arg_count:
+                        _eff_arity = param_count
+                        if (self.language == "python"
+                                and utype == "method_call"
+                                and param_count >= 1):
+                            _fp = None
+                            for pe in self._edge_out(ce.target, "own"):
+                                if _vattr(self.graph.vs[pe.target], "label", "") == "parameter":
+                                    _fp = _vattr(self.graph.vs[pe.target], "name", "")
+                                    break
+                            if _fp == "self":
+                                _eff_arity = param_count - 1
+                        if (_call_cls_142g is not None
+                                and _def_class_142g is not None
+                                and _def_class_142g(ce.target) == _call_cls_142g):
+                            _same_class_142g.append(ce)
+                        elif _eff_arity == call_arg_count:
                             matching_arity.append(ce)
                         else:
                             other.append(ce)
-                    # Search matching-arity targets first, then fall back
-                    for ce in matching_arity + other:
+                    # Search same-class targets first, then matching-arity,
+                    # then fall back
+                    for ce in _same_class_142g + matching_arity + other:
                         fv = self.graph.vs[ce.target]
-                        ft = _vattr(fv, "taint_type", "")
+                        ft = _vattr(fv, "taint_type", "") or _vattr(fv, "func_summary_type", "")  # Fix 46e-2
                         if ft:
                             # Found an annotated function — use it
                             func_vid = ce.target
-                            func_taint = ft
+                            func_taint = _vattr(fv, "taint_type", "") or ft
                             break
                         # Remember the first unannotated function as fallback
                         if func_vid is None:
@@ -2658,12 +5010,48 @@ class GraphAnalyzer:
                     # If the use-edge target has no taint annotation, follow
                     # alias edges to find the real function definition that
                     # does (e.g. placeholder node → alias → Core_Upgrader.upgrade).
+                    # Fix 101 (CVE-2026-29080 gates): the alias-follow is a
+                    # BARE-NAME match over a same-name hub — an external
+                    # placeholder fans out to every same-named def in the
+                    # corpus.  A 'safe' taint_type picked up that way is a
+                    # VETO (kills the chain), so it needs identity proof, not
+                    # a name coincidence: when the call site resolved a
+                    # QUALIFIED callee (static Class::m / typed receiver),
+                    # a bare-name alias target's 'safe' may not decide it
+                    # (osticket: `Ticket::lookup($child[0])` was vetoed by
+                    # ajax.orgs.php's unrelated zero-arg lookup() whose safe
+                    # summary Fix 98a started syncing to taint_type —
+                    # ticket-relations.inc.php:27/30 died).  source/passthrough
+                    # annotations stay acceptable: over-approximation must
+                    # favour detection; only vetoes require proof (same
+                    # asymmetry as Fix 93/99).  Refined: the veto is skipped
+                    # only when the safe def belongs to a DIFFERENT class than
+                    # the callee's prefix — a same-class def is the genuine
+                    # target and its veto stands.
+                    _callee_qualified = isinstance(callee, str) and "." in callee
+                    _callee_cls = callee.split(".", 1)[0] if _callee_qualified else None
                     if not func_taint and func_vid is not None:
-                        for ae in self.graph.es.select(_source=func_vid, label="alias"):
+                        for ae in self._edge_out(func_vid, "alias"):
                             av = self.graph.vs[ae.target]
                             if _vattr(av, "label") == NodeLabel.FUNCTION.value:
                                 at = _vattr(av, "taint_type", "")
                                 if at:
+                                    if at == "safe" and _callee_qualified:
+                                        # Class identity proof: the alias fanout
+                                        # is bare-name, so a 'safe' def may only
+                                        # veto a qualified callee when the def
+                                        # belongs to the callee's own class
+                                        # (OrgsAjaxAPI::lookup must not veto
+                                        # Ticket::lookup).  A same-class def IS
+                                        # the callee's def — veto stands.
+                                        _av_cls = None
+                                        for _oe in self._edge_in(ae.target, "own"):
+                                            _pv = self.graph.vs[_oe.source]
+                                            if _vattr(_pv, "label", "") == "class":
+                                                _av_cls = _vattr(_pv, "name", "")
+                                                break
+                                        if _av_cls != _callee_cls:
+                                            continue
                                     func_vid = ae.target
                                     func_taint = at
                                     break
@@ -2674,6 +5062,24 @@ class GraphAnalyzer:
                         func_taint = _vattr(uv, "taint_type", "")
                         if func_taint:
                             func_vid = up_vid
+
+                    # Fix 81 (CVE-2026-32613): a builtin passthrough annotation
+                    # on the CALL node wins over a name-matched def.  Java
+                    # method calls like `source.toString()` bind their use
+                    # edge to an unrelated same-name user def (bare-name
+                    # cross-file hijack — kork has ~14 user toString defs,
+                    # some safe-summarized as constant returns); that hijack
+                    # then vetoes the chain as "safe" even though the java
+                    # builtin catalog already annotated THIS call node as
+                    # passthrough (receiver-derived String conversion).
+                    # Scope: java + call node carries indexed passthrough.
+                    if (self.language == "java"
+                            and func_taint not in ("", "passthrough")
+                            and _vattr(uv, "taint_type", "") == "passthrough"
+                            and any(isinstance(i, int) for i in
+                                    (_vattr(uv, "taint_passthrough", []) or []))):
+                        func_vid = up_vid
+                        func_taint = "passthrough"
 
                     # 4a: source — 函数本身产生可控数据
                     if func_taint == "source" or func_taint == "source:user":
@@ -2693,24 +5099,97 @@ class GraphAnalyzer:
                             expr_lineno=_vattr(uv, "lineno", 0)))
 
                     # 4b: safe — 函数过滤，不可控
+                    # Fix 52h: a safe-marked call nested as an ARG of a
+                    # non-safe outer call does not decide the outer return
+                    # (trim inside Utility::getFilePath passthrough) — same
+                    # veto as 52f/52g.
                     if func_taint == "safe":
-                        return self._cached(cache_key, AnalysisResult(
-                            code=-1, reason=f"taint safe '{callee}'",
-                            chain=[{"step": "taint_safe", "vid": func_vid,
-                                    "name": callee, "code": -1}],
-                            path=new_path,
-                            expr_lineno=_vattr(uv, "lineno", 0)))
+                        _nested_arg = False
+                        for _pe in self._edge_in(up_vid, "ast"):
+                            if _vattr(_pe, "role", "") != "arg":
+                                continue
+                            _outer = self.graph.vs[_pe.source]
+                            if (_vattr(_outer, "label", "") == NodeLabel.OPERATOR.value
+                                    and _vattr(_outer, "type", "") in ("call", "method_call", "static_call")
+                                    and _vattr(_outer, "taint_type", "") != "safe"
+                                    and _pe.source != up_vid):
+                                _nested_arg = True
+                                break
+                        if not _nested_arg:
+                            # Fix 78i (CVE-2026-41478): a safe verdict on ONE
+                            # branch must not decide the whole trace — the
+                            # branch may be a single sanitized PART of a
+                            # multi-part container (JS template literal:
+                            # `...${db.sqlsanitize(tblName)}...${syncInfo.
+                            # maxLoadedId}...` — the sqlsanitize part is
+                            # safe, the maxLoadedId part is attacker SQL).
+                            # Mirror Fix 34c: record the proof and CONTINUE
+                            # so sibling routes keep tracing; the proof only
+                            # becomes the verdict at exhaustion (all routes
+                            # clean).  A genuinely-controllable sibling still
+                            # returns immediately at its own rule hit.
+                            if repaired_result is None:
+                                repaired_result = AnalysisResult(
+                                    code=-1, reason=f"taint safe '{callee}'",
+                                    chain=[{"step": "taint_safe", "vid": func_vid,
+                                            "name": callee, "code": -1}],
+                                    path=new_path,
+                                    expr_lineno=_vattr(uv, "lineno", 0))
+                            continue
+
+                    # Fix 46e-6: passthrough stub without a body carries no
+                    # taint_passthrough/func_summary_pt (empty pt list below).
+                    # Prefer a same-name definition WITH parameters that also
+                    # carries a passthrough summary — its pt indices apply.
+                    # Fix 46e-7: find_function_def is a graph-wide search;
+                    # running it per method-call wedged the sink loop
+                    # (12634 sinks × O(nodes)).  Memoize per stub vid.
+                    if func_vid is not None:
+                        _stub_pt = (_vattr(self.graph.vs[func_vid], "taint_passthrough", [])
+                                    or _vattr(self.graph.vs[func_vid], "func_summary_pt", []))
+                        if not _stub_pt and self.language == "php":
+                            _memo = getattr(self, "_stub_pt_memo", None)
+                            if _memo is None:
+                                _memo = {}
+                                self._stub_pt_memo = _memo
+                            if func_vid in _memo:
+                                _m = _memo[func_vid]
+                                if _m is not None:
+                                    func_vid = _m
+                                    func_taint = "passthrough"
+                            else:
+                                _bare = callee.rsplit(".", 1)[-1] if callee else ""
+                                _found = None
+                                if _bare:
+                                    for fv2 in self.find_function_def(_bare, from_vid=up_vid):
+                                        if fv2 == func_vid:
+                                            continue
+                                        _pt2 = (_vattr(self.graph.vs[fv2], "taint_passthrough", [])
+                                                or _vattr(self.graph.vs[fv2], "func_summary_pt", []))
+                                        if _pt2:
+                                            _found = fv2
+                                            break
+                                _memo[func_vid] = _found
+                                if _found is not None:
+                                    func_vid = _found
+                                    func_taint = "passthrough"
 
                     # 4c: passthrough — 读 function.taint_passthrough 常驻属性
                     #     function.taint_passthrough 与 parameter.taint_type="passthrough_arg"
                     #     是同一数据的两个视图：反向分析走 function，正向分析走 parameter
                     #     形参 index → 映射到 call 的 ast[role=arg] → 追踪实参
-                    if func_taint == "passthrough" and func_vid is not None:
+                    # Fix 46e: build_function_summaries writes
+                    # func_summary_type / func_summary_pt on function nodes,
+                    # but the taint-attribute sync pass (scanner) only covers
+                    # some same-name duplicates — use-edge targets can carry
+                    # the summary without the taint attributes.  Accept both.
+                    _fs_type = _vattr(self.graph.vs[func_vid], "func_summary_type", "") if func_vid is not None else ""
+                    if (func_taint == "passthrough" or _fs_type == "passthrough") and func_vid is not None:
                         # 优先追溯 receiver passthrough (this/self)
                         if _vattr(self.graph.vs[func_vid], "taint_receiver_pt", False):
                             receiver_result = self._trace_call_receiver(
                                 up_vid, callee, context_vid,
-                                max_depth - depth, new_path)
+                                max(max_depth - depth, 24), new_path)
                             if receiver_result is not None:
                                 return self._cached(cache_key, receiver_result)
 
@@ -2735,35 +5214,89 @@ class GraphAnalyzer:
 
                         # 位置参数 passthrough：读 function 节点的常驻属性
                         tp = _vattr(self.graph.vs[func_vid], "taint_passthrough", [])
+                        if not tp:
+                            tp = _vattr(self.graph.vs[func_vid], "func_summary_pt", [])  # Fix 46e
+                        if not tp:
+                            # Fix 80c (CVE-2026-32613): knowledge_bridge's
+                            # builtin lookup writes taint_passthrough on the
+                            # CALL node itself (e.g. Function.apply via
+                            # receiver-declared-type lookup — kork
+                            # stringExpressionPreprocessor.apply feeding SpEL
+                            # parseExpression).  When the resolved func_vid
+                            # is a shell stub that carries taint_type=
+                            # "passthrough" but no positional indices (the
+                            # scanner sync copies taint_type only), the
+                            # call node's own annotation is the only place
+                            # the indices exist — fall back to it.
+                            tp = _vattr(uv, "taint_passthrough", []) or []
                         pt_param_indices: set[int] = set(
                             int(i) for i in tp if isinstance(i, int)
                         )
+                        # Fix 81 (CVE-2026-32613): zero-arg java method calls —
+                        # a catalog passthrough index [0] on `x.toString()` /
+                        # `x.trim()` refers to the RECEIVER (the String/Object
+                        # the result derives from), not a positional arg that
+                        # doesn't exist.  Trace the receiver when the call has
+                        # no positional args.
+                        if (pt_param_indices
+                                and self.language == "java"
+                                and not any(_vattr(ae, "role", "") == "arg"
+                                            for ae in self._edge_out(up_vid, "ast"))):
+                            _recv81 = self._trace_call_receiver(
+                                up_vid, callee, context_vid,
+                                max(max_depth - depth, 24), new_path)
+                            if _recv81 is not None and _recv81.is_controllable:
+                                return self._cached(cache_key, _recv81)
                         # 映射到 call 的实参
                         if pt_param_indices:
                             arg_counter = 0
-                            for ae in self.graph.es.select(_source=up_vid, label="ast"):
+                            for ae in self._edge_out(up_vid, "ast"):
                                 if _vattr(ae, "role") != "arg":
                                     continue
                                 idx = _vattr(ae, "index")
                                 actual_idx = int(idx) if idx else arg_counter
                                 if actual_idx in pt_param_indices:
                                     arg_vid = ae.target
+                                    # Fix 42h: skip PHP array-literal pseudo-calls
+                                    # ('array()' renders as a call node).  A
+                                    # literal default like GetPayload(k, [])
+                                    # carries no taint; tracing it only wedges
+                                    # the BFS on the 'array' empty shell and
+                                    # masks the receiver-member route the 4d
+                                    # body trace would find.
+                                    _av_type = _vattr(self.graph.vs[arg_vid], "type", "")
+                                    _av_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                                    if (self.language == "php"
+                                            and _av_type in ("call", "method_call")
+                                            and _av_name == "array"):
+                                        arg_counter += 1
+                                        continue
                                     # Try tracing arg_vid directly via dfg first;
                                     # only fall back to _find_identifier_by_name (which
                                     # searches the whole graph by name) when the arg has
                                     # no local dfg sources (e.g. bare unbound identifier).
-                                    dep_res = self.parameters_back(
-                                        arg_vid, context_vid,
-                                        max_depth - depth)
-                                    if dep_res is None or not dep_res.is_controllable:
-                                        arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
-                                        if arg_name and dep_res is None:
-                                            dep_vid = self._find_identifier_by_name(
-                                                arg_name, context_vid)
-                                            if dep_vid is not None:
-                                                dep_res = self.parameters_back(
-                                                    dep_vid, context_vid,
-                                                    max_depth - depth)
+                                    # Fix 106: inside a file-content reader's path arg,
+                                    # $_FILES[...]['tmp_name'] is an uploaded-file
+                                    # source (content, not path, is attacker data).
+                                    _reader_ctx = callee in _FILE_CONTENT_READERS
+                                    if _reader_ctx:
+                                        self._file_read_arg_depth += 1
+                                    try:
+                                        dep_res = self.parameters_back(
+                                            arg_vid, context_vid,
+                                            max(max_depth - depth, 24))
+                                        if dep_res is None or not dep_res.is_controllable:
+                                            arg_name = _vattr(self.graph.vs[arg_vid], "name", "")
+                                            if arg_name and dep_res is None:
+                                                dep_vid = self._find_identifier_by_name(
+                                                    arg_name, context_vid)
+                                                if dep_vid is not None:
+                                                    dep_res = self.parameters_back(
+                                                        dep_vid, context_vid,
+                                                        max(max_depth - depth, 24))
+                                    finally:
+                                        if _reader_ctx:
+                                            self._file_read_arg_depth -= 1
                                     if dep_res is not None and dep_res.is_controllable:
                                                 # Branch scope isolation: if the
                                                 # source identifier is outside the
@@ -2785,7 +5318,7 @@ class GraphAnalyzer:
                     if (utype in ("method_call", "static_call")
                             and self._source_registry is not None):
                         _callee_vid = None
-                        for _ae in self.graph.es.select(_source=up_vid, label="ast"):
+                        for _ae in self._edge_out(up_vid, "ast"):
                             if _vattr(_ae, "role") == "callee":
                                 _callee_vid = _ae.target
                                 break
@@ -2804,14 +5337,154 @@ class GraphAnalyzer:
 
                     # 4d: graph-based function trace (unknown or no taint attribute)
                     # Skip if use-edge already resolved the callee — re-searching by
-                    # short name would match unrelated same-named methods across classes.
+                    # short-name search would match unrelated same-named methods across classes.
                     # BUT: if use-edge found a placeholder node (no taint annotation),
                     # still try find_function_def to locate the real definition.
-                    if callee and callee not in self._call_stack and (func_vid is None or not func_taint):
+                    # Fix 42g: also admit PASSTHROUGH callees.  The positional
+                    # passthrough summary ([1] for GetPayload) only covers the
+                    # $default fallback arg; when every pt arg traces
+                    # inconclusive (e.g. GetPayload('src_by', []) → array()),
+                    # the real taint route is the function BODY's receiver
+                    # member read ($this->payload[$key]) — reachable only via
+                    # analyze_function_return.  Arriving here already means no
+                    # pt arg was controllable (4c returns immediately on
+                    # controllable), so the body trace can only add signal.
+                    # Fix 42v: preg_replace with a whitelist charset-strip
+                    # pattern ('#[^a-z0-9@ _\-\.]#i') is a sanitizer — the
+                    # output only contains characters from the class, so no
+                    # attacker-controlled metacharacters survive.  Detect
+                    # BEFORE the general function trace so the call's DFG
+                    # upstream (the tainted subject) is NOT followed.
+                    if (callee == "preg_replace"
+                            and self._preg_replace_whitelist_pattern(up_vid)):
+                        return self._cached(cache_key, AnalysisResult(
+                            code=2,
+                            reason="whitelist charset strip (preg_replace "
+                                   "negated-charclass pattern) sanitizes input",
+                            chain=[{"step": "sanitizer", "vid": up_vid,
+                                    "name": "preg_replace", "code": 2}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Fix 52q: builtin passthrough annotations live on the
+                    # CALL node itself (knowledge_bridge._enrich_from_builtin
+                    # writes taint_type/taint_passthrough there).  When the
+                    # use-edge target is an unannotated shell (excluded
+                    # vendor stub), honor the call node's own annotation.
+                    if (not func_taint
+                            and _vattr(uv, "taint_type", "") == "passthrough"):
+                        func_vid = up_vid
+                        func_taint = "passthrough"
+                        # Fix 79 (CVE-2026-32613): consume the annotation
+                        # HERE. The primary passthrough block (Rule 4, which
+                        # reads taint_receiver_pt / taint_passthrough) runs
+                        # EARLIER in this loop iteration and its condition
+                        # could no longer fire once func_taint was empty at
+                        # that point — so a call node annotated by
+                        # knowledge_bridge (e.g. `e.getValue()` with declared
+                        # receiver type Map.Entry) fell through to
+                        # "unresolved method" and killed the chain.
+                        if _vattr(uv, "taint_receiver_pt", False):
+                            _r79 = self._trace_call_receiver(
+                                up_vid, callee, context_vid,
+                                max(max_depth - depth, 24), new_path)
+                            if _r79 is not None:
+                                return self._cached(cache_key, _r79)
+                        _tp79 = _vattr(uv, "taint_passthrough", []) or []
+                        # Fix 93c: 'all' = 无界元数透传（str.format）——
+                        # 全实参递归，不做索引过滤（int('all') 会抛 ValueError）。
+                        _tp_all79 = "all" in _tp79
+                        if _tp79 and not _tp_all79:
+                            _ac79 = 0
+                            for _ae79 in self._edge_out(up_vid, "ast"):
+                                if _vattr(_ae79, "role") != "arg":
+                                    continue
+                                _ix79 = _vattr(_ae79, "index")
+                                _ai79 = int(_ix79) if _ix79 else _ac79
+                                _ac79 += 1
+                                if _ai79 in set(int(i) for i in _tp79):
+                                    _ar79 = self.parameters_back(
+                                        _ae79.target, context_vid=up_vid,
+                                        max_depth=max(max_depth - depth, 6))
+                                    if _ar79.is_controllable or _ar79.is_repaired:
+                                        _ar79.path = new_path + _ar79.path
+                                        return self._cached(cache_key, _ar79)
+                        elif _tp_all79:
+                            # Fix 93c: 'all' — every positional arg flows into
+                            # the return value; recurse on ALL of them.
+                            for _ae79 in self._edge_out(up_vid, "ast"):
+                                if _vattr(_ae79, "role") != "arg":
+                                    continue
+                                _ar79 = self.parameters_back(
+                                    _ae79.target, context_vid=up_vid,
+                                    max_depth=max(max_depth - depth, 6))
+                                if _ar79.is_controllable or _ar79.is_repaired:
+                                    _ar79.path = new_path + _ar79.path
+                                    return self._cached(cache_key, _ar79)
+                    if callee and callee not in self._call_stack and (
+                            func_vid is None or not func_taint
+                            or func_taint == "passthrough"):
                         # Prefer the use-edge-resolved func_vid when available —
                         # it's the precise target of this call.  Only fall back
                         # to short-name search when no use-edge target exists.
+                        # Fix 42f: PHP method calls often bind their use edge
+                        # to a bare-name placeholder stub (no taint, no body)
+                        # while the real definition — an inherited base-class
+                        # method like Apbd_Wps_APIBase.GetPayload — carries the
+                        # passthrough/safe annotation.  When the use-edge
+                        # target is an unannotated empty shell, also search by
+                        # short name and prefer an annotated definition;
+                        # identical-arity same-file defs still win (overloads).
                         if func_vid is not None:
+                            # Fix 46e-4: a node carrying a func_summary
+                            # annotation is NOT an empty shell even when its
+                            # taint_type attribute was not synced — but a
+                            # stub with a summary and zero own-children still
+                            # has no body to trace; prefer a same-name def
+                            # that HAS parameters (the real body).
+                            _fv_summary = _vattr(self.graph.vs[func_vid],
+                                                 "func_summary_type", "")
+                            _fv_has_body = any(
+                                True for _pe in self.graph.es.select(
+                                    _source=func_vid, label="own")
+                                if _vattr(self.graph.vs[_pe.target], "label", "")
+                                in ("return", "parameter"))
+                            _fv_is_shell = not func_taint and not _fv_has_body
+                            if (_fv_is_shell
+                                    and self.language == "php"):
+                                # Fix 52c: also search same-name real
+                                # bodies when the stub carries NO summary
+                                # (file-only shell nodes have own=∅ and
+                                # func_summary=None — previously the
+                                # summary guard skipped the body lookup).
+                                # stub carries summary but no body — search
+                                # same-name defs with a real body
+                                _bare = callee.rsplit(".", 1)[-1]
+                                _body_defs = [
+                                    fv for fv in self.find_function_def(_bare, from_vid=up_vid)
+                                    if fv != func_vid and any(
+                                        True for _pe in self.graph.es.select(
+                                            _source=fv, label="own")
+                                        if _vattr(self.graph.vs[_pe.target], "label", "")
+                                        in ("parameter", "return"))
+                                ]
+                                if _body_defs:
+                                    func_vid = _body_defs[0]
+                                    func_taint = (_vattr(self.graph.vs[func_vid], "taint_type", "")
+                                                  or _vattr(self.graph.vs[func_vid], "func_summary_type", ""))
+                                    _fv_is_shell = False
+                            if _fv_is_shell and self.language == "php":
+                                # callee may be receiver-qualified ('$this.
+                                # GetPayload') — strip to the bare method
+                                # name for the definition search.
+                                _bare = callee.rsplit(".", 1)[-1]
+                                _extra = [fv for fv in self.find_function_def(
+                                    _bare, from_vid=up_vid)
+                                    if fv != func_vid
+                                    and _vattr(self.graph.vs[fv], "taint_type", "")]
+                                if _extra:
+                                    func_vid = _extra[0]
+                                    func_taint = _vattr(
+                                        self.graph.vs[func_vid], "taint_type", "")
                             func_vids = [func_vid]
                         else:
                             func_vids = self.find_function_def(callee, from_vid=up_vid)
@@ -2844,12 +5517,55 @@ class GraphAnalyzer:
                                 ret.path = new_path + ret.path
                                 return self._cached(cache_key, ret)
                             if ret.has_deps:
+                                # Fix 52k: deps name resolution needs the
+                                # CALLER's scope.  When context_vid is None
+                                # (top-level pb), derive it from the call
+                                # site: walk ast parents up to the enclosing
+                                # function node.
+                                _ctx52k = context_vid
+                                if _ctx52k is None:
+                                    # statements hang off the enclosing
+                                    # function via OWN edges (not ast), so
+                                    # walk both incoming edge kinds
+                                    _hop = up_vid
+                                    for _ in range(24):
+                                        _pars = [e.source for e in self._edge_in(_hop, "ast")]
+                                        if not _pars:
+                                            _pars = [e.source for e in self._edge_in(_hop, "own")]
+                                        if not _pars:
+                                            break
+                                        _hop = _pars[0]
+                                        if _vattr(self.graph.vs[_hop], "label", "") == NodeLabel.FUNCTION.value:
+                                            _ctx52k = _hop
+                                            break
                                 for dep_name in ret.deps:
                                     dep_vid = self._find_identifier_by_name(
-                                        dep_name, context_vid)
+                                        dep_name, _ctx52k)
+                                    # Fix 52n: caller-scope fallback — dep name
+                                    # may live outside the derived ctx (52l
+                                    # recursion crosses frames); global lookup.
+                                    if dep_vid is None and _ctx52k is not None:
+                                        dep_vid = self._find_identifier_by_name(dep_name, None)
                                     if dep_vid is not None:
-                                        dep_res = self.parameters_back(
-                                            dep_vid, context_vid, max_depth - depth)
+                                        # Fix 53-perf: hard frame cap.  This
+                                        # dep-chasing recursion (52k) computes
+                                        # max_depth - depth, but `depth` is the
+                                        # BFS hop count which resets per frame
+                                        # — the budget did NOT shrink across
+                                        # recursive frames and hm115534 hit
+                                        # 2400+ stack frames (mutual pb↔pb via
+                                        # deps).  Cap by an explicit frame
+                                        # counter instead: each nested dep
+                                        # resolution consumes 6 frames of the
+                                        # budget, bottoming out at 6.
+                                        _dep_budget = max(6, (max_depth - depth) - 6 * getattr(self, "_pb_dep_depth", 0))
+                                        _pd = getattr(self, "_pb_dep_depth", 0)
+                                        self._pb_dep_depth = _pd + 1
+                                        try:
+                                            dep_res = self.parameters_back(
+                                                dep_vid, _ctx52k, _dep_budget)
+                                        finally:
+                                            self._pb_dep_depth = _pd
                                         if dep_res.is_controllable:
                                             return self._cached(cache_key, dep_res)
                             # Rule 4d-2: if analyze_function_return returned
@@ -2866,10 +5582,217 @@ class GraphAnalyzer:
                                     and not ret.reason.startswith("No return")):
                                 pass  # has return nodes but inconclusive — allow fallthrough
                             elif ret.code == 3 and func_vid is not None:
+                                # Fix 50-11: unresolved/empty-shell call —
+                                # check the call's own args first. A render/
+                                # transform helper (highlight, escaper...)
+                                # whose argument traces to a source returns
+                                # source-derived data (passthrough). Only
+                                # when some arg itself resolves code=1 do we
+                                # report controllable — keeps the 4d-2 FP
+                                # guard (find($id) etc.) since $id alone
+                                # rarely... actually $id IS tainted there.
+                                # Scope to XSS-ish sink flow: require the
+                                # arg's chain to hit an annotated file-scoped
+                                # source (React/Vue props) or superglobal,
+                                # decided by full pb() on the arg.
+                                # Fix 92 (CVE-2026-33078 roxy-wi): ORM
+                                # query-builder methods (peewee / SQLAlchemy /
+                                # Django ``Model.select().where(tainted)``)
+                                # return PARAMETERIZED query objects — tainted
+                                # args are bound as SQL parameters, the query
+                                # object itself is not injectable. Skip the
+                                # arg passthrough for these unresolved library
+                                # builders, else every following
+                                # ``query.execute()`` inherits arg taint and
+                                # reports SQLi (roxy-wi corpus: 12 ORM FPs).
+                                # Generic names whose return legitimately
+                                # carries tainted data (str.join, str.replace,
+                                # dict.get/filter/values, set.union) are
+                                # deliberately NOT in this set.
+                                _orm_builder = callee.rsplit(".", 1)[-1] in _ORM_QUERY_BUILDER_METHODS
+                                _pt_hit = None
+                                # NOTE (Fix 130 investigation, 2026-11-20): do
+                                # NOT exclude 'array' pseudo-calls here.  The
+                                # array-literal arg scan is the ONLY channel
+                                # that evaluates an array literal's VALUE
+                                # taint (elements connect via ast only, no dfg
+                                # element edges) — excluding it killed the
+                                # froxlor CVE-2026-41229 userdata-write and
+                                # CakePHP DboSource repros (elements trace to
+                                # sources intra-function, no param crossing).
+                                # The osticket +458 anchor burst blamed on
+                                # this branch was actually the Fix 42 G3
+                                # stub-intersection hole (see Fix 130).
+                                if not _orm_builder:
+                                    _dbg_pbarms = os.environ.get("KM_DBG_PBARMS")
+                                    try:
+                                        for _ae in self._edge_out(up_vid, "ast"):
+                                            if _vattr(_ae, "role", "") != "arg":
+                                                continue
+                                            _av = _ae.target
+                                            if _vattr(self.graph.vs[_av], "label", "") in (
+                                                    NodeLabel.IDENTIFIER.value, NodeLabel.OPERATOR.value):
+                                                _pr = self.parameters_back(_av, context_vid=up_vid)
+                                                if _dbg_pbarms and str(callee) in _dbg_pbarms.split(","):
+                                                    print(f"[PBA] callee={callee!r} "
+                                                          f"arg={_vattr(self.graph.vs[_av], 'name', '')!r} "
+                                                          f"code={getattr(_pr, 'code', None)} "
+                                                          f"reason={getattr(_pr, 'reason', None)!r}")
+                                                if _pr.code == 1:
+                                                    _pt_hit = (_av, _pr)
+                                                    break
+                                    except Exception:
+                                        _pt_hit = None
+                                if _pt_hit is not None:
+                                    _av, _pr = _pt_hit
+                                    return self._cached(cache_key, AnalysisResult(
+                                        code=1,
+                                        reason=f"unresolved call passthrough: arg traces to source ({_pr.reason[:60]})",
+                                        chain=[{"step": "call_arg", "vid": _av,
+                                                "name": _vattr(self.graph.vs[_av], "name", ""), "code": 1}] + _pr.chain[:2],
+                                        path=new_path + [_av],
+                                        expr_lineno=_vattr(self.graph.vs[up_vid], "lineno", 0)))
+                                # Fix 145c (CVE-2026-124468 OpenEMR): php
+                                # receiver passthrough on stub-bound method
+                                # calls — the 137h doctrine generalized from
+                                # java `x.get(k)` to any php method whose
+                                # callee is an empty shell (no file-backed
+                                # def among the use targets).  The generic
+                                # BFS treats a call op as a semantic
+                                # boundary: only ARGS cross (the passthrough
+                                # above), the RECEIVER dfg edge is never
+                                # walked.  But an object constructed from
+                                # attacker data and then dereferenced
+                                # (`$frag = build($searchParams);
+                                # $sql .= $frag->getFragment()`) returns
+                                # object STATE — the same passthrough
+                                # doctrine the args enjoy.  Gate: receiver
+                                # must itself resolve code=1 (proven taint),
+                                # so this can never manufacture a verdict,
+                                # only carry an existing one across the
+                                # accessor hop.
+                                if (self.language == "php"
+                                        and utype == OperatorType.METHOD_CALL.value):
+                                    _argset_145 = set()
+                                    try:
+                                        for _ae in self._edge_out(up_vid, "ast"):
+                                            if _vattr(_ae, "role", "") == "arg":
+                                                _argset_145.add(_ae.target)
+                                    except Exception:
+                                        _argset_145 = set()
+                                    _recv_145 = None
+                                    try:
+                                        for _re in self._edge_in(up_vid, "dfg"):
+                                            _rsrc = _re.source
+                                            if _rsrc in _argset_145:
+                                                continue
+                                            _rl = _vattr(self.graph.vs[_rsrc], "label", "")
+                                            if _rl not in (NodeLabel.IDENTIFIER.value,
+                                                           NodeLabel.PARAMETER.value):
+                                                continue
+                                            _recv_145 = _rsrc
+                                            break
+                                    except Exception:
+                                        _recv_145 = None
+                                    if _recv_145 is not None:
+                                        _rr145 = self.parameters_back(
+                                            _recv_145, context_vid=up_vid)
+                                        if _rr145 is not None and _rr145.code == 1:
+                                            return self._cached(cache_key, AnalysisResult(
+                                                code=1,
+                                                reason=f"receiver passthrough: ({getattr(_rr145, 'reason', '')[:70]})",
+                                                chain=[{"step": "call_receiver", "vid": _recv_145,
+                                                        "name": _vattr(self.graph.vs[_recv_145], "name", ""), "code": 1}] + (_rr145.chain or [])[:2],
+                                                path=new_path + [_recv_145],
+                                                expr_lineno=_vattr(self.graph.vs[up_vid], "lineno", 0)))
+                                # Fix 137h (CVE-2026-83542 OFBiz): java
+                                # container READ through a bodyless hub.
+                                # ``x.get(k)`` bound to an external stub must
+                                # not be an opaque unresolved call: with the
+                                # Fix 137b write-back edges the RECEIVER
+                                # itself can resolve to a source, and a Map
+                                # read returns the stored value — propagate
+                                # the receiver's verdict instead of returning
+                                # code=3. Without this the screen-context
+                                # chain died at context.get(
+                                # "mainDecoratorLocation") with
+                                # "unresolved method 'get'" while the
+                                # container was provably tainted (putAll of
+                                # request.getParameterMap()).
+                                if (callee.rsplit(".", 1)[-1] == "get"
+                                        and _vattr(uv, "language", "") == "java"):
+                                    _arg_vids137h = set()
+                                    try:
+                                        for _ae in self._edge_out(up_vid, "ast"):
+                                            if _vattr(_ae, "role", "") == "arg":
+                                                _arg_vids137h.add(_ae.target)
+                                    except Exception:
+                                        _arg_vids137h = set()
+                                    _recv_hit = None
+                                    try:
+                                        for _re in self._edge_in(up_vid, "dfg"):
+                                            _rsrc = _re.source
+                                            if _rsrc in _arg_vids137h:
+                                                continue
+                                            _rl = _vattr(self.graph.vs[_rsrc], "label", "")
+                                            if _rl not in (NodeLabel.IDENTIFIER.value,
+                                                           NodeLabel.PARAMETER.value,
+                                                           NodeLabel.OPERATOR.value):
+                                                continue
+                                            if (_rl == NodeLabel.IDENTIFIER.value
+                                                    and str(self.graph.vs[_rsrc]["name"] or "")
+                                                    == str(callee).rsplit(".", 1)[-1]):
+                                                continue  # the callee identifier itself
+                                            _rr = self.parameters_back(_rsrc, context_vid=up_vid)
+                                            if _rr.code == 1:
+                                                _recv_hit = (_rsrc, _rr)
+                                                break
+                                    except Exception:
+                                        _recv_hit = None
+                                    if _recv_hit is not None:
+                                        _rsrc, _rr = _recv_hit
+                                        return self._cached(cache_key, AnalysisResult(
+                                            code=1,
+                                            reason=f"container read: receiver traces to source ({_rr.reason[:60]})",
+                                            chain=[{"step": "container_read", "vid": _rsrc,
+                                                    "name": _vattr(self.graph.vs[_rsrc], "name", ""),
+                                                    "code": 1}] + _rr.chain[:2],
+                                            path=new_path + [_rsrc],
+                                            expr_lineno=_vattr(uv, "lineno", 0)))
                                 # Empty shell: no return, no params, no taint
                                 # annotation. Stop taint propagation through
                                 # this call's DFG upstream.
-                                if inconclusive_fallback is None:
+                                # Fix 52p: PHP array literals render as
+                                # pseudo-call nodes named 'array' (42h).  They
+                                # are constants, not callees — an empty-array
+                                # coalesce fallback (getData() ?? []) must not
+                                # poison the chain with an unresolved-method
+                                # verdict.
+                                # Fix 142j (CVE-2026-104126): python container
+                                # MUTATORS (update/append/extend/insert/add/
+                                # setdefault) write their arguments INTO the
+                                # receiver — Fix 142f links the call op to the
+                                # receiver's DEF and the dict-literal member
+                                # reads aggregate ON the call op.  Skipping the
+                                # op's DFG upstream severed that arg→container
+                                # write-back whenever a foreign same-name def
+                                # made the call resolve "empty-shell-
+                                # inconclusive": ``host.update({'address':
+                                # asset.address, ...})`` went code=3
+                                # "unresolved method 'host.update'" and the
+                                # whole asset.address source leg died (ladD
+                                # L254 vs mini code=1).  Mutator args ARE real
+                                # sources of the container's value — keep
+                                # walking upstream (fallback stays recorded
+                                # for exhaustion).
+                                _py_mut_142j = (
+                                    (self.language or "") == "python"
+                                    and _vattr(uv, "type", "") == "method_call"
+                                    and str(callee).rsplit(".", 1)[-1]
+                                    in _PY_CONTAINER_MUTATORS_142J)
+                                if callee == "array" or _py_mut_142j:
+                                    pass
+                                elif inconclusive_fallback is None:
                                     inconclusive_fallback = AnalysisResult(
                                         code=3,
                                         reason=f"unresolved method '{callee}' — return inconclusive",
@@ -2877,7 +5800,8 @@ class GraphAnalyzer:
                                                 "name": callee, "code": 3}],
                                         path=new_path,
                                         expr_lineno=_vattr(uv, "lineno", 0))
-                                continue  # skip DFG upstream of this call node
+                                if not _py_mut_142j:
+                                    continue  # skip DFG upstream of this call node
 
                     # Rule 4e: unknown function call — the callee is not in
                     # builtin_knowledge and analyze_function_return was
@@ -2893,13 +5817,27 @@ class GraphAnalyzer:
                         # on known functions like os.path.join.
                         _op_name = _vattr(uv, "name", "")
                         _known = self._is_known_callee(callee) or self._is_known_callee(_op_name)
+                        # Fix 52z-5: a project-defined method invoked as
+                        # $this->method() resolves to a '$this.xxx' callee
+                        # that matches no builtin entry — but a real body
+                        # exists in the graph.  Strip the receiver prefix
+                        # and look for a function def by short name; found
+                        # → not unknown, let the DFG/afr machinery (4d)
+                        # handle it instead of poisoning the chain here.
+                        if not _known and callee and "." in str(callee):
+                            _short = str(callee).rsplit(".", 1)[-1].strip()
+                            # Fix 128 (perf): memoized "exists a function with
+                            # this short name that owns a body" — was a linear
+                            # scan over every function node per PB frame.
+                            if _short and self._fn_with_body_by_name(_short):
+                                _known = True
                         # If callee came from an ambiguous alias (multiple
                         # different resolved_names), don't trust it as known
                         # — the real callee might be different.
                         if _known and callee:
-                            for ue in self.graph.es.select(_source=up_vid, label="use"):
+                            for ue in self._edge_out(up_vid, "use"):
                                 _an = set()
-                                for ae in self.graph.es.select(_source=ue.target, label="alias"):
+                                for ae in self._edge_out(ue.target, "alias"):
                                     rn = _vattr(ae, "resolved_name", "")
                                     if rn and " " not in rn:
                                         _an.add(rn)
@@ -2988,7 +5926,7 @@ class GraphAnalyzer:
                 if ulabel == NodeLabel.IDENTIFIER.value and _vattr(uv, "type") in ("field", "property"):
                     cur_member = up_vid
                     for _ in range(10):
-                        member_edges = list(self.graph.es.select(_target=cur_member, label="member"))
+                        member_edges = list(self._edge_in(cur_member, "member"))
                         if not member_edges:
                             break
                         obj_vid = member_edges[0].source
@@ -3040,8 +5978,40 @@ class GraphAnalyzer:
                                 expr_lineno=_vattr(obj_v, "lineno", 0)))
                         if obj_label == NodeLabel.IDENTIFIER.value and obj_type in ("field", "property"):
                             cur_member = obj_vid
-                        else:
-                            break
+                            continue
+                        # Fix 43b: stored-XSS DB bridge from the BFS path —
+                        # the member walk dead-ended at a non-superglobal
+                        # object (e.g. foreach row var $h in $h->nama).
+                        # Try the db->insert/db->get table bridge; guards
+                        # inside _db_table_bridge_source (same-function
+                        # foreach sibling, same-file insert data var,
+                        # same-key superglobal write) provide precision.
+                        if self.language == "php" and depth < max_depth - 1:
+                            _p43 = self._db_table_bridge_source(
+                                cur_member,
+                                _vattr(self.graph.vs[cur_member], "name", ""))
+                            if _p43 is not None and _p43.code == 1:
+                                _p43.path = new_path + (_p43.path or [])
+                                return self._cached(cache_key, _p43)
+                        break
+
+        start_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        # ── Fix 43c: CodeIgniter view bridge (stored/echo XSS final hop) ──
+        # View files (e.g. views/contact/bg_home.php) receive their variables
+        # through $this->load->view('contact/bg_home', $d) — no DFG crosses
+        # that boundary, so `echo $data_retrieve` in the view dead-ends even
+        # when the controller stored a tainted value at $d['data_retrieve'].
+        # When the start node is a view-file variable with no DFG in-edge,
+        # locate the loader call whose view name matches this file and pb()
+        # the same-key array write in the controller.
+        if (self.language == "php" and start_fp
+                and _vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
+                and _vattr(sv, "type", "") == "variable"
+                and not self._get_dfg_sources(start_vid)
+                and not getattr(self, "_in_view_bridge", False)):
+            _v43c = self._ci_view_bridge_source(start_vid, _vattr(sv, "name", ""))
+            if _v43c is not None and _v43c.code == 1:
+                return self._cached(cache_key, _v43c)
 
         # Before returning Inconclusive, try "same-name variable def-chaining":
         # SSA-like graphs create separate identifier nodes per assignment.
@@ -3051,8 +6021,16 @@ class GraphAnalyzer:
         # Fix: collect all identifier names in visited, find same-name
         # identifier nodes in the same file not in visited, and recursively
         # check if they lead to a controllable source.
-        start_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
-        if start_fp and len(visited) > 2:
+        # Fix 42l: PHP foreach use-points have NO dfg in-edge (the graph
+        # only links the foreach-header def site), so the BFS exhausts at
+        # depth 0 (visited == {start}) and never reaches the def-chain
+        # below.  Admit a single-node visited set for identifier starts —
+        # the def-chain's own guards (same file/function, earlier line,
+        # branch scope, SSA-kill, loop-admit 42k) provide the precision.
+        _defchain_min_visited = 1 if self.language == "php" else 3
+        if start_fp and len(visited) >= _defchain_min_visited:
+            if not hasattr(self, "_in_defchain_fallback"):
+                self._in_defchain_fallback = False
             # Collect identifier names encountered during BFS
             visited_idents: dict[str, list[int]] = {}
             for up_vid in visited:
@@ -3069,28 +6047,29 @@ class GraphAnalyzer:
             # For each identifier name, find same-file same-name nodes NOT in visited
             # Use attribute-based filtering to avoid full graph scan
             checked: set[int] = set()
+            if not hasattr(self, "_snv_kills_memo"):
+                self._snv_kills_memo = {}
+            # Fix 128 (perf): hoist per-start invariants out of the candidate
+            # loops (were recomputed per candidate per name per PB frame).
+            start_lineno = _vattr(self.graph.vs[start_vid], "lineno", 0)
+            start_func = self._get_enclosing_func_vid(start_vid)
             for u_name, vids in visited_idents.items():
-                # Fast path: select vertices by name attribute
-                for cand in self._nname.get(
-                    (NodeLabel.IDENTIFIER.value, u_name), []
-                ):
+                # Fast path: Fix 128 — same-file (name, file) bucket replaces
+                # the full name bucket + per-candidate file compare.
+                for cand in self._ident_bucket_by_file(u_name, start_fp):
                     if cand in visited or cand in checked:
                         continue
-                    cand_fp = _vattr(self.graph.vs[cand], "file_path", "") or _vattr(self.graph.vs[cand], "path", "")
-                    if cand_fp != start_fp:
-                        continue
+                    # (same-file constraint satisfied by the bucket itself)
                     # Line-number constraint: a variable at the sink position
                     # can only receive values from assignments that appear
                     # BEFORE it in the source code (lower line number).
                     cand_lineno = _vattr(self.graph.vs[cand], "lineno", 0)
-                    start_lineno = _vattr(self.graph.vs[start_vid], "lineno", 0)
                     if start_lineno > 0 and cand_lineno > start_lineno:
                         continue
                     # Function scope check: def-chain should not cross
                     # function boundaries. Variables with the same name
                     # in different functions are unrelated.
                     cand_func = self._get_enclosing_func_vid(cand)
-                    start_func = self._get_enclosing_func_vid(start_vid)
                     if cand_func is not None and start_func is not None:
                         if cand_func != start_func:
                             continue
@@ -3112,23 +6091,107 @@ class GraphAnalyzer:
                     # between the candidate and the sink, the candidate's
                     # data flow is broken (killed by the re-definition).
                     continue_outer = False
-                    for snv in self._nname.get(
-                        (NodeLabel.IDENTIFIER.value, u_name), []
-                    ):
-                        if snv == cand or snv in visited or snv in checked:
-                            continue
-                        snv_fp = _vattr(self.graph.vs[snv], "file_path", "") or _vattr(self.graph.vs[snv], "path", "")
-                        if snv_fp and snv_fp != start_fp:
-                            continue
-                        snv_lineno = _vattr(self.graph.vs[snv], "lineno", 0)
-                        if cand_lineno < snv_lineno < start_lineno:
-                            snv_func = self._get_enclosing_func_vid(snv)
-                            shared_func = cand_func or start_func
-                            if shared_func is not None and snv_func is not None and snv_func != shared_func:
+                    # Fix 42m: PHP foreach iteration variables are re-bound
+                    # by the loop itself on every iteration — same-name
+                    # nodes INSIDE the loop body are USE points, not kills
+                    # (there is no explicit re-assignment).  When the
+                    # candidate's innermost branch is the foreach header
+                    # owning this binding, skip the kill check entirely.
+                    _cand_chain0 = self.get_branch_chain(cand)
+                    _loop_owner = bool(
+                        _cand_chain0
+                        and self.language == "php"
+                        and (_vattr(self.graph.vs[_cand_chain0[0]], "type", "") or "").lower()
+                        in ("foreach", "for", "while"))
+                    if not _loop_owner:
+                        # Fix 42p: the 42n recursion loses the ORIGINAL use
+                        # point's line — an inner def-chain hop links defs
+                        # that were killed by defs BETWEEN the outer use and
+                        # the inner start (variable reuse, hms doctor-panel
+                        # L332 const $query chained back to L9 $_GET).
+                        # Track the outermost use line during the recursion
+                        # and use it as the SSA interval bound.
+                        _upper = start_lineno
+                        _outer = getattr(self, "_defchain_outer_use", None)
+                        if _outer is not None and _outer > _upper:
+                            _upper = _outer
+                        # Fix 42r: a same-name node is a KILL witness only
+                        # if it is the LHS of a real assignment whose RHS
+                        # does NOT reference the same variable.  Plain USE
+                        # points (foreach bodies, mysqli_query args) rebind
+                        # nothing; flow-through reassignments ($x = f($x))
+                        # propagate rather than kill.  Without this, nodes
+                        # visited by the BFS (the reaching def itself) were
+                        # exempted via `in visited` and variable-reuse
+                        # chained across redefinitions (hms doctor-panel
+                        # L332→L280→L186 all named $query).
+                        def _snv_kills(snv: int) -> bool:
+                            assign_vid = None
+                            snv_v = self.graph.vs[snv]
+                            if (_vattr(snv_v, "label", "") == NodeLabel.OPERATOR.value
+                                    and _vattr(snv_v, "type", "") == "assign"):
+                                assign_vid = snv
+                            else:
+                                for pe in self._edge_in(snv, "ast"):
+                                    pv = self.graph.vs[pe.source]
+                                    if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                                            and _vattr(pv, "type", "") == "assign"
+                                            and _vattr(pe, "role", "") == "lhs"):
+                                        assign_vid = pe.source
+                                        break
+                            if assign_vid is None:
+                                return False  # plain use point, not a kill
+                            # RHS subtree must not reference the same name
+                            # (flow-through like `$x = f($x)` is not a kill)
+                            stack = [assign_vid]
+                            seen_s = {assign_vid}
+                            for _ in range(200):
+                                if not stack:
+                                    break
+                                cur = stack.pop()
+                                for ce in self._edge_out(cur, "ast"):
+                                    if _vattr(ce, "role", "") == "lhs":
+                                        continue
+                                    if ce.target in seen_s:
+                                        continue
+                                    seen_s.add(ce.target)
+                                    cv2 = self.graph.vs[ce.target]
+                                    if (_vattr(cv2, "label", "") == NodeLabel.IDENTIFIER.value
+                                            and _vattr(cv2, "name", "") == u_name):
+                                        return False  # flow-through
+                                    stack.append(ce.target)
+                            return True
+
+                        # Fix 128 (perf): same-file + no-file buckets replace
+                        # the full name bucket (original guard `snv_fp and
+                        # snv_fp != start_fp` admits same-file AND empty-file
+                        # nodes only — exactly these two buckets; kill-witness
+                        # search outcome is order-independent).
+                        for snv in (self._ident_bucket_by_file(u_name, start_fp)
+                                    + self._ident_bucket_by_file(u_name, "")):
+                            if snv == cand or snv in checked:
                                 continue
-                            # Re-definition found between candidate and sink
-                            continue_outer = True
-                            break
+                            snv_fp = _vattr(self.graph.vs[snv], "file_path", "") or _vattr(self.graph.vs[snv], "path", "")
+                            if snv_fp and snv_fp != start_fp:
+                                continue
+                            snv_lineno = _vattr(self.graph.vs[snv], "lineno", 0)
+                            if cand_lineno < snv_lineno < _upper:
+                                snv_func = self._get_enclosing_func_vid(snv)
+                                shared_func = cand_func or start_func
+                                if shared_func is not None and snv_func is not None and snv_func != shared_func:
+                                    continue
+                                # Fix 128 (perf): _snv_kills does a ≤200-node
+                                # RHS subtree scan per witness; memoize per
+                                # (snv, name) — pure function of the graph.
+                                _sk128 = self._snv_kills_memo.get((snv, u_name))
+                                if _sk128 is None:
+                                    _sk128 = _snv_kills(snv)
+                                    self._snv_kills_memo[(snv, u_name)] = _sk128
+                                if not _sk128:
+                                    continue
+                                # Re-definition found between candidate and sink
+                                continue_outer = True
+                                break
                     if continue_outer:
                         continue
                     checked.add(cand)
@@ -3144,13 +6207,79 @@ class GraphAnalyzer:
                         cand_chain = self.get_branch_chain(cand)
                         # Candidate must share at least one ancestor branch
                         if not set(cand_chain) & sink_branch_set:
-                            continue
+                            # Fix 42k: PHP foreach loop variables.  A use
+                            # inside a nested if/else (branch chain stops at
+                            # the else — negated branches don't inherit the
+                            # parent if) shares no ancestor with the foreach
+                            # def site, yet the iteration variable IS the
+                            # foreach's value binding.  Admit the candidate
+                            # when: same function, candidate line strictly
+                            # earlier, and the candidate's innermost branch
+                            # is a loop-shaped branch (foreach/for/while)
+                            # whose header lexically encloses earlier lines.
+                            _admit = False
+                            if (cand_chain and self.language == "php"
+                                    and cand_func is not None
+                                    and cand_func == start_func):
+                                _inner = self.graph.vs[cand_chain[0]]
+                                _ibtype = (_vattr(_inner, "type", "") or "").lower()
+                                if _ibtype in ("foreach", "for", "while"):
+                                    _admit = True
+                            if not _admit:
+                                continue
                     # Check if this candidate has DFG sources to trace
                     if self._get_dfg_sources(cand):
                         # Use _trace_dfg_direct to avoid recursive
                         # parameters_back calling def-chain again
                         r = self._trace_dfg_direct(cand, max_depth=20, file_path=start_fp)
+                        # Fix 42n: the weak tracer resolves only raw dfg
+                        # chains — it does not follow method-call returns
+                        # (foreach var ← GetPayload(...) ← $this->payload ←
+                        # $_POST).  On a None outcome, fall back to ONE
+                        # full parameters_back recursion guarded by an
+                        # anti-reentry flag; the def-chain's own scope
+                        # guards keep the recursion bounded.
+                        # Fix 42q: gate the recursion to LOOP-OWNED
+                        # candidates (foreach/for/while iteration vars).
+                        # Plain variable reuse (hms doctor-panel $query
+                        # redefined at L9/L278/L331) must NOT chain defs
+                        # across reassignments — that's the SSA-kill
+                        # contract, and the weak tracer's None there is
+                        # the CORRECT inconclusive answer.
+                        if (r is None and _loop_owner
+                                and not self._in_defchain_fallback):
+                            self._in_defchain_fallback = True
+                            _saved_outer = getattr(self, "_defchain_outer_use", None)
+                            if _saved_outer is None or start_lineno > _saved_outer:
+                                self._defchain_outer_use = start_lineno
+                            try:
+                                sub_r = self.parameters_back(cand, context_vid=None,
+                                                             max_depth=max_depth - 10)
+                            finally:
+                                self._in_defchain_fallback = False
+                                self._defchain_outer_use = _saved_outer
+                            if sub_r is not None and sub_r.is_controllable:
+                                # Fix 42w: field-store kill — a sanitized
+                                # per-field store (e.g. $b['val'] =
+                                # preg_replace(...)) between this candidate
+                                # def and the sink use means the sink reads
+                                # the NEW field value, not the candidate's
+                                # old container taint. The store lhs is
+                                # taint=safe (enrich_taint) and its line
+                                # sits strictly between cand and sink.
+                                if self._defchain_field_store_killed(
+                                        cand, start_vid, u_name):
+                                    continue
+                                return self._cached(cache_key, AnalysisResult(
+                                    code=1,
+                                    reason=f"def-chain '{u_name}' → {sub_r.reason}",
+                                    chain=sub_r.chain,
+                                    path=sub_r.path,
+                                    expr_lineno=sub_r.expr_lineno))
                         if r is not None and r.is_controllable:
+                            if self._defchain_field_store_killed(
+                                    cand, start_vid, u_name):
+                                continue
                             return self._cached(cache_key, AnalysisResult(
                                 code=1,
                                 reason=f"def-chain '{u_name}' → {r.reason}",
@@ -3184,10 +6313,10 @@ class GraphAnalyzer:
         """
         # 策略 1: 检查是否有 DFG receiver 边指向 call（forward_slice，且 source 不是 callee 的参数）
         callee_arg_vids: set[int] = set()
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") == "arg":
                 callee_arg_vids.add(ae.target)
-        for e in self.graph.es.select(_target=call_vid, label="dfg"):
+        for e in self._edge_in(call_vid, "dfg"):
             source_vid = e.source
             if source_vid in callee_arg_vids:
                 continue  # source 是 call 的实参，不是 receiver
@@ -3195,8 +6324,15 @@ class GraphAnalyzer:
             if not source_name:
                 continue
             dep_vid = self._find_identifier_by_name(source_name, context_vid)
+            # Fix 80 (CVE-2026-32613): the dfg in-edge source IS the receiver
+            # use node itself (Java `for (Map.Entry e : m.entrySet()) ...
+            # e.getValue()` — receiver flows e→call via dfg).  The
+            # name-lookup index misses freshly-emitted identifier nodes
+            # (for-each loop vars, lineno=0), which made every such receiver
+            # "unresolvable" and killed receiver-passthrough chains.  Trace
+            # the dfg source directly when the lookup fails.
             if dep_vid is None:
-                continue
+                dep_vid = source_vid
             result = self.parameters_back(dep_vid, context_vid, max_depth)
             if result.is_controllable:
                 return AnalysisResult(
@@ -3209,7 +6345,7 @@ class GraphAnalyzer:
 
         # 策略 2: 沿 callee member chain 回溯到 root identifier（JS/Go）
         callee_vid = None
-        for e in self.graph.es.select(_source=call_vid, label="ast"):
+        for e in self._edge_out(call_vid, "ast"):
             if _vattr(e, "role") == "callee":
                 callee_vid = e.target
                 break
@@ -3219,6 +6355,10 @@ class GraphAnalyzer:
                 root_name = _vattr(self.graph.vs[root_vid], "name", "")
                 if root_name:
                     dep_vid = self._find_identifier_by_name(root_name, context_vid)
+                    # Fix 80: same fallback as strategy 1 — trace the member
+                    # chain root directly when the name index misses it.
+                    if dep_vid is None:
+                        dep_vid = root_vid
                     if dep_vid is not None:
                         result = self.parameters_back(dep_vid, context_vid, max_depth)
                         if result.is_controllable:
@@ -3271,7 +6411,7 @@ class GraphAnalyzer:
         visited: set[int] = {current}
         while True:
             found = False
-            for e in self.graph.es.select(_target=current, label="member"):
+            for e in self._edge_in(current, "member"):
                 source = e.source
                 if source in visited:
                     continue
@@ -3296,14 +6436,27 @@ class GraphAnalyzer:
             scope_path = _vattr(self.graph.vs[from_vid], "file_path", None)
 
         results: list[int] = []
-        for vid in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+        # Fix 63 (perf): this loop was a full O(F) scan over every function
+        # node per call, and it sits on the parameters_back hot path —
+        # 25% of wall time on the osticket anchor (py-spy: lines 4601-4604
+        # dominated self time). All three match arms are bucket lookups:
+        #   vn == func_name            → _nname[(function, name)]
+        #   vf == func_name            → _ffull[fullname]
+        #   vf.endswith('\'+func_name) → tail segment of fullname == func_name
+        #                                  → _ftail[tail]
+        # (PHP fullnames are Class\method, so the tail segment IS the
+        # short name; javalang/esprima normalizers follow the same shape.)
+        candidates: dict[int, None] = {}
+        for vid in self._nname.get((NodeLabel.FUNCTION.value, func_name), []):
+            candidates[vid] = None
+        for vid in self._ffull.get(func_name, []):
+            candidates[vid] = None
+        for vid in self._ftail.get(func_name, []):
+            candidates[vid] = None
+        for vid in candidates:
             v = self.graph.vs[vid]
-            vn = _vattr(v, "name", "") or ""
-            vf = _vattr(v, "fullname", "") or ""
-            if not (vn == func_name or vf.endswith("\\" + func_name) or vf == func_name):
-                continue
             if scope_path:
-                fp = _vattr(v, "file_path") or ""
+                fp = _vattr(v, "file_path", "") or ""
                 if fp == scope_path:
                     results.insert(0, vid)
                 else:
@@ -3312,6 +6465,412 @@ class GraphAnalyzer:
                 results.append(vid)
         logger.debug("find_function_def('%s', from=%s) → %s",
                       func_name, from_vid, results)
+        return results
+
+
+    def _java_field_store_sources(self, read_vid: int) -> list[tuple[int, int]]:
+        """Fix 37a: Java field-load propagation (constructor-write ->
+        getter-read).  The java normalizer emits a shared field-declaration
+        node (label=function, lineno=0) as the *use* hub for every
+        this.<field> access in the class.  Given a this.<field> READ
+        (method_call node), find all WRITE points (assign LHS of the same
+        field) and return [(rhs_vid, write_func_vid), ...] so the caller
+        can trace each stored value.  Scoped to same class (same field
+        decl via use edges) -- no cross-class guessing."""
+        v = self.graph.vs[read_vid]
+        if _vattr(v, "type", "") != "method_call":
+            return []
+        base_ids = [e.source for e in self._edge_in(read_vid, "member")
+                    if (_vattr(self.graph.vs[e.source], "name", "") or "") == "this"]
+        if not base_ids:
+            return []
+        for e in self._edge_in(read_vid, "ast"):
+            if _vattr(e, "role", "") == "lhs":
+                return []
+        decl_vids = [e.target for e in self._edge_out(read_vid, "use")
+                     if _vattr(self.graph.vs[e.target], "label", "") == NodeLabel.FUNCTION.value
+                     and not int(_vattr(self.graph.vs[e.target], "lineno", 0) or 0)]
+        if not decl_vids:
+            return []
+        decl = decl_vids[0]
+        results: list[tuple[int, int]] = []
+        for e in self._edge_in(decl, "use"):
+            w = e.source
+            wv = self.graph.vs[w]
+            if _vattr(wv, "type", "") != "method_call":
+                continue
+            for ae in self._edge_in(w, "ast"):
+                if _vattr(ae, "role", "") != "lhs":
+                    continue
+                assign_vid = ae.source
+                for re_ in self._edge_out(assign_vid, "ast"):
+                    if _vattr(re_, "role", "") == "rhs":
+                        wfunc = None
+                        for oe in self._edge_in(assign_vid, "own"):
+                            pn = self.graph.vs[oe.source]
+                            if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
+                                wfunc = oe.source
+                                break
+                        results.append((re_.target, wfunc if wfunc is not None else assign_vid))
+        return results
+
+
+    def _php_exec_target_in_subtree(self, vid: int) -> bool:
+        """Fix 77: True when a const string leaf in this (path) subtree
+        names a PHP file — ends with ``.php`` after quote stripping
+        (matches ``userdata.inc.php``; the leading dir part of the literal
+        is irrelevant).  Depth-limited AST walk, no graph-wide scans."""
+        stack = [(vid, 0)]
+        seen: set[int] = set()
+        while stack:
+            cur, d = stack.pop()
+            if cur in seen or d > 8:
+                continue
+            seen.add(cur)
+            cv = self.graph.vs[cur]
+            if _vattr(cv, "label", "") == "const":
+                raw = str(_vattr(cv, "name", "") or _vattr(cv, "value", "") or "")
+                raw = raw.strip().strip("'\"").lower()
+                if raw.endswith(".php"):
+                    return True
+                continue
+            for e in self._edge_out(cur, "ast"):
+                stack.append((e.target, d + 1))
+        return False
+
+    def _php_class_closure(self, class_name: str) -> set[str]:
+        """Fix 76c: class_name plus all TRANSITIVE subclass names
+        (``inherits_from`` records the direct parent only).  Memoized per
+        analyzer."""
+        _memo = getattr(self, "_php_class_closure_memo", None)
+        if _memo is None:
+            _memo = {}
+            self._php_class_closure_memo = _memo
+        if class_name in _memo:
+            return _memo[class_name]
+        children: dict[str, set[str]] = {}
+        for cv in self.graph.vs:
+            if (_vattr(cv, "label", "") == "class"
+                    and _vattr(cv, "type", "") == "class"):
+                _parent = _vattr(cv, "inherits_from", "")
+                _cn = _vattr(cv, "name", "")
+                if _parent and _cn:
+                    children.setdefault(_parent, set()).add(_cn)
+        result = {class_name}
+        frontier = [class_name]
+        while frontier:
+            cur = frontier.pop()
+            for child in children.get(cur, ()):
+                if child not in result:
+                    result.add(child)
+                    frontier.append(child)
+        _memo[class_name] = result
+        return result
+
+    def _php_enclosing_class_name(self, vid: int) -> str:
+        """Fix 76c: name of the class whose method (transitively) encloses
+        ``vid``, via own edges; '' when the node is not inside a class
+        (file-scope function / top level).
+
+        Fix 76c-2: expression-level nodes (property reads created by the
+        member-chain normalizer) often have NO own/ast parent edges — only
+        a member edge from ``$this`` — so the structural walk bottoms out
+        immediately.  Fall back to same-file class declaration order: the
+        enclosing class is the last class declared at or before the node's
+        line (PHP classes are sequential and non-nested).  External stub
+        classes carry lineno 0 and are skipped."""
+        cur = vid
+        seen: set[int] = set()
+        while cur not in seen:
+            seen.add(cur)
+            cv = self.graph.vs[cur]
+            if _vattr(cv, "type", "") == "class":
+                return _vattr(cv, "name", "") or ""
+            nxt = None
+            for oe in self._edge_in(cur, "own"):
+                nxt = oe.source
+                break
+            if nxt is None:
+                return self._php_class_by_lineorder(vid)
+            cur = nxt
+        return ""
+
+    def _php_class_by_lineorder(self, vid: int) -> str:
+        """Fix 76c-2 line-order fallback for _php_enclosing_class_name."""
+        cv = self.graph.vs[vid]
+        fkey = _vattr(cv, "file_path", "") or _vattr(cv, "path", "")
+        lno = _vattr(cv, "lineno", 0) or 0
+        if not fkey or not lno:
+            return ""
+        _memo = getattr(self, "_php_file_class_order_memo", None)
+        if _memo is None:
+            _memo = {}
+            self._php_file_class_order_memo = _memo
+        if fkey not in _memo:
+            lst = []
+            for clsv in self.graph.vs:
+                if (_vattr(clsv, "label", "") == "class"
+                        and _vattr(clsv, "type", "") == "class"
+                        and (_vattr(clsv, "file_path", "") or _vattr(clsv, "path", "")) == fkey):
+                    _cl = _vattr(clsv, "lineno", 0) or 0
+                    _cn = _vattr(clsv, "name", "") or ""
+                    if _cl > 0 and _cn:
+                        lst.append((_cl, _cn))
+            lst.sort()
+            _memo[fkey] = lst
+        best = ""
+        for _cl, _cn in _memo[fkey]:
+            if _cl <= lno:
+                best = _cn
+            else:
+                break
+        return best
+
+    def _php_property_store_sources(self, read_vid: int) -> list[tuple[int, int]]:
+        """Fix 76: given a PHP ``$this->prop`` READ identifier, return
+        [(rhs_vid, writer_func_vid), ...] for every same-file assignment
+        ``$this->prop = rhs``.  Writers are located through the name-bucket
+        index (no graph-wide scans); scope is same file + same property
+        name to avoid cross-class name collisions."""
+        v = self.graph.vs[read_vid]
+        pname = _vattr(v, "name", "")
+        if not pname:
+            return []
+        pfile = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+        results: list[tuple[int, int]] = []
+        for sib in self._nname.get(("identifier", pname), []):
+            sv = self.graph.vs[sib]
+            if _vattr(sv, "type", "") not in ("field", "property"):
+                continue
+            sfile = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+            if pfile and sfile and sfile != pfile:
+                continue
+            for le in self._edge_in(sib, "ast"):
+                if _vattr(le, "role", "") != "lhs":
+                    continue
+                assign_vid = le.source
+                if _vattr(self.graph.vs[assign_vid], "type", "") not in ("assign", "aug_assign"):
+                    continue
+                wfunc = None
+                for oe in self._edge_in(assign_vid, "own"):
+                    pn = self.graph.vs[oe.source]
+                    if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
+                        wfunc = oe.source
+                        break
+                for re_ in self._edge_out(assign_vid, "ast"):
+                    if _vattr(re_, "role", "") == "rhs":
+                        results.append((re_.target, wfunc if wfunc is not None else assign_vid))
+        return results
+
+    def _php_is_ctor_param_store(self, rhs_vid: int, writer_func_vid: int) -> bool:
+        """Fix 76d: True when the stored RHS identifier is a use of a formal
+        parameter of the writer function AND that writer is a PHP
+        ``__construct``.  Name-based: the RHS use node and the formal
+        parameter node are distinct graph nodes."""
+        if writer_func_vid is None:
+            return False
+        wf = self.graph.vs[writer_func_vid]
+        if _vattr(wf, "label", "") != NodeLabel.FUNCTION.value:
+            return False
+        if (_vattr(wf, "name", "") or "").rsplit("\\", 1)[-1] != "__construct":
+            return False
+        rv = self.graph.vs[rhs_vid]
+        if _vattr(rv, "label", "") != NodeLabel.IDENTIFIER.value:
+            return False
+        rname = _vattr(rv, "name", "") or ""
+        if not rname:
+            return False
+        for pvid in self._find_own_children(writer_func_vid, child_label=NodeLabel.PARAMETER.value):
+            if _vattr(self.graph.vs[pvid], "name", "") == rname:
+                return True
+        return False
+
+    def _resolve_php_ctor_param_deps(self, writer_func_vid: int,
+                                     max_depth: int,
+                                     reader_class_name: str = "") -> "AnalysisResult | None":
+        """Fix 76b: the writer is a constructor whose params are entry
+        points.  Resolve them through ``new CLASS(...)`` call sites of the
+        writer's class or any subclass (PHP ctor inheritance: froxlor's
+        ``new MysqlServer([], $request['params'])`` binds
+        ApiParameter::__construct's $params).  Returns the first
+        controllable arg trace, else None.
+
+        Fix 76c: when the property READ site's enclosing class is known,
+        only ``new`` sites of THAT class (or its subclasses) may bind —
+        instances of a sibling subclass never execute the reader's code,
+        so binding their ctor args polluted sibling property reads
+        (osticket: new AttachmentChunkedData($f) tainting
+        OneSixAttachments' $this->meta)."""
+        import re as _re76
+        wclass = None
+        for oe in self._edge_in(writer_func_vid, "own"):
+            pn = self.graph.vs[oe.source]
+            if _vattr(pn, "type", "") == "class":
+                wclass = pn
+                break
+        if wclass is None:
+            return None
+        wname = _vattr(wclass, "name", "")
+        if not wname:
+            return None
+        # class + direct subclass names (memoized per analyzer)
+        _memo = getattr(self, "_php_subclass_names", None)
+        if _memo is None:
+            _memo = {}
+            self._php_subclass_names = _memo
+        if wname in _memo:
+            names = _memo[wname]
+        else:
+            names = {wname}
+            for cv in self.graph.vs:
+                if (_vattr(cv, "label", "") == "class"
+                        and _vattr(cv, "type", "") == "class"
+                        and _vattr(cv, "inherits_from", "") == wname):
+                    _cn = _vattr(cv, "name", "")
+                    if _cn:
+                        names.add(_cn)
+            _memo[wname] = names
+        # Fix 76c: restrict to the reader's own instance set when known.
+        if reader_class_name:
+            _allowed = self._php_class_closure(reader_class_name)
+            names = {n for n in names if n in _allowed}
+            if not names:
+                return None
+        # new-expression sites by class name bucket
+        new_vids: list[int] = []
+        for cn in names:
+            for nv in self._nname.get(("operator", cn), []):
+                if _vattr(self.graph.vs[nv], "type", "") == "new":
+                    new_vids.append(nv)
+        if not new_vids:
+            return None
+        # writer formal params, positional
+        param_list: list[int] = []
+        for pvid in self._find_own_children(writer_func_vid, child_label=NodeLabel.PARAMETER.value):
+            param_list.append(pvid)
+        for nv in new_vids:
+            arg_counter = 0
+            for ae in self._edge_out(nv, "ast"):
+                if _vattr(ae, "role", "") != "arg":
+                    continue
+                idx = _vattr(ae, "index", "")
+                aidx = int(idx) if str(idx) not in ("", "None") else arg_counter
+                if 0 <= aidx < len(param_list):
+                    r = self.parameters_back(ae.target, max_depth=max_depth)
+                    if r is not None and r.is_controllable:
+                        return r
+                arg_counter += 1
+        return None
+
+    def _resolve_java_param_deps(self, dep_names: list[str], writer_func_vid: int,
+                                 max_depth: int) -> "AnalysisResult | None":
+        """Fix 37a-2: dep names that are the writer function's formal
+        params -- resolve each through the writer's call sites (cg in
+        edges), taking the actual arg vid at each site and tracing it."""
+        param_by_name: dict[str, int] = {}
+        for pvid in self._find_own_children(writer_func_vid, child_label=NodeLabel.PARAMETER.value):
+            pn = _vattr(self.graph.vs[pvid], "name", "")
+            if pn:
+                param_by_name[pn] = pvid
+        param_list = sorted(param_by_name.items(), key=lambda kv: kv[1])
+        for dn in (dep_names or []):
+            if dn not in param_by_name:
+                continue
+            pidx = None
+            for i, (pn, pvid) in enumerate(param_list):
+                if pn == dn:
+                    pidx = _vattr(self.graph.vs[pvid], "index", i)
+                    try:
+                        pidx = int(pidx) if str(pidx) != "" else i
+                    except (TypeError, ValueError):
+                        pidx = i
+                    break
+            _call_sites: list[int] = []
+            for ce in self._edge_in(writer_func_vid, "cg"):
+                call_vid = ce.source
+                if _vattr(self.graph.vs[call_vid], "label", "") == NodeLabel.OPERATOR.value:
+                    _call_sites.append(call_vid)
+            if not _call_sites:
+                # Fix 37a-2b: constructor call sites may connect via use
+                # edges (new T references the constructor def) instead of cg.
+                for ue in self._edge_in(writer_func_vid, "use"):
+                    call_vid = ue.source
+                    if _vattr(self.graph.vs[call_vid], "label", "") == NodeLabel.OPERATOR.value:
+                        _call_sites.append(call_vid)
+            for call_vid in _call_sites:
+                for ae in self._edge_out(call_vid, "ast"):
+                    if _vattr(ae, "role", "") != "arg":
+                        continue
+                    aidx = _vattr(ae, "index", None)
+                    try:
+                        aidx_i = int(aidx) if aidx is not None and str(aidx) != "" else None
+                    except (TypeError, ValueError):
+                        aidx_i = None
+                    if pidx is not None and aidx_i is not None and aidx_i != int(pidx):
+                        continue
+                    sub = self.parameters_back(ae.target, max_depth=max_depth)
+                    if sub is not None and sub.is_controllable:
+                        return sub
+        return None
+
+
+    _JAVA_ACCUM_READS = frozenset({
+        "toString", "toStringBuilder", "build", "getBuffer", "string",
+        "value", "getQuery", "getSql", "getText", "getBody",
+    })
+    _JAVA_ACCUM_WRITES = frozenset({"write", "append", "add", "put",
+                                    "addBatch", "concat", "insert", "addSql"})
+
+    def _java_accum_read_sources(self, read_call_vid: int) -> list[tuple[int, int]]:
+        """Fix 38: Java accumulator-object flow (write-side -> read-side).
+
+        Builder/Writer objects accumulate fragments via mutating calls
+        (write/append/...) whose ARGUMENTS carry taint; the assembled
+        string is read back via toString()/build()/... on the same
+        receiver.  The graph gives each such call a dotted full name
+        ('this.out.write'), so read and write calls of the same
+        accumulator share the dotted prefix.  Match on that prefix,
+        take each write's non-constant dfg arg as a taint source.
+        Same-file only; constant fragments contribute nothing."""
+        rv = self.graph.vs[read_call_vid]
+        if _vattr(rv, "type", "") not in ("method_call", "static_call"):
+            return []
+        rname = (_vattr(rv, "name", "") or "")
+        rparts = rname.split(".")
+        rshort = rparts[-1].strip("'\"")
+        if rshort not in self._JAVA_ACCUM_READS or len(rparts) < 2:
+            return []
+        rprefix = ".".join(rparts[:-1])
+        read_file = _vattr(rv, "file_path", "") or ""
+        results: list[tuple[int, int]] = []
+        for w in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+            wv = self.graph.vs[w]
+            wname = (_vattr(wv, "name", "") or "")
+            wparts = wname.split(".")
+            if len(wparts) < 2:
+                continue
+            wshort = wparts[-1].strip("'\"")
+            if wshort not in self._JAVA_ACCUM_WRITES:
+                continue
+            if ".".join(wparts[:-1]) != rprefix:
+                continue
+            wf = _vattr(wv, "file_path", "") or ""
+            if wf and read_file and wf != read_file:
+                continue
+            wfunc = None
+            for oe in self._edge_in(w, "own"):
+                pn = self.graph.vs[oe.source]
+                if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
+                    wfunc = oe.source
+                    break
+            for de in self._edge_in(w, "dfg"):
+                av = self.graph.vs[de.source]
+                if _vattr(av, "label", "") == NodeLabel.CONST.value:
+                    continue
+                aname = (_vattr(av, "name", "") or "")
+                if aname == rprefix:
+                    continue  # receiver node itself
+                results.append((de.source, wfunc if wfunc is not None else w))
         return results
 
     # --- Function return analysis -----------------------------------------
@@ -3326,6 +6885,7 @@ class GraphAnalyzer:
            If return depends on a caller variable → code='deps'.
         """
         call_v = self.graph.vs[call_vid]
+        depth_guard_43g: set[str] = set()
 
         # Formal params: own children with label=parameter
         param_vids = self._find_own_children(func_vid, child_label=NodeLabel.PARAMETER.value)
@@ -3338,7 +6898,7 @@ class GraphAnalyzer:
         # Actual args: ast edges with role=arg from the call operator
         actual_args: dict[int, int] = {}
         arg_counter = 0
-        for e in self.graph.es.select(_source=call_vid, label="ast"):
+        for e in self._edge_out(call_vid, "ast"):
             if _vattr(e, "role") == "arg":
                 idx = _vattr(e, "index")
                 actual_args[int(idx) if idx else arg_counter] = e.target
@@ -3356,11 +6916,42 @@ class GraphAnalyzer:
                 controllable_indices.add(fidx)
             elif _vattr(av, "label") == NodeLabel.CONST.value:
                 pass
+            elif _vattr(av, "label") == NodeLabel.OPERATOR.value:
+                # Fix 52l: the actual arg is itself a call/expression node —
+                # recursing by NAME (caller_deps) can never find it (there is
+                # no identifier of that name); pb the arg vid directly and
+                # only fall back to name-deps when the trace is inconclusive.
+                # (Fix 52l-replay: positional depth arg, no _MAX_AFR_DEPTH
+                # constant in this codebase.)
+                _op_res = self.parameters_back(
+                    actual_args[fidx], call_vid, 20)
+                if _op_res is not None and _op_res.is_controllable:
+                    controllable_indices.add(fidx)
+                    continue
+                caller_deps.append(aname)
             else:
                 caller_deps.append(aname)
 
         # Find return children
+        # Fix 46e-5: returns may be nested inside branch/loop subtrees
+        # (PHP: function -own-> branch -own-> return).  Search the whole
+        # own/ast subtree recursively; only conclude "no return" when the
+        # body truly has none.
         return_vids = self._find_own_children(func_vid, child_label=NodeLabel.RETURN.value)
+        if not return_vids:
+            _stk = [func_vid]
+            _seen = set()
+            while _stk:
+                _x = _stk.pop()
+                if _x in _seen:
+                    continue
+                _seen.add(_x)
+                if (_x != func_vid
+                        and _vattr(self.graph.vs[_x], "label", "") == NodeLabel.RETURN.value):
+                    return_vids.append(_x)
+                for _e in self.graph.es.select(_source=_x):
+                    if _vattr(_e, "label", "") in ("own", "ast"):
+                        _stk.append(_e.target)
         if not return_vids:
             return AnalysisResult(code=3,
                                   reason=f"No return in func vid={func_vid}",
@@ -3370,7 +6961,7 @@ class GraphAnalyzer:
             rv = self.graph.vs[ret_vid]
             # Find return expression via ast[role=value/rhs] or dfg backward
             expr_vid: int | None = None
-            for e in self.graph.es.select(_source=ret_vid, label="ast"):
+            for e in self._edge_out(ret_vid, "ast"):
                 if _vattr(e, "role") in ("value", "rhs"):
                     expr_vid = e.target
                     break
@@ -3395,21 +6986,132 @@ class GraphAnalyzer:
                     caller_deps.append(pname)
 
             # Recurse into return expression
-            sub = self.parameters_back(expr_vid, context_vid=func_vid, max_depth=20)
+            # Fix 83: bind formal params to THIS call's args so the
+            # recursion resolves params context-sensitively.
+            _b83: dict = {pvid: (actual_args[fidx], call_vid)
+                          for fidx, (pvid, _pn) in formal.items() if fidx in actual_args}
+            _b83["__sig__"] = ("afr", call_vid, func_vid)
+            self._afr_bindings.append(_b83)
+            try:
+                sub = self.parameters_back(expr_vid, context_vid=func_vid, max_depth=20)
+            finally:
+                self._afr_bindings.pop()
+            if not sub.is_controllable:
+                # Fix 42j: PHP ternary returns render as a branch node
+                # whose BFS doesn't descend into iftrue/iffalse children
+                # (e.g. GetPayload: !empty($this->payload[$key]) ?
+                # $this->payload[$key] : $default).  Trace each ast
+                # sub-branch directly — any controllable arm makes the
+                # return controllable.
+                if _vattr(ev, "label") == NodeLabel.BRANCH.value or _vattr(ev, "type") in ("ternary", "if"):
+                    for be in self._edge_out(expr_vid, "ast"):
+                        if _vattr(be, "role") not in ("iftrue", "iffalse", "value"):
+                            continue
+                        # Fix 83: keep the binding frame active for the arm
+                        # recursion (it runs after sub's frame was popped).
+                        self._afr_bindings.append(_b83)
+                        try:
+                            arm = self.parameters_back(be.target, context_vid=func_vid, max_depth=20)
+                        finally:
+                            self._afr_bindings.pop()
+                        if arm.is_controllable:
+                            return arm
             if sub.is_controllable:
                 return sub
             if sub.has_deps:
                 caller_deps.extend(sub.deps)
 
+            # Fix 43g: SSA break fallback — `return $x` where the return's
+            # $x node has no dfg in-edge (foreach-built values link their
+            # aug_assign rhs subtrees, not the return use-site).  Retry via
+            # every same-name variable's assign/aug_assign RHS inside this
+            # function; the rhs subtree is where stored-XSS table bridges
+            # and view bridges fire.  (CVI-115534: generate_index_contact
+            # returns $hasil but only the L867 concat rhs carries taint.)
+            if ename and ename not in depth_guard_43g:
+                depth_guard_43g.add(ename)
+                fn_fp = _vattr(self.graph.vs[func_vid], "file_path", "") or ""
+                fn_ln0 = _vattr(self.graph.vs[func_vid], "lineno", 0)
+                for sib in self._nname.get(("identifier", ename), []):
+                    svv = self.graph.vs[sib]
+                    if (_vattr(svv, "file_path", "") or "") != fn_fp:
+                        continue
+                    _ln = _vattr(svv, "lineno", 0) or 0
+                    if _ln < (fn_ln0 or 0):
+                        continue
+                    # Fix 82 (CVE-2026-32613 anchor regression): the old
+                    # filter was "same file AND lineno >= function start"
+                    # with NO upper bound — assignments in LATER functions
+                    # of the same file (or at global scope below it) were
+                    # treated as defs of this function's `return $x`, so a
+                    # global `$name = $_POST[...]` below the function
+                    # poisoned its return summary ("return 'name' ←
+                    # same-name assign rhs" ×153 FP on osticket once Fix 80
+                    # weak-update merge edges let the RHS trace reach the
+                    # superglobal).  Restrict sibs to identifiers whose
+                    # enclosing function IS func_vid; when own/ast ancestry
+                    # cannot resolve the enclosing function (normalizer
+                    # quirk), fall back to the old positional filter so the
+                    # CVI-115534 rhs bridge still works.
+                    _sib_func = self._get_enclosing_func_vid(sib)
+                    if _sib_func is not None:
+                        if _sib_func != func_vid:
+                            continue
+                    # else: unresolved scope — keep the lineno>=fn_ln0 fallback
+                    for le in self._edge_in(sib, "ast"):
+                        if _vattr(le, "role", "") != "lhs":
+                            continue
+                        av = self.graph.vs[le.source]
+                        if _vattr(av, "type", "") not in ("assign", "aug_assign"):
+                            continue
+                        for re_ in self._edge_out(le.source, "ast"):
+                            if _vattr(re_, "role", "") != "rhs":
+                                continue
+                            # Fix 83: rhs walk is inside the callee body —
+                            # keep this call's binding frame active.
+                            self._afr_bindings.append(_b83)
+                            try:
+                                r43g = self.parameters_back(re_.target, context_vid=func_vid, max_depth=20)
+                            finally:
+                                self._afr_bindings.pop()
+                            if r43g is not None and r43g.is_controllable:
+                                r43g.reason = (f"return '{ename}' ← same-name "
+                                               f"assign rhs: {r43g.reason}")
+                                return r43g
+
         if controllable_indices:
             return AnalysisResult(code=1, reason="Return depends on controllable params",
                                   deps=caller_deps,
                                   expr_lineno=_vattr(call_v, "lineno", 0))
+        # Fix 125c (CVE-2026-111217): source-summary 判定必须先于 caller_deps
+        # 短路。Fix 124c 的返回值绑定边让本函数能走进 callee 体内收集
+        # caller_deps（get_configured_vip($carpid) → callee 内 $vipinterface
+        # ← 调用方 $carpid），非可控 deps 会在 72h 之前以 code="deps"
+        # 提前返回——而 72h 的语义恰恰是「source 摘要无需任何调用方
+        # 证据即认证返回值可控」（存入配置树的污点经 load 读回，与调用
+        # 方实参无关）。caller_deps 与 source 摘要并存时，source 语义赢。
+        if func_vid is not None:
+            _sum125c = _vattr(self.graph.vs[func_vid], "func_summary_type", "")
+            if _sum125c == "source":
+                return AnalysisResult(
+                    code=1,
+                    reason=f"return of source-summary function '{_vattr(self.graph.vs[func_vid], 'name', '')}'",
+                    expr_lineno=_vattr(call_v, "lineno", 0))
         if caller_deps:
             return AnalysisResult(code="deps",
                                   reason=f"Return depends on caller vars: {caller_deps}",
                                   deps=caller_deps,
                                   expr_lineno=_vattr(call_v, "lineno", 0))
+        # Fix 72h: callee carries a computed function summary — a 'source'
+        # summary (config-file read getters, CVE-2026-109830) certifies the
+        # call return value as controllable WITHOUT any caller-side evidence.
+        if func_vid is not None:
+            _sum72h = _vattr(self.graph.vs[func_vid], "func_summary_type", "")
+            if _sum72h == "source":
+                return AnalysisResult(
+                    code=1,
+                    reason=f"return of source-summary function '{_vattr(self.graph.vs[func_vid], 'name', '')}'",
+                    expr_lineno=_vattr(call_v, "lineno", 0))
         return AnalysisResult(code=3,
                               reason=f"Return inconclusive (call={call_vid}, func={func_vid})",
                               expr_lineno=_vattr(call_v, "lineno", 0))
@@ -3479,12 +7181,23 @@ class GraphAnalyzer:
 
         while queue:
             cur_vid, depth, path = queue.popleft()
-            if depth > max_depth:
+            if depth >= max_depth:
                 continue
+            # Fix 48h: splice concat ast leaves on first visit
+            _cv = self.graph.vs[cur_vid]
+            if (cur_vid not in _spliced_concat_leaves
+                    and _vattr(_cv, "label", "") == "operator"
+                    and _vattr(_cv, "type", "") == "binary_op"
+                    and _vattr(_cv, "name", "") == "."):
+                _spliced_concat_leaves.add(cur_vid)
+                for _leaf in _concat_ast_leaves(cur_vid):
+                    if _leaf not in visited:
+                        visited.add(_leaf)
+                        queue.append((_leaf, depth + 1, path + [_leaf]))
             if cur_vid == sink_vid:
                 results.append({"path": path, "length": len(path), "decisions": []})
                 continue
-            for e in self.graph.es.select(_source=cur_vid, label="dfg"):
+            for e in self._edge_out(cur_vid, "dfg"):
                 tgt = e.target
                 if tgt not in visited:
                     visited.add(tgt)
@@ -3492,6 +7205,97 @@ class GraphAnalyzer:
         return results
 
     # --- Internal helpers -------------------------------------------------
+
+    # ── Fix 43i: O(deg) adjacency index (built lazily once) ──────────
+    # igraph's es.select(_source=X, label=L) scans ALL edges — O(E) per
+    # query.  The stored-XSS bridges (Fix 43) fire hundreds of such
+    # queries per sink, turning a 5-minute scan into 80+ minutes.  Build
+    # outgoing/incoming maps keyed by (label, vid) ONCE and reuse.
+    def _edge_out(self, vid: int, label: str):
+        idx = getattr(self, "_adj_out", None)
+        if idx is None:
+            idx = {}
+            for _e in self.graph.es:
+                idx.setdefault((_e["label"], _e.source), []).append(_e)
+            self._adj_out = idx
+        return idx.get((label, vid), ())
+
+    def _edge_in(self, vid: int, label: str):
+        idx = getattr(self, "_adj_in", None)
+        if idx is None:
+            idx = {}
+            for _e in self.graph.es:
+                idx.setdefault((_e["label"], _e.target), []).append(_e)
+            self._adj_in = idx
+        return idx.get((label, vid), ())
+
+    # ── Fix 142h (CVE-2026-104126 JumpServer): safe-veto identity proof ──
+    #
+    # Rule 3a2's safe-defer treats the FIRST function use-target's (or any
+    # same-name def's) 'safe' annotation as decisive.  Use edges are
+    # bare-name: `self.generate(path_dir)` inside JMSInventory links to
+    # NodeAssetsUtil.generate AND FakeDataGenerator.generate across the
+    # corpus.  When one of those foreign defs carries a safe summary, the
+    # veto fired before Rule 4's Fix 142g same-class binding ever ran and
+    # the whole inventory write chain died (scan3/scan4 GT-miss: `data`
+    # verdict code=2 "safe function 'generate'" from the direct branch).
+    # Doctrine (Fix 137f enclosing-class-first + Fix 101 veto asymmetry):
+    # when the call site is a python method_call with a resolvable
+    # enclosing class AND a same-class def exists among the use targets,
+    # that same-class def IS the genuine callee — only ITS annotations may
+    # veto.  A different-class safe def is a bare-name hijack.
+    # source/passthrough annotations from any target remain acceptable
+    # (over-approximation favours detection); vetoes require proof.
+
+    def _enclosing_class_vid(self, vid: int, max_hops: int = 24):
+        """Nearest class node enclosing vid via own (fallback ast) parents."""
+        hop = vid
+        for _ in range(max_hops):
+            parents = [e.source for e in self._edge_in(hop, "own")] or \
+                [e.source for e in self._edge_in(hop, "ast")]
+            if not parents:
+                return None
+            hop = parents[0]
+            if _vattr(self.graph.vs[hop], "label", "") == "class":
+                return hop
+        return None
+
+    def _def_owner_class_vid(self, fvid: int):
+        """Class node owning function fvid (method, or one nesting level)."""
+        for pe in self._edge_in(fvid, "own"):
+            pl = _vattr(self.graph.vs[pe.source], "label", "")
+            if pl == "class":
+                return pe.source
+            if pl == "function":
+                for pe2 in self._edge_in(pe.source, "own"):
+                    if _vattr(self.graph.vs[pe2.source], "label", "") == "class":
+                        return pe2.source
+        return None
+
+    def _safe_veto_hijack_pred(self, call_vid: int, method_call: bool):
+        """Memoized predicate fvid -> hijacked?.  None = legacy veto stands
+        (not python, not a method_call, unresolvable call-site class, or no
+        same-class def among the call's use targets)."""
+        cache = getattr(self, "_hijack_pred_142h", None)
+        if cache is None:
+            cache = self._hijack_pred_142h = {}
+        if call_vid in cache:
+            return cache[call_vid]
+        pred = None
+        if self.language == "python" and method_call:
+            call_cls = self._enclosing_class_vid(call_vid)
+            if call_cls is not None:
+                same_class_exists = False
+                for ue in self._edge_out(call_vid, "use"):
+                    if _vattr(self.graph.vs[ue.target], "label", "") != NodeLabel.FUNCTION.value:
+                        continue
+                    if self._def_owner_class_vid(ue.target) == call_cls:
+                        same_class_exists = True
+                        break
+                if same_class_exists:
+                    pred = lambda fvid: self._def_owner_class_vid(fvid) != call_cls
+        cache[call_vid] = pred
+        return pred
 
     def _cached(self, key, result: AnalysisResult) -> AnalysisResult:
         # Fix 20b: when a pinned concat was traversed on the way to a CTRL
@@ -3504,6 +7308,953 @@ class GraphAnalyzer:
             result._redirect_pinned_seen = bool(pin_vids)
         self._decision_cache[key] = result
         return result
+
+    # ── Fix 42: cross-file property store→load chaining ──────────────────
+    #
+    # Graph reality: `$this->prop = X` in file A and `$this->prop` read in
+    # file B create disjoint property nodes (dfg builder intentionally
+    # skips self/this member edges).  This fallback connects a property
+    # READ in the reader file to property WRITES (assign lhs) stored in
+    # another file, then traces the stored value to a controllable source
+    # with _trace_dfg_direct.
+    #
+    # Precision guards (all must hold):
+    #   G1. reader and writer are in DIFFERENT files
+    #   G2. property names match exactly
+    #   G3. the writer's enclosing class and the reader's enclosing class
+    #       are connected by an extends relationship (either direction) —
+    #       resolved via class nodes' inherits_from attr / crg edges, with
+    #       a same-identifier fallback when class nodes are unavailable
+    #   G4. the writer's stored value actually reaches a controllable
+    #       source (bounded _trace_dfg_direct, no parameters_back recursion)
+    #   G5. the property write is not inside a constructor whitelist guard
+    #       (Fix 21h-3 family) — reuse existing guards by keeping this a
+    #       plain source search; guards evaluate inside _trace_dfg_direct.
+    def _cross_file_property_source(self, start_vid: int, prop_name: str):
+        if not prop_name:
+            return None
+        # Fix 53-perf: recursion brake.  _cross_file_property_source calls
+        # parameters_back (52u) which re-enters _cross_file_property_source
+        # at BFS property nodes (Fix 42b, L2965) — mutual recursion with NO
+        # in-progress guard exploded to 478+ frames on hm115534 (Fix 43's
+        # own depth-2 brake covered the db-bridge, not this path).  Skip
+        # re-entry entirely: an outer cross-file search for the same
+        # property is already running; its G1-G4 candidate scan subsumes
+        # anything the inner call would find via this same property.
+        _xfp = getattr(self, "_xfp_active_props", None)
+        if _xfp is None:
+            _xfp = self._xfp_active_props = set()
+        if prop_name in _xfp:
+            return None
+        _xfp.add(prop_name)
+        try:
+            return self._cross_file_property_source_impl(start_vid, prop_name)
+        finally:
+            _xfp.discard(prop_name)
+
+    def _cross_file_property_source_impl(self, start_vid: int, prop_name: str):
+        sv = self.graph.vs[start_vid]
+        reader_fp = _vattr(sv, "file_path", "") or _vattr(sv, "path", "")
+        if not reader_fp:
+            return None
+
+        reader_class = self._get_enclosing_class_name(start_vid)
+        reader_file_classes = self._file_class_names(reader_fp)
+
+        # Iterate same-name property nodes across the whole graph.
+        for cand in self._nname.get(("identifier", prop_name), []):
+            if cand == start_vid:
+                continue
+            cv = self.graph.vs[cand]
+            if _vattr(cv, "type", "") not in ("field", "property"):
+                continue
+            cand_fp = _vattr(cv, "file_path", "") or _vattr(cv, "path", "")
+            if not cand_fp:
+                continue
+            same_file = (cand_fp == reader_fp)
+            # G1: cross-file is the primary (SSO-split) case.  Fix 42i:
+            # same-file reader/writer pairs (store in LoadPayload L58,
+            # read in GetPayload L83 — both inside Apbd_Wps_APIBase.php)
+            # are EQUALLY valid property flows; the dfg builder skips
+            # this/self member edges there too.  Admit them, but under a
+            # stricter contract: G3 inheritance must hold via the
+            # resolved enclosing classes (no file-level fallback, which
+            # would be vacuous inside one file).
+            if same_file and not self._classes_inherit(
+                    reader_class, self._get_enclosing_class_name(cand)):
+                # Fix 52z-13 (CVE-2026-110185): property READ nodes created
+                # by the member-chain normalizer (e.g. ImageHelperTool L38
+                # $this->nodeInfoProvider->getData()) have NO ast/own edges
+                # — only a member edge from $this — so
+                # _get_enclosing_class_name returns '' and same-file stores
+                # were rejected.  When the reader class could not be
+                # resolved but the writer class is declared in this very
+                # file, the write happens inside this file's main class:
+                # accept it (same-file contract is already the strict one).
+                _writer_cls_52z13 = self._get_enclosing_class_name(cand)
+                if not (reader_class == "" and _writer_cls_52z13
+                        and _writer_cls_52z13 in reader_file_classes):
+                    continue  # G1'
+            # must be a WRITE: has an assign parent via ast[lhs]
+            is_write = False
+            rhs_vid = None
+            for e in self._edge_in(cand, "ast"):
+                if _vattr(e, "role") != "lhs":
+                    continue
+                op = self.graph.vs[e.source]
+                if (_vattr(op, "label", "") == NodeLabel.OPERATOR.value
+                        and _vattr(op, "type", "") == OperatorType.ASSIGN.value):
+                    is_write = True
+                    for re_ in self.graph.es.select(
+                            _source=e.source, label="ast"):
+                        if _vattr(re_, "role") == "rhs":
+                            rhs_vid = re_.target
+                            break
+                    break
+            if not is_write or rhs_vid is None:
+                continue
+            # G3: inheritance link between reader class and writer class.
+            writer_class = self._get_enclosing_class_name(cand)
+            if not self._classes_inherit(reader_class, writer_class):
+                # Fallback: writer file declares a class the reader extends,
+                # or vice versa (helps when enclosing-class resolution
+                # failed for one side, e.g. trait/abstract shapes).
+                writer_file_classes = self._file_class_names(cand_fp)
+                # Fix 130 (CVE-2026-111217 anchor +458): the intersection
+                # term is only sound for a class REALLY DECLARED in one of
+                # the two files.  External stub nodes (is_external=True)
+                # exist for every referenced base class per file — two
+                # sibling classes both extending VerySimpleModel share that
+                # stub name in both file sets, so ANY same-name property
+                # chained across ANY two osticket model files passed G3
+                # (class.dynamic_forms.php `$t->text = $_POST-…` polluted
+                # every `->text` read via class.translation.php:942).
+                # Require the shared name to be a real declaration in the
+                # reader's or the writer's file; the reference-stub clauses
+                # below (writer_class in reader_file_classes etc.) carry
+                # the legitimate import linkage (Fix 76d-3: -43 if dropped)
+                # and are left untouched.
+                _real_shared = (
+                    (reader_file_classes & writer_file_classes)
+                    & (self._file_real_class_names(reader_fp)
+                       | self._file_real_class_names(cand_fp))
+                )
+                linked = bool(
+                    _real_shared
+                    or (writer_class and writer_class in reader_file_classes)
+                    or (reader_class and reader_class in writer_file_classes)
+                )
+                if not linked:
+                    continue
+            # Fix 76d-2: constructor-param stores must resolve ONLY through
+            # the reader-class-closure-restricted resolver.  The generic
+            # parameters_back pass (52u) below binds `new` sites of EVERY
+            # subclass of the writer's class — sibling instances never
+            # execute the reader's code (osticket: new
+            # AttachmentChunkedData($f) polluted OneSixAttachments'
+            # $this->meta reads).  When the reader's instance set has no
+            # qualifying `new` site the store is untainted FOR THIS READER.
+            if self.language == "php":
+                _wfn76d = None
+                for _e76d in self._edge_in(cand, "ast"):
+                    if _vattr(_e76d, "role", "") != "lhs":
+                        continue
+                    for _oe76d in self._edge_in(_e76d.source, "own"):
+                        if _vattr(self.graph.vs[_oe76d.source], "label", "") == NodeLabel.FUNCTION.value:
+                            _wfn76d = _oe76d.source
+                            break
+                    break
+                if (_wfn76d is not None
+                        and self._php_is_ctor_param_store(rhs_vid, _wfn76d)):
+                    _r76 = self._resolve_php_ctor_param_deps(
+                        _wfn76d, 24,
+                        reader_class_name=self._php_enclosing_class_name(start_vid))
+                    if _r76 is not None and _r76.is_controllable:
+                        return _r76
+                    continue
+            # G4: does the stored value derive from a controllable source?
+            # Three passes:
+            #   a) subtree scan of the assign RHS for any superglobal read
+            #      (catches `$_POST[...]` stored directly through wrappers)
+            #   b) static/var def-chain: the RHS is often a plain static or
+            #      variable read (`$this->payload = &self::$payload_obj`).
+            #      Find same-name assign-lhs nodes in the writer's file and
+            #      subtree-scan THOSE rhs values — catches branch-merged
+            #      stores (if-branch stores $_POST via json_decode, else
+            #      branch stores php://input, merged read later)
+            #   c) bounded dfg trace as fallback (catches stores whose
+            #      source enters via intermediate variables)
+            hit = self._store_value_hits_superglobal(rhs_vid)
+            if not hit:
+                hit = self._same_name_store_hits_superglobal(rhs_vid)
+            if hit:
+                return AnalysisResult(
+                    code=1,
+                    reason=(f"cross-file property store '{prop_name}' → "
+                            f"superglobal '{hit}' via member access"),
+                    chain=[{"step": "xfile_prop_store", "vid": cand,
+                            "name": prop_name, "code": 1}],
+                    path=[start_vid, cand, rhs_vid],
+                    expr_lineno=_vattr(sv, "lineno", 0))
+            r = self._trace_dfg_direct(rhs_vid, max_depth=20)
+            if r is None or not r.is_controllable:
+                # Fix 52u: full backward analysis (parameters_back) as the
+                # 4th pass — the stored value may traverse call chains and
+                # constructor param bridges (52s/52t) that _trace_dfg_direct
+                # (deliberately non-recursive) cannot follow.
+                _r52u = self.parameters_back(rhs_vid, max_depth=24)
+                if _r52u is not None and _r52u.is_controllable:
+                    return _r52u
+            if r is not None and r.is_controllable:
+                return AnalysisResult(
+                    code=1,
+                    reason=(f"cross-file property store '{prop_name}' → {r.reason}"),
+                    chain=[{"step": "xfile_prop_store", "vid": cand,
+                            "name": prop_name, "code": 1}] + (r.chain or []),
+                    path=[start_vid, cand] + (r.path or []),
+                    expr_lineno=_vattr(sv, "lineno", 0))
+        return None
+
+    # ── Fix 43: stored-XSS DB table bridge ──────────────────────────────
+    #
+    # Graph reality: stored-XSS splits source and sink across a database.
+    #   WRITE: contact.php kirim() { $in['nama'] = $_POST['nama'];
+    #                                 $this->db->insert('dlmbg_contact', $in); }
+    #   READ:  app_global_admin_model.php generate_index_contact() {
+    #                                 $w = $this->db->get('dlmbg_contact',...);
+    #                                 foreach ($w->result() as $h)
+    #                                     $hasil .= "<td>".$h->nama."</td>"; }
+    # The DB is outside the taint graph, so $h->nama traces to code=3
+    # exhausted.  Bridge: when a property read's base variable derives
+    # from db->get('t') (same-table literal), search the graph for
+    # db->insert('t', $data) calls and check whether $data (or its
+    # same-name key write, e.g. $in['nama'] = $_POST['nama']) holds a
+    # superglobal-sourced value.
+    #
+    # Precision guards (all must hold):
+    #   H1. reader base derives from a db->get/query/get_where whose table
+    #       literal matches the writer db->insert table literal exactly
+    #   H2. writer insert's data argument contains the SAME key name as the
+    #       read property (nama == nama) sourced from a superglobal —
+    #       either directly ($in['nama'] = $_POST['nama']) or via a
+    #       bounded subtree scan of the array-variable's writes
+    #   H3. both sites are inside functions/methods (not top-level noise)
+    #   H4. the reported reason names both ends for auditability
+    def _ci_view_bridge_source(self, var_vid: int, var_name: str):
+        """Fix 43c: CodeIgniter load->view boundary bridge.
+        var_vid is a variable node inside a view file with no DFG in-edge.
+        Find loader calls `load->view('<name>', $arr)` whose <name> matches
+        the view file, then array-key writes `$arr[<var_name minus $>] =
+        <rhs>` in the same controller function, and pb() the rhs."""
+        _ck = ("_view_bridge", var_vid)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        # Fix 43h: recursion brake — bridging a view var whose controller
+        # value is ITSELF a bridged view var (multi-view controller methods)
+        # cascades bridge-in-bridge chains. Cap active bridge depth at 2.
+        _d = getattr(self, "_view_bridge_depth", 0)
+        if _d >= 2:
+            return None
+        self._view_bridge_depth = _d + 1
+        try:
+            _r = self._ci_view_bridge_source_uncached(var_vid, var_name)
+        finally:
+            self._view_bridge_depth = _d
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _ci_view_bridge_source_uncached(self, var_vid: int, var_name: str):
+        if not var_name or not var_name.startswith("$"):
+            return None
+        key = var_name[1:]
+        sv = self.graph.vs[var_vid]
+        view_fp = _vattr(sv, "file_path", "") or ""
+        if not view_fp or "/views/" not in view_fp.replace("\\", "/"):
+            return None
+        # view name candidates from the file path:
+        # .../views/contact/bg_home.php → {'contact/bg_home', 'bg_home'}
+        rel = view_fp.replace("\\", "/").split("/views/")[-1]
+        if rel.endswith(".php"):
+            rel = rel[:-4]
+        rel_short = rel.rsplit("/", 1)[-1]
+        # Fix 43h: precomputed loader index (built once per analyzer)
+        if getattr(self, "_view_loader_index", None) is None:
+            idx: dict[str, list[tuple[int, str]]] = {}
+            for lvv2 in self._nname.get(("operator", "view"), []):
+                vv2 = self.graph.vs[lvv2]
+                if _vattr(vv2, "type", "") != "method_call":
+                    continue
+                lfp2 = _vattr(vv2, "file_path", "") or ""
+                if not lfp2 or "/views/" in lfp2.replace("\\", "/"):
+                    continue
+                _a2 = [e2.target for e2 in self._edge_out(lvv2, "ast")
+                       if _vattr(e2, "role") == "arg"]
+                if not _a2:
+                    continue
+                _n2 = str(_vattr(self.graph.vs[_a2[0]], "name", "")).strip("'\"")
+                if _n2:
+                    idx.setdefault(_n2, []).append((lvv2, lfp2))
+            self._view_loader_index = idx
+        # candidate loaders: exact rel match + bare-name matches filtered
+        # by module dir below (Fix 43f)
+        cand_loaders = list(self._view_loader_index.get(rel, []))
+        for _bn, _lst in self._view_loader_index.items():
+            if "/" not in _bn and _bn == rel_short:
+                cand_loaders.extend(_lst)
+        for lv, lfp in cand_loaders:
+            lvv = self.graph.vs[lv]
+            if lfp == view_fp:
+                continue
+            args = [e.target for e in self._edge_out(lv, "ast")
+                    if _vattr(e, "role") == "arg"]
+            if not args:
+                continue
+            a0 = self.graph.vs[args[0]]
+            vname = str(_vattr(a0, "name", "")).strip("'\"")
+            if vname != rel and vname.rsplit("/", 1)[-1] == rel_short:
+                # bare-name loader ('bg_input') hits view files in ANY
+                # module's views dir — require the loader's module dir to
+                # match the view file's module dir (Fix 43f).
+                _vm = view_fp.replace("\\", "/").split("/views/")[0].rsplit("/", 1)[-1]
+                _lm = lfp.replace("\\", "/").split("/modules/")[-1].split("/")[0] \
+                    if "/modules/" in lfp.replace("\\", "/") else _vm
+                if _vm != _lm:
+                    continue
+                vname = rel
+            if vname != rel and vname != rel_short:
+                # qualified loader name must equal the full relative path
+                if "/" in vname:
+                    continue
+                vname = rel
+            # data array arg: $d (or $data).  The graph often omits the
+            # second loader arg (only the view-name const survives), so
+            # when absent fall back to ANY array variable in the loader's
+            # enclosing function that stores this key.
+            data_arr = None
+            if len(args) >= 2:
+                dv = self.graph.vs[args[1]]
+                if _vattr(dv, "type", "") == "variable":
+                    data_arr = _vattr(dv, "name", "")
+            # same enclosing function: array-key writes $data_arr[key]=rhs
+            _lf = self._get_enclosing_function_name(lv)
+            for kv in self._nname.get(("identifier", key), []):
+                kvv = self.graph.vs[kv]
+                kfp = _vattr(kvv, "file_path", "") or ""
+                if kfp != lfp:
+                    continue
+                if _lf and self._get_enclosing_function_name(kv) not in ("", _lf):
+                    continue
+                for me in self._edge_in(kv, "member"):
+                    arr_v = self.graph.vs[me.source]
+                    if data_arr and _vattr(arr_v, "name", "") != data_arr:
+                        continue
+                    # the stored value: array var's dfg in-edge source.
+                    # For a method_call value (e.g. generate_index_contact()),
+                    # pb() traces the CALL ARGS, not the return — use the
+                    # function-return analyzer for those (Fix 43e).
+                    for de in self._edge_in(me.source, "dfg"):
+                        _dvv = self.graph.vs[de.source]
+                        if _vattr(_dvv, "type", "") in ("method_call", "static_call", "call"):
+                            sub = None
+                            _fn = self._resolve_callee_name(de.source) or ""
+                            for _fv2 in self._nname.get(("function", _fn.rsplit(".", 1)[-1]), []):
+                                sub = self.analyze_function_return(de.source, _fv2)
+                                if sub is not None:
+                                    break
+                            if sub is None:
+                                # callee unresolved in graph — fall back to pb
+                                sub = self.parameters_back(de.source, context_vid=kv)
+                        else:
+                            sub = self.parameters_back(de.source, context_vid=kv)
+                        if sub is not None and sub.code == 1:
+                            sub.reason = (f"CI view bridge '{vname}' key "
+                                          f"'{key}' → {sub.reason}")
+                            sub.path = [var_vid] + (sub.path or [])
+                            return sub
+        return None
+
+    def _db_table_bridge_source(self, start_vid: int, prop_name: str):
+        _ck = ("_db_bridge", start_vid, prop_name)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        _r = self._db_table_bridge_source_uncached(start_vid, prop_name)
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _db_table_bridge_source_uncached(self, start_vid: int, prop_name: str):
+        if not prop_name:
+            return None
+        sv = self.graph.vs[start_vid]
+        # Base variable: member in-edge chain start_vid <- base (e.g. $h)
+        base_vid = None
+        for e in self._edge_in(start_vid, "member"):
+            bv = self.graph.vs[e.source]
+            if _vattr(bv, "type", "") == "variable":
+                base_vid = e.source
+                break
+        if base_vid is None:
+            return None
+        # The use-site SSA node ($h@L867) may have no dfg in-edge while the
+        # foreach VALUE node ($h@L865, dfg <- result()) does.  Try the base
+        # itself first, then same-name SSA siblings in the same file whose
+        # dfg in-edge comes from a result() call (the foreach value site) —
+        # this keeps the table lookup anchored to the same loop instead of
+        # grabbing an unrelated same-name get() elsewhere in the file.
+        base_name = _vattr(self.graph.vs[base_vid], "name", "")
+        base_fp = _vattr(self.graph.vs[base_vid], "file_path", "") or ""
+        cand_bases = [base_vid]
+        if base_name and base_fp:
+            for sib in self._nname.get(("identifier", base_name), []):
+                if sib == base_vid:
+                    continue
+                svv = self.graph.vs[sib]
+                if _vattr(svv, "type", "") != "variable":
+                    continue
+                if (_vattr(svv, "file_path", "") or "") != base_fp:
+                    continue
+                # same enclosing function as the read site — the same
+                # file hosts ~26 generate_index_* helpers each with its
+                # own $h loop; only the read site's own function counts
+                _bf = self._get_enclosing_function_name(base_vid)
+                if _bf:
+                    _sf = self._get_enclosing_function_name(sib)
+                    if _sf and _sf != _bf:
+                        continue
+                is_foreach_value = False
+                for de in self._edge_in(sib, "dfg"):
+                    dv = self.graph.vs[de.source]
+                    if _vattr(dv, "label", "") == NodeLabel.OPERATOR.value \
+                            and _vattr(dv, "type", "") == "method_call" \
+                            and (self._resolve_callee_name(de.source) or "").rsplit(".", 1)[-1] == "result":
+                        is_foreach_value = True
+                        break
+                if is_foreach_value:
+                    cand_bases.insert(0, sib)  # foreach-value site wins
+        # Collect every candidate table reachable from the base's SSA
+        # siblings (same-name foreach values) and try each — the first
+        # sibling with a table might be an unrelated loop in the same
+        # file (dlmbg_ruang's raw-SQL get); only a table whose insert
+        # actually superglobal-stores THIS key counts.
+        table_lits = []
+        seen_tl = set()
+        for cb in cand_bases:
+            tl = self._base_table_literal(cb)
+            if tl:
+                tl = tl.strip("'\"")
+                if tl not in seen_tl:
+                    seen_tl.add(tl)
+                    table_lits.append(tl)
+        if not table_lits:
+            return None
+        # Find db->insert('<same table>', $data) call sites.
+        for table_lit in table_lits:
+            for cand in self._nname.get(("operator", "insert"), []):
+                    cv = self.graph.vs[cand]
+                    if _vattr(cv, "type", "") not in ("method_call",):
+                        continue
+                    # receiver chain must end with 'db' (this->db->insert)
+                    recv_ok = False
+                    for re_ in self._edge_out(cand, "ast"):
+                        if _vattr(re_, "role") == "callee":
+                            callee_v = self.graph.vs[re_.target]
+                            if _vattr(callee_v, "type", "") in ("field", "property") \
+                                    and _vattr(callee_v, "name", "") == "insert":
+                                recv_ok = True
+                            break
+                    if not recv_ok:
+                        continue
+                    # arg0 must be the same table literal
+                    args = [e_.target for e_ in self._edge_out(cand, "ast")
+                            if _vattr(e_, "role") == "arg"]
+                    if not args:
+                        continue
+                    arg0 = self.graph.vs[args[0]]
+                    if _vattr(arg0, "label", "") != NodeLabel.CONST.value:
+                        continue
+                    cand_table = str(_vattr(arg0, "name", "")).strip("'\"")
+                    if cand_table != table_lit:
+                        continue
+                    # H2: data argument holds a superglobal-sourced write at the
+                    # same key (prop_name).  arg1 is typically a variable ($in):
+                    # look for same-name array-key writes $in[<prop_name>] whose
+                    # value subtree hits a superglobal.
+                    if len(args) < 2:
+                        continue
+                    data_v = self.graph.vs[args[1]]
+                    dname = _vattr(data_v, "name", "")
+                    if not dname or _vattr(data_v, "type", "") != "variable":
+                        continue
+                    for kv in self._nname.get(("identifier", prop_name), []):
+                        kvv = self.graph.vs[kv]
+                        if _vattr(kvv, "type", "") != "const_key" and _vattr(kvv, "label", "") != "identifier":
+                            continue
+                        # array-key write $dname[<prop>] = RHS : the key node's
+                        # enclosing assign must reference the data variable
+                        hit = self._array_key_write_hits_superglobal(kv, dname, _vattr(data_v, "file_path", "") or "")
+                        if hit:
+                            return AnalysisResult(
+                                code=1,
+                                reason=(f"stored-XSS DB bridge table '{table_lit}' "
+                                        f"key '{prop_name}' → superglobal '{hit}' "
+                                        f"(db->insert write, db->get read)"),
+                                chain=[{"step": "db_bridge", "vid": cand,
+                                        "name": f"{table_lit}.{prop_name}", "code": 1}],
+                                path=[start_vid, cand],
+                                expr_lineno=_vattr(sv, "lineno", 0))
+        return None
+
+    def _base_table_literal(self, base_vid: int):
+        """base_vid (e.g. $h) derives from db->get('t')…->result() —
+        the foreach value variable often has NO dfg in-edge, so walk a
+        wider neighbourhood: dfg in-edges, plus same-function variables
+        feeding a ->result() call whose receiver reaches db->get('t').
+        Returns the table literal name or None."""
+        visited = {base_vid}
+        frontier = [base_vid]
+        for _ in range(10):
+            nxt = []
+            for fv in frontier:
+                # dfg in-edges
+                for e in self._edge_in(fv, "dfg"):
+                    if e.source in visited:
+                        continue
+                    visited.add(e.source)
+                    src = self.graph.vs[e.source]
+                    if _vattr(src, "label", "") == NodeLabel.OPERATOR.value \
+                            and _vattr(src, "type", "") == "method_call":
+                        callee = self._resolve_callee_name(e.source)
+                        if callee == "result":
+                            # result()'s receiver var — continue from it
+                            for me in self._edge_in(e.source, "dfg"):
+                                if me.source not in visited:
+                                    nxt.append(me.source)
+                            continue
+                        if callee in ("get", "get_where", "query"):
+                            args = [x.target for x in self.graph.es.select(
+                                _source=e.source, label="ast")
+                                if _vattr(x, "role") == "arg"]
+                            if args:
+                                a0 = self.graph.vs[args[0]]
+                                nm = _vattr(a0, "name", "")
+                                if nm and _vattr(a0, "label", "") == NodeLabel.CONST.value:
+                                    return nm
+                    nxt.append(e.source)
+                # member in-edges (property reads on this base, e.g.
+                # $w->result() links result call to $w) — skip, handled
+                # via the result() receiver above
+            frontier = list(set(nxt))
+            if not frontier:
+                break
+        # foreach-value fallback: base has no dfg in-edge but a sibling
+        # variable in the same function assigns from db->get('t') and the
+        # foreach source is <sibling>->result().  Find method_call 'result'
+        # nodes in the same file, walk recv → SSA var → assign(lhs)→rhs
+        # method_call, and accept db-qualified callees ('db.get').
+        base_fp = _vattr(self.graph.vs[base_vid], "file_path", "") or ""
+        if not base_fp:
+            return None
+        _DB_READERS = ("get", "get_where", "query")
+
+        def _is_db_read(callee_name):
+            if not callee_name:
+                return False
+            bare = callee_name.rsplit(".", 1)[-1].rsplit("::", 1)[-1]
+            return bare in _DB_READERS
+
+        for rv in self._nname.get(("operator", "result"), []):
+            rvv = self.graph.vs[rv]
+            if _vattr(rvv, "type", "") != "method_call":
+                continue
+            rfp = _vattr(rvv, "file_path", "") or ""
+            if rfp != base_fp:
+                continue
+            # scope to the same enclosing function as the property read
+            # (same file hosts many generate_index_* helpers; without
+            # this the first sibling match wins and picks the wrong
+            # table — dlmbg_user instead of dlmbg_contact)
+            _base_fn = self._get_enclosing_function_name(base_vid) \
+                if hasattr(self, "_get_enclosing_function_name") else None
+            if _base_fn:
+                _rv_fn = self._get_enclosing_function_name(rv)
+                if _rv_fn and _rv_fn != _base_fn:
+                    continue
+            # receiver variables of result(): dfg in-edge sources
+            recv_vars = [e.source for e in self._edge_in(rv, "dfg")
+                         if _vattr(self.graph.vs[e.source], "type", "") == "variable"]
+            # BFS from receivers through: dfg in-edges (SSA chain) and
+            # assign(lhs)→rhs edges, bounded
+            seen = set(recv_vars)
+            frontier = list(recv_vars)
+            for _ in range(6):
+                nxt = []
+                for fv in frontier:
+                    # assign(lhs)→rhs: fv is an assign lhs whose rhs is a
+                    # db read call with a const table arg
+                    for le in self._edge_in(fv, "ast"):
+                        if _vattr(le, "role") != "lhs":
+                            continue
+                        av = self.graph.vs[le.source]
+                        if _vattr(av, "type", "") != "assign":
+                            continue
+                        for re_ in self._edge_out(le.source, "ast"):
+                            if _vattr(re_, "role") != "rhs":
+                                continue
+                            rhs_v = self.graph.vs[re_.target]
+                            if _vattr(rhs_v, "label", "") == NodeLabel.OPERATOR.value \
+                                    and _vattr(rhs_v, "type", "") == "method_call" \
+                                    and _is_db_read(self._resolve_callee_name(re_.target)):
+                                args = [x.target for x in self.graph.es.select(
+                                    _source=re_.target, label="ast")
+                                    if _vattr(x, "role") == "arg"]
+                                if args:
+                                    a0 = self.graph.vs[args[0]]
+                                    nm = _vattr(a0, "name", "")
+                                    if nm and _vattr(a0, "label", "") == NodeLabel.CONST.value:
+                                        return nm
+                    # SSA chain: continue through dfg in-edges
+                    for de in self._edge_in(fv, "dfg"):
+                        if de.source not in seen:
+                            seen.add(de.source)
+                            nxt.append(de.source)
+                frontier = nxt
+        return None
+
+    def _array_key_write_hits_superglobal(self, key_vid: int, arr_name: str, scope_fp: str = "") -> str:
+        """key_vid is an identifier node used as an array key.  Find the
+        enclosing assign whose lhs contains this key AND the array
+        variable arr_name; return the superglobal hit from the RHS.
+        Fallback: array keys often have NO ast parent (they attach via
+        member edges to the array variable).  In that case the array
+        variable's dfg in-edge sources ARE the stored values — scan
+        those subtrees for a superglobal read, but only accept a hit
+        whose key name matches key_vid's name (dlmbg_user.nama stores
+        $_POST['nama'] but so does dlmbg_contact — the key gate lives
+        in the caller; here we just confirm a superglobal flows into
+        the array through this key's member site)."""
+        key_name = _vattr(self.graph.vs[key_vid], "name", "")
+        # Path A: key has an ast parent assign (direct lhs/rhs shapes).
+        # Guard: skip self-reference (the $_POST['nama'] key node IS the
+        # ast-rhs child of the $in['nama'] assign — rhs == key_vid is the
+        # value side, not a stored-array key), and require the assign to
+        # live in the same file as the db->insert data arg.
+        for pe in self._edge_in(key_vid, "ast"):
+            pv = self.graph.vs[pe.source]
+            if _vattr(pv, "label", "") != NodeLabel.OPERATOR.value:
+                continue
+            ptype = _vattr(pv, "type", "")
+            if ptype not in ("assign", "binary_op"):
+                continue
+            if scope_fp and (_vattr(pv, "file_path", "") or "") != scope_fp:
+                continue
+            # lhs side must reference arr_name variable, rhs checked for superglobal
+            lhs_has_arr = False
+            rhs_vid = None
+            for ce in self._edge_out(pe.source, "ast"):
+                role = _vattr(ce, "role", "")
+                if role == "lhs":
+                    cv = self.graph.vs[ce.target]
+                    if _vattr(cv, "name", "") == arr_name:
+                        lhs_has_arr = True
+                elif role == "rhs":
+                    rhs_vid = ce.target
+            if lhs_has_arr and rhs_vid is not None and rhs_vid != key_vid:
+                hit = self._store_value_hits_superglobal(rhs_vid)
+                if hit:
+                    return hit
+        # Path B: key attaches via member edge to the array variable.
+        # The array variable's dfg in-edge source is the stored value
+        # node (e.g. $_POST['nama'] key node feeding $in).  Require the
+        # stored node's own key/name to match key_name so cross-key
+        # stores don't false-bridge.
+        if key_name:
+            for me in self._edge_in(key_vid, "member"):
+                arr_v = self.graph.vs[me.source]
+                if _vattr(arr_v, "name", "") != arr_name:
+                    continue
+                # Fix 43 precision: the array variable must live in the same
+                # file as the db->insert data arg ($in is a common name --
+                # contact.php's $in is unrelated to data_status.php's $in)
+                if scope_fp and (_vattr(arr_v, "file_path", "") or "") != scope_fp:
+                    continue
+                for de in self._edge_in(me.source, "dfg"):
+                    dv = self.graph.vs[de.source]
+                    dn = _vattr(dv, "name", "")
+                    if _vattr(dv, "type", "") in ("field", "property") and dn == key_name:
+                        # this stored value IS <superglobal>[key_name]:
+                        # its member in-edge source must be a superglobal
+                        for se in self._edge_in(de.source, "member"):
+                            sgv = self.graph.vs[se.source]
+                            sgn = _vattr(sgv, "name", "")
+                            if sgn and sgn in _SUPERGLOBALS:
+                                return sgn
+        return ""
+
+    def _store_value_hits_superglobal(self, rhs_vid: int,
+                                      max_depth: int = 14) -> str:
+        """Subtree scan: does the AST subtree at rhs_vid read any known
+        superglobal directly?  Returns the superglobal name or ''.
+
+        Superglobal reads surface as a property/offset node whose MEMBER
+        in-edge comes from the superglobal variable (e.g. ``$_POST`` is
+        connected to ``payload`` via a member edge, NOT via ast), so the
+        scan follows both ast children and member in-edges."""
+        stack = [(rhs_vid, 0)]
+        while stack:
+            vid, depth = stack.pop()
+            if depth > max_depth:
+                continue
+            v = self.graph.vs[vid]
+            nm = _vattr(v, "name", "")
+            if nm and nm in _SUPERGLOBALS:
+                return nm
+            # member in-edge: $sg --member--> prop/node reads $sg[...]
+            for e in self._edge_in(vid, "member"):
+                src = self.graph.vs[e.source]
+                snm = _vattr(src, "name", "")
+                if snm and snm in _SUPERGLOBALS:
+                    return snm
+            for e in self._edge_out(vid, "ast"):
+                stack.append((e.target, depth + 1))
+        return ""
+
+    def _same_name_store_hits_superglobal(self, rhs_vid: int) -> str:
+        """Def-chain pass: rhs_vid is a variable/static read (e.g.
+        ``self::$payload_obj``).  Find every same-name identifier in the
+        same file that is the LHS of an assignment, and subtree-scan that
+        assignment's RHS for superglobal reads.  This bridges SSA-style
+        per-assignment node splits across if/else branches."""
+        rv = self.graph.vs[rhs_vid]
+        rname = _vattr(rv, "name", "")
+        rlabel = _vattr(rv, "label", "")
+        rfp = _vattr(rv, "file_path", "") or _vattr(rv, "path", "")
+        if not rname or not rfp:
+            return ""
+        for cand2 in self._nname.get((rlabel, rname), []):
+            if cand2 == rhs_vid:
+                continue
+            c2 = self.graph.vs[cand2]
+            c2_fp = _vattr(c2, "file_path", "") or _vattr(c2, "path", "")
+            if c2_fp != rfp:
+                continue
+            # cand2 must be an assign lhs
+            for e in self._edge_in(cand2, "ast"):
+                if _vattr(e, "role") != "lhs":
+                    continue
+                op = self.graph.vs[e.source]
+                if (_vattr(op, "label", "") != NodeLabel.OPERATOR.value
+                        or _vattr(op, "type", "") != OperatorType.ASSIGN.value):
+                    continue
+                for re_ in self._edge_out(e.source, "ast"):
+                    if _vattr(re_, "role") == "rhs":
+                        hit = self._store_value_hits_superglobal(re_.target)
+                        if hit:
+                            return hit
+                        break
+                break
+        return ""
+
+    def _get_enclosing_function_name(self, vid: int) -> str:
+        """Nearest FUNCTION ancestor name (climb ast to the own chain, then
+        own parents to the first function/method node)."""
+        cur = vid
+        for _ in range(24):
+            if list(self._edge_in(cur, "own")):
+                break
+            ast_sel = list(self._edge_in(cur, "ast"))
+            if not ast_sel:
+                return ""
+            cur = ast_sel[0].source
+        for _ in range(16):
+            own_sel = list(self._edge_in(cur, "own"))
+            if not own_sel:
+                return ""
+            parent = self.graph.vs[own_sel[0].source]
+            if _vattr(parent, "label", "") == NodeLabel.FUNCTION.value:
+                return _vattr(parent, "name", "") or ""
+            cur = own_sel[0].source
+        return ""
+
+    def _get_enclosing_class_name(self, vid: int) -> str:
+        """Nearest CLASS ancestor: property/identifier nodes attach via ast
+        edges to statement operators (assign), which then hang off the own
+        chain (file→class→method→stmt).  Climb ast first to reach the own
+        chain, then walk own parents level by level to the first CLASS."""
+        cur = vid
+        # Phase 1: climb ast in-edges (bounded) until a vertex has an own
+        # in-edge.  Property reads (ast/rhs of an assign) reach the assign
+        # operator, whose own parent is the enclosing statement/branch.
+        for _ in range(8):
+            if list(self._edge_in(cur, "own")):
+                break
+            ast_sel = list(self._edge_in(cur, "ast"))
+            if not ast_sel:
+                return ""
+            cur = ast_sel[0].source
+        # Phase 2: walk own parents upward; return the first CLASS name.
+        for _ in range(12):
+            own_sel = list(self._edge_in(cur, "own"))
+            if not own_sel:
+                # Fix 76c-2: expression-level property reads (member-chain
+                # normalizer) have neither ast nor own parents — fall back
+                # to same-file class declaration order for PHP.
+                if self.language == "php":
+                    return self._php_class_by_lineorder(vid)
+                return ""
+            parent = self.graph.vs[own_sel[0].source]
+            if _vattr(parent, "label", "") == NodeLabel.CLASS.value:
+                return _vattr(parent, "name", "") or ""
+            cur = own_sel[0].source
+        return ""
+
+    def _file_class_names(self, file_path: str) -> set[str]:
+        """Class names declared in a file (via class-node file_path attr).
+
+        NOTE (Fix 76d-3 REVERTED 2026-11-13): an earlier variant skipped
+        ``is_external`` stub classes here to kill one sibling-FP, but the
+        stub-inclusion is what carries ~43 legitimate osticket cross-file
+        property-store detections (reader file imports the writer's class
+        → sound linkage).  Removing stubs nuked them all (anchor -43).
+        Sibling FPs are handled by the reader-class-closure restriction
+        (Fix 76d-2) instead, not by dropping stubs here."""
+        _ck = ("_fcls", file_path)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        out: set[str] = set()
+        if not file_path:
+            return out
+        for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
+            fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if fp == file_path and v["name"]:
+                out.add(v["name"])
+        self._decision_cache[_ck] = out
+        return out
+
+    def _file_real_class_names(self, file_path: str) -> set[str]:
+        """Fix 130 (CVE-2026-111217): class names REALLY DECLARED in a file —
+        class nodes whose file_path matches and that are NOT external stubs
+        (is_external=True nodes are per-reference stubs, e.g. every file
+        extending VerySimpleModel gets its own stub; the real declaration
+        lives in a third file)."""
+        _ck = ("_fcls_real", file_path)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        out: set[str] = set()
+        if not file_path:
+            return out
+        for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
+            fp = _vattr(v, "file_path", "") or _vattr(v, "path", "")
+            if (fp == file_path and v["name"]
+                    and not _vattr(v, "is_external", False)):
+                out.add(v["name"])
+        self._decision_cache[_ck] = out
+        return out
+
+    def _classes_inherit(self, cls_a: str, cls_b: str) -> bool:
+        """True when a and b are non-empty and equal, or linked by an
+        extends crg edge / inherits_from chain (either direction)."""
+        # Fix 51f: memoize — body does whole-graph vs.select + crg scans;
+        # 51d-deepened pb recursion hits this at high frequency.
+        _ci_cache = getattr(self, "_classes_inherit_cache", None)
+        if _ci_cache is None:
+            _ci_cache = self._classes_inherit_cache = {}
+        _ck = (cls_a, cls_b)
+        if _ck in _ci_cache:
+            return _ci_cache[_ck]
+        _ci_res = self._classes_inherit_impl(cls_a, cls_b)
+        _ci_cache[_ck] = _ci_res
+        return _ci_res
+
+    def _classes_inherit_impl(self, cls_a: str, cls_b: str) -> bool:
+        if not cls_a or not cls_b:
+            return False
+        if cls_a == cls_b:
+            return True
+        # Fix 51g: one-shot extends/inherits index — per-call whole-graph
+        # vs/es selects exploded on large graphs (osticket: 369K nodes)
+        # after 51d deepened pb recursion.  Build once, answer O(1).
+        _idx = getattr(self, "_crg_extends_index", None)
+        if _idx is None:
+            _idx = {}
+            try:
+                for v in self.graph.vs.select(label=NodeLabel.CLASS.value):
+                    inh = _vattr(v, "inherits_from", "")
+                    nm = _vattr(v, "name", "")
+                    if inh and nm:
+                        _idx.setdefault(nm, set()).add(inh)
+            except Exception:
+                pass
+            try:
+                for e in self.graph.es.select(label="crg"):
+                    if _vattr(e, "type", "") != "extends":
+                        continue
+                    _idx.setdefault(
+                        _vattr(self.graph.vs[e.source], "name", ""), set()).add(
+                        _vattr(self.graph.vs[e.target], "name", ""))
+            except Exception:
+                pass
+            self._crg_extends_index = _idx
+        for base, other in ((cls_a, cls_b), (cls_b, cls_a)):
+            if other in _idx.get(base, ()):
+                return True
+        return False
+
+    def _defchain_field_store_killed(self, cand_vid: int, sink_vid: int,
+                                     var_name: str) -> bool:
+        """Fix 42w: detect a sanitized per-field store (``$b['val'] =
+        preg_replace(...)``) on *var_name* whose line sits strictly between
+        the def-chain candidate def and the sink use.
+
+        The store's LHS identifier node carries taint_type='safe' (set by
+        enrich_taint's safe-callee reassign marking) and is the direct DFG
+        source of the sink's container variable. When such a store exists,
+        the sink reads the NEW (sanitized) field value — the candidate's
+        old container taint is dead. Used to suppress the def-chain fallback
+        re-introducing taint that a field-sensitive store already killed.
+        """
+        try:
+            sink_line = int(_vattr(self.graph.vs[sink_vid], "lineno", 0) or 0)
+            cand_line = int(_vattr(self.graph.vs[cand_vid], "lineno", 0) or 0)
+            if sink_line <= 0 or cand_line <= 0 or cand_line >= sink_line:
+                return False
+            # Same function scope requirement — mirror the def-chain guards
+            _cf = self._get_enclosing_func_vid(cand_vid)
+            _sf = self._get_enclosing_func_vid(sink_vid)
+            if _cf is not None and _sf is not None and _cf != _sf:
+                return False
+            # Candidate must be a container def the sink's container reads
+            # through: walk same-name identifier nodes with a safe-taint
+            # lhs whose line is strictly between cand and sink lines.
+            for snv in self._nname.get(
+                    (NodeLabel.IDENTIFIER.value, var_name), []):
+                if snv == cand_vid or snv == sink_vid:
+                    continue
+                snv_line = int(_vattr(self.graph.vs[snv], "lineno", 0) or 0)
+                # Fix 42w: allow snv_line == cand_line — the store-RHS old-value
+                # USE node (e.g. vid19 $b inside preg_replace(..., $b['val']))
+                # sits on the SAME line as the store lhs. Its taint is exactly
+                # what the store kills; a candidate at that line is the old
+                # value, not a live def reaching the sink.
+                if not (cand_line <= snv_line < sink_line):
+                    continue
+                if _vattr(self.graph.vs[snv], "taint_type", "") != "safe":
+                    continue
+                # The safe node must be the LHS of an assignment whose LHS
+                # form is a field/element store (e.g. '$b[val]'), not a
+                # whole-variable reassign (that case is handled by the
+                # plain SSA kill in the def-chain itself).
+                for pe in self._edge_in(snv, "ast"):
+                    pv = self.graph.vs[pe.source]
+                    if (_vattr(pv, "label", "") == NodeLabel.OPERATOR.value
+                            and _vattr(pv, "type", "") in ("assign", "aug_assign")
+                            and _vattr(pe, "role", "") == "lhs"):
+                        # '$b[val]' style name marks an element store;
+                        # whole-var assigns normalize name to '$b' exactly.
+                        if _vattr(pv, "name", "") != var_name:
+                            return True
+                        break
+            return False
+        except Exception:
+            return False
 
     def _trace_dfg_direct(self, start_vid: int, max_depth: int = 20,
                           file_path: str = "") -> AnalysisResult | None:
@@ -3521,6 +8272,11 @@ class GraphAnalyzer:
         visited: set[int] = {start_vid}
         queue: deque[tuple[int, int]] = deque()
         queue.append((start_vid, 0))
+        # Format-sanitizer verdict remembered across the BFS (the block
+        # below assigns these); without the init an UnboundLocalError is
+        # raised — swallowed upstream it silently kills the whole trace.
+        repaired_result: AnalysisResult | None = None
+        path: list[int] = [start_vid]
         while queue:
             cur_vid, depth = queue.popleft()
             for up_vid in self._get_dfg_sources(cur_vid):
@@ -3560,6 +8316,26 @@ class GraphAnalyzer:
                                     path=path + [up_vid],
                                     expr_lineno=_vattr(uv, "lineno", 0))
                             continue
+                    # Fix 105: the weak def-chain tracer must honor repair
+                    # semantics exactly like the main BFS — reaching a call
+                    # whose callee is a repair function means the value was
+                    # sanitized; do NOT walk into its arguments for sources.
+                    # org-profile.tmpl.php:2: $info = c ? Format::input($_POST)
+                    # : Format::htmlchars(...) — the raw walk previously
+                    # entered Format.input's arg and returned "superglobal
+                    # $_POST" (FP; both arms are encoders).  Record the
+                    # repair proof; it only becomes the verdict if every
+                    # route ends clean (exhaustion returns repaired_result).
+                    if _fc and self._is_repair_function(_fc):
+                        if repaired_result is None:
+                            repaired_result = AnalysisResult(
+                                code=2,
+                                reason=f"repair '{_fc}' (def-chain weak trace)",
+                                chain=[{"step": "repair", "vid": up_vid,
+                                        "name": _fc, "code": 2}],
+                                path=path + [up_vid],
+                                expr_lineno=_vattr(uv, "lineno", 0))
+                        continue
                 uname = _vattr(uv, "name", "")
                 ulabel = _vattr(uv, "label", "")
                 utype = _vattr(uv, "type", "")
@@ -3581,7 +8357,9 @@ class GraphAnalyzer:
                 # Member access source (e.g., $_REQUEST['ip'])
                 if ulabel == NodeLabel.IDENTIFIER.value and utype in ("field", "property"):
                     full_text = _vattr(uv, "full_text", "")
-                    if full_text and full_text != uname and self._is_source_variable(full_text):
+                    if full_text and full_text != uname and self._is_source_variable(
+                            full_text,
+                            _vattr(uv, "file_path", "") or _vattr(uv, "path", "")):
                         # $_SERVER has mixed controllability — check member chain for uncontrolled keys
                         if self._is_superglobal_member_blocked(up_vid):
                             pass
@@ -3594,7 +8372,7 @@ class GraphAnalyzer:
                                 path=[start_vid, up_vid],
                                 expr_lineno=_vattr(uv, "lineno", 0))
                     # Also check member edges for source objects (e.g., $_REQUEST → member → 'ip')
-                    for me in self.graph.es.select(_target=up_vid, label="member"):
+                    for me in self._edge_in(up_vid, "member"):
                         obj_vid = me.source
                         obj_name = _vattr(self.graph.vs[obj_vid], "name", "")
                         if self._is_source_variable(obj_name):
@@ -3633,6 +8411,8 @@ class GraphAnalyzer:
                 # Continue BFS
                 if depth + 1 < max_depth:
                     queue.append((up_vid, depth + 1))
+        if repaired_result is not None:
+            return repaired_result
         return None
 
     def _check_safe_param_annotation(self, param_vid: int) -> str | None:
@@ -3640,7 +8420,7 @@ class GraphAnalyzer:
 
         Returns the annotation name if found safe, else None.
         """
-        for e in self.graph.es.select(_source=param_vid, label="own"):
+        for e in self._edge_out(param_vid, "own"):
             tgt = self.graph.vs[e.target]
             if _vattr(tgt, "label") == "annotation":
                 ann_name = _vattr(tgt, "name", "")
@@ -3675,7 +8455,7 @@ class GraphAnalyzer:
         if jtype in _NON_INJECTABLE_TYPES:
             return False
 
-        for e in self.graph.es.select(_source=param_vid, label="own"):
+        for e in self._edge_out(param_vid, "own"):
             tgt = self.graph.vs[e.target]
             if _vattr(tgt, "label") == "annotation":
                 ann_name = _vattr(tgt, "name", "").lstrip("@")
@@ -3683,10 +8463,42 @@ class GraphAnalyzer:
                     return True
         return False
 
-    def _is_source_variable(self, name: str) -> bool:
+    # Fix 46c: PHP apps commonly wrap superglobals in accessor objects at
+    # bootstrap (phpIPAM: $POST = new Params($_POST, null, true) with a
+    # magic __get), then read $POST->key everywhere.  The wrapper's
+    # property reads are request data.  Recognised by the conventional
+    # global wrapper names (case-insensitive, $_-less).
+    _PHP_REQUEST_WRAPPERS: frozenset[str] = frozenset({
+        "$POST", "$GET", "$REQUEST", "$COOKIE",
+    })
+
+    def _is_java_call_source(self, name: str) -> bool:
+        """Fix 68: Java framework call-source check.
+
+        The Java SourceRegistry has no ``is_source_member`` (that is the PHP
+        registry API) — ``_is_source_variable``'s registry consults raise
+        AttributeError and swallow to False for every Java query.  Use the
+        Java registry's real query API: ``is_source_producer`` already
+        implements bare-name + qualified-name matching with the request-
+        prefix guard (request.getInputStream → Servlet API source;
+        tree.getInputStream → None).
+        """
+        if self._source_registry is None:
+            return False
+        try:
+            info = self._source_registry.is_source_producer(name)
+            return info is not None
+        except Exception:
+            return False
+
+    def _is_source_variable(self, name: str, file_path: str = "") -> bool:
         if not name:
             return False
         if name in _SUPERGLOBALS:
+            return True
+        if self.language == "php" and name in self._PHP_REQUEST_WRAPPERS:
+            # Wrapper object holding request data ($POST->deviceid).
+            # Legitimate PHP code never names an unrelated variable $POST.
             return True
         if "[" in name:
             if name.split("[", 1)[0] in _SUPERGLOBALS:
@@ -3719,7 +8531,19 @@ class GraphAnalyzer:
         # (e.g., Go: os.Args, os.Getenv; C: argv, getenv; Python: sys.argv, os.environ)
         if self._source_registry is not None:
             try:
-                if self._source_registry.is_source_member(name):
+                # Fix 119g: scoped consult — gated property members (CakePHP
+                # $this->params et al.) only match in their class context.
+                # file_path flows from the member-read node; registries
+                # whose is_source_member takes no second arg (js/ts/java
+                # closure) fall back to the unscoped call.
+                if file_path:
+                    try:
+                        _hit119g = self._source_registry.is_source_member(name, file_path)
+                    except TypeError:
+                        _hit119g = self._source_registry.is_source_member(name)
+                else:
+                    _hit119g = self._source_registry.is_source_member(name)
+                if _hit119g:
                     # Java: bare method names like "getParameter" / "getCookies"
                     # are in source_members for suffix fallback, but exact
                     # match on bare names bypasses the _JAVA_REQUEST_PREFIXES
@@ -3742,7 +8566,14 @@ class GraphAnalyzer:
                         # Direction 1: strip leading segments → suffix in SR
                         for i in range(1, len(parts)):
                             sfx = sep.join(parts[i:])
-                            if self._source_registry.is_source_member(sfx):
+                            if file_path:
+                                try:
+                                    _sfx_hit119g = self._source_registry.is_source_member(sfx, file_path)
+                                except TypeError:
+                                    _sfx_hit119g = self._source_registry.is_source_member(sfx)
+                            else:
+                                _sfx_hit119g = self._source_registry.is_source_member(sfx)
+                            if _sfx_hit119g:
                                 # Java: suffix match alone is too broad (e.g.
                                 # tree.getParameter matches getParameter).
                                 # Require prefix (root object) to be a known
@@ -3776,6 +8607,16 @@ class GraphAnalyzer:
                                             # (parts[0]) is a known request.
                                             if parts[0] not in _JAVA_REQUEST_PREFIXES:
                                                 continue
+                                        # Fix 119g: the raw set hit bypassed
+                                        # the member-scope gate — re-verify
+                                        # through is_source_member so gated
+                                        # property members ($this->params)
+                                        # still require their class context.
+                                        try:
+                                            if not self._source_registry.is_source_member(sr_entry, file_path):
+                                                continue
+                                        except TypeError:
+                                            pass
                                         return True
                         except (AttributeError, TypeError):
                             pass
@@ -3804,7 +8645,7 @@ class GraphAnalyzer:
         """
         if not self.graph:
             return False
-        for e in self.graph.es.select(_target=vid, label="member"):
+        for e in self._edge_in(vid, "member"):
             at = e["access_type"] if "access_type" in e.attribute_names() else ""
             if at != "array_offset":
                 continue
@@ -3821,7 +8662,7 @@ class GraphAnalyzer:
         cur_vid = vid
         chain_names = []
         for _ in range(10):
-            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            member_in = list(self._edge_in(cur_vid, "member"))
             if not member_in:
                 break
             parent_vid = member_in[0].source
@@ -3851,6 +8692,59 @@ class GraphAnalyzer:
     def _is_server_member_blocked(self, vid: int) -> bool:
         return self._is_superglobal_member_blocked(vid)
 
+    def _uploaded_file_tmp_name_source(self, vid: int) -> str | None:
+        """Fix 106 (CVE-2026-126482): inside a file-content reader's path
+        argument (see _FILE_CONTENT_READERS), a ``$_FILES[...]['tmp_name']``
+        member chain is an UPLOADED-FILE source: the tmp_name path value is
+        server-generated, but the file CONTENT it addresses is fully
+        attacker-controlled (835 upload → fopen → fread → SQL injection).
+
+        Returns the chain text (e.g. ``$_FILES['form_erafile']['tmp_name']``)
+        when ``vid`` sits on a ``$_FILES`` member chain that carries
+        ``tmp_name`` and NO other non-source key; ``None`` otherwise
+        (including every context outside a file-content reader's path
+        argument, where tmp_name stays a server-generated non-source).
+        """
+        if self._file_read_arg_depth <= 0:
+            return None
+        if not self.graph:
+            return None
+        # walk UP the member chain to the $_FILES root
+        cur = vid
+        up_names: list[str] = []
+        found_root = False
+        for _ in range(10):
+            member_in = list(self._edge_in(cur, "member"))
+            if not member_in:
+                break
+            parent = member_in[0].source
+            up_names.append(
+                str(_vattr(self.graph.vs[cur], "name", "")).strip("'\""))
+            if str(_vattr(self.graph.vs[parent], "name", "")) == "$_FILES":
+                found_root = True
+                break
+            cur = parent
+        if not found_root or not up_names:
+            return None
+        # gather the whole bounded member subtree below vid (the tmp_name
+        # leaf is often a member-OUT child of the node dfg attaches to)
+        names = set(up_names)
+        stack = [vid]
+        for _ in range(16):
+            if not stack:
+                break
+            child = stack.pop()
+            for e in self._edge_out(child, "member"):
+                nm = str(_vattr(self.graph.vs[e.target], "name", "")).strip("'\"")
+                if nm:
+                    names.add(nm)
+                stack.append(e.target)
+        non_source = {k for k in names if k in _FILES_NON_SOURCE_MEMBERS}
+        if "tmp_name" in names and non_source == {"tmp_name"}:
+            first_key = up_names[-1] or "…"
+            return f"$_FILES['{first_key}']['tmp_name']"
+        return None
+
     def _is_superglobal_only_non_source_members(self, sg_vid: int) -> bool:
         """Generalized version of _is_server_only_uncontrolled_members.
         Returns True if ALL outgoing member children of a superglobal node
@@ -3864,7 +8758,7 @@ class GraphAnalyzer:
             non_source_set = _FILES_NON_SOURCE_MEMBERS
         else:
             return False
-        for e in self.graph.es.select(_source=sg_vid, label="member"):
+        for e in self._edge_out(sg_vid, "member"):
             child_name = _vattr(self.graph.vs[e.target], "name", "")
             if child_name and child_name not in non_source_set:
                 return False
@@ -3942,7 +8836,7 @@ class GraphAnalyzer:
                 # with the matching key, plus a blacklist const arg.
                 has_member = False
                 has_blacklist_const = False
-                for ae in self.graph.es.select(_source=sv, label="ast"):
+                for ae in self._edge_out(sv, "ast"):
                     child = self.graph.vs[ae.target]
                     child_label = _vattr(child, "label", "")
                     if child_label == NodeLabel.IDENTIFIER.value:
@@ -3973,7 +8867,7 @@ class GraphAnalyzer:
                 if has_member and has_blacklist_const:
                     probe_found = True
                     break
-            for e in self.graph.es.select(_source=sv, label="ast"):
+            for e in self._edge_out(sv, "ast"):
                 stack.append(e.target)
 
         if not probe_found:
@@ -3994,7 +8888,7 @@ class GraphAnalyzer:
                         and _vattr(bv_node, "type", "") in _CALL_TYPES
                         and _vattr(bv_node, "name", "") in ("die", "exit")):
                     return True
-                for e in self.graph.es.select(_source=bv, label="ast"):
+                for e in self._edge_out(bv, "ast"):
                     body_stack.append(e.target)
                 # own edges cover nested blocks
                 for e in self.graph.es.select(_source=bv, label=EdgeLabel.OWN.value):
@@ -4041,7 +8935,7 @@ class GraphAnalyzer:
         """
         cur = vid
         for _ in range(15):  # max AST depth
-            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [e.source for e in self._edge_in(cur, "ast")]
             if not parents:
                 break
             for p_vid in parents:
@@ -4120,7 +9014,7 @@ class GraphAnalyzer:
         # Method 1: AST parent chain
         cur = vid
         for _ in range(20):
-            parents = [(e.source, _vattr(e, "role", "")) for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [(e.source, _vattr(e, "role", "")) for e in self._edge_in(cur, "ast")]
             if not parents:
                 break
             for p_vid, edge_role in parents:
@@ -4157,18 +9051,34 @@ class GraphAnalyzer:
         """
         # 1. builtin_knowledge
         _callee = self._resolve_callee_name(call_vid)
+        _reg_verdict = None
+        _reg_knows = False
         if _callee:
+            # Fix 48a/48b: registry binding (if any) takes precedence over
+            # the svid-blind builtin_knowledge safe=True flag AND over the
+            # svid-blind enrich-time taint_type/safe marks below.
+            _clean = _callee.replace("::", ".").rsplit("\\", 1)[-1]
+            _reg_verdict = self._registry_safe_for_sink(_clean)
+            _reg_knows = self._registry_knows(_clean)
+            if _reg_verdict is True:
+                return True
             _bk = self._load_builtin_knowledge(self.language)
             if _bk and _callee in _bk:
                 _entry = _bk[_callee]
                 if isinstance(_entry, dict) and _entry.get("safe"):
+                    if _reg_verdict is False and _reg_knows:
+                        return False
                     return True
-        # 2. taint_type on call node
+        # 2. taint_type on call node — set at enrich time from the svid-blind
+        # global set; when the registry knows this function and does not
+        # bind it to the current sink svid, the registry wins.
         cv = self.graph.vs[call_vid]
         if _vattr(cv, "taint_type", "") == "safe":
+            if _reg_verdict is False and _reg_knows:
+                return False
             return True
         # 3. func_summary_type via use edge
-        for ue in self.graph.es.select(_source=call_vid, label="use"):
+        for ue in self._edge_out(call_vid, "use"):
             fvid = ue.target
             if fvid < self.graph.vcount():
                 fv = self.graph.vs[fvid]
@@ -4185,7 +9095,7 @@ class GraphAnalyzer:
         """
         callback_vid = None
         arg_counter = 0
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") != "arg":
                 continue
             # index attr is '' on most graphs (probe 25); positional
@@ -4216,13 +9126,49 @@ class GraphAnalyzer:
                     return True
             # func_summary safe via use edge from the OUTER call is for the
             # callee, not the callback — resolve callback def by name.
-            for fv in self.graph.vs:
-                if (_vattr(fv, "label") == NodeLabel.FUNCTION.value
-                        and _vattr(fv, "name", "") == cname):
-                    if _vattr(fv, "func_summary_type", "") == "safe":
-                        return True
-                    break
+            # Fix 126 (CVE-2026-111217 perf): this was a linear scan over
+            # every graph vertex per invocation.  Fix 123/124's corpus-wide
+            # return/bind edges made PB recursion reach array-callback call
+            # sites far more often (pfsense full scan 34min -> >90min,
+            # py-spy 74.5% here).  Memoize name -> FIRST function vid
+            # (vertex order) — identical first-match semantics, built once.
+            fv = self._first_function_by_name(cname)
+            if fv is not None and _vattr(
+                    self.graph.vs[fv], "func_summary_type", "") == "safe":
+                return True
         return False
+
+    def _first_function_by_name(self, name: str) -> int | None:
+        cache = getattr(self, "_fn_name_idx", None)
+        if cache is None:
+            cache = {}
+            for v in self.graph.vs:
+                if _vattr(v, "label") == NodeLabel.FUNCTION.value:
+                    nm = _vattr(v, "name", "")
+                    if nm and nm not in cache:
+                        cache[nm] = v.index
+            self._fn_name_idx = cache
+        return cache.get(name)
+
+    def _fn_with_body_by_name(self, name: str) -> bool:
+        """Fix 128 (CVE-2026-111217 perf): does any function node with this
+        (short) name own a body?  Replaces the per-frame linear scan over all
+        function nodes in the 52z-5 known-callee probe.  Semantics identical
+        to the original loop: a name match without a body does NOT stop the
+        scan — the answer is 'exists a same-name function with a body'."""
+        cache = getattr(self, "_fn_body_idx128", None)
+        if cache is None:
+            cache = self._fn_body_idx128 = {}
+        got = cache.get(name)
+        if got is None:
+            got = False
+            for _nv in self._nlbl.get(NodeLabel.FUNCTION.value, []):
+                if str(_vattr(self.graph.vs[_nv], "name", "")) == name:
+                    if any(True for _ in self._edge_out(_nv, "own")):
+                        got = True
+                        break
+            cache[name] = got
+        return got
 
     def _condition_call_is_negated(self, call_vid: int, max_up: int = 3) -> bool:
         """Check if *call_vid* sits directly under a unary '!' / 'not' node.
@@ -4233,7 +9179,7 @@ class GraphAnalyzer:
         """
         cur = call_vid
         for _ in range(max_up):
-            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [e.source for e in self._edge_in(cur, "ast")]
             if not parents:
                 return False
             for p_vid in parents:
@@ -4266,7 +9212,7 @@ class GraphAnalyzer:
         function call return, etc.) — membership then proves nothing.
         """
         candidates = []
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role", "") == "arg":
                 candidates.append(ae.target)
         if len(candidates) < 2:
@@ -4296,7 +9242,7 @@ class GraphAnalyzer:
                 if fv in seen:
                     continue
                 seen.add(fv)
-                for de in self.graph.es.select(_target=fv, label="dfg"):
+                for de in self._edge_in(fv, "dfg"):
                     sv = de.source
                     svv = self.graph.vs[sv]
                     if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
@@ -4314,6 +9260,55 @@ class GraphAnalyzer:
             frontier = nxt
             if not frontier:
                 break
+        return False
+
+    def _terminator_dominates_body(self, ev_vid: int, branch_vid: int) -> bool:
+        """Fix 141b (CVE-2026-111216): is the terminator evidence at
+        *ev_vid* UNCONDITIONAL inside the guarded body of *branch_vid*?
+
+        Walk up the ancestor chain (own/ast parents) from the evidence
+        node; the innermost enclosing conditional (label == BRANCH — if,
+        else-if, loops, ternaries all normalize to branch nodes) must be
+        *branch_vid* itself.  A ``continue``/``return``/``die`` buried in
+        a NESTED conditional (pfSense gwlb.inc setup_gateways_monitor:
+
+            if (empty($gw['monitor']) || !is_ipaddr($gw['monitor'])) {
+                if (is_ipaddr($gw['gateway'])) {
+                    $monitor = $gw['gateway'];      // falls through!
+                } else {
+                    continue;                        // nested terminator
+                }
+            }
+
+        ) only terminates ONE path — the sibling path falls through and
+        reaching a later sink proves NOTHING about the guard predicate.
+        Fix 42u's flat subtree scan accepted any continue/return/die in
+        the subtree, so the guard above was scored "always terminates"
+        and `_negated_whitelist_guard_before` killed the whole gateway
+        Monitor-IP taint chain ($gateway judged whitelist-constrained)
+        before start_dpinger() -> mwexec() -> exec().
+        """
+        frontier = {ev_vid}
+        seen = {ev_vid}
+        for _ in range(32):
+            nxt = set()
+            for cur in frontier:
+                for lbl in ("own", "ast"):
+                    for e in self._edge_in(cur, lbl):
+                        p = e.source
+                        if p in seen:
+                            continue
+                        seen.add(p)
+                        if p == branch_vid:
+                            return True
+                        # an intervening conditional shields the terminator
+                        if _vattr(self.graph.vs[p], "label", "") == \
+                                NodeLabel.BRANCH.value:
+                            continue
+                        nxt.add(p)
+            if not nxt:
+                return False
+            frontier = nxt
         return False
 
     def _branch_body_always_terminates(self, branch_vid: int) -> bool:
@@ -4336,9 +9331,9 @@ class GraphAnalyzer:
             if (_vattr(svv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(svv, "type", "") in _CALL_TYPES):
                 calls.append(sv)
-            for ee in self.graph.es.select(_source=sv, label="own"):
+            for ee in self._edge_out(sv, "own"):
                 stack.append(ee.target)
-            for ee in self.graph.es.select(_source=sv, label="ast"):
+            for ee in self._edge_out(sv, "ast"):
                 stack.append(ee.target)
         if not calls:
             # Source-level goto fallback: the PHP graph builder drops
@@ -4372,11 +9367,14 @@ class GraphAnalyzer:
         for cv in calls:
             cname = _vattr(self.graph.vs[cv], "name", "")
             if cname in self._TERMINATOR_FUNCS:
-                return True
+                # Fix 141b: the die/exit call must not itself be nested
+                # under another conditional inside the guard body.
+                if self._terminator_dominates_body(cv, branch_vid):
+                    return True
             # one-level callee expansion: does control return past the
             # callee's end?  "Not" iff the callee's LAST top-level
             # statement is a bare die/exit call.
-            for ue in self.graph.es.select(_source=cv, label="use"):
+            for ue in self._edge_out(cv, "use"):
                 # Bug A fix: wrap int index in Vertex — b15 trace showed
                 # _vattr(int, "label") silently failing the FUNCTION check
                 fv = self.graph.vs[ue.target]
@@ -4384,7 +9382,7 @@ class GraphAnalyzer:
                     continue
                 last_top_stmt = None
                 top_stmts = []
-                for oe in self.graph.es.select(_source=fv, label="own"):
+                for oe in self._edge_out(fv, "own"):
                     top_stmts.append((int(_vattr(oe, "index", 0) or 0),
                                       oe.target))
                 if not top_stmts:
@@ -4396,7 +9394,11 @@ class GraphAnalyzer:
                 if (_vattr(lv, "label") == NodeLabel.OPERATOR.value
                         and _vattr(lv, "type", "") in _CALL_TYPES
                         and _vattr(lv, "name", "") in self._TERMINATOR_FUNCS):
-                    return True
+                    # Fix 141b: the terminating CALL SITE must be
+                    # unconditional in the guard body (not nested under
+                    # another conditional).
+                    if self._terminator_dominates_body(cv, branch_vid):
+                        return True
                 # return-statement wrapper: return exit(); (rare)
                 if _vattr(lv, "label") == NodeLabel.RETURN.value:
                     for re_ in self.graph.es.select(
@@ -4420,10 +9422,29 @@ class GraphAnalyzer:
             seen2.add(sv)
             if self.graph.vs[sv].attributes().get("label") == \
                     NodeLabel.RETURN.value:
-                return True
-            for ee in self.graph.es.select(_source=sv, label="own"):
+                # Fix 141b: return nested under another conditional only
+                # terminates one path.
+                if self._terminator_dominates_body(sv, branch_vid):
+                    return True
+                continue
+            # Fix 42u: `continue` inside the guarded body terminates the
+            # CURRENT LOOP ITERATION — for sinks later in the same loop
+            # body the guard is just as absolute as die/exit (sgx-1.4.55
+            # L93: `if (!is_array($src_item) || ... || !in_array(
+            # $src_item['prop'], [...], true)) { continue; }` before the
+            # L96 dynamic-dispatch sink).
+            _sv_attrs = self.graph.vs[sv].attributes()
+            if (_sv_attrs.get("label") == NodeLabel.OPERATOR.value
+                    and _sv_attrs.get("type", "") == "continue"):
+                # Fix 141b: continue nested under ANOTHER conditional
+                # (pfSense gwlb.inc inner else-continue) terminates only
+                # the sibling-fallthrough path — not the whole body.
+                if self._terminator_dominates_body(sv, branch_vid):
+                    return True
+                continue
+            for ee in self._edge_out(sv, "own"):
                 stack2.append(ee.target)
-            for ee in self.graph.es.select(_source=sv, label="ast"):
+            for ee in self._edge_out(sv, "ast"):
                 stack2.append(ee.target)
         return False
 
@@ -4446,11 +9467,11 @@ class GraphAnalyzer:
         cur = sink_vid
         for _ in range(30):
             up = None
-            for e in self.graph.es.select(_target=cur, label="own"):
+            for e in self._edge_in(cur, "own"):
                 up = e.source
                 break
             if up is None:
-                for e in self.graph.es.select(_target=cur, label="ast"):
+                for e in self._edge_in(cur, "ast"):
                     up = e.source
                     break
             if up is None:
@@ -4463,7 +9484,7 @@ class GraphAnalyzer:
         if owner_vid is None:
             return False
         top_stmts = []
-        for oe in self.graph.es.select(_source=owner_vid, label="own"):
+        for oe in self._edge_out(owner_vid, "own"):
             top_stmts.append((int(_vattr(oe, "index", 0) or 0), oe.target))
         if not top_stmts:
             return False
@@ -4479,9 +9500,9 @@ class GraphAnalyzer:
                 seen.add(w)
                 if w == target:
                     return True
-                for ee in self.graph.es.select(_source=w, label="own"):
+                for ee in self._edge_out(w, "own"):
                     stack.append(ee.target)
-                for ee in self.graph.es.select(_source=w, label="ast"):
+                for ee in self._edge_out(w, "ast"):
                     stack.append(ee.target)
             return False
 
@@ -4543,7 +9564,7 @@ class GraphAnalyzer:
         if _vattr(sv, "type", "") not in ("field", "property"):
             return False
         obj_vid = None
-        for me in self.graph.es.select(_target=sink_vid, label="member"):
+        for me in self._edge_in(sink_vid, "member"):
             obj_vid = me.source
             break
         if obj_vid is None:
@@ -4559,20 +9580,20 @@ class GraphAnalyzer:
         # not the assign operator itself — climb to the ast parent and
         # verify the identifier is the assign's LHS child.
         def _assign_of_lhs(lhs_vid: int):
-            for pe in self.graph.es.select(_target=lhs_vid, label="ast"):
+            for pe in self._edge_in(lhs_vid, "ast"):
                 parent = pe.source
                 pv = self.graph.vs[parent]
                 if (_vattr(pv, "label") == NodeLabel.OPERATOR.value
                         and _vattr(pv, "type", "") == "assign"):
                     # confirm lhs role
-                    for le in self.graph.es.select(_source=parent, label="ast"):
+                    for le in self._edge_out(parent, "ast"):
                         if (_vattr(le, "role", "") == "lhs"
                                 and le.target == lhs_vid):
                             return parent
             return None
 
         ctor_fn = None
-        for de in self.graph.es.select(_target=obj_vid, label="dfg"):
+        for de in self._edge_in(obj_vid, "dfg"):
             src = de.source
             svv = self.graph.vs[src]
             assign_vid = None
@@ -4585,7 +9606,7 @@ class GraphAnalyzer:
                 continue
             src = assign_vid
             # RHS: new call with a linked ctor function
-            for re_ in self.graph.es.select(_source=src, label="ast"):
+            for re_ in self._edge_out(src, "ast"):
                 if _vattr(re_, "role", "") != "rhs":
                     continue
                 rhs_v = self.graph.vs[re_.target]
@@ -4626,7 +9647,7 @@ class GraphAnalyzer:
         if ctor_fn is None:
             return False
         # walk ctor body: find `$this->prop = ...` assign
-        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+        for oe in self._edge_out(ctor_fn, "own"):
             stack = [oe.target]
             seen = set()
             while stack:
@@ -4639,7 +9660,7 @@ class GraphAnalyzer:
                         and _vattr(wv, "type", "") == "assign"):
                     lhs_name = None
                     rhs_vid = None
-                    for ae in self.graph.es.select(_source=w, label="ast"):
+                    for ae in self._edge_out(w, "ast"):
                         if _vattr(ae, "role", "") == "lhs":
                             av = self.graph.vs[ae.target]
                             if _vattr(av, "type", "") in ("field", "property"):
@@ -4650,9 +9671,9 @@ class GraphAnalyzer:
                         if self._rhs_is_whitelist_ternary(rhs_vid):
                             return True
                         return False
-                for ce in self.graph.es.select(_source=w, label="ast"):
+                for ce in self._edge_out(w, "ast"):
                     stack.append(ce.target)
-                for ce in self.graph.es.select(_source=w, label="own"):
+                for ce in self._edge_out(w, "own"):
                     stack.append(ce.target)
         return False
 
@@ -4676,7 +9697,7 @@ class GraphAnalyzer:
             if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(wv, "type", "") in _CALL_TYPES):
                 calls.append(w)
-            for ee in self.graph.es.select(_source=w, label="ast"):
+            for ee in self._edge_out(w, "ast"):
                 stack.append(ee.target)
         for cv in calls:
             cname = _vattr(self.graph.vs[cv], "name", "")
@@ -4715,7 +9736,7 @@ class GraphAnalyzer:
         $this-><prop> through a whitelist ternary (Fix 21h-3b)."""
         new_vid = None
         arg_idx = None
-        for pe in self.graph.es.select(_target=arg_vid, label="ast"):
+        for pe in self._edge_in(arg_vid, "ast"):
             parent = pe.source
             if _vattr(self.graph.vs[parent], "type", "") != "new":
                 continue
@@ -4741,7 +9762,7 @@ class GraphAnalyzer:
             return False
         # param i of the ctor
         params = []
-        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+        for oe in self._edge_out(ctor_fn, "own"):
             pv_ = self.graph.vs[oe.target]
             if _vattr(pv_, "label", "") == NodeLabel.PARAMETER.value:
                 params.append(oe.target)
@@ -4755,7 +9776,7 @@ class GraphAnalyzer:
         # does the ctor store THIS param through a whitelist ternary?
         # walk the ctor body: find assigns whose RHS ternary contains a dfg
         # edge from param_vid and passes _rhs_is_whitelist_ternary.
-        for oe in self.graph.es.select(_source=ctor_fn, label="own"):
+        for oe in self._edge_out(ctor_fn, "own"):
             stack = [oe.target]
             seen = set()
             while stack:
@@ -4767,7 +9788,7 @@ class GraphAnalyzer:
                 if (_vattr(wv, "label") == NodeLabel.OPERATOR.value
                         and _vattr(wv, "type", "") == "assign"):
                     rhs_vid = None
-                    for ae in self.graph.es.select(_source=w, label="ast"):
+                    for ae in self._edge_out(w, "ast"):
                         if _vattr(ae, "role", "") == "rhs":
                             rhs_vid = ae.target
                     if rhs_vid is not None:
@@ -4792,9 +9813,39 @@ class GraphAnalyzer:
                         if hits_param and self._rhs_is_whitelist_ternary(
                                 rhs_vid):
                             return True
-                for ce in self.graph.es.select(_source=w, label="ast"):
+                for ce in self._edge_out(w, "ast"):
                     stack.append(ce.target)
         return False
+
+    def _precompute_f23_relevant(self) -> set:
+        """Fix 48q helper: one-time reverse marking of every vid from which
+        _fixed_host_url_guard could possibly find a curl_setopt owner —
+        the curl_setopt calls themselves, their ast argument children, and
+        the 5-level dfg neighborhood around each (mirroring the guard's own
+        ast-parent + bidirectional-dfg walk).  Entries outside this set can
+        never satisfy the guard."""
+        rel: set = set()
+        setopts = [v.index for v in self.graph.vs
+                   if _vattr(v, "type", "") == "call"
+                   and str(_vattr(v, "name", "")).lower() == "curl_setopt"]
+        for c in setopts:
+            rel.add(c)
+            for e in self.graph.es.select(_source=c, label="ast"):
+                rel.add(e.target)
+        frontier = list(rel)
+        for _ in range(5):
+            nxt = []
+            for u in frontier:
+                for e in self.graph.es.select(_target=u, label="dfg"):
+                    if e.source not in rel:
+                        rel.add(e.source); nxt.append(e.source)
+                for e in self.graph.es.select(_source=u, label="dfg"):
+                    if e.target not in rel:
+                        rel.add(e.target); nxt.append(e.target)
+            if not nxt:
+                break
+            frontier = nxt
+        return rel
 
     def _fixed_host_url_guard(self, sink_vid: int) -> bool:
         """Fix 23 helper: sink is curl_setopt($ch, CURLOPT_URL, $url) and
@@ -4817,7 +9868,7 @@ class GraphAnalyzer:
                 sv, "path", "")
 
             def _owning_setopt(vid):
-                for e in self.graph.es.select(_target=vid, label="ast"):
+                for e in self._edge_in(vid, "ast"):
                     pv = self.graph.vs[e.source]
                     if (_vattr(pv, "type", "") == "call"
                             and _vattr(pv, "name", "") == "curl_setopt"):
@@ -4884,6 +9935,7 @@ class GraphAnalyzer:
         setopt_line = int(_vattr(self.graph.vs[setopt_vid], "lineno", 0)
                           or 0)
         for v in self.graph.vs:
+            _via_db_probe = False
             if (_vattr(v, "type", "") == "assign"
                     and _vattr(v, "name", "") == url_name):
                 vf = _vattr(v, "file_path", "") or _vattr(v, "path", "")
@@ -5019,7 +10071,7 @@ class GraphAnalyzer:
             return False
         # dim must reference var_name (member edge from base)
         dim_ok = False
-        for me in self.graph.es.select(_source=base_vid, label="member"):
+        for me in self._edge_out(base_vid, "member"):
             dv = self.graph.vs[me.target]
             dname = _vattr(dv, "name", "")
             if dname in (var_name, var_name.lstrip("$"),
@@ -5033,7 +10085,7 @@ class GraphAnalyzer:
             av = v.attributes()
             if (_vattr(v, "type", "") == "assign"
                     and _vattr(v, "name", "") == base_name):
-                for ae in self.graph.es.select(_source=v.index, label="ast"):
+                for ae in self._edge_out(v.index, "ast"):
                     if _vattr(ae, "role", "") != "rhs":
                         continue
                     rv = self.graph.vs[ae.target]
@@ -5077,11 +10129,11 @@ class GraphAnalyzer:
         cur = sink_vid
         for _ in range(30):
             up = None
-            for e in self.graph.es.select(_target=cur, label="own"):
+            for e in self._edge_in(cur, "own"):
                 up = e.source
                 break
             if up is None:
-                for e in self.graph.es.select(_target=cur, label="ast"):
+                for e in self._edge_in(cur, "ast"):
                     up = e.source
                     break
             if up is None:
@@ -5101,6 +10153,23 @@ class GraphAnalyzer:
 
         branch_list = self._nfile_lineno.get(
             (NodeLabel.BRANCH.value, s_file), [])
+        # Fix 52w: same-file sibling METHODS share the file-level branch
+        # list — a guard on a same-named parameter of ANOTHER method
+        # (fileToBase64's $filePath killed by L380 !file_exists in a
+        # sibling method) must not protect this sink.  Restrict to
+        # branches inside the sink's owner function subtree.
+        if owner_fn is not None and _vattr(
+                self.graph.vs[owner_fn], "label", "") == NodeLabel.FUNCTION.value:
+            _fn_branches = set()
+            _stk = [owner_fn]
+            while _stk:
+                _x = _stk.pop()
+                for _be in self._edge_out(_x, "own"):
+                    if _be.target not in _fn_branches:
+                        _fn_branches.add(_be.target)
+                        _stk.append(_be.target)
+            branch_list = [(l, v) for (l, v) in branch_list
+                           if v in _fn_branches]
         for b_lineno, bvid in branch_list:
             if b_lineno >= s_lineno:
                 break  # guards must run BEFORE the sink
@@ -5120,8 +10189,10 @@ class GraphAnalyzer:
             if (_vattr(cv, "label") == NodeLabel.OPERATOR.value
                     and _vattr(cv, "type", "") == "binary_op"
                     and _vattr(cv, "name", "") in ("or", "||")):
-                for _oe in self.graph.es.select(_source=cond_vid, label="ast"):
-                    if _vattr(_oe, "role", "") == "operand":
+                for _oe in self._edge_out(cond_vid, "ast"):
+                    # Fix 52v: phply renders || operands as left/right
+                    # (bit-pi ImageHelperTool L488) — accept both roles.
+                    if _vattr(_oe, "role", "") in ("operand", "left", "right"):
                         _ov = self.graph.vs[_oe.target]
                         if (_vattr(_ov, "label") == NodeLabel.OPERATOR.value
                                 and _vattr(_ov, "type", "") == "unary_op"):
@@ -5134,7 +10205,7 @@ class GraphAnalyzer:
                 if (_vattr(cv, "label") != NodeLabel.OPERATOR.value
                         or _vattr(cv, "type", "") != "unary_op"):
                     continue
-                for ce in self.graph.es.select(_source=cond_vid, label="ast"):
+                for ce in self._edge_out(cond_vid, "ast"):
                     if _vattr(ce, "role", "") == "operand":
                         _pred_calls.append(ce.target)
                         break
@@ -5145,11 +10216,26 @@ class GraphAnalyzer:
             # disqualifies the whole branch.  (This block previously
             # referenced an undefined `call_vid` — NameError on every
             # single-predicate guard, so the whitelist guard never fired.)
-            _branch_pred_ok = True
+            # Fix 42u: existence/type predicates (isset/is_array/is_scalar/
+            # is_string/...) referencing var_name are NEUTRAL in an or-chain:
+            # they impose no value constraint themselves, but reaching the
+            # sink past them (each false operand would have terminated)
+            # does not weaken the in_array/whitelist operand's constraint.
+            # A branch qualifies when at least one operand is a CONSTRAINT
+            # predicate and none is a disqualifying unknown predicate.
+            _branch_pred_ok = False
+            _has_constraint = False
             for call_vid in _pred_calls:
-                if not self._pred_qualifies(call_vid, var_name, bvid):
+                _pv = self._pred_qualifies_state(call_vid, var_name, bvid)
+                if _pv == "constraint":
+                    _has_constraint = True
+                elif _pv == "neutral":
+                    continue
+                else:  # "disqualify"
                     _branch_pred_ok = False
                     break
+            else:
+                _branch_pred_ok = _has_constraint
             if not _branch_pred_ok:
                 continue
             return True
@@ -5185,7 +10271,7 @@ class GraphAnalyzer:
         nm = _vattr(v, "name", "") or ""
         if nm.startswith("$_"):
             return True
-        for e in self.graph.es.select(_source=vid, label="ast"):
+        for e in self._edge_out(vid, "ast"):
             if self._subtree_has_superglobal(e.target, depth + 1):
                 return True
         return False
@@ -5194,6 +10280,17 @@ class GraphAnalyzer:
         """Fix 28: every tainted operand of the echo output is wrapped in
         urlencode — the value charset cannot break out of an HTML
         attribute (no quote/angle/space chars), so this is not XSS."""
+        # Fix 43k-3: memoize on (sink_vid, path head) — the guard's result
+        # depends only on the graph and those inputs.
+        _pkey = tuple((r1.path or [])[:6]) if r1 is not None else ()
+        _ck = ("_uog", sink_vid, _pkey)
+        if _ck in self._decision_cache:
+            return self._decision_cache[_ck]
+        _r = self._urlencoded_output_guard_uncached(sink_vid, r1)
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _urlencoded_output_guard_uncached(self, sink_vid: int, r1) -> str | None:
         # find the defining assign of the sink variable itself (or of any
         # def-chain variable in the reported path) whose RHS fully
         # encodes the superglobal-derived operands.
@@ -5222,9 +10319,15 @@ class GraphAnalyzer:
             seen_vars.add(v_name)
             all_defs_ok = None  # None = no definitions found
             any_encoded = False
-            for ve in self.graph.vs:
-                if (_vattr(ve, "type", "") != "assign"
-                        or _vattr(ve, "name", "") != v_name):
+            # Fix 53-perf: full-graph scan (`for ve in self.graph.vs`) ran
+            # per candidate variable per guard call — osticket (370k nodes)
+            # burned minutes here on repeated linear scans.  Use the
+            # existing _nname index: assign operators are labeled
+            # "operator" with name = assigned variable name.
+            _cand_vids = self._nname.get(("operator", v_name), [])
+            for ve_vid in _cand_vids:
+                ve = self.graph.vs[ve_vid]
+                if (_vattr(ve, "type", "") != "assign"):
                     continue
                 ve_file = _vattr(ve, "file_path", "") or _vattr(ve, "path", "")
                 ve_line = int(_vattr(ve, "lineno", 0) or 0)
@@ -5269,7 +10372,7 @@ class GraphAnalyzer:
                 in self._URLENCODE_FUNCS):
             return True
         return any(self._rhs_tree_has_urlencode(e.target, depth + 1)
-                   for e in self.graph.es.select(_source=vid, label="ast"))
+                   for e in self._edge_out(vid, "ast"))
 
     def _rhs_leaves_all_encoded(self, vid: int, in_enc: bool = False,
                                 depth: int = 0) -> bool:
@@ -5303,14 +10406,58 @@ class GraphAnalyzer:
         """Fix 27 helper (extracted from _negated_whitelist_guard_before):
         does ONE negated predicate `!pred(...)` qualify as a value
         constraint on var_name whose guarded branch bvid terminates?"""
+        return self._pred_qualifies_state(call_vid, var_name, bvid) == "constraint"
+
+    # Fix 42u: existence/type-check predicates that reference var_name.
+    # In a disjunction guard (each false operand terminates), reaching
+    # the sink proves every operand TRUE — an existence/type predicate
+    # being TRUE constrains shape, not content: NEUTRAL (no value
+    # constraint contributed, but no reason to distrust sibling
+    # whitelist operands either).
+    _NEUTRAL_GUARD_PREDS = frozenset({
+        "isset", "empty", "is_null", "array_key_exists", "property_exists",
+        "is_array", "is_scalar", "is_string", "is_int", "is_integer",
+        "is_numeric", "is_float", "is_double", "is_bool", "is_callable",
+        "is_object", "is_iterable", "is_countable", "is_long",
+    })
+
+    def _pred_qualifies_state(self, call_vid: int, var_name: str,
+                              bvid: int) -> str:
+        """Fix 42u tri-state variant of _pred_qualifies:
+        'constraint' — the predicate pins var_name's value/content,
+        'neutral'    — shape/existence check on var_name (no content claim),
+        'disqualify' — unknown predicate; the guard proves nothing safe."""
+        _ck = ("_pqs", call_vid, var_name, bvid)
+        _hit = self._decision_cache.get(_ck, None)
+        if _hit is not None:
+            return _hit
+        _r = self._pred_qualifies_state_uncached(call_vid, var_name, bvid)
+        self._decision_cache[_ck] = _r
+        return _r
+
+    def _pred_qualifies_state_uncached(self, call_vid: int, var_name: str,
+                                       bvid: int) -> str:
         callee = _vattr(self.graph.vs[call_vid], "name", "")
+        # neutral predicates must actually reference var_name to be
+        # relevant; a neutral check on an unrelated variable neither
+        # constrains nor weakens var_name's guard chain
+        _refs_var = False
+        _nargs = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if _nargs and any(self._subtree_contains_name(a, var_name, depth=0,
+                                                        follow_dfg=False)
+                          for a in _nargs):
+            _refs_var = True
+        if callee in self._NEUTRAL_GUARD_PREDS:
+            return "neutral" if _refs_var else "disqualify"
         # NOTE: in_array is listed in _EXISTENCE_CHECK_FUNCS ("membership
         # only — content unchanged"), but HERE membership in a constant
         # whitelist IS the value constraint this guard encodes.  Accept
         # it explicitly BEFORE the existence-check exclusion.
         if callee == "in_array":
             if not self._array_literal_is_const_whitelist(call_vid):
-                return False
+                return "disqualify"
         elif callee in _EXISTENCE_CHECK_FUNCS:
             # isset/empty etc. only prove existence, not value
             # constraint — excluding them here mirrors the 20a
@@ -5323,24 +10470,25 @@ class GraphAnalyzer:
                     and self._isset_dim_literal_whitelist(
                         call_vid, var_name)
                     and self._branch_body_always_terminates(bvid)):
-                return True
-            return False
+                return "constraint"
+            return "disqualify"
         elif not (callee and self._is_safe_function_call(call_vid)):
-            return False
+            return "disqualify"
         # arg0 must reference var_name
         args = [e.target for e in self.graph.es.select(
             _source=call_vid, label="ast")
             if _vattr(e, "role", "") == "arg"]
         if not args:
             return False
-        if not self._subtree_contains_name(args[0], var_name, depth=0):
+        if not self._subtree_contains_name(args[0], var_name, depth=0,
+                                              follow_dfg=False):
             # Bug D fix: `$in->method` guards use the PROPERTY name
             # ('method') as arg0, while the path carries '$in'.  Accept
             # when arg0 is a property whose member-parent is var_name.
             prop_ok = False
             a0 = self.graph.vs[args[0]]
             if (_vattr(a0, "type", "") == "property"):
-                for me in self.graph.es.select(_target=args[0], label="member"):
+                for me in self._edge_in(args[0], "member"):
                     if _vattr(self.graph.vs[me.source], "name", "") == var_name:
                         prop_ok = True
                         break
@@ -5350,35 +10498,79 @@ class GraphAnalyzer:
                 #   $urm_md5 = md5($url); if (!in_array($urm_md5,$wl)) exit;
                 # md5 is a one-way function with a unique preimage, so
                 # membership of md5($url) in a constant whitelist pins $url
-                # to a single value.  Accept when arg0's defining assign
-                # wraps a call whose argument subtree contains var_name.
+                # to a single value.
+                # Fix 104 (CVE-2026-126483): the old acceptance — ANY
+                # same-named assign anywhere in the graph whose RHS merely
+                # REACHED var_name through dfg edges — was data-flow in the
+                # wrong direction. openemr ippf_statistics.php:
+                # `$patient_id = $row['pid']` with $row from
+                # sqlFetchArray(sqlStatement($query)) made
+                # `!hadRecentAbService($patient_id)` a "whitelist guard on
+                # $query", silently killing every sqlStatement chain in the
+                # file. A derivative only pins var_name when it is a ONE-WAY
+                # DIGEST CALL whose direct argument subtree (no dfg) holds
+                # var_name, assigned in the same file BEFORE the guard.
                 indir = False
                 a0_name = _vattr(a0, "name", "")
-                if a0_name:
+                b_line = int(_vattr(self.graph.vs[bvid], "lineno", 0) or 0)
+                b_file = (_vattr(self.graph.vs[bvid], "file_path", "")
+                          or _vattr(self.graph.vs[bvid], "path", ""))
+                if a0_name and b_file:
                     for ve in self.graph.vs:
                         if (_vattr(ve, "type", "") == "assign"
-                                and _vattr(ve, "name", "") == a0_name):
+                                and _vattr(ve, "name", "") == a0_name
+                                and (_vattr(ve, "file_path", "")
+                                     or _vattr(ve, "path", "")) == b_file
+                                and 0 < int(_vattr(ve, "lineno", 0) or 0)
+                                < b_line):
                             for ke in self.graph.es.select(
                                     _source=ve.index, label="ast"):
-                                if self._subtree_contains_name(
-                                        ke.target, var_name, depth=0):
+                                if (_vattr(ke, "role", "") == "rhs"
+                                        and self._is_one_way_digest_of(
+                                            ke.target, var_name)):
                                     indir = True
                                     break
                         if indir:
                             break
                 if not indir:
-                    return False
+                    return "disqualify"
             else:
                 pass
         # whitelist form needs a constant array; user predicates don't
         if callee == "in_array":
             if not self._array_literal_is_const_whitelist(call_vid):
-                return False
+                return "disqualify"
         # guarded body must provably terminate (else fall-through is
         # NOT proven pred()==true)
         if not self._branch_body_always_terminates(bvid):
+            return "disqualify"
+        return "constraint"
+
+    # Fix 104: one-way digest builtins — deterministic with unique
+    # preimage per output value, so whitelist membership of the digest
+    # pins var_name. crc32 (collisions) and password_hash (random salt:
+    # same input → different outputs) are deliberately excluded.
+    _ONE_WAY_DIGEST_FUNCS = frozenset(
+        {"md5", "sha1", "sha256", "hash", "hash_hmac", "hash_pbkdf2"})
+
+    def _is_one_way_digest_of(self, expr_vid: int, var_name: str) -> bool:
+        """Fix 104 helper: is *expr_vid* (an assign RHS expression) a call
+        to a one-way digest builtin whose direct argument AST subtree
+        contains *var_name*?  Nested digests (md5(md5($x))) qualify — the
+        inner variable is inside the outer call's arg subtree.  No dfg
+        following: data that merely derives from var_name elsewhere does
+        not pin its value."""
+        ev = self.graph.vs[expr_vid]
+        if (_vattr(ev, "label") != NodeLabel.OPERATOR.value):
             return False
-        return True
+        if str(_vattr(ev, "name", "")) not in self._ONE_WAY_DIGEST_FUNCS:
+            return False
+        for ae in self.graph.es.select(_source=expr_vid, label="ast"):
+            if _vattr(ae, "role", "") == "arg":
+                if self._subtree_contains_name(
+                        ae.target, var_name, depth=0, follow_dfg=False):
+                    return True
+        return False
 
     def _redirect_base_pinned_by_const(self, op_vid: int) -> bool:
         """Fix 20b: is this binary_op's Location/redirect base pinned to an
@@ -5401,7 +10593,7 @@ class GraphAnalyzer:
         cur = op_vid
         for _ in range(20):
             left_vid = None
-            for e in self.graph.es.select(_source=cur, label="ast"):
+            for e in self._edge_out(cur, "ast"):
                 if _vattr(e, "role", "") == "left":
                     left_vid = e.target
                     break
@@ -5445,7 +10637,7 @@ class GraphAnalyzer:
         """
         cur = vid
         for _ in range(max_up):
-            parents = [e.source for e in self.graph.es.select(_target=cur, label="ast")]
+            parents = [e.source for e in self._edge_in(cur, "ast")]
             found_call = None
             for p_vid in parents:
                 pv = self.graph.vs[p_vid]
@@ -5469,7 +10661,7 @@ class GraphAnalyzer:
             if low == "header":
                 # header() is a redirect sink only for Location targets:
                 # first arg must reference a 'Location:'-style const.
-                for ae in self.graph.es.select(_source=found_call, label="ast"):
+                for ae in self._edge_out(found_call, "ast"):
                     if _vattr(ae, "role", "") != "arg":
                         continue
                     return self._const_in_subtree_starts_with(
@@ -5488,7 +10680,7 @@ class GraphAnalyzer:
         if _vattr(v, "label", "") == NodeLabel.CONST.value:
             nm = str(_vattr(v, "name", "") or "").strip("'\"").lower()
             return any(nm.startswith(p) for p in prefixes)
-        for e in self.graph.es.select(_source=root_vid, label="ast"):
+        for e in self._edge_out(root_vid, "ast"):
             if self._const_in_subtree_starts_with(e.target, prefixes, depth + 1):
                 return True
         return False
@@ -5507,7 +10699,7 @@ class GraphAnalyzer:
             return ""
         cur_vid = vid
         for _ in range(10):
-            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            member_in = list(self._edge_in(cur_vid, "member"))
             if not member_in:
                 break
             parent_vid = member_in[0].source
@@ -5516,6 +10708,91 @@ class GraphAnalyzer:
                 return tt
             cur_vid = parent_vid
         return ""
+
+    def _file_scoped_source_named(self, vid: int, name: str) -> bool:
+        """Fix 49d-v2: 检查「同文件内是否存在同名 identifier 且带
+        taint_type='source' 标注」(enrich_taint 3z 的 file-scoped 源,
+        如 Vue props)。同名实例共享同一变量语义。
+        """
+        try:
+            cache = getattr(self, "_fssn_cache", None)
+            if cache is None:
+                cache = {}
+                self._fssn_cache = cache
+            key = (vid, name)
+            if key in cache:
+                return cache[key]
+            fp = _vattr(self.graph.vs[vid], "file_path", "")
+            found = False
+            if fp and name:
+                # Fix 53-perf: graph.vs.select(label=..., name=...) is a
+                # full-node linear scan (O(V) per call, igraph seq select).
+                # The _nname index already buckets identifiers by name —
+                # iterate only same-name candidates instead.
+                for ov_vid in self._nname.get((NodeLabel.IDENTIFIER.value, name), []):
+                    ov = self.graph.vs[ov_vid]
+                    if _vattr(ov, "file_path", "") == fp and _vattr(ov, "taint_type", "") == "source":
+                        found = True
+                        break
+            cache[key] = found
+            return found
+        except Exception:
+            return False
+
+    def _mutator_loaded_bean(self, vid: int, name: str) -> bool:
+        """Fix 146c (CVE-2026-100365): ORM mutator receiver taint.
+
+        Under a framework registering orm_mutator_methods (SuiteCRM
+        SugarBean::retrieve), a local bean variable that calls a mutator
+        (``$field->retrieve($field_id)``) has the DB row copied INTO its
+        properties (populateFromRow) — every subsequent property read on
+        the same variable is second-order DB-stored data.
+
+        Precision: same-name identifier occurrences within the SAME FILE
+        (the _nname index walk, same approximation as Fix 49d-v2).  The
+        receiver must literally call ->retrieve() somewhere in the file,
+        so unrelated locals never qualify.
+
+        ``$this`` receivers are excluded: SugarBean.php itself calls
+        ``$this->retrieve($row['id'])`` (:4549 @ 7.15.1) and marking
+        ``$this`` loaded would taint every class-internal property read
+        (table_name / field_defs / db handle) inside the 6k-line bean
+        base class — the loaded row is consumed by retrieve() *callers*,
+        not by the class's own internals.
+        """
+        try:
+            reg = self._source_registry
+            if reg is None:
+                return False
+            muts = getattr(reg, 'orm_mutator_methods', None)
+            if not muts:
+                return False
+            if not name or name.lstrip('$') in ('this', ''):
+                return False
+            cache = getattr(self, "_mlb_cache", None)
+            if cache is None:
+                cache = {}
+                self._mlb_cache = cache
+            key = (vid, name)
+            if key in cache:
+                return cache[key]
+            fp = _vattr(self.graph.vs[vid], "file_path", "")
+            found = False
+            if fp:
+                for ov_vid in self._nname.get((NodeLabel.IDENTIFIER.value, name), []):
+                    ov = self.graph.vs[ov_vid]
+                    if _vattr(ov, "file_path", "") != fp:
+                        continue
+                    for e in self._edge_out(ov_vid, "member"):
+                        if _vattr(self.graph.vs[e.target], "name", "") in muts:
+                            found = True
+                            break
+                    if found:
+                        break
+            cache[key] = found
+            return found
+        except Exception:
+            return False
 
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
@@ -5533,15 +10810,20 @@ class GraphAnalyzer:
         """
         if not name or self.graph is None:
             return None
+        # Fix 119g: the scope of every chain built below is the file where
+        # the member READ lives (the origin node) — gated property members
+        # ($this->params etc.) consult the registry with it.
+        _fpath119g = (_vattr(self.graph.vs[vid], "file_path", "")
+                      or _vattr(self.graph.vs[vid], "path", ""))
         # 快速检查：name 本身就是 source
-        if self._is_source_variable(name):
+        if self._is_source_variable(name, _fpath119g):
             return name
 
         # 沿 incoming member 边回溯，逐步拼接组合名
         chain = name
         cur_vid = vid
         for _ in range(10):  # 最多 10 级，防止循环
-            member_in = list(self.graph.es.select(_target=cur_vid, label="member"))
+            member_in = list(self._edge_in(cur_vid, "member"))
             if not member_in:
                 break
             parent_vid = member_in[0].source
@@ -5549,24 +10831,36 @@ class GraphAnalyzer:
             parent_name = _vattr(parent_v, "name", "")
             if not parent_name:
                 break
+            # Fix 49d: 链顶 parent 若带 enrich_taint 3z 的节点级 source 标注
+            # (file-scoped 源变量,如 Vue props 'settings'),链上任意后代访问
+            # (settings.dataset.name)都源自它 —— 名字查询覆盖不到,必须消费标注。
+            if _vattr(parent_v, "taint_type", "") == "source":
+                return parent_name
             # Avoid double-counting when chain already starts with parent_name
             if chain.startswith(parent_name + "."):
                 # chain already has parent as prefix — the parent itself
                 # might be the source (e.g., chain="process.env.INPUT",
                 # parent="process.env" is in source_registry)
-                if self._is_source_variable(parent_name):
+                if self._is_source_variable(parent_name, _fpath119g):
                     # Subscript key check (same as below)
                     if self._is_subscript_key_of_non_superglobal(parent_vid):
                         break
                     return parent_name
                 break  # no further useful chain to build
             chain = f"{parent_name}.{chain}"
-            if self._is_source_variable(chain):
+            if self._is_source_variable(chain, _fpath119g):
                 # Check if the matched superglobal is a subscript key of a
                 # non-superglobal (e.g., $export_formats[$_GET['format']]).
                 # If so, it selects a predefined value — not a data source.
                 if self._is_subscript_key_of_non_superglobal(parent_vid):
                     continue
+                return chain
+            # Fix 146c (CVE-2026-100365): ORM mutator receiver — the chain
+            # root is a bean variable that called ->retrieve() somewhere in
+            # this file (SugarBean mutator loads the DB row into the
+            # object's properties), so every property read under it is
+            # second-order DB-stored data.
+            if self._mutator_loaded_bean(parent_vid, parent_name):
                 return chain
             cur_vid = parent_vid
 
@@ -5576,7 +10870,7 @@ class GraphAnalyzer:
         """Return the *constant* format-string value of call arg0, else None."""
         fmt = None
         arg_counter = 0
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") != "arg":
                 continue
             idx = _vattr(ae, "index")
@@ -5589,7 +10883,7 @@ class GraphAnalyzer:
             if label == "const":
                 fmt = _vattr(av, "name", "") or ""
             elif label == "operator":
-                for ce in self.graph.es.select(_source=ae.target, label="ast"):
+                for ce in self._edge_out(ae.target, "ast"):
                     cv = self.graph.vs[ce.target]
                     if _vattr(cv, "label", "") == "const":
                         fmt = _vattr(cv, "name", "") or ""
@@ -5600,13 +10894,13 @@ class GraphAnalyzer:
                 # site), take a second hop to reach the const — handles
                 # `$fmt = '%d'; printf($fmt, $x);` where the call arg is a
                 # *use site* and the const connects to the *definition*.
-                for de in self.graph.es.select(_target=ae.target, label="dfg"):
+                for de in self._edge_in(ae.target, "dfg"):
                     dv = self.graph.vs[de.source]
                     if _vattr(dv, "label", "") == "const":
                         fmt = _vattr(dv, "name", "") or ""
                         break
                     if _vattr(dv, "label", "") == "identifier":
-                        for de2 in self.graph.es.select(_target=dv.index, label="dfg"):
+                        for de2 in self._edge_in(dv.index, "dfg"):
                             dv2 = self.graph.vs[de2.source]
                             if _vattr(dv2, "label", "") == "const":
                                 fmt = _vattr(dv2, "name", "") or ""
@@ -5617,6 +10911,160 @@ class GraphAnalyzer:
         if not fmt or len(fmt) > 128 or "%" not in fmt:
             return None
         return fmt.strip().strip("\'")
+
+    def _dyn_call_receiver_classes(self, call_vid: int) -> list[int] | None:
+        """Fix 42t: class-node closure (class + crg base chain) for the
+        receiver of a dynamic-dispatch method call.
+
+        Resolves ``$obj->{$expr}(...)``'s receiver: find the member-edge
+        parent identifier (e.g. ``$mainobj``), then the most recent
+        ``$mainobj = new <Class>`` assign BEFORE the call line in the
+        same file.  Returns None when the receiver cannot be resolved
+        (unknown class, stdClass, param, cross-file) — callers keep the
+        un-narrowed full whitelist expansion.
+        """
+        # 1) receiver identifier vid: member-edge source of the callee
+        #    property node, or dfg source of the call
+        recv_vids: list[int] = []
+        for e in self._edge_in(call_vid, "ast"):
+            if _vattr(e, "role", "") == "callee":
+                for me in self._edge_in(e.target, "member"):
+                    recv_vids.append(me.source)
+                break
+        if not recv_vids:
+            for e in self._edge_in(call_vid, "dfg"):
+                sv = self.graph.vs[e.source]
+                if (_vattr(sv, "label", "") == NodeLabel.IDENTIFIER.value
+                        or _vattr(sv, "type", "") in ("variable", "identifier")):
+                    if str(_vattr(sv, "name", "")).startswith("$"):
+                        recv_vids.append(e.source)
+        if not recv_vids:
+            return None
+        call_line = int(_vattr(self.graph.vs[call_vid], "lineno", 0) or 0)
+
+        for recv_vid in recv_vids:
+            recv_name = _vattr(self.graph.vs[recv_vid], "name", "")
+            if not recv_name:
+                continue
+            recv_file = _vattr(self.graph.vs[recv_vid], "file_path", "") or \
+                _vattr(self.graph.vs[recv_vid], "path", "")
+
+            # 2) most recent `recv = new Class` assign before call_line
+            best_line, best_new = -1, None
+            for av in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                ov = self.graph.vs[av]
+                if _vattr(ov, "type", "") != "assign":
+                    continue
+                if _vattr(ov, "name", "") != recv_name:
+                    continue
+                if (recv_file and
+                        (_vattr(ov, "file_path", "") or _vattr(ov, "path", ""))
+                        != recv_file):
+                    continue
+                aline = int(_vattr(ov, "lineno", 0) or 0)
+                if aline >= call_line or aline <= best_line:
+                    continue
+                for ae in self._edge_out(av, "ast"):
+                    if _vattr(ae, "role", "") != "rhs":
+                        continue
+                    rv = self.graph.vs[ae.target]
+                    if _vattr(rv, "type", "") == "new":
+                        best_line, best_new = aline, ae.target
+                    break
+            if best_new is None:
+                continue
+
+            # 3) class node by NAME — the new node's use edge points at a
+            #    constructor FUNCTION stub, never the class node (phply);
+            #    match `new <Class>` against class nodes' names instead.
+            cls_name = str(_vattr(self.graph.vs[best_new], "name", "")
+                           or "").strip("'\"").lower()
+            if not cls_name:
+                continue
+            cls_vid = None
+            for cv in self._nlbl.get(NodeLabel.CLASS.value, []):
+                cn = str(_vattr(self.graph.vs[cv], "name", "")
+                         or _vattr(self.graph.vs[cv], "fullname", "")
+                         or "").strip("'\"").lower()
+                if cn == cls_name:
+                    cls_vid = cv
+                    break
+            if cls_vid is None:
+                continue
+            out, stack, seen = [], [cls_vid], set()
+            while stack:
+                cv = stack.pop()
+                if cv in seen:
+                    continue
+                seen.add(cv)
+                out.append(cv)
+                for ce in self._edge_out(cv, "crg"):
+                    stack.append(ce.target)
+            return out
+        return None
+
+    def _preg_replace_whitelist_pattern(self, call_vid: int) -> bool:
+        """Fix 42v: does this preg_replace call carry a whitelist
+        charset-strip pattern as its FIRST argument?
+
+        Accepted form: ``preg_replace('#[^a-z0-9@ _\\-\\.]#i', '', $x)``
+        — pattern begins with a delimiter, then ``[^...]`` (negated
+        character class) whose members are literal/escape-only (no
+        metacharacter reuse like ``\\w`` which re-imports broad classes),
+        and replacement is a constant (usually '').  Every character
+        outside the class is deleted, confining the output to the class.
+        """
+        args = [e.target for e in self.graph.es.select(
+            _source=call_vid, label="ast")
+            if _vattr(e, "role", "") == "arg"]
+        if len(args) < 2:
+            return False
+        pat = _vattr(self.graph.vs[args[0]], "value", "") or \
+            _vattr(self.graph.vs[args[0]], "name", "") or ""
+        if not isinstance(pat, str):
+            return False
+        pat = pat.strip().strip("'\"")
+        # Same shape as verified by /tmp/fix42_probe58.py (PAT_RE/BODY_OK)
+        m = re.match(r'^([^a-zA-Z0-9\s])\^?\[\^([^\]]*)\]\1[a-zA-Z]*$',
+                     pat)
+        if not m:
+            return False
+        body = m.group(2)
+        # Only literal chars, escapes of punctuation (\- \. \\ \/), and
+        # explicit ranges a-z0-9A-Z — reject \w \s \d . * etc. that keep
+        # broad classes alive.
+        if not re.fullmatch(
+                r'(?:[a-zA-Z0-9@ _\-#&=,;:!?/().\[\]{}~^$+*%|<>]'
+                r'|\\[-./\\]|[a-z]-[a-z]|[A-Z]-[A-Z]|[0-9]-[0-9])*',
+                body):
+            return False
+        # replacement (arg1) must be a constant (usually empty)
+        rep = _vattr(self.graph.vs[args[1]], "value", "") or ""
+        rep_name = _vattr(self.graph.vs[args[1]], "name", "") or ""
+        if _vattr(self.graph.vs[args[1]], "type", "") == "const" or rep == "":
+            return True
+        if rep_name in ("''", '""', ""):
+            return True
+        return False
+
+    def _qualify_callee(self, op_vid: int, callee: str) -> str:
+        """Fix 78e (CVE-2026-41478): prefer the receiver-qualified operator
+        name when the resolved callee is only its bare tail.
+
+        An ``Object.entries(...)`` call whose use edge resolved to the
+        short name 'entries' would otherwise hit the Array.prototype
+        'entries' builtin entry (safe) inside _is_repair_function and be
+        misjudged as a sanitizer, killing the taint chain at the binding.
+        """
+        if not callee or "." in callee or "::" in callee:
+            return callee
+        try:
+            uname = _vattr(self.graph.vs[op_vid], "name", "") or ""
+        except Exception:
+            return callee
+        if uname.endswith("." + callee):
+            return uname
+        return callee
 
     def _is_repair_function(self, name: str) -> bool:
         if not name:
@@ -5629,6 +11077,18 @@ class GraphAnalyzer:
         clean = clean.replace("::", ".")
         if "\\" in clean:
             clean = clean.rsplit("\\", 1)[-1]
+        # Fix 48a: registry-first semantics.  If the L1/L2/L3 registry has a
+        # binding for this function, its per-svid verdict is authoritative —
+        # the svid-blind global set must NOT override it (strip_tags is
+        # registry-bound to XSS-family svids only, so it must not kill SQLi
+        # taint).  Functions absent from the registry keep the legacy global
+        # behavior (historic FP fixes: cleanValue, Format.input, ...).
+        _reg_verdict = self._registry_safe_for_sink(clean)
+        if _reg_verdict is not None:
+            if _reg_verdict:
+                return True
+            if self._registry_knows(clean):
+                return False
         if clean in _REPAIR_FUNCTIONS:
             return True
         # For fluent API chains (e.g. "EntityQuery.use().from().where().queryOne"),
@@ -5637,16 +11097,120 @@ class GraphAnalyzer:
         tail = clean[dot + 1:] if dot >= 0 else clean
         if tail != clean and tail in _REPAIR_FUNCTIONS:
             return True
+        # Fix 42v: bare 'preg_replace' is NOT unconditionally safe (an
+        # arbitrary pattern can pass anything through), but the whitelist
+        # charset-strip form is:
+        #   preg_replace('#[^a-z0-9@ _\-\.]#i', "", $x)
+        # A leading-^ negated character class with only literal members
+        # DELETES every character outside the class — the output is
+        # confined to the class.  Callers must verify the pattern via
+        # _preg_replace_whitelist_pattern before trusting this name.
         # Also check builtin_knowledge for this language — any function
         # marked safe=True is a repair/sanitizer function.
+        # Fix 69: a name the source registry explicitly registered as a
+        # framework source member is NOT a repair, even when a builtin
+        # generic-getter entry ('get' => safe) matches by tail.  One name,
+        # two meanings: Laravel ->get() (collection fetch, safe) vs
+        # WP $wp_query->get() (query-var read, source).  The registry is
+        # framework-aware and wins.
+        if self._source_registry is not None and "." in clean:
+            try:
+                _sr_set = getattr(self._source_registry, 'source_members',
+                                  getattr(self._source_registry, '_source_members', None))
+                if _sr_set:
+                    _base = clean.lstrip('$').split('.')[0]
+                    _member = clean.rsplit('.', 1)[-1]
+                    for _cand in (clean, _base + '.' + _member, '$' + _base + '.' + _member):
+                        if _cand in _sr_set:
+                            return False
+            except Exception:
+                pass
         bk = self._load_builtin_knowledge()
         if bk:
             entry = bk.get(clean)
-            if entry and entry.get("safe"):
-                return True
+            if entry is not None:
+                # Fix 78e (CVE-2026-41478): a QUALIFIED builtin_knowledge
+                # entry is authoritative — "Object.entries" (safe: False)
+                # must not be overridden by the bare tail "entries" (Array
+                # prototype iterator, safe: True).  Mirror of the dfg
+                # builder's _is_safe_callee qualified precedence (Fix 78).
+                return bool(entry.get("safe"))
             if tail != clean:
                 entry = bk.get(tail)
                 if entry and entry.get("safe"):
+                    # Fix 142j (CVE-2026-104126): a bare MODULE-LEVEL python
+                    # builtin key (all/any/callable — safe=True because the
+                    # builtin returns a bool/int) must never qualify the
+                    # qualified TAIL of a method-call callee.  ``asset
+                    # .protocols.all()`` is a Django queryset fetch, not the
+                    # builtin all(); the tail match judged it a repair and
+                    # killed the whole JMSInventory generate→hosts ladder
+                    # (ladD repro: L389 filter code=2 "repair
+                    # 'protocols.all'").  Bare keys are only valid exact
+                    # callees (bk.get(clean) above); method semantics live
+                    # in receiver-qualified keys ('str.x', '__method__.x')
+                    # which a bare-tail get can never match anyway.
+                    if (self.language or "") == "python":
+                        return False
+                    return True
+        return False
+
+    # Fix 48a: per-svid repair registry (core/filter_functions L1/L2/L3).
+    # The graph engine historically used a svid-blind global frozenset
+    # (_REPAIR_FUNCTIONS) — strip_tags/trim killed SQLi taint although the
+    # L1 registry only binds them to XSS-family svids.  The analyzer now
+    # consults the registry first when a sink svid is set; the global set
+    # remains the fallback for functions the registry doesn't know (historic
+    # FP fixes like cleanValue / Format.input stay effective, zero
+    # regression).
+    def _set_sink_svid(self, svid):
+        """Scanner sets the current sink's CVI id before taint analysis."""
+        self._sink_svid = svid
+
+    def _get_repair_registry(self):
+        if self._repair_registry is None:
+            from core.filter_functions import _registry
+            # Fix 48m: the graph scan path doesn't go through the AST
+            # matcher's init_php_repair, so the L1 builtin store may be empty
+            # in this process — bootstrap it once (idempotent).  Without this,
+            # _registry_safe_for_sink always returns None and every per-svid
+            # veto silently degrades to svid-blind legacy behavior.
+            try:
+                _lang = (self.language or '').lower()
+                if _lang and not _registry._builtin.get(_lang):
+                    from rules.tamper._loader import load_base_config
+                    from core.filter_functions import load_builtin
+                    _rd, _ = load_base_config(_lang)
+                    load_builtin(_lang, _rd)
+            except Exception:
+                pass
+            self._repair_registry = _registry
+        return self._repair_registry
+
+    def _registry_knows(self, clean: str) -> bool:
+        """True if the registry has any svid binding for *clean*."""
+        reg = self._get_repair_registry()
+        try:
+            stores = (reg._rule, reg._summary, reg._builtin)
+        except AttributeError:
+            return False
+        lang = self.language or ''
+        for store in stores:
+            if lang in store and clean in store[lang]:
+                return True
+        return False
+
+    def _registry_safe_for_sink(self, clean: str) -> bool | None:
+        """None = registry has no binding (caller falls back to global set);
+        True/False = registry verdict for the current sink svid."""
+        svid = getattr(self, '_sink_svid', None)
+        if svid is None:
+            return None
+        reg = self._get_repair_registry()
+        lang = self.language or ''
+        for store in (reg._rule, reg._summary, reg._builtin):
+            if lang in store and clean in store[lang]:
+                if svid in store[lang][clean]:
                     return True
         return False
 
@@ -5708,7 +11272,7 @@ class GraphAnalyzer:
         """
         # Find callee identifier via ast[role=callee]
         callee_vid = None
-        for ae in self.graph.es.select(_source=call_vid, label="ast"):
+        for ae in self._edge_out(call_vid, "ast"):
             if _vattr(ae, "role") == "callee":
                 callee_vid = ae.target
                 break
@@ -5726,7 +11290,7 @@ class GraphAnalyzer:
             visited_members: set[int] = {callee_vid}
             while True:
                 found_member = False
-                for me in self.graph.es.select(_target=current, label="member"):
+                for me in self._edge_in(current, "member"):
                     obj_vid = me.source
                     if obj_vid in visited_members:
                         continue
@@ -5846,7 +11410,7 @@ class GraphAnalyzer:
         Looks for own edges from param to annotation nodes whose name is in
         _USER_INPUT_PARAM_ANNOTATIONS.
         """
-        for e in self.graph.es.select(_source=param_vid, label="own"):
+        for e in self._edge_out(param_vid, "own"):
             ann = self.graph.vs[e.target]
             ann_name = _vattr(ann, "name", "")
             if ann_name in _USER_INPUT_PARAM_ANNOTATIONS:
@@ -5861,13 +11425,13 @@ class GraphAnalyzer:
             label = _vattr(self.graph.vs[cur], "label", "")
             if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
                 return cur
-            inc = self.graph.es.select(_target=cur, label="own")
+            inc = self._edge_in(cur, "own")
             cur = inc[0].source if inc else None
         return None
 
     def _get_ast_parent(self, vid: int) -> int | None:
         """从 vid 沿 ast 边反向找直接父节点（ast[source=parent, target=vid]）。"""
-        inc = self.graph.es.select(_target=vid, label="ast")
+        inc = self._edge_in(vid, "ast")
         return inc[0].source if inc else None
 
     def get_enclosing_branch(self, vid: int) -> int | None:
@@ -5892,7 +11456,7 @@ class GraphAnalyzer:
             if label in (NodeLabel.FUNCTION.value, NodeLabel.FILE.value):
                 return None
             # 先检查是否是 own target（顶层语句），沿 own 反向
-            own_inc = self.graph.es.select(_target=cur, label="own")
+            own_inc = self._edge_in(cur, "own")
             if own_inc:
                 cur = own_inc[0].source
             else:
@@ -5903,7 +11467,23 @@ class GraphAnalyzer:
     _NEGATED_BRANCH_TYPES = frozenset({"else", "default"})
 
     def _get_enclosing_func_vid(self, vid: int) -> int | None:
-        """Return the vid of the nearest ancestor FUNCTION node, or None."""
+        """Return the vid of the nearest ancestor FUNCTION node, or None.
+
+        Fix 128 (CVE-2026-111217 perf): memoized per vid — the def-chain
+        fallback (42-family) calls this once per same-name candidate per
+        PB frame; Fix 123/124's denser graph multiplied those frames and
+        the unmemoized 30-hop walk dominated the osticket anchor run.
+        Pure function of the (immutable-during-analysis) graph."""
+        _m = getattr(self, "_enclosing_func_memo", None)
+        if _m is None:
+            _m = self._enclosing_func_memo = {}
+        if vid in _m:
+            return _m[vid]
+        r = self._get_enclosing_func_impl(vid)
+        _m[vid] = r
+        return r
+
+    def _get_enclosing_func_impl(self, vid: int) -> int | None:
         cur = vid
         seen: set[int] = set()
         for _ in range(30):
@@ -5916,13 +11496,13 @@ class GraphAnalyzer:
             if label == NodeLabel.FILE.value:
                 return None
             # Walk up via OWN edges (incoming, i.e., parent owns child)
-            own_in = self.graph.es.select(_target=cur, label="own")
+            own_in = self._edge_in(cur, "own")
             if own_in:
                 cur = own_in[0].source
             else:
                 # Parameter nodes are connected via AST edges, not OWN.
                 # Try the AST parent as fallback.
-                ast_in = self.graph.es.select(_target=cur, label="ast")
+                ast_in = self._edge_in(cur, "ast")
                 if ast_in:
                     cur = ast_in[0].source
                 else:
@@ -5937,7 +11517,21 @@ class GraphAnalyzer:
         所以遇到 else/default 时停止向上收集（不包含父 if/switch）。
 
         例如：vid 在 else 内部，返回 [else_branch_vid]（不含 if_branch）。
-        """
+
+        Fix 128 (CVE-2026-111217 perf): memoized per vid (tuple snapshot,
+        fresh list per hit). Called per def-chain candidate per PB frame;
+        pure walk over the immutable graph."""
+        _m = getattr(self, "_branch_chain_memo", None)
+        if _m is None:
+            _m = self._branch_chain_memo = {}
+        got = _m.get(vid)
+        if got is not None:
+            return list(got)
+        result = self._get_branch_chain_impl(vid)
+        _m[vid] = tuple(result)
+        return result
+
+    def _get_branch_chain_impl(self, vid: int) -> list[int]:
         result: list[int] = []
         cur, seen = vid, set()
         stop_at_parent = False
@@ -5954,14 +11548,14 @@ class GraphAnalyzer:
                 # else/default 不继承父 if/switch 的条件
                 if btype in self._NEGATED_BRANCH_TYPES:
                     break
-            own_inc = self.graph.es.select(_target=cur, label="own")
+            own_inc = self._edge_in(cur, "own")
             if own_inc:
                 # Check if any branch has this node as its condition
                 # (ast edge with role='condition'). If so, include that
                 # branch in the chain — needed for JS/TS where condition
                 # nodes may be owned by function rather than branch.
                 found_branch = False
-                for ae in self.graph.es.select(_target=cur, label="ast"):
+                for ae in self._edge_in(cur, "ast"):
                     if _vattr(ae, "role", "") == "condition":
                         src = self.graph.vs[ae.source]
                         if _vattr(src, "label", "") == NodeLabel.BRANCH.value:
@@ -6032,7 +11626,7 @@ class GraphAnalyzer:
 
     def _get_condition_root(self, branch_vid: int) -> int | None:
         """Get the condition expression root node vid from a branch."""
-        for e in self.graph.es.select(_source=branch_vid, label="ast"):
+        for e in self._edge_out(branch_vid, "ast"):
             if _vattr(e, "role", "") == "condition":
                 return e.target
         # PHP normalizer emits the if-condition as a plain ast child
@@ -6040,7 +11634,7 @@ class GraphAnalyzer:
         # "condition" role. Fall back to the first ast child that is an
         # operator/expression node rather than a statement.
         _fallback = None
-        for e in self.graph.es.select(_source=branch_vid, label="ast"):
+        for e in self._edge_out(branch_vid, "ast"):
             t_type = _vattr(self.graph.vs[e.target], "type", "")
             if t_type in ("binary_op", "unary_op", "expression", "boolean_op"):
                 return e.target
@@ -6049,7 +11643,8 @@ class GraphAnalyzer:
         return _fallback
 
     def _subtree_contains_name(self, root_vid: int, var_name: str,
-                               depth: int = 0, visited: set | None = None) -> bool:
+                               depth: int = 0, visited: set | None = None,
+                               follow_dfg: bool = True) -> bool:
         """Recursively check if var_name appears anywhere in the AST subtree."""
         if depth > 8 or not var_name:
             return False
@@ -6064,16 +11659,22 @@ class GraphAnalyzer:
             return True
 
         # Walk AST children
-        for e in self.graph.es.select(_source=root_vid, label="ast"):
-            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+        for e in self._edge_out(root_vid, "ast"):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited, follow_dfg):
                 return True
         # Walk DFG edges (Java normalizer may link via DFG)
-        for e in self.graph.es.select(_source=root_vid, label="dfg"):
-            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
-                return True
+        # Guard-semantic matching (Fix 46): pass follow_dfg=False —
+        # the DFG layer links sibling member reads of the same object
+        # ($POST->rackid dfg-> $POST->deviceid), so a guard on rackid
+        # would spuriously "contain" deviceid. A guard condition must
+        # lexically reference the variable (AST scope only).
+        if follow_dfg:
+            for e in self._edge_out(root_vid, "dfg"):
+                if self._subtree_contains_name(e.target, var_name, depth + 1, visited, follow_dfg):
+                    return True
         # Walk member edges (method chaining: matcher(cb) links cb)
-        for e in self.graph.es.select(_source=root_vid, label="member"):
-            if self._subtree_contains_name(e.target, var_name, depth + 1, visited):
+        for e in self._edge_out(root_vid, "member"):
+            if self._subtree_contains_name(e.target, var_name, depth + 1, visited, follow_dfg):
                 return True
         return False
 
@@ -6081,7 +11682,7 @@ class GraphAnalyzer:
         """Check if a validation call references *var_name*."""
         if call_name == "check_input_parameter":
             _ai = 0
-            for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            for ae in self._edge_out(call_vid, "ast"):
                 if _vattr(ae, "role") == "arg":
                     _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                     if _ai == 0 and _arg_val:
@@ -6090,9 +11691,10 @@ class GraphAnalyzer:
                             return True
                     _ai += 1
         else:
-            for ae in self.graph.es.select(_source=call_vid, label="ast"):
+            for ae in self._edge_out(call_vid, "ast"):
                 if _vattr(ae, "role") == "arg":
-                    if self._subtree_contains_name(ae.target, var_name):
+                    if self._subtree_contains_name(ae.target, var_name,
+                                                   follow_dfg=False):
                         return True
         return False
 
@@ -6185,7 +11787,7 @@ class GraphAnalyzer:
             while stack:
                 sv = stack.pop()
                 search_vids.append(sv)
-                for ce in self.graph.es.select(_source=sv, label="ast"):
+                for ce in self._edge_out(sv, "ast"):
                     stack.append(ce.target)
 
             for sv in search_vids:
@@ -6198,7 +11800,7 @@ class GraphAnalyzer:
                     # Match var_name against the string value.
                     if sv_name == "check_input_parameter":
                         _ai = 0
-                        for ae in self.graph.es.select(_source=sv, label="ast"):
+                        for ae in self._edge_out(sv, "ast"):
                             if _vattr(ae, "role") == "arg":
                                 _arg_val = _vattr(self.graph.vs[ae.target], "value", "") or _vattr(self.graph.vs[ae.target], "name", "")
                                 if _ai == 0 and _arg_val:
@@ -6214,7 +11816,8 @@ class GraphAnalyzer:
                     # match silently fail for PHP.  Walking the whole call
                     # subtree is equivalent for validation calls because
                     # their callee names never equal a data variable name.
-                    if self._subtree_contains_name(sv, var_name):
+                    if self._subtree_contains_name(sv, var_name,
+                                                    follow_dfg=False):
                         return True
 
         # 4. Fallback: check standalone validation calls (not in branches)
@@ -6271,6 +11874,50 @@ class GraphAnalyzer:
         - re.match anchored regex, Python str.isdigit etc.
         """
         btype = _vattr(self.graph.vs[branch_vid], "type", "")
+        # Fix 78i (CVE-2026-41478): a foreach loop head is NOT a guard.  The
+        # "condition" of a foreach branch is the iterable expression
+        # (`for (const [k, v] of Object.entries(tainted))`, PHP `foreach ($t
+        # as $k => $v)`); entering the loop body proves nothing about any
+        # variable's value.  Running the iterable through the guard logic
+        # (esp. the Fix 20a safe-predicate path, whose _subtree_contains_name
+        # follows dfg edges from the tainted argument) made the foreach
+        # "constrain" EVERY variable name reachable from the iterable —
+        # observed live returning True for unrelated loop-body vars
+        # ('table', 'Error', …) and hiding the syncInfos → for-of →
+        # db.query SQLi chain.  Gate the branch type, not the var name.
+        if btype == "foreach":
+            return False
+        # Fix 34f: fast fail -- if the branch condition text is known and
+        # does not mention var_name, it cannot constrain it.  CVE-2026-108970:
+        # "if ($database->addNewUser(...))" was treated as constraining
+        # $subbranch (an argument inside the block), returning
+        # uncontrollable and hiding the INSERT injection.  A condition
+        # that is a plain call whose result is unrelated to var_name is
+        # not a sanitizer for it.
+        _bcond = _vattr(self.graph.vs[branch_vid], "condition", "")
+        if _bcond and var_name not in _bcond:
+            # else/default branches inherit the negated condition; the
+            # negation of "A()" still does not mention var_name, so the
+            # fast fail holds for them too.
+            return False
+
+        # Fix 106 (CVE-2026-126482): container/element confusion.  A
+        # subscripted occurrence `$out[loopid] == 2110` constrains ONLY the
+        # loopid element — it says nothing about the rest of the array.
+        # Matching by bare name let this enum-of-constants condition veto
+        # the WHOLE $out container and killed the 835-upload taint chain
+        # ($out['our_claim_id'] written inside that branch by ParseERA).
+        # Strip all `$var[...]` / `$var{...}` / `$var->prop` occurrences;
+        # if the name survives nowhere else, the branch does not constrain
+        # the container variable itself.  The survival check is
+        # word-boundary aware: `$seg[int] == HE` must not be kept alive by
+        # the unrelated longer name `$segid` in the same condition.
+        if _bcond and var_name in _bcond:
+            _stripped = re.sub(
+                re.escape(var_name) + r"\s*(\[[^\]]*\]|\{[^}]*\}|->\s*\w+)",
+                "", _bcond)
+            if not re.search(re.escape(var_name) + r"(?!\w)", _stripped):
+                return False
 
         # Wildcard branches: else and default normally don't constrain.
         # EXCEPTION: else of a != branch — the else means == (constraining).
@@ -6392,7 +12039,7 @@ class GraphAnalyzer:
                 # == or === : one side must be var_name, other must be constant
                 left_vid, right_vid = None, None
                 operand_vids = []  # fallback: Ruby uses OPERAND role
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     role = _vattr(e, "role", "")
                     if role == "left":
                         left_vid = e.target
@@ -6412,8 +12059,26 @@ class GraphAnalyzer:
                 left_label = _vattr(self.graph.vs[left_vid], "label", "")
 
                 if left_name == var_name and right_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
+                    # Fix 143t (CVE-2026-129448): a comparison against a
+                    # null-family literal is a reference/identity check,
+                    # not a value constraint.  `if (baos == null)` says
+                    # nothing about the CONTENT of the object baos refers
+                    # to — and it certainly must not poison the walk of
+                    # the condition's own operand (xmlrpc
+                    # ByteArrayParser.characters: the null-guard's baos
+                    # identifier IS in the 143e write-back web; Rule 6
+                    # returned -1 'branch constraint' and killed the
+                    # whole writeBuffer→baos.write leg).  Sound for every
+                    # language: in none of them does `x == null` fix x's
+                    # payload to a safe constant.
+                    _rn = str(right_name).strip("'\"").lower()
+                    if _rn in ("null", "none", "nil", "undefined"):
+                        return False
                     return True  # var == constant
                 if right_name == var_name and left_label in (NodeLabel.CONST.value, NodeLabel.IDENTIFIER.value):
+                    _ln = str(left_name).strip("'\"").lower()
+                    if _ln in ("null", "none", "nil", "undefined"):
+                        return False
                     return True  # constant == var
 
                 # strcmp(var, const) == 0 → var is constrained to const
@@ -6427,7 +12092,7 @@ class GraphAnalyzer:
                                  "strncasecmp"):
                         # Extract strcmp args
                         cmp_args = []
-                        for ce in self.graph.es.select(_source=left_vid, label="ast"):
+                        for ce in self._edge_out(left_vid, "ast"):
                             if _vattr(ce, "role") == "arg":
                                 cmp_args.append(ce.target)
                         if len(cmp_args) >= 2:
@@ -6441,14 +12106,14 @@ class GraphAnalyzer:
 
             elif actual_op == "||":
                 # OR: both sides must constrain → enum pattern
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if not self._check_condition_node(e.target, var_name, depth + 1):
                         return False
                 return True
 
             elif actual_op == "&&":
                 # AND: either side constrains → safe
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if self._check_condition_node(e.target, var_name, depth + 1):
                         return True
                 return False
@@ -6460,24 +12125,24 @@ class GraphAnalyzer:
         if label == NodeLabel.OPERATOR.value and ntype in _CALL_TYPES:
             if name in _TYPE_VALIDATION_FUNCS:
                 # Check if any arg references var_name
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         arg_name = _vattr(self.graph.vs[e.target], "name", "")
                         if arg_name == var_name:
                             return True
                 # Check method receiver via member chain
                 # e.g. page.isdigit() → callee 'isdigit' → member → 'page'
-                for ae in self.graph.es.select(_source=cond_vid, label="ast"):
+                for ae in self._edge_out(cond_vid, "ast"):
                     if _vattr(ae, "role", "") == "callee":
                         callee_vid = ae.target
-                        for me in self.graph.es.select(_target=callee_vid, label="member"):
+                        for me in self._edge_in(callee_vid, "member"):
                             recv_name = _vattr(self.graph.vs[me.source], "name", "")
                             if recv_name == var_name:
                                 return True
                 # Check method receiver via DFG edge (Python: user_input.isdigit())
                 # Python normalizer routes the receiver through a DFG edge into
                 # the method_call node instead of a member edge.
-                for de in self.graph.es.select(_target=cond_vid, label="dfg"):
+                for de in self._edge_in(cond_vid, "dfg"):
                     recv_name = _vattr(self.graph.vs[de.source], "name", "")
                     if recv_name == var_name:
                         return True
@@ -6490,17 +12155,17 @@ class GraphAnalyzer:
                 recv_vid = None
                 arg_vid = None
                 # Receiver is linked via member edge INTO the method_call node
-                for me in self.graph.es.select(_target=cond_vid, label="member"):
+                for me in self._edge_in(cond_vid, "member"):
                     recv_vid = me.source
                     break
                 # Arg is the ast child with role='arg'
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         arg_vid = e.target
                         break
                 # Fallback: try member or use edge source for receiver
                 if recv_vid is None:
-                    for me in self.graph.es.select(_source=cond_vid, label="member"):
+                    for me in self._edge_out(cond_vid, "member"):
                         recv_vid = me.target
                         break
                 if recv_vid is not None and arg_vid is not None:
@@ -6536,7 +12201,7 @@ class GraphAnalyzer:
             # preg_match: anchored regex without dot wildcard → safe
             if name == "preg_match":
                 args = []
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         args.append(e.target)
                 # args[0] = pattern, args[1] = subject
@@ -6576,7 +12241,7 @@ class GraphAnalyzer:
             if (_pred_callee not in _EXISTENCE_CHECK_FUNCS
                     and self._is_safe_function_call(cond_vid)
                     and not self._condition_call_is_negated(cond_vid)):
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         if self._subtree_contains_name(e.target, var_name, depth=0):
                             return True
@@ -6584,7 +12249,7 @@ class GraphAnalyzer:
             # re.match / re.fullmatch: anchored regex → safe
             if name in ("match", "fullmatch", "search"):
                 args = []
-                for e in self.graph.es.select(_source=cond_vid, label="ast"):
+                for e in self._edge_out(cond_vid, "ast"):
                     if _vattr(e, "role", "") == "arg":
                         args.append(e.target)
                 # args[0] = pattern, args[1] = subject (for re.match/re.fullmatch)
@@ -6619,7 +12284,7 @@ class GraphAnalyzer:
                 # The switch branch owns the case branch, and switch's condition
                 # references the variable
                 switch_vid = None
-                for e in self.graph.es.select(_target=branch_parent, label="own"):
+                for e in self._edge_in(branch_parent, "own"):
                     switch_vid = e.source
                     break
                 if switch_vid is not None:
@@ -6685,10 +12350,10 @@ class GraphAnalyzer:
         """
         # Check alias edges: if any ast[callee] child identifier has an
         # outgoing alias edge, use the resolved_name directly.
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
+        for e in self._edge_out(op_vid, "ast"):
             if _vattr(e, "role") == "callee":
                 tvid = e.target
-                for ae in self.graph.es.select(_source=tvid, label="alias"):
+                for ae in self._edge_out(tvid, "alias"):
                     resolved_name = _vattr(ae, "resolved_name", "")
                     # Sanity check: resolved_name must look like a valid
                     # function name (no spaces, no SQL keywords, etc.)
@@ -6707,7 +12372,7 @@ class GraphAnalyzer:
                                 return op_fullname
                         return resolved_name
         callee_names: list[tuple[str, int]] = []  # (name, target_vid)
-        for e in self.graph.es.select(_source=op_vid, label="ast"):
+        for e in self._edge_out(op_vid, "ast"):
             if _vattr(e, "role") == "callee":
                 t = self.graph.vs[e.target]
                 name = _vattr(t, "name") or _vattr(t, "value")
@@ -6720,9 +12385,9 @@ class GraphAnalyzer:
         # resolved_name values (ambiguous — e.g. ``get`` aliased to both
         # ``requests.get`` and ``form.get``), skip alias resolution and fall
         # through to AST callee chain analysis, which is more precise.
-        for e in self.graph.es.select(_source=op_vid, label="use"):
+        for e in self._edge_out(op_vid, "use"):
             alias_names: set[str] = set()
-            for ae in self.graph.es.select(_source=e.target, label="alias"):
+            for ae in self._edge_out(e.target, "alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
                 if resolved_name and " " not in resolved_name:
                     alias_names.add(resolved_name)
@@ -6755,7 +12420,7 @@ class GraphAnalyzer:
                         qualifier_name = callee_names[idx - 1][0]
                         return qualifier_name + "." + name
                     # Fallback: check member edges for object qualification
-                    for me in self.graph.es.select(_target=tvid, label="member"):
+                    for me in self._edge_in(tvid, "member"):
                         obj = self.graph.vs[me.source]
                         obj_name = _vattr(obj, "name", "")
                         if obj_name:
@@ -6775,7 +12440,7 @@ class GraphAnalyzer:
                     return resolved
                 return name
                 # Check member edges for qualified name (e.g. os.system)
-                for me in self.graph.es.select(_target=tvid, label="member"):
+                for me in self._edge_in(tvid, "member"):
                     obj = self.graph.vs[me.source]
                     obj_name = _vattr(obj, "name", "")
                     if obj_name:
@@ -6794,9 +12459,9 @@ class GraphAnalyzer:
                     return op_fullname
             return short
         # Fallback: use edge target — check alias first, then variable callee
-        for e in self.graph.es.select(_source=op_vid, label="use"):
+        for e in self._edge_out(op_vid, "use"):
             # Check alias edges on the function target
-            for ae in self.graph.es.select(_source=e.target, label="alias"):
+            for ae in self._edge_out(e.target, "alias"):
                 resolved_name = _vattr(ae, "resolved_name", "")
                 if resolved_name and " " not in resolved_name:
                     return resolved_name
@@ -6884,6 +12549,27 @@ class GraphAnalyzer:
 
         return None
 
+    def _ensure_nfile(self) -> dict[tuple[str, str, str], list[int]]:
+        """Fix 128 (CVE-2026-111217 perf): (label, name, file) bucket index,
+        lazily built once (shared with _find_identifier_by_name)."""
+        if self._nfile is None:
+            self._nfile = {}
+            for v in self.graph.vs:
+                vl = _vattr(v, 'label', '') or ''
+                vn = _vattr(v, 'name', '') or ''
+                fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
+                if vl and vn:
+                    self._nfile.setdefault((vl, vn, fp), []).append(v.index)
+        return self._nfile
+
+    def _ident_bucket_by_file(self, name: str, fp: str) -> list[int]:
+        """Fix 128 (CVE-2026-111217 perf): identifier nodes with *name* whose
+        resolved file equals *fp*. Replaces the def-chain loops' full
+        _nname name-bucket scan + per-candidate file attribute compare —
+        common PHP variable names hit hundreds of foreign-file entries per
+        PB frame under Fix 123/124's denser graphs."""
+        return self._ensure_nfile().get((NodeLabel.IDENTIFIER.value, name, fp), [])
+
     def _find_identifier_by_name(self, name: str,
                                   context_vid: int | None = None) -> int | None:
         """Find identifier vertex by name, preferring same-file matches.
@@ -6895,20 +12581,13 @@ class GraphAnalyzer:
         Replaced O(V) full scan with O(1) dict lookup using prebuilt indexes
         (_nfile, _nname).
         """
-        if self._nfile is None:
-            self._nfile = {}
-            for v in self.graph.vs:
-                vl = _vattr(v, 'label', '') or ''
-                vn = _vattr(v, 'name', '') or ''
-                fp = _vattr(v, 'file_path', '') or _vattr(v, 'path', '') or ''
-                if vl and vn:
-                    self._nfile.setdefault((vl, vn, fp), []).append(v.index)
+        self._ensure_nfile()
         scope = None
         if context_vid is not None:
             scope = _vattr(self.graph.vs[context_vid], "file_path", None)
         if scope:
             key = (NodeLabel.IDENTIFIER.value, name, scope)
-            vids = self._nfile.get(key, [])
+            vids = self._ensure_nfile().get(key, [])
             if vids:
                 # Prefer candidates in the same function scope as context_vid
                 if context_vid is not None:
@@ -6929,7 +12608,7 @@ class GraphAnalyzer:
             seen.add(cur)
             if _vattr(self.graph.vs[cur], "label") == NodeLabel.BRANCH.value:
                 result.append(cur)
-            inc = self.graph.es.select(_target=cur, label="own")
+            inc = self._edge_in(cur, "own")
             cur = inc[0].source if inc else None
         return result
 

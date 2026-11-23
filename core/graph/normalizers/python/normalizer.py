@@ -355,6 +355,17 @@ class Normalizer:
                 ast_node, add_node, add_edge, ctx_stack, file_path, depth,
             )
 
+        # ---- Container literals & comprehensions (Fix 117b/117c) -----
+        if isinstance(ast_node, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
+            return self._walk_container_literal(
+                ast_node, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+        if isinstance(ast_node, (ast.ListComp, ast.SetComp, ast.DictComp,
+                                 ast.GeneratorExp)):
+            return self._walk_comprehension(
+                ast_node, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+
         # ---- F-string (JoinedStr) with interpolation DFG ---------------
         if isinstance(ast_node, ast.JoinedStr):
             return self._walk_joinedstr(
@@ -573,12 +584,22 @@ class Normalizer:
                 ann_name = self._expr_text(dec)
             else:
                 ann_name = "<decorator>"
+            ann_sig = ""
+            if (isinstance(dec, ast.Call) and dec.args
+                    and isinstance(dec.args[0], ast.Constant)
+                    and isinstance(dec.args[0].value, str)):
+                # Fix 91 (CVE-2026-33078 roxy-wi): keep the decorator's first
+                # string argument on the annotation node.  For framework
+                # routers (@bp.route('/section/haproxy/<server_ip>/save')) this
+                # is the URL rule whose <var> segments bind view-function
+                # parameters — knowledge_bridge marks those as HTTP sources.
+                ann_sig = dec.args[0].value
             ann_pos = add_node({
                 "label": NodeLabel.ANNOTATION.value,
                 "name": ann_name,
                 "lineno": dec.lineno if hasattr(dec, "lineno") else 0,
                 "language": self.language,
-                "attrs": {"raw_type": "Decorator"},
+                "attrs": {"raw_type": "Decorator", "signature": ann_sig},
             })
             add_edge({
                 "label": EdgeLabel.OWN.value,
@@ -1071,11 +1092,24 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         # Walk target and iter
-        target_pos = self._walk_node(
-            node.target, add_node, add_edge, ctx_stack, file_path, 0,
-        )
-        if target_pos is not None:
-            self._ast_edge(add_edge, pos, target_pos, AstRole.LHS.value)
+        # Fix 94 (CVE-2026-29080): tuple/list loop targets
+        # (`for key, value in d.items():`) fell through the generic
+        # _walk_children fallback, which emits the element identifier
+        # nodes but returns None — so the for-branch never got an
+        # ast[LHS] edge to ANY target element and the loop variables
+        # were taint islands (rucio FilterEngine dict-iteration SQLi
+        # died exactly here).  Walk each element explicitly and give
+        # every leaf target an ast[LHS] edge; simple Name targets keep
+        # the original single-walk shape.
+        _targets = [node.target]
+        if isinstance(node.target, (ast.Tuple, ast.List)):
+            _targets = list(node.target.elts)
+        for _tgt in _targets:
+            target_pos = self._walk_node(
+                _tgt, add_node, add_edge, ctx_stack, file_path, 0,
+            )
+            if target_pos is not None:
+                self._ast_edge(add_edge, pos, target_pos, AstRole.LHS.value)
 
         iter_pos = self._walk_node(
             node.iter, add_node, add_edge, ctx_stack, file_path, 0,
@@ -1532,11 +1566,27 @@ class Normalizer:
 
         # targets → LHS
         for t_idx, target in enumerate(node.targets):
-            t_pos = self._walk_node(
-                target, add_node, add_edge, ctx_stack, file_path, t_idx,
-            )
-            if t_pos is not None:
-                self._ast_edge(add_edge, pos, t_pos, AstRole.LHS.value)
+            # Fix 96a (CVE-2026-29080): tuple/list assign targets
+            # (`key, oper, value = and_group` /
+            # `self.a, self.b = self._f(...)`) fell through the generic
+            # _walk_children fallback, which emits the element identifier
+            # nodes but returns None — the assign never got an ast[LHS]
+            # edge to ANY element and every unpacked variable was a
+            # taint island (rucio FilterEngine died at
+            # `key, oper, value = and_group`).  Same root cause and
+            # same shape as Fix 94's For-loop targets.  Walk each
+            # element explicitly and give every leaf target an
+            # ast[LHS] edge; simple Name/Attribute targets keep the
+            # original single-walk shape.
+            _targets = [target]
+            if isinstance(target, (ast.Tuple, ast.List)):
+                _targets = list(target.elts)
+            for _tgt in _targets:
+                t_pos = self._walk_node(
+                    _tgt, add_node, add_edge, ctx_stack, file_path, t_idx,
+                )
+                if t_pos is not None:
+                    self._ast_edge(add_edge, pos, t_pos, AstRole.LHS.value)
 
         # value → RHS
         val_pos = self._walk_node(
@@ -1662,14 +1712,26 @@ class Normalizer:
 
         # Walk arguments → ast[role=arg, arg_index=N]
         for idx, arg in enumerate(node.args):
-            arg_pos = self._walk_node(
-                arg, add_node, add_edge, ctx_stack, file_path, idx,
-            )
-            if arg_pos is not None:
-                self._ast_edge(
-                    add_edge, pos, arg_pos, AstRole.ARG.value,
-                    {"arg_index": idx},
+            # Fix 96c (CVE-2026-29080): tuple/list literal arguments
+            # (`row.append((key, value))`) hit the generic fallback which
+            # returns None — the call got NO ast[arg] edge and the tuple
+            # elements became edge-less orphans, so nothing appended ever
+            # carried taint.  Flatten: every element of a tuple/list
+            # literal argument becomes an indexed ast[arg] child of the
+            # call (all elements share the tuple's arg_index — element
+            # positions inside the container do not matter for taint).
+            _arg_targets = [arg]
+            if isinstance(arg, (ast.Tuple, ast.List)):
+                _arg_targets = list(arg.elts) or [arg]
+            for _at in _arg_targets:
+                arg_pos = self._walk_node(
+                    _at, add_node, add_edge, ctx_stack, file_path, idx,
                 )
+                if arg_pos is not None:
+                    self._ast_edge(
+                        add_edge, pos, arg_pos, AstRole.ARG.value,
+                        {"arg_index": idx},
+                    )
 
         # Walk keyword arguments
         for kw_idx, kw in enumerate(node.keywords):
@@ -1750,6 +1812,17 @@ class Normalizer:
         )
         if val_pos is not None:
             self._ast_edge(add_edge, pos, val_pos, AstRole.CALLEE.value)
+            # Fix 117e (CVE-2026-110279): container → read-result flow.
+            # ``val = tainted[key]`` — reading any element of a tainted
+            # container yields tainted data (container-level over-
+            # approx, same semantics as Fix 94/95/96c element flows).
+            # Without this edge the subscript READ severed the chain
+            # (only the key flowed into the op).
+            add_edge({
+                "label": "dfg",
+                "source": val_pos,
+                "target": pos,
+            })
 
         # Walk slice/index → ast[role=arg, arg_index=0]
         if node.slice:
@@ -1783,11 +1856,23 @@ class Normalizer:
         self._own_edge(add_edge, ctx_stack, pos, depth)
 
         if node.value:
-            val_pos = self._walk_node(
-                node.value, add_node, add_edge, ctx_stack, file_path, 0,
-            )
-            if val_pos is not None:
-                self._ast_edge(add_edge, pos, val_pos, AstRole.VALUE.value)
+            # Fix 96c (CVE-2026-29080): tuple returns
+            # (`return filters_translated, []`) hit the generic fallback
+            # which returns None — the return node got NO ast[value]
+            # edge and the caller could never trace the returned
+            # container.  Flatten: every element of a tuple/list return
+            # becomes an ast[value] child (over-approximation: the
+            # caller sees the union of element taints, which is exactly
+            # the container's taint).
+            _vals = [node.value]
+            if isinstance(node.value, (ast.Tuple, ast.List)):
+                _vals = list(node.value.elts) or [node.value]
+            for _v in _vals:
+                val_pos = self._walk_node(
+                    _v, add_node, add_edge, ctx_stack, file_path, 0,
+                )
+                if val_pos is not None:
+                    self._ast_edge(add_edge, pos, val_pos, AstRole.VALUE.value)
 
         return pos
 
@@ -1951,6 +2036,15 @@ class Normalizer:
             )
             if val_pos is not None:
                 self._ast_edge(add_edge, pos, val_pos, AstRole.VALUE.value)
+                # Fix 117f (CVE-2026-110279): await is identity for value
+                # flow — ``x = await call()`` must carry the call's result
+                # (and its taint) into x.  Without this dfg edge the await
+                # node severed every async call value chain in python.
+                add_edge({
+                    "label": "dfg",
+                    "source": val_pos,
+                    "target": pos,
+                })
 
         return pos
 
@@ -2025,6 +2119,158 @@ class Normalizer:
                         self._own_edge(add_edge, ctx_stack, expr_pos, depth)
 
         return str_pos
+
+    # ===================================================================
+    # Container literals (Fix 117b, CVE-2026-110279): Dict/List/Tuple/Set
+    # ===================================================================
+
+    def _walk_container_literal(self, node, add_node, add_edge,
+                                ctx_stack, file_path, depth) -> int:
+        """Dict/List/Tuple/Set literal — emit CONST + value-flow DFG.
+
+        Fix 117b (CVE-2026-110279): these literals previously fell to
+        ``_walk_children`` (returns None) — the literal's value expression
+        nodes were emitted as orphans with no own/dfg edges, so
+        ``request_options = {"headers": tainted}`` never tainted
+        ``request_options`` and the outbound-request chain died at the
+        last hop.  Mirror the ``_walk_joinedstr`` precedent (f-string):
+        emit one CONST for the container and a dfg edge from every
+        DYNAMIC (non-constant) element expression into it — a tainted
+        element taints the container (container-level over-approx,
+        same semantics as Fix 94/95/96c element flows).
+        """
+        lineno = node.lineno if hasattr(node, "lineno") else 0
+        end_lineno = node.end_lineno if hasattr(node, "end_lineno") else 0
+
+        name = self._expr_text(node)
+        if len(name) > 30:
+            name = name[:29] + "…"
+
+        pos = self._emit_const(add_node, name=name, lineno=lineno,
+                               const_type=ConstType.CONSTANT)
+
+        # element expressions: Dict → keys+values (keys may be None for
+        # ``{**src}`` unpacking); List/Tuple/Set → elts
+        if isinstance(node, ast.Dict):
+            elements = [e for e in (node.keys + node.values) if e is not None]
+        else:
+            elements = [e for e in node.elts if e is not None]
+
+        for elt in elements:
+            elt_pos = self._walk_node(
+                elt, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+            if elt_pos is None:
+                continue
+            self._ast_edge(add_edge, pos, elt_pos, AstRole.VALUE.value)
+            if ctx_stack:
+                self._own_edge(add_edge, ctx_stack, elt_pos, depth)
+            if not isinstance(elt, ast.Constant):
+                add_edge({
+                    "label": "dfg",
+                    "source": elt_pos,
+                    "target": pos,
+                })
+
+        _ = end_lineno  # const node carries lineno only
+        return pos
+
+    # ===================================================================
+    # Comprehensions (Fix 117c, CVE-2026-110279): ListComp/SetComp/
+    # DictComp/GeneratorExp
+    # ===================================================================
+
+    def _walk_comprehension(self, node, add_node, add_edge,
+                            ctx_stack, file_path, depth) -> int:
+        """Comprehension — emit CONST result + iteration-source DFG.
+
+        Fix 117c (CVE-2026-110279): ``{k.lower(): v for k, v in
+        request_headers.items()}`` previously fell to ``_walk_children``
+        (returns None): the result identifier got NO def edge from the
+        iteration source, and the loop variables (k, v) were orphan
+        islands — taint entered neither the result nor the loop vars.
+        Emit one CONST for the comprehension result and add:
+
+        - dfg(iter_source → result): the derived container carries the
+          iterated container's taint (``{.. for .. in tainted.items()}``
+          builds a tainted dict — the exact CVE-2026-110279 hop).
+        - dfg(iter_source → each loop-target leaf): element flow, the
+          comprehension analog of ``_analyze_foreach_flows``.
+        - dfg(body/key/value expr → result): dynamic body values taint
+          the result container (container-level over-approx).
+        """
+        lineno = node.lineno if hasattr(node, "lineno") else 0
+
+        name = self._expr_text(node)
+
+        pos = self._emit_const(add_node, name=name, lineno=lineno,
+                               const_type=ConstType.CONSTANT)
+
+        # generators: `for <target> in <iter>` clauses
+        for gen in node.generators:
+            iter_pos = self._walk_node(
+                gen.iter, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+            if iter_pos is not None:
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, iter_pos, depth)
+                add_edge({
+                    "label": "dfg",
+                    "source": iter_pos,
+                    "target": pos,
+                })
+
+            # loop target(s) receive ELEMENTS of the iterated container
+            targets = [gen.target]
+            if isinstance(gen.target, (ast.Tuple, ast.List)):
+                targets = list(gen.target.elts)
+            for tgt in targets:
+                tgt_pos = self._walk_node(
+                    tgt, add_node, add_edge, ctx_stack, file_path, depth,
+                )
+                if tgt_pos is None:
+                    continue
+                if ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, tgt_pos, depth)
+                if iter_pos is not None:
+                    add_edge({
+                        "label": "dfg",
+                        "source": iter_pos,
+                        "target": tgt_pos,
+                    })
+
+            # `if` filters are conditions, not value flows — walk for
+            # completeness (scope attach) without dfg into the result.
+            for cond in gen.ifs:
+                cond_pos = self._walk_node(
+                    cond, add_node, add_edge, ctx_stack, file_path, depth,
+                )
+                if cond_pos is not None and ctx_stack:
+                    self._own_edge(add_edge, ctx_stack, cond_pos, depth)
+
+        # body: DictComp → key+value, others → elt
+        if isinstance(node, ast.DictComp):
+            body_exprs = [node.key, node.value]
+        else:
+            body_exprs = [node.elt]
+        for body in body_exprs:
+            if body is None:
+                continue
+            body_pos = self._walk_node(
+                body, add_node, add_edge, ctx_stack, file_path, depth,
+            )
+            if body_pos is None:
+                continue
+            if ctx_stack:
+                self._own_edge(add_edge, ctx_stack, body_pos, depth)
+            if not isinstance(body, ast.Constant):
+                add_edge({
+                    "label": "dfg",
+                    "source": body_pos,
+                    "target": pos,
+                })
+
+        return pos
 
     # ===================================================================
     # Fallback: walk child fields

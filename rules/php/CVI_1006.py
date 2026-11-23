@@ -27,7 +27,11 @@ class CVI_1006(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"(mysqli_query|pg_execute|pg_insert|pg_query|pg_select|pg_update|sqlite_query|msql_query|mssql_query|odbc_exec|fbsql_query|sybase_query|ibase_query|dbx_query|ingres_query|ifx_query|oci_parse|sqlsrv_query|maxdb_query|db2_exec)\s?\(]"
+        # Fix 86: sqlStatement — OpenEMR's global SQL execution wrapper
+        # (library/sql.inc.php), first arg is the raw SQL string (interpolated
+        # at call sites, e.g. CVE-2026-126489 REPLACE INTO ... SET $sets).
+        self.match = r"(mysqli_query|pg_execute|pg_insert|pg_query|pg_select|pg_update|sqlite_query|msql_query|mssql_query|odbc_exec|fbsql_query|sybase_query|ibase_query|dbx_query|ingres_query|ifx_query|oci_parse|sqlsrv_query|maxdb_query|db2_exec|sqlStatement)\s?\(]"
+        self.vul_function = ["mysqli_query", "pg_execute", "pg_insert", "pg_query", "pg_select", "pg_update", "sqlite_query", "msql_query", "mssql_query", "odbc_exec", "fbsql_query", "sybase_query", "ibase_query", "dbx_query", "ingres_query", "ifx_query", "oci_parse", "sqlsrv_query", "maxdb_query", "db2_exec", "sqlStatement"]
 
     def main(self, regex_string, sink_args=None):
         """

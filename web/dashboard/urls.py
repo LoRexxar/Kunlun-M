@@ -77,6 +77,7 @@ urlpatterns = [
     # graph analysis
 
     path('vuls/list', login_required(vuls.VulListView.as_view()), name='vuls_list'),
+    path('vuls/cve/mark', login_required(vuls.VulCveMarkView.as_view()), name='vul_cve_mark'),
     path('graph', login_required(graph_analysis.GraphAnalysisView.as_view()), name='graph_analysis'),
 
     # AI 能力

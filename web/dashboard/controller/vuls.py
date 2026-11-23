@@ -4,7 +4,8 @@
 import json
 
 from django.contrib.auth.decorators import login_required
-from django.views.generic import TemplateView
+from django.http import JsonResponse
+from django.views.generic import TemplateView, View
 from django.db.models import Count, F, Q
 
 from web.index.models import ScanResultTask, ScanTask, Rules, TaintChain, Project
@@ -49,7 +50,7 @@ class VulListView(TemplateView):
 
         qs = ScanResultTask.objects.filter(is_active=True).only(
             'id', 'scan_task_id', 'cvi_id', 'language', 'vulfile_path',
-            'source_code', 'result_type', 'is_unconfirm',
+            'source_code', 'result_type', 'is_unconfirm', 'linked_cve',
             'verification_status', 'ai_verdict', 'ai_confidence',
         )
 
@@ -95,6 +96,7 @@ class VulListView(TemplateView):
                 Q(vulfile_path__icontains=search)
                 | Q(source_code__icontains=search)
                 | Q(cvi_id__icontains=search)
+                | Q(linked_cve__icontains=search)
             )
 
         # 等级筛选
@@ -233,7 +235,7 @@ class VulListView(TemplateView):
                 'is_skip': r.ai_verdict == 'skip',
                 'row_contested': _row_contested(r, _sugg_index),
                 'skip_reason': (r.ai_reasoning or '') if r.ai_verdict == 'skip' else '',
-                'cred': _cred.get(r.cvi_id),
+                'linked_cve': r.linked_cve or '',
                 'cred': _cred.get(r.cvi_id),
             })
 
@@ -277,3 +279,31 @@ class VulListView(TemplateView):
         ctx['f_project_id'] = project_id
 
         return ctx
+
+
+class VulCveMarkView(View):
+    """CVE 关联标记/取消 (POST: vul_id, cve).
+
+    cve 传空 = 取消关联。只接受 CVE-YYYY-NNNN+ 形态。返回 JSON。
+    只动 linked_cve/linked_cve_by 两列（queryset.update 绕过 save() 的
+    去重/翻转逻辑），不触碰 verification 状态。"""
+
+    def post(self, request):
+        import re as _re
+        try:
+            vul_id = int(request.POST.get('vul_id', '0'))
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'msg': 'bad vul_id'})
+        cve = (request.POST.get('cve') or '').strip().upper()
+        if cve and not _re.fullmatch(r'CVE-\d{4}-\d{4,10}', cve):
+            return JsonResponse({'ok': False, 'msg': 'CVE 编号格式应为 CVE-YYYY-NNNN...'})
+
+        r = ScanResultTask.objects.filter(id=vul_id).first()
+        if not r:
+            return JsonResponse({'ok': False, 'msg': '漏洞不存在'})
+        marked_by = (request.user.username if request.user.is_authenticated else 'anon') if cve else ''
+        ScanResultTask.objects.filter(id=vul_id).update(
+            linked_cve=cve,
+            linked_cve_by=marked_by,
+        )
+        return JsonResponse({'ok': True, 'cve': cve})

@@ -33,6 +33,55 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "valueOf":          {"passthrough": [0], "safe": False},
         "format":           {"passthrough": [1], "safe": False},
         "getBytes":         {"passthrough": [0], "safe": False},
+        # ===== Fix 133 (CVE-2026-123551): typed-receiver String transforms.
+        # The bare entries above model the RECEIVER string as positional
+        # arg 0 (PHP/JS style). For java arg-bearing transforms the
+        # positional index points at the WRONG argument — String.substring
+        # (beginIndex) is a number, the tainted content flows from the
+        # RECEIVER. knowledge_bridge's typed lookup (_receiver_typed_lookup
+        # name, Fix 79) produces "String.<method>" from the receiver's
+        # DECLARED java_type, so these entries win over the bare form and
+        # annotate receiver flow (taint_receiver_pt) instead. OpenAM
+        # RelayState chain: resource = newUrl.substring(idx) died as
+        # code=3 'unresolved substring' before this entry.
+        "String.substring":     {"passthrough": ["this"], "safe": False},
+        # Fix 140 (CVE-2026-45794): OpenAM CTS persisted-token read —
+        # second-order source. The Core Token Service is OpenAM's
+        # persistence store; push-notification message tokens are written
+        # by UNAUTHENTICATED flows — SnsMessageResource.addRegistrationInfo
+        # serialises the anonymous SNS callback's actionContent straight
+        # into Token.setBlob (SnsMessageResource.java:239 @07e402c3). After
+        # the messageId expires from the in-memory dispatcher,
+        # attemptFromCTS reads the token back and treats top-level blob
+        # keys as Java class names for Class.forName + Jackson deserialise
+        # (GHSA-pp89-732f-3g8q, fix ca15cba9 = PUSH_PREDICATES allowlist).
+        # "CTSPersistentStore.read" is a TYPE-qualified entry resolved via
+        # the Fix 79/133c typed-receiver lookup (receiver declared
+        # `private final CTSPersistentStore coreTokenService`) — same
+        # discipline as Retrofit2SyncCall.execute (Fix 79 family):
+        # fetch-API boundary of an external-writable store, never a
+        # bare-name source ("read" stays unmatched).
+        "CTSPersistentStore.read": {"passthrough": [], "safe": False, "source": True},
+        # Fix 140b (CVE-2026-45794): the CTS read chain's library
+        # boundaries, QUALIFIED-only (typed lookup / static full name) —
+        # org.forgerock.json.JsonValue.asMap() returns the receiver's
+        # underlying Map (receiver passthrough, same shape as
+        # Map.entrySet); Token.getBlob() returns the receiver's stored
+        # blob bytes; JsonValueBuilder.toJsonValue(String) parses its arg
+        # into the JsonValue (arg-0 passthrough).  Without these the
+        # intra-procedural chain read->getBlob->toJsonValue->asMap->getKey
+        # ->Class.forName dies as 'unresolved method asMap' (receiver-only
+        # unresolved calls have no arg-passthrough heuristic; Fix 137h's
+        # container-read rescue is scoped to 'get').
+        "JsonValue.asMap":              {"passthrough": ["this"], "safe": False},
+        "Token.getBlob":                {"passthrough": ["this"], "safe": False},
+        "JsonValueBuilder.toJsonValue": {"passthrough": [0], "safe": False},
+        "String.replace":       {"passthrough": ["this"], "safe": False},
+        "String.replaceAll":    {"passthrough": ["this"], "safe": False},
+        "String.replaceFirst":  {"passthrough": ["this"], "safe": False},
+        "String.split":         {"passthrough": ["this"], "safe": False},
+        "String.concat":        {"passthrough": ["this"], "safe": False},
+        "String.getBytes":      {"passthrough": ["this"], "safe": False},
         "toCharArray":      {"passthrough": [0], "safe": False},
         "intern":           {"passthrough": [0], "safe": False},
         "indent":           {"passthrough": [0], "safe": False},
@@ -45,6 +94,37 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "contentEquals":    {"passthrough": [], "safe": True},
         "subSequence":      {"passthrough": [0], "safe": False},
 
+        # ===== JDK 接口访问器（receiver 声明类型限定，Fix 79 CVE-2026-32613）=====
+        # Map.Entry.getValue/getKey 与 Map.entrySet 是容器元素透传：返回值
+        # 派生自 receiver 持有的数据。仅当 receiver 声明类型可解析为
+        # Map.Entry/Map 时才命中（knowledge_bridge 的 typed lookup），
+        # 不做裸名 getValue 白名单（领域 getter 大量撞名）。
+        "Map.Entry.getValue": {"passthrough": ["this"], "safe": False},
+        "Map.Entry.getKey":   {"passthrough": ["this"], "safe": False},
+        "Map.entrySet":       {"passthrough": ["this"], "safe": False},
+        "Map.Entry.setValue": {"passthrough": [0], "safe": False},
+        # java.util.function 函数式接口分发：结果 = lambda(arg)，参数透传。
+        # 闭包捕获变量经 receiver 流入（如 identity 直通）。
+        "Function.apply":          {"passthrough": [0], "safe": False},
+        "BiFunction.apply":        {"passthrough": [0, 1], "safe": False},
+        "UnaryOperator.apply":     {"passthrough": [0], "safe": False},
+        "Predicate.test":          {"passthrough": [0], "safe": False},
+        "Supplier.get":            {"passthrough": ["this"], "safe": False},
+        "Consumer.accept":         {"passthrough": [0], "safe": False},
+        "Function.identity":       {"passthrough": ["this"], "safe": False},
+        # Jackson ObjectMapper：convertValue/readValue/treeToValue 的返回值
+        # 是入参对象的同构拷贝（CVE-2026-32613 echo 把 ExpectedArtifact 转
+        # Map 后交 SpEL 求值）。
+        "ObjectMapper.convertValue": {"passthrough": [0], "safe": False},
+        "ObjectMapper.readValue":    {"passthrough": [0], "safe": False},
+        "ObjectMapper.treeToValue":  {"passthrough": [0], "safe": False},
+        # Collection→Stream：stream() 的元素就是 receiver 集合的元素
+        # （receiver 声明类型限定命中，链式 xs.stream().map(x->…) 的
+        # 元素流回溯经此穿过 stream 调用节点）。
+        "Collection.stream": {"passthrough": ["this"], "safe": False},
+        "List.stream":       {"passthrough": ["this"], "safe": False},
+        "Set.stream":        {"passthrough": ["this"], "safe": False},
+
         # ===== StringBuilder/StringBuffer =====
         "append":           {"passthrough": [0], "safe": False},
         "insert":           {"passthrough": [0], "safe": False},
@@ -52,6 +132,26 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "reverse":          {"passthrough": [0], "safe": False},
 
         # ===== 安全过滤 =====
+        # Fix 68: JDK deserialization stream constructors pass their stream
+        # argument's taint onto the constructed reader object — the standard
+        # shape is new ObjectInputStream(request.getInputStream()) then
+        # .readObject() on it (CVE-2026-15564 campaign).  Without this the
+        # constructor is an unresolved empty shell and the chain dies code=3.
+        "ObjectInputStream.ObjectInputStream": {"passthrough": [0], "safe": False},
+        "XMLDecoder.XMLDecoder":               {"passthrough": [0], "safe": False},
+        # Fix 143e (CVE-2026-129448): SAX request-body plumbing.
+        # new InputSource(request.getInputStream()) wraps the attacker
+        # stream — the constructed InputSource carries its taint (same
+        # shape as ObjectInputStream above); xr.parse(new InputSource(s))
+        # feeds it to the ContentHandler callbacks via Fix 143d.
+        # ByteArrayInputStream likewise copies its byte[] argument into
+        # the stream (SerializableParser.getResult's
+        # new ByteArrayInputStream(res) before ObjectInputStream).
+        "InputSource.InputSource":               {"passthrough": [0], "safe": False},
+        "ByteArrayInputStream.ByteArrayInputStream": {"passthrough": [0], "safe": False},
+        # ByteArrayOutputStream.toByteArray() exposes the receiver's
+        # accumulated (mutated-by-write, Fix 143e dfg pass) buffer.
+        "ByteArrayOutputStream.toByteArray":     {"passthrough": ["this"], "safe": False},
         "StringEscapeUtils.escapeHtml4":        {"passthrough": [0], "safe": True},
         "StringEscapeUtils.escapeHtml3":        {"passthrough": [0], "safe": True},
         "StringEscapeUtils.escapeXml":          {"passthrough": [0], "safe": True},
@@ -122,6 +222,14 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
 
         # ===== Servlet =====
         "getParameter":         {"passthrough": [0], "safe": False},
+        # Fix 137c (CVE-2026-83542 OFBiz): FlexibleStringExpander expands
+        # ${...} against the context Map — any tainted context entry
+        # (e.g. ${parameters.mainDecoratorLocation}) lands in the return.
+        # [0,1] covers both forms: instance locationExdr.expandString(ctx)
+        # (Fix 44b: index 0 traces the receiver first, untainted receiver
+        # falls through to explicit args) and static
+        # FlexibleStringExpander.expandString(expr, context).
+        "expandString":         {"passthrough": [0, 1], "safe": False},
         "getParameterValues":   {"passthrough": [0], "safe": False},
         "getParameterMap":      {"passthrough": [0], "safe": False},
         "getHeader":            {"passthrough": [0], "safe": False},
@@ -146,6 +254,13 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "sendRedirect":         {"passthrough": [0], "safe": False},
         "sendError":            {"passthrough": [0], "safe": False},
         "addCookie":            {"passthrough": [0], "safe": False},
+        # forward sink (CVE-2026-123551): taint is the path arg; the returned
+        # dispatcher is not tainted, so passthrough stays empty
+        "getRequestDispatcher": {"passthrough": [], "safe": False},
+        # template data-model sink (CVE-2026-44203): taint is the model map
+        # (arg0) rendered into the HTML response by the .ftl; the
+        # representation itself is not tainted, passthrough stays empty
+        "setDataModel":          {"passthrough": [], "safe": False},
 
         # ===== MyBatis =====
         # ${} interpolation is unsafe, handled at rule level
@@ -216,6 +331,9 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "HttpServletResponse.addHeader":       {"passthrough": [1], "safe": False},
         "HttpServletResponse.setStatus":       {"passthrough": [], "safe": True},
         "HttpServletResponse.sendError":       {"passthrough": [0], "safe": False},
+        "HttpServletRequest.getRequestDispatcher":  {"passthrough": [], "safe": False},
+        "ServletRequest.getRequestDispatcher":      {"passthrough": [], "safe": False},
+        "ServletContext.getRequestDispatcher":      {"passthrough": [], "safe": False},
 
         # ===== Spring Security =====
         "@Secured":               {"passthrough": [], "safe": True},

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from typing import TYPE_CHECKING
 
 from utils.log import logger
@@ -66,8 +67,12 @@ def _try_get_normalizer(language: str):
 # Per-language code file extensions (ONLY files that should be AST-parsed)
 # .xml, .jar, etc. are intentionally excluded — they are not source code
 # ---------------------------------------------------------------------------
+# Fix 120: .inc 是遗留 PHP 库扩展——pfSense 整个 include 库（src/etc/inc/*.inc，
+# 含 CVE-2026-111215 的 exec sink interfaces.inc:3379）、phpMyAdmin libraries 等
+# 都用它；不在扩展集内 = 文件发现层静默丢弃整个库。但 .inc 也被模板系统用作
+# HTML 片段（phplist ui/*/footer.inc），故配套内容甄别（见 _INC_PHP_OPEN_RE）。
 _CODE_EXT_MAP = {
-    "php": {".php", ".php3", ".php4", ".php5", ".php7", ".pht", ".phs", ".phtml"},
+    "php": {".php", ".php3", ".php4", ".php5", ".php7", ".pht", ".phs", ".phtml", ".inc"},
     "java": {".java"},
     "javascript": {".js"},
     "typescript": {".ts", ".tsx"},
@@ -81,6 +86,10 @@ _CODE_EXT_MAP = {
     "kotlin": {".kt", ".kts"},
     "lua": {".lua"},
 }
+
+# Fix 120: .inc 内容甄别——仅 PHP 开标签（<?php / <?= / <?，容忍 BOM 与前导空白）
+# 开头的 .inc 才按 PHP 收录；HTML 模板片段 .inc 跳过（skipped_special）。
+_INC_PHP_OPEN_RE = re.compile(r"^(?:\ufeff|\s)*<\?")
 
 # Language aliases: user-facing name → internal normalizer name
 _LANG_ALIASES = {
@@ -105,6 +114,55 @@ _TS_MODULE_MAP = {
     "kotlin": "tree_sitter_kotlin",
     "lua": "tree_sitter_lua",
 }
+
+
+# Fix 41: PHP 数据文件识别阈值。
+# _DATA_ITEM_RE 匹配 "123=>" / "'k'=>" 形态的数组项；
+# _DATA_NOISE_RE 匹配任何带语义的 PHP 代码痕迹（函数/superglobal/控制流）。
+_DATA_ITEM_RE = re.compile(r"(?:\d+|'[^']*'|\"[^\"]*\")\s*=>")
+_DATA_NOISE_RE = re.compile(
+    r"\$_(GET|POST|REQUEST|COOKIE|SERVER|FILES|SESSION|ENV)"
+    r"|\bfunction\s+\w+\s*\("
+    r"|\b(if|foreach|while|for|switch|return)\s*\("
+    r"|\b(mysqli_query|mysql_query|pg_query|sqlite_query|exec|eval)\b"
+)
+# 数据文件合法携带的纯加载语句（tcpdf 字体表 include 兄弟映射文件）
+_DATA_INCLUDE_RE = re.compile(
+    r"include\s*\(\s*dirname\s*\(\s*__FILE__\s*\)", re.I)
+
+
+def _looks_like_php_data_file(content: str) -> bool:
+    """识别 PHP 数组形态的数据文件（TCPDF 字体/CID 映射表等）。
+
+    特征：内容几乎全是 ``$x['k'] = array(k=>v, k=>v, ...);`` 的字面量
+    映射项，且完全没有函数体 / superglobal / 查询调用 / 控制流。
+    这类文件对污点分析零贡献，但会把图撑爆（单文件数万节点）。
+    """
+    # 去掉 PHP 开闭标签、注释、以及数据文件合法的兄弟文件加载语句
+    body = content
+    for _pat in (r"<\?php", r"<\?=", r"\?>"):
+        body = re.sub(_pat, " ", body)
+    body = re.sub(r"//[^\n]*", " ", body)
+    body = re.sub(r"#[^\n]*", " ", body)
+    body = _DATA_INCLUDE_RE.sub(" ", body)
+
+    # 存在任何污点语义痕迹 → 不是数据文件
+    if _DATA_NOISE_RE.search(body):
+        return False
+
+    # 数组项计数：至少 200 个 "k=>" 项才算映射表（正常配置文件只有几十项）
+    n_items = len(_DATA_ITEM_RE.findall(body))
+    if n_items < 200:
+        return False
+
+    # 平均每项非空白字符数：真实代码即使 200+ 项也携带长值/逻辑
+    # （实测代码侧最小 121）；纯映射表每项 9-19 字符（CJK 码点 5 位数
+    # 的 uni2cid=12.5，含字符串键的字体描述表=19）。< 20 视为数据形态。
+    non_ws = len(re.sub(r"\s", "", body))
+    if non_ws == 0:
+        return False
+    per_item = non_ws / n_items
+    return per_item < 20
 
 
 def _parse_source(filepath: str, language: str):
@@ -147,10 +205,35 @@ def _parse_source(filepath: str, language: str):
 
     except Exception as e:
         import traceback
+        # Fix 58 (observability): count parse failures per language so the
+        # build summary can report parse coverage — a corpus silently going
+        # dark (parser regression, new syntax) must be visible per scan.
+        _PARSE_FAILURE_COUNTS[language] = _PARSE_FAILURE_COUNTS.get(language, 0) + 1
         logger.debug("[GraphPipeline] Parse error for %s (%s): %s\n%s", filepath, language, e, traceback.format_exc())
         return None
 
     return None
+
+
+# Fix 58: per-language parse-failure counters (see _parse_source above).
+_PARSE_FAILURE_COUNTS: dict[str, int] = {}
+
+
+def _report_parse_coverage(processed_ok: int) -> None:
+    """Emit a parse-coverage summary line. Call once per build after the
+    file loop; failure counters are global per process, so reset them
+    after reporting to keep per-scan semantics for long-lived workers."""
+    if not _PARSE_FAILURE_COUNTS:
+        return
+    failed = sum(_PARSE_FAILURE_COUNTS.values())
+    total = processed_ok + failed
+    if total <= 0:
+        return
+    detail = ', '.join(f'{k}={v}' for k, v in sorted(_PARSE_FAILURE_COUNTS.items()))
+    logger.warning(
+        "[GraphPipeline] Parse coverage: %d/%d files parsed OK (%.1f%%) — parse failures by language: %s",
+        processed_ok, total, 100.0 * processed_ok / total, detail)
+    _PARSE_FAILURE_COUNTS.clear()
 
 
 def _parse_tree_sitter(code: str, language: str):
@@ -166,8 +249,13 @@ def _parse_tree_sitter(code: str, language: str):
         ts_mod = importlib.import_module(module_name)
         # TypeScript 模块拆分为 language_typescript / language_tsx，
         # 而非统一的 language()
+        # Fix 50: 统一用 language_tsx —— TSX 语法是 TS 的超集,.ts/.tsx
+        # 通吃;language_typescript() 对 .tsx 文件整树 ERROR,React 组件
+        # (dangerouslySetInnerHTML 等 JSX 形态)完全不可见。
         if language == "typescript":
-            lang_func = getattr(ts_mod, "language_typescript", None)
+            lang_func = getattr(ts_mod, "language_tsx", None)
+            if not lang_func:
+                lang_func = getattr(ts_mod, "language_typescript", None)
             if not lang_func:
                 lang_func = ts_mod.language
         else:
@@ -273,9 +361,28 @@ def build_ast_graph(
             if not isinstance(file_data, dict) or "list" not in file_data:
                 continue
             for filepath in file_data["list"]:
-                # files 列表中的路径可能是相对路径，需要拼接 target_directory
+                # files 列表中的路径可能是相对路径，需要拼接 target_directory。
+                # Fix 40: file 模式（-t 指向单个文件）下 target_directory 本身
+                # 就是那个文件的完整路径，Directory.collect_files 已把文件名
+                # 剥离为相对路径（'admin-panel.php'），再 join 会产生
+                # '/path/file.php/file.php' → Parse OSError → empty AST →
+                # 单文件扫描静默 0 结果（CVE-2026-111990 admin-panel.php 漏报
+                # 现场）。拼接前先验证产物存在，不存在则回退原路径。
                 if target_directory and not os.path.isabs(filepath):
-                    abs_filepath = os.path.join(target_directory, filepath)
+                    _joined = os.path.join(target_directory, filepath)
+                    if os.path.exists(_joined):
+                        abs_filepath = _joined
+                    else:
+                        # file 模式：target_directory 本身是文件，相对路径的
+                        # 真实容器是其父目录。
+                        _by_dirname = os.path.join(
+                            os.path.dirname(target_directory), filepath)
+                        if os.path.exists(_by_dirname):
+                            abs_filepath = _by_dirname
+                        elif os.path.exists(filepath):
+                            abs_filepath = filepath
+                        else:
+                            abs_filepath = _joined
                 else:
                     abs_filepath = filepath
                 file_ext = os.path.splitext(abs_filepath)[1].lower()
@@ -286,13 +393,27 @@ def build_ast_graph(
                     skipped_special += 1
                     continue
 
-                # 跳过过大文件（>100KB，通常是 minified/bundled 代码）
+                # 跳过过大文件（>512KB，通常是 minified/bundled 代码）。
+                # Fix 35: 100KB threshold silently skipped large
+                # hand-written sources -- c2pa-rs store.rs is 359KB of
+                # legitimate Rust and its skip hid the CVE-2026-95634
+                # SSRF sink (fetch_remote_manifest) entirely.  Minified
+                # bundles are still caught by the _skip_patterns above
+                # (.min.js / node_modules / jquery); 512KB keeps a guard
+                # against generated garbage without dropping real code.
                 try:
-                    if os.path.getsize(abs_filepath) > 100 * 1024:
+                    if os.path.getsize(abs_filepath) > 512 * 1024:
                         skipped_large += 1
                         continue
                 except OSError:
                     pass
+
+                # Fix 49: Vue SFC —— .vue 由 pretreatment 拆解为同目录 tmp.js
+                # (script 块 + v-html 合成的 .innerHTML 语句),graph 侧跳过
+                # .vue 本体(file-only), 由 tmp.js 承载全部语义。
+                if file_ext == ".vue":
+                    file_only_count += 1
+                    continue
 
                 detected_lang = code_ext_to_lang.get(file_ext)
 
@@ -307,6 +428,29 @@ def build_ast_graph(
                             _line_count = _code_sample.count('\n') + 1
                             _avg_line_len = len(_code_sample) / max(_line_count, 1)
                             if _avg_line_len > 500 or _line_count < 5:
+                                skipped_special += 1
+                                continue
+                        except (OSError, IOError):
+                            pass
+
+                    # Fix 41: PHP 数据文件守卫。TCPDF 等库把字形/CID 映射表存成
+                    # PHP 数组形态（fonts/uni2cid_*.php、cid0*.php、
+                    # include/tcpdf_font_data.php：$x['k'] = array(32=>1,33=>2,...)
+                    # 单文件数万个字面量数组项）。这类文件零污点语义（无函数体、
+                    # 无 superglobal、无调用点），却把全库图撑到 92.8 万节点 /
+                    # 114 万边，use builder 单 pass 847s，全库扫描超时
+                    # （CVE-2026-111990 的 HMS 项目 1750s 超时现场）。跳过之。
+                    if detected_lang == 'php':
+                        try:
+                            with open(abs_filepath, 'r', encoding='utf-8', errors='ignore') as _df:
+                                _dc = _df.read(262144)  # 前 256KB 足以识别数据形态
+                            # Fix 120: .inc 按内容甄别——HTML 模板片段（无 PHP 开标签）
+                            # 不是源码，跳过；PHP 库文件（pfSense interfaces.inc 等）
+                            # 放行进入解析。
+                            if file_ext == '.inc' and not _INC_PHP_OPEN_RE.match(_dc):
+                                skipped_special += 1
+                                continue
+                            if _looks_like_php_data_file(_dc):
                                 skipped_special += 1
                                 continue
                         except (OSError, IOError):
@@ -427,6 +571,13 @@ def build_ast_graph(
     except Exception as e:
         logger.warning("[GraphPipeline] Edge builders 失败，跳过: %s", e)
 
+    # Fix 58 (observability): parse-coverage line right before the summary
+    # (covers both the new files path and the legacy pretreatment path).
+    try:
+        _report_parse_coverage(processed_count)
+    except Exception as _cov_e:
+        logger.debug("[GraphPipeline] coverage report failed: %s", _cov_e)
+
     logger.info(
         "[GraphPipeline] Build complete: %d processed, %d file-only, "
         "%d no normalizer, %d empty AST, %d special, %d large, %d errors. "
@@ -523,6 +674,36 @@ def build_ast_graph(
             )
             logger.info("[GraphPipeline] Graph saved to %s (%d nodes, %d edges)",
                        scan_dir, graph.vcount(), graph.ecount())
+
+            # Fix 58 (observability): parse-coverage report. Files the parser
+            # could not handle used to disappear with only a warning log;
+            # surface the loss as an explicit coverage summary so a corpus
+            # silently going dark (e.g. a parser regression) is visible in
+            # every scan's output.
+            try:
+                status_counts = {}
+                for file_data in getattr(pretreatment, 'pre_result', {}).values() \
+                        if pretreatment is not None else []:
+                    st = file_data.get('parse_status')
+                    if st:
+                        status_counts[st] = status_counts.get(st, 0) + 1
+                if status_counts:
+                    total = sum(status_counts.values())
+                    bad = {k: v for k, v in status_counts.items()
+                           if not k.startswith('ok')}
+                    if bad:
+                        logger.warning(
+                            "[GraphPipeline] Parse coverage: %d/%d files parsed "
+                            "OK (%.1f%%) — unparsed: %s",
+                            total - sum(bad.values()), total,
+                            100.0 * (total - sum(bad.values())) / total,
+                            ', '.join(f'{k}={v}' for k, v in sorted(bad.items())))
+                    else:
+                        logger.info(
+                            "[GraphPipeline] Parse coverage: %d/%d files parsed OK (100%%)",
+                            total, total)
+            except Exception as cov_e:
+                logger.debug("[GraphPipeline] coverage report failed: %s", cov_e)
         except Exception as e:
             logger.warning("[GraphPipeline] Failed to save graph: %s", e)
 

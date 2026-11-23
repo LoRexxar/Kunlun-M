@@ -41,6 +41,14 @@ class CVI_3104_graph():
 
         self.vul_function = ["query", "raw", "whereRaw", "literal", "sequelize.query", "knex.raw"]
 
+        # Fix 78 (CVE-2026-41478 Saltcorn): graph-engine Path C receiver-
+        # agnostic method sinks.  Project-local DB wrappers (`const db =
+        # require("./db"); db.query(sql)`) have no resolvable qualified
+        # fullname, so the qualified-only main loop never matches them.
+        # Taint gating + main() (chrome.tabs.query / querySelector /
+        # matchMedia filters) keep short-name matches FP-safe.
+        self.method_sinks = ["query", "raw", "whereRaw", "literal"]
+
     def main(self, regex_string, sink_args=None):
         """
         过滤非 SQL query 的调用：

@@ -52,6 +52,15 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "rawurlencode":         {"passthrough": [0], "safe": False},
         "html_entity_decode":   {"passthrough": [0], "safe": False},
         "json_encode":          {"passthrough": [0], "safe": False},
+        # Fix 52j: WordPress JSON wrappers (same params/semantics).
+        "wp_json_encode":        {"passthrough": [0], "safe": False},
+        "wp_json_decode":        {"passthrough": [0], "safe": False},
+        # 52j-2: vendor wrapper shells (filtered out of scan) — encode/
+        # maybeEncode ARE json_encode; decode IS json_decode (arg0).
+        "JSON.encode":            {"passthrough": [0], "safe": False},
+        "JSON.maybeEncode":       {"passthrough": [0], "safe": False},
+        "JSON.decode":            {"passthrough": [0], "safe": False},
+        "JSON.maybeDecode":       {"passthrough": [0], "safe": False},
         "json_decode":          {"passthrough": [0], "safe": False},
         "serialize":            {"passthrough": [0], "safe": False},
         "unserialize":          {"passthrough": [0], "safe": False},
@@ -203,7 +212,7 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
         "esc_textarea":         {"passthrough": [0], "safe": True},
         "wp_kses":              {"passthrough": [0], "safe": True},
         "wp_kses_post":         {"passthrough": [0], "safe": True},
-        "sanitize_text_field":  {"passthrough": [0], "safe": True},
+        "sanitize_text_field":  {"passthrough": [0], "safe": False}, # Fix 69: strips tags only; quotes/punctuation survive — NOT an SQLi sanitizer. XSS per-svid verdict via tamper registry.
         "sanitize_email":       {"passthrough": [0], "safe": True},
         "sanitize_title":       {"passthrough": [0], "safe": True},
         "sanitize_file_name":   {"passthrough": [0], "safe": True},
@@ -633,6 +642,11 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "flush": {"passthrough": [], "safe": True},
     "fmod": {"passthrough": [], "safe": True},
     "fnmatch": {"passthrough": [], "safe": True},
+    # Fix 106 (CVE-2026-126482): fopen handle inherits the filename's
+    # taint so fread(handle) content models "attacker-controlled file
+    # content" (uploaded 835 file → parseERA → sqlQuery).  Mirrors the
+    # existing file_get_contents passthrough[0] semantics.
+    "fopen": {"passthrough": [0], "safe": False},
     "forward_static_call": {"passthrough": [], "safe": True},
     "forward_static_call_array": {"passthrough": [], "safe": True},
     "fpassthru": {"passthrough": [], "safe": True},
@@ -1712,7 +1726,11 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "preg_match_all": {"passthrough": [], "safe": False, "param_flow": {2: 1}},
     "preg_quote": {"passthrough": [], "safe": True},
     "preg_replace_callback": {"passthrough": [], "safe": True},
-    "preg_split": {"passthrough": [], "safe": True},
+    # Fix 106 (CVE-2026-126482): preg_split/str_split CARRY taint (they
+    # split a tainted string into tainted pieces) — they are not
+    # sanitizers.  Mirror explode's passthrough semantics; marking them
+    # safe killed every `list(...) = preg_split(..., $tainted)` chain.
+    "preg_split": {"passthrough": [1], "safe": False},
     "prev": {"passthrough": [], "safe": True},
     "proc_close": {"passthrough": [], "safe": True},
     "proc_get_status": {"passthrough": [], "safe": True},
@@ -1838,7 +1856,8 @@ KNOWLEDGE: Dict[str, Dict[str, Union[List[int], bool]]] = {
     "stat": {"passthrough": [], "safe": True},
     "str_getcsv": {"passthrough": [], "safe": True},
     "str_rot13": {"passthrough": [], "safe": True},
-    "str_split": {"passthrough": [], "safe": True},
+    # Fix 106: str_split carries taint (see preg_split note above).
+    "str_split": {"passthrough": [0], "safe": False},
     "str_word_count": {"passthrough": [], "safe": True},
     "strchr": {"passthrough": [], "safe": True},
     "strcoll": {"passthrough": [], "safe": True},

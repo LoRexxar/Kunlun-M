@@ -16,10 +16,18 @@ class CVI_6015(SingleRuleMixin):
         self.level = 2
 
         self.match_mode = "function-param-regex"
-        self.match = r'\.sendRedirect\s*\(|redirect:|\.setHeader\s*\(\s*["\x27]Location'
+        self.match = (r'\.sendRedirect\s*\(|redirect:|\.setHeader\s*\(\s*["\x27]Location'
+                      r'|\.getRequestDispatcher\s*\(')
         self.unmatch = [r"isValidRedirect", r"whitelist", r"allowedDomains"]
         self.vul_function = [
             "HttpServletResponse.sendRedirect", "HttpServletResponse.setHeader",
+            # RequestDispatcher.forward sink: unvalidated forward (OWASP
+            # "Unvalidated Redirects and Forwards"; internal dispatch skips
+            # REQUEST-only security filters). Taint lands on the path arg of
+            # getRequestDispatcher — CVE-2026-123551 OpenAM RelayState chain.
+            "HttpServletRequest.getRequestDispatcher",
+            "ServletRequest.getRequestDispatcher",
+            "ServletContext.getRequestDispatcher",
             # ModelAndView构造函数: 图引擎callee是短名(无use edge), 保持短名
             "ModelAndView",
         ]
@@ -69,7 +77,15 @@ class CVI_6015(SingleRuleMixin):
                         if config_concat:
                             return False
 
-            # setHeader: check arg[0] for header name
+            # getRequestDispatcher: hardcoded forward path → safe
+            # (const arg0 means the forward target is fixed, not user-driven)
+            if 'getrequestdispatcher' in sn_lower:
+                if len(sink_args) >= 1:
+                    arg0 = sink_args[0]
+                    if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
+                        return False
+
+            # setHeader: arg[0] for header name
             if 'setheader' in sn_lower and 'sendredirect' not in sn_lower:
                 arg0 = sink_args[0]
                 header_val = arg0.get('resolved_value', '')

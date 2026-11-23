@@ -1314,7 +1314,9 @@ Tamper Name:
                                 if chains:
                                     logger.info("[Chain] Vul {}".format(sr.id))
                                     for tc in chains:
-                                        logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name,
+                                        # Per-node chain lines dominate log volume (see core/cli.py);
+                                        # DEBUG-only, KUNLUN_LOG_LEVEL=DEBUG re-enables for triage.
+                                        logger.debug("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name,
                                                                                    tc.file_path, tc.lineno))
                                         if not show_context(tc.file_path, tc.lineno):
                                             logger_console.info(tc.source_code)

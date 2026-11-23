@@ -6,7 +6,13 @@ django>=4.2,<6
 Werkzeug>=3.0.6
 
 # Parser / analysis stack
-lphply>=2.2.0
+# >=2.2.2: Fix 52 grammar productions (closure return types, 'match' as
+# method name, destructuring holes, trailing call comma) — previously only
+# hot-patched inside the scan venv; now a real release (CVE-2026-110185)
+# >=2.2.3: Fix 53 grammar (CVE-2026-118755 PMS corpus): readonly ctor
+# promotion, soft-reserved namespace segments (Enum/Trait), reserved method
+# names (new/echo/print), multi-line PHP 8 attributes. PMS 365/365 parse.
+lphply>=2.2.10
 lesprima>=2.0.0
 pyjsparser>=2.7.1
 jsbeautifier>=1.15.1
@@ -21,7 +27,10 @@ requests>=2.32.3
 rarfile>=4.2
 
 # Java source parsing
-ljavalang>=2.1.0,<3
+# >=2.1.1: contextual keywords 'to'/'with' no longer reserved — required for
+# Fix 53 (CVE-2026-15564): 'with' reservation broke whole-file parsing of
+# Elytron AuthenticationContext..with(..) call sites (EjbCorbaServant.java)
+ljavalang>=2.1.4,<3
 
 # Graph engine
 python-igraph>=1.0,<2

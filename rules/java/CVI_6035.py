@@ -25,14 +25,23 @@ class CVI_6035(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = "readObject"
+        self.match = "readObject|readParams"
 
         # for solidity
         self.black_list = []
 
         # for regex
         self.unmatch = []
-        self.vul_function = ["ObjectInputStream.readObject"]
+        self.vul_function = [
+            "ObjectInputStream.readObject",
+
+            # Fix 53 (CVE-2026-15564, WFLY-22156): IIOP value-type
+            # deserialization of untyped EJB method parameters.
+            # SkeletonStrategy.readParams unmarshals CORBA input-stream
+            # bytes into Java objects BEFORE authentication in the
+            # vulnerable EjbCorbaServant._invoke (pre-auth deserialization).
+            "SkeletonStrategy.readParams",
+        ]
 
     def main(self, regex_string, sink_args=None):
         pass

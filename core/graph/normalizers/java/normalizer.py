@@ -572,8 +572,45 @@ class Normalizer:
                        file_path) -> int | None:
         if param_node is None:
             return None
+        # Fix 79e (CVE-2026-32613): javalang/ljavalang types an INFERRED
+        # lambda parameter (`artifact -> ...`, no parentheses/types) as a
+        # plain str in LambdaExpression.parameters.  getattr(str, 'name')
+        # is '' → the parameter node was silently dropped, leaving every
+        # body use of the lambda param an orphan with no dfg upstream.
+        if isinstance(param_node, str):
+            if not param_node:
+                return None
+            p_pos = add_node({
+                "label": NodeLabel.PARAMETER.value,
+                "name": param_node,
+                "lineno": 0,
+                "language": self.language,
+                "attrs": {
+                    "type": IdentifierType.VARIABLE.value,
+                    "java_type": "",
+                    "file_path": file_path,
+                },
+            })
+            return p_pos
+        # Fix 79e-2: ljavalang types an INFERRED lambda parameter
+        # (``artifact -> ...``) as a MemberReference (member='artifact')
+        # rather than a FormalParameter — no 'name' attr, so it was dropped.
         lineno, _ = self._loc(param_node)
-        name = getattr(param_node, "name", "")
+        name = getattr(param_node, "name", "") or ""
+        if not name and getattr(param_node, "member", ""):
+            name = param_node.member
+            p_pos = add_node({
+                "label": NodeLabel.PARAMETER.value,
+                "name": name,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {
+                    "type": IdentifierType.VARIABLE.value,
+                    "java_type": "",
+                    "file_path": file_path,
+                },
+            })
+            return p_pos
         if not name:
             return None
         ptype = getattr(param_node, "type", None)
@@ -624,8 +661,41 @@ class Normalizer:
             return ""
         if isinstance(tnode, str):
             return tnode
+        # Fix 79 (CVE-2026-32613): nested declared types are name+sub_type
+        # chains in javalang — `Map.Entry<String,Object>` is
+        # ReferenceType(name=Map, sub_type=ReferenceType(name=Entry,...)).
+        # Returning only `.name` collapsed it to "Map", so receiver-typed
+        # builtin lookups (Map.Entry.getValue) could never hit.
         name = getattr(tnode, "name", "") or ""
-        return name
+        parts = [name]
+        sub = getattr(tnode, "sub_type", None)
+        _guard = 0
+        while sub is not None and _guard < 8:
+            sub_name = getattr(sub, "name", "") or ""
+            if not sub_name:
+                break
+            parts.append(sub_name)
+            sub = getattr(sub, "sub_type", None)
+            _guard += 1
+        text = ".".join(p for p in parts if p)
+        # Fix 143q (CVE-2026-129448): array dimensions are part of the
+        # type's injectability semantics.  javalang carries them as a
+        # `dimensions` list ([None] for `byte[]`, [None, None] for
+        # `int[][]`) — dropping the suffix collapsed `byte[] pBytes` to
+        # java_type "byte", and the numeric-primitive gate
+        # (GraphAnalyzer entry-param handling) legitimately terminated
+        # the walk: a scalar byte can never carry a payload.  But a
+        # byte[] IS the payload container (xmlrpc SerializableParser:
+        # the anonymous Base64.Decoder.writeBuffer(byte[] pBytes,...)
+        # hands attacker base64 through to baos.write).  Preserving
+        # "[]" keeps arrays out of the numeric set (BFS continues into
+        # the caller binding) and makes typed-receiver lookups MORE
+        # precise — a String[] receiver no longer falsely matches the
+        # "String.*" builtin entries.
+        dims = getattr(tnode, "dimensions", None) or []
+        if dims:
+            text = text + ("[]" * len(dims))
+        return text
 
     # ===================================================================
     # Import
@@ -875,10 +945,42 @@ class Normalizer:
                 node_dict["name"] = "<for-each>"
 
                 if var is not None:
-                    var_pos = self._walk_node(var, add_node, add_edge,
-                                               ctx_stack, file_path, 0)
-                    if var_pos is not None:
-                        self._ast_edge(add_edge, pos, var_pos, AstRole.LHS.value)
+                    # Fix 79 (CVE-2026-32613): javalang/ljavalang types the
+                    # enhanced-for loop variable as VariableDeclaration (NOT
+                    # LocalVariableDeclaration), which no dispatcher case
+                    # handles — the generic children fallback silently
+                    # dropped it, so `for (Map.Entry e : m.entrySet())`
+                    # produced NO node for `e` and every use of `e` in the
+                    # loop body was an unresolvable receiver.  Emit one
+                    # identifier per declarator with its declared java_type.
+                    var_type_name = type(var).__name__
+                    if var_type_name == "VariableDeclaration":
+                        _vd_lineno, _ = self._loc(var)
+                        _vd_type = self._type_text(getattr(var, "type", None))
+                        for _decl in (getattr(var, "declarators", []) or []):
+                            _decl_name = getattr(_decl, "name", "")
+                            if not _decl_name:
+                                continue
+                            _id_attrs = {
+                                "type": IdentifierType.VARIABLE.value,
+                                "raw_type": "VariableDeclarator",
+                            }
+                            if _vd_type:
+                                _id_attrs["java_type"] = _vd_type
+                            _id_pos = add_node({
+                                "label": NodeLabel.IDENTIFIER.value,
+                                "name": _decl_name,
+                                "lineno": _vd_lineno,
+                                "language": self.language,
+                                "attrs": _id_attrs,
+                            })
+                            self._ast_edge(add_edge, pos, _id_pos,
+                                           AstRole.LHS.value)
+                    else:
+                        var_pos = self._walk_node(var, add_node, add_edge,
+                                                  ctx_stack, file_path, 0)
+                        if var_pos is not None:
+                            self._ast_edge(add_edge, pos, var_pos, AstRole.LHS.value)
 
                 if iterable is not None:
                     iter_pos = self._walk_node(iterable, add_node, add_edge,
@@ -1373,7 +1475,17 @@ class Normalizer:
 
         type_text = ""
         if creator_type is not None:
-            type_text = getattr(creator_type, "name", "") or ""
+            # Fix 143f-b: javalang represents qualified creators
+            # (`new Base64.Decoder(...)`) as ReferenceType(name='Base64')
+            # with a sub_type chain — name alone keeps only the first
+            # qualifier segment.  Walk the chain so the anonymous-class
+            # extends stub and the callee identifier carry the full path.
+            parts = [getattr(creator_type, "name", "") or ""]
+            sub = getattr(creator_type, "sub_type", None)
+            while sub is not None:
+                parts.append(getattr(sub, "name", "") or "")
+                sub = getattr(sub, "sub_type", None)
+            type_text = ".".join(p for p in parts if p)
             if not type_text:
                 type_text = self._type_text(creator_type)
 
@@ -1411,6 +1523,63 @@ class Normalizer:
             if arg_pos is not None:
                 self._ast_edge(add_edge, pos, arg_pos, AstRole.ARG.value,
                                extra={"arg_index": idx})
+
+        # Fix 143f (CVE-2026-129448): anonymous class body materialization.
+        # javalang parses `new Base64.Decoder(1024){ ...methods... }` as a
+        # ClassCreator with a non-empty ``body`` — the body members are real
+        # MethodDeclarations that execute at runtime (virtual-dispatch
+        # overrides of the base type).  The normalizer previously dropped
+        # the body entirely, so the override (and every field it touches
+        # through outer-instance capture) was invisible to the graph: the
+        # xmlrpc SerializableParser chain died at Decoder.write →
+        # writeBuffer → baos.write because "Decoder$1.writeBuffer" never
+        # existed as a node.  Materialize a synthetic class node
+        # (``{Base}${lineno}``, unique per creation site) with a crg
+        # extends edge to the base type stub, then walk the body members
+        # under it so their fullnames qualify as ``{Anon}.{method}``.
+        body = getattr(node, "body", None)
+        if body:
+            base_simple = type_text.rsplit(".", 1)[-1] if type_text else ""
+            anon_name = f"{base_simple}${lineno}" if base_simple else \
+                f"Anonymous${lineno}"
+            cls_pos = add_node({
+                "label": NodeLabel.CLASS.value,
+                "name": anon_name,
+                "lineno": lineno,
+                "language": self.language,
+                "attrs": {
+                    "fullname": anon_name,
+                    "type": ClassType.CLASS.value,
+                    "raw_type": "AnonymousClassDeclaration",
+                },
+            })
+            # own: attach to the current scope (the enclosing method of the
+            # creation expression) — enclosing_class climbs to this CLASS
+            # node for the body methods.
+            self._own_edge(add_edge, ctx_stack, cls_pos, depth)
+            if base_simple:
+                parent_pos = add_node({
+                    "label": NodeLabel.CLASS.value,
+                    "name": base_simple,
+                    "lineno": 0,
+                    "language": self.language,
+                    "attrs": {
+                        "fullname": base_simple,
+                        "type": ClassType.CLASS.value,
+                        "is_external": True,
+                    },
+                })
+                add_edge({
+                    "label": EdgeLabel.CRG.value,
+                    "source": cls_pos,
+                    "target": parent_pos,
+                    "attrs": {"type": CrgType.EXTENDS.value},
+                })
+            ctx_stack.append((cls_pos, NodeLabel.CLASS.value, anon_name))
+            for idx, child in enumerate(body):
+                self._walk_node(child, add_node, add_edge, ctx_stack,
+                                file_path, idx)
+            ctx_stack.pop()
 
         return pos
 
@@ -1509,8 +1678,25 @@ class Normalizer:
         # 无 qualifier 的 MemberReference 实际上是简单变量引用（如 "cmd"、"user"）
         # 不应作为 operator(method_call) 处理，而是作为 identifier(variable)
         if not qualifier:
-            return self._emit_identifier(add_node, member, lineno,
-                                          IdentifierType.VARIABLE)
+            var_pos = self._emit_identifier(add_node, member, lineno,
+                                            IdentifierType.VARIABLE)
+            # Fix 143l (CVE-2026-129448): `TABLE[i]` arrives as a no-qualifier
+            # MemberReference with ArraySelector selectors — the index
+            # expression was dropped entirely, so subscript semantics
+            # (index-dependent reads) were invisible.  Walk the index and
+            # attach it to the container identifier via an ast operand edge
+            # (consumed by the const-table read pass in the dfg builder).
+            if var_pos is not None and selectors:
+                for sel in selectors:
+                    idx_expr = getattr(sel, "index", None)
+                    if idx_expr is None:
+                        continue
+                    ipos = self._walk_node(idx_expr, add_node, add_edge,
+                                           ctx_stack, file_path, 0)
+                    if ipos is not None:
+                        self._ast_edge(add_edge, var_pos, ipos,
+                                       AstRole.OPERAND.value)
+            return var_pos
 
         qualifier_text = self._expr_text(qualifier)
         full_name = f"{qualifier_text}.{member}" if qualifier_text else member

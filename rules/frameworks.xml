@@ -6,6 +6,25 @@
         <file value="wp-load.php"/>
         <folder value="wp-admin"/>
     </framework>
+    <!-- Fix 86: OpenEMR (CVE-2026-126489) — app tree markers -->
+    <framework name="OpenEMR" language="php" code="https://github.com/openemr/openemr">
+        <file value="library/sql.inc.php"/>
+        <file value="interface/super/edit_layout.php"/>
+        <folder value="interface/main"/>
+    </framework>
+    <!-- Fix 146 (CVE-2026-100365): SuiteCRM — app tree markers -->
+    <framework name="SuiteCRM" language="php" code="https://github.com/salesagility/SuiteCRM">
+        <file value="suitecrm_version.php"/>
+        <folder value="modules/AOR_Reports"/>
+    </framework>
+    <!-- Fix 119a (CVE-2026-44381): CakePHP 2.x — classic skeleton, MISP-style
+         vendored submodule, bare app tree -->
+    <framework name="CakePHP" language="php" code="https://github.com/cakephp/cakephp">
+        <folder value="lib/Cake"/>
+        <folder value="app/Lib/cakephp"/>
+        <folder value="app/Controller"/>
+        <folder value="app/Model"/>
+    </framework>
     <framework name="Joomla" language="php" code="https://github.com/joomla/joomla-cms">
         <file value="images/joomla_black.png"/>
         <folder value="layout/joomla"/>
@@ -53,6 +72,10 @@
         <folder value="WebServerBundle/Command"/>
         <folder value="BrowserKit/Tests"/>
         <folder value="Config/DependencyInjection"/>
+        <!-- Fix 67: symfony 1.x (1.4-era) vendored framework trees -->
+        <folder value="lib/vendor/symfony/lib"/>
+        <folder value="core/lib/vendor/symfony/lib"/>
+        <folder value="lib/symfony/util"/>
     </framework>
     <framework name="Phalcon" language="php" code="https://github.com/phalcon/cphalcon">
         <file value="tests/_ci/phaIcon.ini"/>

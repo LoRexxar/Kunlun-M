@@ -70,8 +70,17 @@ _BUILTIN_SOURCE_MEMBERS = {
     'request.body',
     'cookies',
     # session removed: server-side data, not user input
-    # 文件/网络/编码操作 removed: CLI, not web sources
     # Rails web sources are detected via framework config
+
+    # Fix 31f: language-level input entry points.  Ruby zero-arg calls
+    # (gets, readline) are parsed by tree-sitter as bare identifiers, so
+    # they must be matched by name here -- builtin_knowledge annotations
+    # live on function stubs that identifier-shaped call sites never reach.
+    'gets',
+    'gets.chomp',
+    'readline',
+    'ARGV',
+    'ENV',
 }
 
 

@@ -188,7 +188,10 @@ def display_result(scan_id, is_ask=False):
 
             logger.info("[Chain] Vul {}".format(sr.id))
             for tc in chains:
-                logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
+                # Per-node chain lines are the dominant log-volume source (osticket anchor:
+                # ~2.3M lines / 300MB per task log). Keep them at DEBUG; set
+                # KUNLUN_LOG_LEVEL=DEBUG to re-enable for triage (see utils/log.py).
+                logger.debug("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
 
                 try:
                     if author == 'SCA':
@@ -277,7 +280,15 @@ def start(target, formatter, output, special_rules, a_sid=None, language=None, t
                         ','.join(detected_languages), main_language[0] if main_language else 'none')
         else:
             main_language = pa.language
-            main_framework = pa.language
+            # Fix 67: explicit-language mode previously echoed the language
+            # as the "framework" (always ['php'] for -lan php) — run the
+            # real Detection so the STATISTIC line matches what the engine's
+            # source_discovery line detected (e.g. symfony for qdPM 9.1).
+            try:
+                main_framework = Detection(target_directory, files).framework
+            except Exception as _det_e:
+                logger.debug('[CLI] framework detection failed: %s', _det_e)
+                main_framework = pa.language
 
         logger.info('[CLI] [STATISTIC] Language: {l} Framework: {f}'.format(l=",".join(main_language), f=main_framework))
         print('[CI] DEBUG: Detected languages: {}'.format(','.join(main_language)))

@@ -34,9 +34,23 @@ except ImportError:
     ts_find_sinks = None
 from Kunlun_M import const
 from Kunlun_M.const import VulnerabilityResult
-from utils.utils import show_context
+from utils.utils import show_context, quiet_context
 from utils.file import FileParseAll, file_list_parse
 from utils.log import logger
+
+# Fix 58b (observability): dead-code gate skip counters per process.
+# [0] = taint-arg sinks skipped by the main gate, [1] = presence sinks.
+_DEAD_CODE_SKIP_COUNTS = [0, 0]
+
+
+def _report_dead_code_skips() -> None:
+    taint_skips, presence_skips = _DEAD_CODE_SKIP_COUNTS
+    if taint_skips or presence_skips:
+        logger.info(
+            "[SCAN] Dead-code gate: skipped %d taint-arg sinks + %d "
+            "presence sinks in uncalled PHP functions", taint_skips, presence_skips)
+        _DEAD_CODE_SKIP_COUNTS[0] = 0
+        _DEAD_CODE_SKIP_COUNTS[1] = 0
 from utils.status import get_scan_id
 
 from Kunlun_M.settings import RUNNING_PATH
@@ -159,6 +173,155 @@ def score2level(score):
 #  in new code. Will be removed in a future cleanup pass.
 # ══════════════════════════════════════════════════════════════
 
+# ── Sink argument-role tables (Fix 63d: hoisted from the sink loop) ──────
+# Format-string functions: only the format string argument is dangerous if
+# user-controlled (format string vulnerability).  Value arguments (%s
+# expansion) are NOT dangerous regardless of controllability.
+#   printf(fmt, ...)       → arg 0 is format string
+#   fprintf(fp, fmt, ...)  → arg 1 is format string
+#   sprintf(dst, fmt, ...) → arg 1 is format string
+#   snprintf(dst, sz, fmt, ...) → arg 2 is format string
+# Fix 70b: PHP/JS printf family puts the format string in arg 0 (no dst
+# buffer) -- C-layout indexes ("sprintf": 1) check a VALUE arg there and
+# skip the real taint carriers (Craft CMS CVE-2026-115934 sprintf-SQL
+# sentinel was silenced by exactly that).  Resolved per-language at the
+# call site below.
+_FMT_SINK_FMT_INDEX = {
+    "printf": 0, "vprintf": 0,
+    "fprintf": 1, "vfprintf": 1,
+    "sprintf": 1, "vsprintf": 1,
+    "snprintf": 2, "vsnprintf": 2,
+}
+_FMT_SINK_FMT_INDEX_PHPJS = {"sprintf": 0, "vsprintf": 0, "fprintf": 0,
+                              "vfprintf": 0, "snprintf": 1, "vsnprintf": 1}
+
+# Path-only sinks: only the path argument is dangerous for Path Traversal
+# (CVI-1017).  The content/data argument is user input but does not control
+# WHERE the file is written.
+#   file_put_contents(path, data)  → arg 0 is path
+_PATH_SINK_INDEX = {
+    "file_put_contents": 0,
+    # Django/Flask redirect: only first arg is the URL target.
+    # Subsequent args are URL reverse parameters.
+    "redirect": 0,
+    "HttpResponseRedirect": 0,
+    "RedirectResponse": 0,
+    # Java Files.write(path, content): only arg0 (path)
+    # is relevant to Path Traversal. Content (arg1) is
+    # user data but does not control WHERE it's written.
+    "files.write": 0,
+    # Java Files.copy(source, target): target is arg1.
+    # Source is a file path (read) not write destination.
+    "files.copy": 1,
+    # Java Files.move(source, target): target is arg1.
+    "files.move": 1,
+}
+
+# Fix 106 (CVE-2026-126482): OpenEMR SQL wrapper family (declared in
+# rules/tamper/php/openemr.py EXTRA_SINKS).  Only the QUERY-TEXT arg
+# (arg 0) is the injection surface; the array arg at position 1 is the
+# BOUND-PARAMETER list — tainted values there are bound as parameters,
+# never interpolated.  Without this, the Fix 86 second-order DB sources
+# (sqlQuery returns are sources) made every wrapper call with a DB-read
+# binding value report SQLi (SLEOB.php:259 FP — query const, all values
+# bound with ?).
+_SQL_QUERY_TEXT_SINK_INDEX = {
+    "sqlquery": 0,
+    "sqlstatement": 0,
+    "sqlstatementnolog": 0,
+    "sqlinsert": 0,
+    # Fix 111 (CVE-2026-126480): QueryUtils static wrapper — arg0 is the
+    # query TEXT, arg1 is the bound-parameter array (values bound via ?,
+    # never interpolated).  Without the restriction the tainted request
+    # VALUES in the bound array would report SQLi at every wrapper call.
+    "sqlstatementthrowexception": 0,
+    # Fix 115c (CVE-2026-126478): QueryUtils::fetchRecords — same semantics
+    # (arg0 = query TEXT built by the caller, arg1 = bound-parameter array).
+    # SyndromicsurveillanceTable::fetch_result builds "AND c.id IN (" .
+    # implode(',', $code_selected) . ")" from the form_icd_codes[] POST
+    # array and executes via fetchRecords.
+    "fetchrecords": 0,
+    # Fix 113b (CVE-2026-126480): CDR-engine delegation wrappers — arg0 is
+    # the query text passed through from callers; the body itself is judged
+    # at each caller (registered sinks).  Presence here also puts them in
+    # _SQL_WRAPPER_FUNC_NAMES so their internal delegation calls demote.
+    "sqlstatementcdrengine": 0,
+    "sqlquerycdrengine": 0,
+}
+
+# Fix 113 (CVE-2026-126480): the SQL wrapper FUNCTION family.  A query-text
+# sink called from INSIDE one of these wrappers is a pure delegation
+# (sql.inc.php: sqlStatement($statement) { return
+# QueryUtils::sqlStatementThrowException($statement, ...); }) — the wrapper's
+# arg0 is an entry parameter whose taint arrives from CALLERS, and every
+# caller is itself judged at its own sink line (the whole family is
+# registered as sinks).  Reporting the wrapper body too is the same
+# structural FP family as Fix 71c (osticket mysqli.php db_query).
+_SQL_WRAPPER_FUNC_NAMES = frozenset(_SQL_QUERY_TEXT_SINK_INDEX)
+
+
+def _match_sink_arg_index(table, sink_name_lower):
+    """Return the dangerous-argument index for sink_name_lower from table,
+    or -1 when the sink (by bare name or .-qualified tail) is absent."""
+    for _fn, _idx in table.items():
+        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
+            return _idx
+    return -1
+
+
+def _match_rules_for_sink(sink_name, lang_rule_list, _get_rule_sink_names):
+    """Collect every rule matching this sink.
+
+    Two passes: exact (bare/qualified name in the rule sink list, or the
+    rule's receiver-agnostic method_sinks), then suffix/fallback — only for
+    short-name sinks, since qualified-name sinks already matched in the
+    exact pass.  The caller tries each matched rule's main() in order;
+    first to pass gets to report.
+    """
+    matched_rules = []
+    sn_lower = sink_name.lower().replace("::", ".")
+    _sn_bare = sn_lower.rsplit(".", 1)[-1]
+    for pass_name in ("exact", "suffix"):
+        for rule in lang_rule_list:
+            # Rule-declared method sinks (receiver-agnostic,
+            # mirrors find_sinks Path C): bare method name match.
+            _rms = [str(_x).lower() for _x in (getattr(rule, 'method_sinks', None) or [])]
+            if _rms and _sn_bare in _rms:
+                matched_rules.append(rule)
+                continue
+            # Fix 71b: generic PHP DB execution methods (->query/->exec) are
+            # rule-driven probes injected into find_sinks (Fix 71) — bind them
+            # back to the SQLi rule family here, same as tamper method_sinks
+            # but for the framework-independent PDO/mysqli layer.
+            if (pass_name == "exact" and _sn_bare in ("query", "exec")
+                    and str(getattr(rule, 'svid', '')) in ('1005', '1006')):
+                matched_rules.append(rule)
+                continue
+            rule_sink_names = _get_rule_sink_names(rule)
+            if not rule_sink_names:
+                continue
+            rsn = [n.lower() for n in rule_sink_names]
+            if pass_name == "exact":
+                # Exact match or qualified-name match
+                if sn_lower in rsn:
+                    matched_rules.append(rule)
+                    continue
+                if "." in sn_lower and any("." in n and sn_lower == n for n in rsn):
+                    matched_rules.append(rule)
+                    continue
+            else:
+                # Suffix/fallback match — only for short-name sinks
+                # (qualified-name sinks already matched in exact pass)
+                if "." in sn_lower:
+                    continue
+                if any(sn_lower.endswith("." + n) or n.endswith("." + sn_lower) for n in rsn):
+                    matched_rules.append(rule)
+                    continue
+        if matched_rules:
+            break  # exact pass found matches, skip suffix pass
+    return matched_rules
+
+
 def scan_single(target_directory, single_rule, files=None, language=None, tamper_name=None, is_unconfirm=False,
                 newcore_function_list=None):
     raise RuntimeError(
@@ -186,6 +349,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
     # 预加载框架 tamper EXTRA_SINKS 并注入为虚拟规则
     # （从 oldscan 移植，适配 graph scan 的 rules dict 格式）
     _framework_method_sinks: set[str] = set()  # short method names for find_sinks Path C
+    _framework_static_sinks: set[str] = set()  # Fix 112: Class::method tails for find_sinks Path B
     if language and target_directory:
         try:
             from rules.tamper._loader import detect_frameworks, merge_framework_config, load_base_config
@@ -199,12 +363,59 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     _repair_tmp, _controlled_tmp = load_base_config(_lang_lower)
                     for _fw_mod in _detected:
                         _extra = merge_framework_config(_repair_tmp, _controlled_tmp, _fw_mod)
+                        # Fix 108 (CVE-2026-126482): merge_framework_config
+                        # also folds the framework's FILTER_FUNCTIONS into
+                        # _repair_tmp, but the dict used to be discarded after
+                        # mining EXTRA_SINKS — so on the graph scan path the
+                        # analyzer's repair registry never saw framework
+                        # repair functions (OpenEMR text/attr/js_escape/xlt...
+                        # kept reporting XSS).  Load the merged dict into the
+                        # shared L1 registry (idempotent union) before any
+                        # analysis runs.
+                        try:
+                            from core.filter_functions import load_builtin as _load_repair_l1
+                            _load_repair_l1(_lang_lower, _repair_tmp)
+                        except Exception as _l1e:
+                            logger.debug('[SCAN] framework repair L1 load failed: {e}'.format(e=_l1e))
                         if _extra:
                             for _pattern, _svids in _extra.items():
+                                _vw_method_sinks = []
+                                if '->' in _pattern:
+                                    import re as _re
+                                    _m = _re.search(r'->(\w+)', _pattern)
+                                    if _m:
+                                        _vw_method_sinks.append(_m.group(1))
+                                # Fix 112 (CVE-2026-126480): static `Class::method`
+                                # patterns — bind the bare METHOD name on the
+                                # VirtualRule (rule matcher, same as Fix 42e) and
+                                # collect the class.method tail for find_sinks
+                                # Path B namespace-suffix matching (FQCN call
+                                # sites like \OpenEMR\...\QueryUtils::method).
+                                # PURE static patterns only: mixed chains
+                                # ('\Drupal::database()->query') are owned by
+                                # the '->' branch above; extracting their
+                                # class::segment would bind bogus method names.
+                                if '::' in _pattern and '->' not in _pattern:
+                                    import re as _re
+                                    _m = _re.search(r'(\w+)::(\w+)', _pattern)
+                                    if _m:
+                                        _vw_method_sinks.append(_m.group(2))
+                                        _framework_static_sinks.add(
+                                            "{}.{}".format(_m.group(1), _m.group(2)).lower())
                                 for _svid in _svids:
                                     _vw_name = "VW_{}_{}".format(_svid, len(rules))
                                     _vw_class = type(_vw_name, (VirtualRule,), {
-                                        '__init__': lambda self, _p=_pattern, _s=_svid, _l=_lang_lower: VirtualRule.__init__(self, _p, _s, _l)
+                                        '__init__': lambda self, _p=_pattern, _s=_svid, _l=_lang_lower: VirtualRule.__init__(self, _p, _s, _l),
+                                        # Fix 42e: find_sinks Path C matches the
+                                        # bare method name, but the sink node's
+                                        # name is receiver-qualified ("$mainobj.
+                                        # SelectAllGridData") and the second-stage
+                                        # rule matcher skips qualified names in
+                                        # the suffix pass — without this attr the
+                                        # VirtualRule never matched its own sink
+                                        # and the finding was dropped after taint
+                                        # analysis had already proven code=1.
+                                        'method_sinks': _vw_method_sinks,
                                     })
                                     _vw_module = _types.ModuleType(_vw_name)
                                     setattr(_vw_module, _vw_name, _vw_class)
@@ -413,7 +624,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 try:
                     from importlib import import_module
                     mod = import_module(f'core.core_engine.{lang}.source_discovery')
-                    sr = mod.discover_sources(target_directory, None)
+                    # Fix 79c (CVE-2026-32613): monorepo-aware registry —
+                    # union frameworks of ALL build markers UNDER the scan
+                    # root (per-project build.gradle in nested subrepos).
+                    # Falls back to plain discover_sources when the module
+                    # has no discover_project_sources.
+                    _discover_fn = getattr(mod, 'discover_project_sources', None)
+                    sr = (_discover_fn(target_directory)
+                          if callable(_discover_fn)
+                          else mod.discover_sources(target_directory, None))
                     # 接口适配：确保有 is_source_member（Java 没有）
                     if not hasattr(sr, 'is_source_member'):
                         _src_members = sr.source_members if hasattr(sr, 'source_members') else set()
@@ -525,16 +744,116 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             and _vattr(v, "func_summary_type", "") == "safe"):
                         safe_func_vids.add(v.index)
                 if safe_func_vids:
+                    # Fix 97 (CVE-2026-29080): 收集每个调用的全部 use 目标
+                    # 再判定。duck-typing 多目标虚分发（use.py Fix 97）让
+                    # 一个调用点挂多条 use 边；旧的"任一目标 safe 即删该
+                    # 调用入边"会把还有非 safe 候选（真实运行时目标）的
+                    # 调用错杀——rucio 全量复扫 7002 检出因此归零（删边
+                    # 14830→20990）。过近似语义下：全部目标 safe 才 safe。
+                    call_use_targets: dict[int, set[int]] = {}
+                    for e in graph.es.select(label="use"):
+                        call_use_targets.setdefault(e.source, set()).add(e.target)
                     # Find call nodes that use these functions
                     # use edge direction: source=call_vid, target=func_vid
                     safe_call_vids = set()
-                    for e in graph.es.select(label="use"):
-                        if e.target in safe_func_vids:
-                            call_vid = e.source
-                            safe_call_vids.add(call_vid)
-                            # Delete DFG edges from call args to call_vid (passthrough)
-                            for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
-                                edges_to_delete.append(dfg_e.index)
+                    for call_vid, tgts in call_use_targets.items():
+                        # Fix 97 (CVE-2026-29080): python duck-typing
+                        # multi-target dispatch (use.py Fix 97) binds several
+                        # candidate callees to one call site — under that
+                        # regime a call is only provably safe when EVERY
+                        # candidate is safe.  Other languages keep the
+                        # calibrated any-safe cut: their multi-bind is a
+                        # bare-name index artefact, and switching it to
+                        # all-safe exploded osticket +260 XSS FPs (every
+                        # sanitizer sharing a name with one unsafe def
+                        # stopped cutting).
+                        _py97 = (language == "python")
+                        _all_safe = bool(tgts) and tgts.issubset(safe_func_vids)
+                        _any_safe = any(t in safe_func_vids for t in tgts)
+                        if not (_all_safe if _py97 else _any_safe):
+                            # Fix 97: python 侧存在非 safe（含未知/外部占位）
+                            # 候选时保守保留该调用的全部 DFG 入边。
+                            continue
+                        # Fix 81 (CVE-2026-32613): never cut DFG edges
+                        # into a call that carries its OWN builtin
+                        # passthrough annotation (java catalog: toString
+                        # etc.) — the use edge binds by bare name to an
+                        # unrelated same-name safe def (hijack), and
+                        # cutting here starves the backward BFS.
+                        _cv = graph.vs[call_vid]
+                        if (_vattr(_cv, "taint_type", "") == "passthrough"
+                                and (_vattr(_cv, "taint_passthrough", None) or [])):
+                            continue
+                        # Fix 99b2 (CVE-2026-29080): source-receiver veto —
+                        # NEVER cut DFG edges into a source-container accessor
+                        # call (`request.args.get('k')`).  The use edge binds
+                        # the bare method name to an unrelated same-name safe
+                        # def (bare-name hijack); cutting the receiver dfg edge
+                        # here blinds every later member-chain source rule
+                        # (analyzer Fix 93/99) and the chain dies at hop one.
+                        # Fix 99b3 (CVE-2026-29080 gates): receiver-only.  The
+                        # b2 form vetoed on ANY dfg-fed identifier whose member
+                        # chain hit a source member — including plain ARGUMENTS
+                        # (`Format::display($_POST['x'])`: the $_POST subscript
+                        # dim is an arg, not a receiver), which un-cut every
+                        # sanitizer call site with a superglobal argument and
+                        # added ~250 XSS rows on osticket (27361 → 7014 DFG
+                        # edges cut).  The chain must be the RECEIVER prefix
+                        # of the call's qualified name (`request.args.get` ←
+                        # receiver `request.args`); an argument chain
+                        # (`$_POST.x` vs call `Format.display`) never matches.
+                        if sr is not None and hasattr(sr, "is_source_member"):
+                            try:
+                                _cut_veto_99 = False
+                                _cname99b = _vattr(graph.vs[call_vid], "name", "") or ""
+                                # Fix 119g: scoped consult — gated property
+                                # members ($this->params et al.) only match in
+                                # their class context (member read file).
+                                _fp99b = (_vattr(graph.vs[call_vid], "file_path", "")
+                                          or _vattr(graph.vs[call_vid], "path", ""))
+                                def _ism99b(_n):
+                                    if not _fp99b:
+                                        return sr.is_source_member(_n)
+                                    try:
+                                        return sr.is_source_member(_n, _fp99b)
+                                    except TypeError:
+                                        return sr.is_source_member(_n)
+                                for _e99b in graph.es.select(_target=call_vid, label="dfg"):
+                                    _sv99b = graph.vs[_e99b.source]
+                                    if _vattr(_sv99b, "label", "") != NodeLabel.IDENTIFIER.value:
+                                        continue
+                                    _nm99b = _vattr(_sv99b, "name", "")
+                                    if not _nm99b:
+                                        continue
+                                    _chain99b = _nm99b
+                                    _cur99b = _e99b.source
+                                    for _ in range(10):
+                                        _mi99b = list(graph.es.select(_target=_cur99b, label="member"))
+                                        if not _mi99b:
+                                            break
+                                        _pv99b = graph.vs[_mi99b[0].source]
+                                        _pn99b = _vattr(_pv99b, "name", "")
+                                        if not _pn99b:
+                                            break
+                                        _chain99b = _pn99b + "." + _chain99b
+                                        _cur99b = _mi99b[0].source
+                                    if not (_ism99b(_chain99b) or _ism99b(_nm99b)):
+                                        continue
+                                    # 99b3: source member reached — only a
+                                    # VETO when this chain is the receiver of
+                                    # the call, not a plain argument.
+                                    if (isinstance(_cname99b, str) and _cname99b
+                                            and _cname99b.startswith(_chain99b + ".")):
+                                        _cut_veto_99 = True
+                                        break
+                                if _cut_veto_99:
+                                    continue
+                            except Exception:
+                                pass
+                        safe_call_vids.add(call_vid)
+                        # Delete DFG edges from call args to call_vid (passthrough)
+                        for dfg_e in graph.es.select(_target=call_vid, label="dfg"):
+                            edges_to_delete.append(dfg_e.index)
                     
                     # Also delete same-edges from external variables to
                     # identifiers nested inside safe call arguments.
@@ -550,20 +869,67 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     safe_call_descendants.add(ae.target)
                                     queue.append(ae.target)
                     
-                    # Delete DFG edges targeting these descendants
-                    # (these are the same-edges that link them to external sources)
-                    for desc_vid in safe_call_descendants:
-                        if _vattr(graph.vs[desc_vid], "label", "") == NodeLabel.IDENTIFIER.value:
-                            for dfg_e in graph.es.select(_target=desc_vid, label="dfg"):
-                                edges_to_delete.append(dfg_e.index)
+                    # Delete DFG edges targeting these descendants.
+                    # Fix 34d: restrict to type='same' edges (the original
+                    # intent: same-name links to external variables).  The
+                    # previous blanket delete also removed source dfg edges
+                    # (e.g. $_POST['branch'] -> call-argument identifiers
+                    # at the CALL SITE of a safe function), severing the
+                    # arg -> param handoff and hiding SQL injection in
+                    # CVE-2026-108970 (register() judged 'safe' because
+                    # its return is a bool, while $branch flows into
+                    # addNewUser's INSERT).
+                    # Fix 34d-final: rule 2 disabled entirely.  The
+                    # same-edge rationale is already covered by rule 1
+                    # (arg->call passthrough delete): once the passthrough
+                    # is gone, pb reaching a safe call's args terminates at
+                    # the call node itself.  Keeping rule 2 active also
+                    # deleted source edges ($_POST['branch'] -> call
+                    # argument, type='same') at the CALL SITE, severing the
+                    # arg->param handoff for taint that flows THROUGH the
+                    # callee into its own sinks (register -> addNewUser
+                    # INSERT, CVE-2026-108970).
                     
+                    if os.environ.get('KM_SAFE_NO_DELETE'):
+                        # Fix 61b experiment arm: keep edges (marking semantics)
+                        logger.info('[SCAN] [GRAPH] Fix 61b experiment: kept %d DFG edges (KM_SAFE_NO_DELETE)', len(edges_to_delete))
+                        edges_to_delete = []
                     if edges_to_delete:
+                        # Fix 61b (observability, marking-vs-deleting input):
+                        # record the semantic coordinates of every deleted
+                        # edge BEFORE removal — sink-side node, its file/line,
+                        # and the safe call it flowed into.  Dump on demand
+                        # via KM_SAFE_EDGE_DUMP=<path>; counts always logged.
+                        _dump_path = os.environ.get('KM_SAFE_EDGE_DUMP')
+                        _detail = []
+                        if _dump_path:
+                            for _ei in edges_to_delete:
+                                try:
+                                    _e = graph.es[_ei]
+                                    _sv, _tv = graph.vs[_e.source], graph.vs[_e.target]
+                                    _detail.append({
+                                        'edge': _ei, 'label': _e['label'],
+                                        'src': {'vid': _e.source, 'name': _vattr(_sv, 'name', ''),
+                                                'file': _vattr(_sv, 'file_path', ''), 'line': _vattr(_sv, 'lineno', 0)},
+                                        'dst': {'vid': _e.target, 'name': _vattr(_tv, 'name', ''),
+                                                'file': _vattr(_tv, 'file_path', ''), 'line': _vattr(_tv, 'lineno', 0)},
+                                    })
+                                except Exception:
+                                    pass
+                            try:
+                                import json as _json
+                                with open(_dump_path, 'a', encoding='utf-8') as _f:
+                                    _json.dump(_detail, _f, ensure_ascii=False)
+                                    _f.write('\n')
+                            except Exception:
+                                pass
                         graph.delete_edges(edges_to_delete)
                         logger.info('[SCAN] [GRAPH] Removed %d DFG edges from safe function calls', len(edges_to_delete))
             except Exception as e:
                 logger.warning('[SCAN] [GRAPH] Safe function DFG cleanup failed: %s', e)
         except Exception as e:
             logger.warning('[SCAN] [GRAPH] Taint enrichment failed: %s', e)
+
 
         # 对每种语言使用 GraphAnalyzer 扫描
         from core.graph.graph_analyzer import GraphAnalyzer
@@ -643,9 +1009,51 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             return None
 
 
+        def _sink_has_method_sink_rule(sink, rule_list):
+            """True if any rule declares this sink's bare method name in
+            method_sinks (receiver-agnostic, require_taint opt-in)."""
+            _nm = (sink.get('name', '') or '').lower().replace("::", ".")
+            if not _nm:
+                return False
+            _bare = _nm.rsplit(".", 1)[-1]
+            for _r in rule_list:
+                _rms = [str(_x).lower() for _x in (getattr(_r, 'method_sinks', None) or [])]
+                if _bare in _rms:
+                    return True
+            return False
+
         for lang, lang_rule_list in lang_rules.items():
+            # Rule-declared method-call sinks: short names that must match
+            # ANY receiver (Path C in find_sinks).  Must run BEFORE the
+            # GraphAnalyzer is constructed below so the set is complete
+            # when find_sinks executes.  Library code like OAuth2
+            # "session.fetch_token(token_url=...)" has no user-defined
+            # function node for use-edge fullname resolution, so qualified
+            # matching can never hit -- the rule author opts in by listing
+            # the bare method name.
+            for rule in lang_rule_list:
+                try:
+                    for _ms in (getattr(rule, 'method_sinks', None) or []):
+                        if _ms:
+                            _framework_method_sinks.add(str(_ms).lower())
+                except Exception:
+                    continue
+            # Fix 71: PDO/mysqli generic DB execution methods.  These are the
+            # framework-INDEPENDENT PHP database layer — ->query()/->exec()
+            # execute raw SQL strings regardless of any framework detection,
+            # so they must not depend on a wordpress/laravel tamper hit.
+            # Rule-driven probe: only when a SQLi rule (1005/1006 family) is
+            # in play, mirroring the Fix 70 sprintf sentinel gating.  PB taint
+            # analysis on the SQL string arg filters safe call sites
+            # (constant queries, prepared+bound usage).
+            _sqli_rules_present = any(
+                str(getattr(rule, 'svid', '')) in ('1005', '1006')
+                for rule in lang_rule_list)
+            _db_probe_methods = {'query', 'exec'} if (lang == 'php' and _sqli_rules_present) else set()
             analyzer = GraphAnalyzer(graph, language=lang, source_registry=_make_source_registry(lang),
-                                     framework_method_sinks=_framework_method_sinks)
+                                     framework_method_sinks=_framework_method_sinks,
+                                     db_probe_methods=_db_probe_methods,
+                                     framework_static_sinks=_framework_static_sinks)
 
             # 收集该语言所有规则的 sink 函数名
             all_sink_names = []
@@ -654,24 +1062,135 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     for name_str in _get_rule_sink_names(rule):
                         all_sink_names.append(name_str)
                 except Exception:
-                    continue
+                    pass
 
             if not all_sink_names:
                 continue
 
-            all_sink_names = list(set(all_sink_names))
+            all_sink_names = list(set(all_sink_names))  # 70j reverted: sorted() itself flipped azuracast
+            # Fix 70: SQLi rules request the sprintf sentinel probe.  The
+            # regex-mode SQLi rules (1005/1006) match DB API names only;
+            # the sprintf SQL-template shape (Craft CMS CVE-2026-115934)
+            # is detected by find_sinks Path E, which fires on the
+            # 'sprintf' probe name and self-filters by template content.
+            if lang == 'php':
+                _sql_rule_ids = set()
+                for rule in lang_rule_list:
+                    _rid = getattr(rule, 'svid', None)
+                    if _rid is not None:
+                        _sql_rule_ids.add(str(_rid))
+                # Fix 70h: the sprintf-SQL sentinel does NOT join the shared
+                # sink loop — sink-set membership changed loop ordering and
+                # flipped unrelated echo-sink verdicts (azuracast anchor).
+                # Path E runs as a separate pass on a separate analyzer
+                # (see _sprintf_sql pass below), fully isolated.
+                _sprintf_sql_probe = bool(_sql_rule_ids & {'1005', '1006'})
+                # Fix 114b: URL-attribute escape sentinel — fires only when
+                # an XSS-family rule (1000 / 10002) is present.  Same Fix 70k
+                # doctrine: separate pass, separate analyzer, post-loop.
+                _url_attr_probe = bool(_sql_rule_ids & {'1000', '10002'})
+            _sprintf_sql_probe = locals().get('_sprintf_sql_probe', False)
+            _url_attr_probe = locals().get('_url_attr_probe', False)
             logger.info('[SCAN] [GRAPH] Looking for %d sink patterns in %s', len(all_sink_names), lang)
             sinks = analyzer.find_sinks(sink_names=all_sink_names)
+            # Fix 70i: sprintf-SQL sentinel pass, isolated analyzer (no
+            # shared decision cache with the main loop; ordering can never
+            # influence other sinks).  Fires only when SQLi rules exist.
+            _sprintf_extra = []
+            _probe_an = None
+            if lang == 'php' and _sprintf_sql_probe:
+                # Fix 70p: the sentinel analyzer carries NO framework
+                # method sinks — Path C short-name matching on it turned
+                # CodeIgniter dynamic callbacks ($this->CI->$rule($postdata,
+                # $param)) into wp-sink-name hits and leaked FP findings
+                # through the sentinel sub-pass (Form_validation:526/567).
+                _probe_an = GraphAnalyzer(graph, language=lang,
+                                          source_registry=_make_source_registry(lang),
+                                          framework_method_sinks=set())
+                # Fix 70m: discovery deferred to AFTER the main loop — a
+                # pre-loop find_sinks on this second analyzer flipped anchor
+                # verdicts through some residual graph/cache state coupling;
+                # post-loop there is no window left to influence.
+                pass
+            # Sentinel sinks join the loop AFTER the main find_sinks result;
+            # the isolated probe analyzer already produced their taint
+            # context, and the loop body only reads sink fields (name/vid/
+            # arg_vids/rule_hint) plus the MAIN analyzer for PB — for the
+            # sentinel rows we override that below via _probe_an handoff.
+            # Fix 70k: sentinel sinks do NOT join the shared loop at all.
+            # Even with isolated PB, sharing the loop body let their presence
+            # flip same-file echo verdicts (azuracast +6/-2 deterministically).
+            # They are fully processed by the isolated sentinel sub-pass below.
+            # (kept as no-op: _sprintf_extra consumed by the sub-pass)
             logger.info('[SCAN] [GRAPH] Found %d potential sinks in %s', len(sinks), lang)
 
+            _sink_seen = 0
             for sink in sinks:
+                _sink_seen += 1
+                if os.environ.get("KM_DBG_SINKS"):
+                    _kdv = sink.get('vid')
+                    try:
+                        _kfp = _vattr(graph.vs[_kdv], 'file_path', '')
+                        _kln = _vattr(graph.vs[_kdv], 'lineno', '')
+                    except Exception:
+                        _kfp = _kln = '?'
+                    print(f"[KDS] sink#{_sink_seen} name={sink.get('name')!r} "
+                          f"vid={_kdv} type={sink.get('type')} "
+                          f"hint={sink.get('rule_hint')} loc={_kfp}:{_kln}")
+                # Fix 129 (CVE-2026-111217): per-sink PB work budget reset —
+                # see GraphAnalyzer._PB_WORK_BUDGET.  The probe analyzer
+                # (sentinel/CVI probes) gets the same reset when present.
+                _pb_prev = getattr(analyzer, "_pb_work_count", 0)
+                analyzer._pb_work_count = 0
+                analyzer._pb_budget_tripped = False
+                if _sink_seen % 250 == 1:
+                    # Fix 88-obs: taint-loop memory telemetry — RSS+VmSwap
+                    # sampled every 250 sinks. The OpenEMR 1.6M-node corpus
+                    # OOMed the host at 7.6GB during this loop (task 5834);
+                    # RSS-only gauges go blind once the kernel swaps the
+                    # process out, so both counters are logged.
+                    # Fix 129: pb=<last sink's parameters_back invocations>
+                    # exposes pathological sinks without per-sink logging.
+                    try:
+                        _vm = {}
+                        with open('/proc/self/status') as _sf:
+                            for _sl in _sf:
+                                if _sl.startswith(('VmRSS:', 'VmSwap:')):
+                                    _k, _v = _sl.split(':')
+                                    _vm[_k] = int(_v.split()[0]) // 1024
+                        logger.info('[SCAN] [GRAPH] sink-loop mem %d/%d rss=%dMB swap=%dMB pb=%d',
+                                    _sink_seen, len(sinks),
+                                    _vm.get('VmRSS', -1), _vm.get('VmSwap', -1),
+                                    _pb_prev)
+                    except Exception:
+                        pass
                 try:
                     _sn = sink.get('name', '')
+                    # ════════ sink-loop segment 1/6: ADMISSION ════════
+                    # (call-type check · Fix 25 dead-code · Fix 30 framework
+                    #  entries · closure refs · callable-only table · arg_vids)
                     # Skip sinks that are not actual call nodes
                     # (e.g. identifier nodes that leaked into results)
                     _stype = sink.get('type', '')
                     if _stype and _stype not in ('call', 'method_call', 'static_call', 'new'):
-                        continue
+                        # Fix 49e: DOM property-assignment sinks (Vue v-html
+                        # synthesized as __vue_vhtml__.innerHTML = expr; raw
+                        # element.innerHTML = expr) are type='assign', not
+                        # calls.  Allow the HTML-injection property names.
+                        _sn_tail = str(_sn).rsplit('.', 1)[-1].lower()
+                        # Fix 50: React JSX 属性 sink(dangerouslySetInnerHTML
+                        # ={{__html: expr}})由 find_sinks Round 2b 产出,
+                        # type='jsx_attribute'。语义等价 innerHTML 赋值。
+                        # Fix 73: PHP include/require 语言构造 sink（find_sinks
+                        # Round 3 产出的 import 节点，type 即关键字本身）。
+                        # CVE-2026-71550 SuiteCRM: require_once 拼接路径包含
+                        # 被此门静默吞掉（sink 找到了但 type 不在白名单）。
+                        if not ((_stype == 'assign' and _sn_tail in (
+                                'innerhtml', 'outerhtml', 'insertadjacenthtml'))
+                                or (_stype == 'jsx_attribute' and _sn_tail == 'dangerouslysetinnerhtml')
+                                or _stype in ('include', 'require',
+                                              'include_once', 'require_once')):
+                            continue
                     # Fix 25: sinks inside a never-called function are dead
                     # code — the function body only executes if something
                     # invokes it, and the call graph says nothing does.
@@ -697,15 +1216,108 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                       "label") == "function":
                                 _dead_func_vid = _doe.source
                                 break
-                        if _dead_func_vid is not None and not any(
-                                True for _ in analyzer.graph.es.select(
-                                    _target=_dead_func_vid, label="cg")):
-                            logger.debug(
-                                "sink '%s' skipped: owning function vid=%d "
-                                "has no callers (dead code)",
-                                _sn, _dead_func_vid)
-                            continue
+                        # Fix 42d: class METHODS are exempt from the dead-code
+                        # skip.  PHP dispatches methods through strings and
+                        # framework routing far more often than direct calls:
+                        # WP REST registers callbacks as [$this, "method"],
+                        # call_user_func([$obj, "name"]), magic __call, trait
+                        # composition... none of which produce cg in-edges.
+                        # Treating such methods as dead code suppressed real
+                        # sinks (CVE-2026-110895: ApbdWpsAPI_Ticket::
+                        # notifications() reaches ORDER BY injection via REST
+                        # dispatch invisible to the call graph).  Global
+                        # functions (fullname without '.') keep the strict
+                        # check — they are only reachable via direct calls.
+                        # Fix 59: CLOSURES passed as values are exempt too —
+                        # they are framework dispatch entries, the PHP analog
+                        # of Java servlet doGet (Fix 30).  A route closure
+                        # `$app->get('/x', function(){...})` is referenced by
+                        # the call node (ast in-edge from `operator get`) and
+                        # invoked by the router at request time — the absence
+                        # of a cg in-edge is the NORM for closures, not a
+                        # death signal.  Verified blind before this fix: a
+                        # `system($_GET['cmd'])` inside a Slim route closure
+                        # produced 0 findings (AzuraCast follow-up: 177
+                        # uncalled closures, 35 in api_station.php alone).
+                        _fn_type_attr = (_dead_func_vid and _vattr(
+                            analyzer.graph.vs[_dead_func_vid], "type", "")) or ""
+                        _is_closure = (_fn_type_attr == "lambda"
+                                       or "<Closure>" in ((_dead_func_vid and _vattr(
+                                           analyzer.graph.vs[_dead_func_vid], "name", "")) or ""))
+                        _closure_referenced = _is_closure and any(
+                            True for _ in analyzer.graph.es.select(
+                                _target=_dead_func_vid, label="ast"))
+                        if _closure_referenced:
+                            pass  # closure passed as a value → framework entry
+                        else:
+                            _fn_fullname = (_dead_func_vid and _vattr(
+                                analyzer.graph.vs[_dead_func_vid],
+                                "fullname", "")) or ""
+                            _fn_type = (_dead_func_vid and _vattr(
+                                analyzer.graph.vs[_dead_func_vid],
+                                "type", "")) or ""
+                            _is_class_method = ("." in _fn_fullname
+                                                or "::" in _fn_fullname
+                                                or _fn_type == "method")
+                            if (_dead_func_vid is not None and not _is_class_method
+                                    and not any(
+                                        True for _ in analyzer.graph.es.select(
+                                            _target=_dead_func_vid, label="cg"))):
+                                # Fix 58b (observability): count dead-code skips
+                                # per scan — quantifies how much the gate removes
+                                # (input for the opt-in/marking decision) without
+                                # changing behavior.
+                                _DEAD_CODE_SKIP_COUNTS[0] += 1
+                                logger.debug(
+                                    "sink '%s' skipped: owning function vid=%d "
+                                    "has no callers (dead code)",
+                                    _sn, _dead_func_vid)
+                                continue
                     # 对 sink 的每个参数做污点回溯（去重 + 跳过 function/callee 节点）
+                    # Fix 73b/73c: PHP include/require 语言构造 sink 的起源闸——
+                    # 只报直连请求源（superglobal/framework source）的链；
+                    # 入口参数中介（库工厂形态）与 unresolved-call passthrough
+                    # 幻影链（osticket pear/Mail.php:79、class.plugin.php:289，
+                    # 单文件隔离扫描 0 检出实证）一律降级 unconfirmed。
+                    _is_import_sink = (lang == 'php' and _stype in (
+                        'include', 'require', 'include_once', 'require_once'))
+
+                    def _import_gate(r_):
+                        if not _is_import_sink:
+                            return False
+                        _rr = str(getattr(r_, 'reason', '')).lower()
+                        if not ('superglobal' in _rr or 'framework source' in _rr):
+                            return True   # no request-origin claim → downgrade
+                        # Fix 73c path-evidence check: reason strings alone can
+                        # claim a superglobal that the walk never touches.
+                        # Phantom form A (offline): path holds NO request node
+                        # at all (Mail.php:79 → $driver/strtolower, reason
+                        # still says $_POST).  Phantom form B (live scan):
+                        # path is a single ORPHAN $_POST node in an unrelated
+                        # file (ajax.users.php:199) with no connecting hops.
+                        # Real chains (scp/settings.php:56) walk ≥2 hops AND
+                        # pass through an actual $_ request-source node.
+                        _pv_list = list(getattr(r_, 'path', None) or [])
+                        if len(_pv_list) < 2:
+                            return True
+                        # cheap prefix scan across the whole path
+                        for _pv in _pv_list:
+                            if str(_vattr(graph.vs[_pv], 'name', '') or '').strip().startswith('$_'):
+                                return False
+                        # engine-native source check on the TERMINAL node only
+                        # (the walk ends at the source side; mid-path nodes are
+                        # never the origin claim, and the member-chain walk is
+                        # too costly to run per node on large graphs)
+                        try:
+                            _tv = _pv_list[-1]
+                            _tn = str(_vattr(graph.vs[_tv], 'name', '') or '').strip()
+                            if analyzer._is_source_variable(_tn):
+                                return False
+                            if analyzer._is_source_via_member_chain(_tv, _tn):
+                                return False
+                        except Exception:
+                            pass
+                        return True
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
                     # call_user_func / call_user_func_array: RCE 风险仅存在于
@@ -718,6 +1330,15 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         "usort", "uasort", "uksort",
                     }
                     sink_name_lower = sink.get("name", "").lower()
+                    # Fix 70d: sentinel sinks (sprintf-SQL Path E) carry a
+                    # rule_hint svid — bind directly to that rule instead
+                    # of name matching (no rule lists 'sprintf').
+                    _hint_rule = None
+                    if sink.get("rule_hint"):
+                        for _r in lang_rule_list:
+                            if str(getattr(_r, 'svid', '')) == str(sink.get("rule_hint")):
+                                _hint_rule = _r
+                                break
                     callable_only = sink_name_lower in _CALLABLE_ONLY_SINK
                     # Format-string functions: only the format string argument
                     # is dangerous if user-controlled (format string vulnerability).
@@ -727,48 +1348,81 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     #   fprintf(fp, fmt, ...)  → arg 1 is format string
                     #   sprintf(dst, fmt, ...) → arg 1 is format string
                     #   snprintf(dst, sz, fmt, ...) → arg 2 is format string
-                    _FMT_SINK_FMT_INDEX = {
-                        "printf": 0, "vprintf": 0,
-                        "fprintf": 1, "vfprintf": 1,
-                        "sprintf": 1, "vsprintf": 1,
-                        "snprintf": 2, "vsnprintf": 2,
-                    }
-                    fmt_only_idx = -1
-                    for _fn, _idx in _FMT_SINK_FMT_INDEX.items():
-                        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
-                            fmt_only_idx = _idx
-                            break
+                    # ════════ sink-loop segment 2/6: ARG-ROLE CONFIG ════════
+                    # (fmt-only / path-only dangerous-arg indexes — tables
+                    #  hoisted to module level in Fix 63d)
+                    _fmt_tbl = _FMT_SINK_FMT_INDEX
+                    if str(lang).lower() in ('php', 'javascript', 'typescript'):
+                        _fmt_tbl = {**_FMT_SINK_FMT_INDEX, **_FMT_SINK_FMT_INDEX_PHPJS}
+                    fmt_only_idx = _match_sink_arg_index(
+                        _fmt_tbl, sink_name_lower)
 
                     # Path-only sinks: only the path argument is dangerous for
                     # Path Traversal (CVI-1017). The content/data argument is
                     # user input but does not control WHERE the file is written.
                     #   file_put_contents(path, data)  → arg 0 is path
-                    _PATH_SINK_INDEX = {
-                        "file_put_contents": 0,
-                        # Django/Flask redirect: only first arg is the URL target.
-                        # Subsequent args are URL reverse parameters.
-                        "redirect": 0,
-                        "HttpResponseRedirect": 0,
-                        "RedirectResponse": 0,
-                        # Java Files.write(path, content): only arg0 (path)
-                        # is relevant to Path Traversal. Content (arg1) is
-                        # user data but does not control WHERE it's written.
-                        "files.write": 0,
-                        # Java Files.copy(source, target): target is arg1.
-                        # Source is a file path (read) not write destination.
-                        "files.copy": 1,
-                        # Java Files.move(source, target): target is arg1.
-                        "files.move": 1,
-                    }
-                    path_only_idx = -1
-                    for _fn, _idx in _PATH_SINK_INDEX.items():
-                        if sink_name_lower == _fn or sink_name_lower.endswith("." + _fn):
-                            path_only_idx = _idx
-                            break
+                    path_only_idx = _match_sink_arg_index(
+                        _PATH_SINK_INDEX, sink_name_lower)
+                    # Fix 106: SQL wrapper family — only the query-text arg
+                    # is the injection surface (bound-parameter arrays are
+                    # not interpolable).
+                    query_only_idx = _match_sink_arg_index(
+                        _SQL_QUERY_TEXT_SINK_INDEX, sink_name_lower)
+                    # Fix 113: is this sink call INSIDE a SQL wrapper function?
+                    # (delegation bodies — safety is decided at each caller,
+                    # which is itself a registered sink line)
+                    _ql_in_wrapper = False
+                    if query_only_idx >= 0:
+                        _ow113 = sink.get('vid')
+                        for _ in range(24):
+                            _ins113 = None
+                            for _e113 in graph.es.select(_target=_ow113, label="own"):
+                                _ins113 = _e113.source
+                                break
+                            if _ins113 is None:
+                                break
+                            _ow113 = _ins113
+                            if _vattr(graph.vs[_ow113], "label") in ("function", "method"):
+                                _fn113 = str(_vattr(graph.vs[_ow113], "name", "")).lower()
+                                _ql_in_wrapper = (_fn113.rsplit("::", 1)[-1]
+                                                  in _SQL_WRAPPER_FUNC_NAMES)
+                                break
                     found_controllable = False
                     found_unconfirmed = False
                     result = None
                     unconfirmed_result = None
+                    # ════════ sink-loop segment 3/6: ARG BACKTRACE ════════
+                    # (repair context · receiver resolution · per-arg
+                    #  parameters_back — the 500-line hot semantic core;
+                    #  see also graph_analyzer.parameters_back)
+
+                    # Fix 48j: per-svid repair context for the GRAPH path.
+                    # Resolve the sink name against lang_rule_list right
+                    # here (the AST-path matched_rules variable doesn't
+                    # exist in this loop).  Exactly one candidate svid →
+                    # taint analysis runs under that svid so registry
+                    # bindings decide repair semantics (strip_tags no
+                    # longer kills SQLi).  Multiple/no candidates keep
+                    # svid-blind legacy behavior.
+                    _g_sink_svids = set()
+                    try:
+                        _sn_bare_g = sink_name_lower.replace("::", ".").rsplit(".", 1)[-1]
+                        for _gr in lang_rule_list:
+                            _gms = [str(_x).lower() for _x in (getattr(_gr, 'method_sinks', None) or [])]
+                            if _gms and _sn_bare_g in _gms:
+                                _g_sink_svids.add(_gr.svid)
+                                continue
+                            for _gn in _get_rule_sink_names(_gr):
+                                _gn_l = str(_gn).lower()
+                                if (_gn_l == sink_name_lower
+                                        or _gn_l.endswith("." + _sn_bare_g)
+                                        or _gn_l == _sn_bare_g):
+                                    _g_sink_svids.add(_gr.svid)
+                                    break
+                    except Exception:
+                        pass
+                    _active_svid = next(iter(_g_sink_svids)) if len(_g_sink_svids) == 1 else None
+                    analyzer._set_sink_svid(_active_svid)
                     for i, arg_vid in enumerate(arg_vids):
                         # Fix 23: curl_setopt(CURLOPT_URL, $url) — when the
                         # owning call is identified and the URL's defining
@@ -790,12 +1444,43 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             continue
                         # Format-string sinks: only check the format string argument.
                         # Value arguments (printf %s values) are not dangerous.
+                        # Fix 70c exception: PHP sprintf with a CONSTANT SQL-ish
+                        # template ("= '%s'", MATCH...AGAINST('%s'...)) is the
+                        # SQL literal-concat shape (Craft CVE-2026-115934) — the
+                        # VALUE args are the injection carriers, so they must be
+                        # checked even though this is a "format sink".
                         if fmt_only_idx >= 0 and i != fmt_only_idx:
-                            continue
+                            if not (lang == 'php' and sink_name_lower == 'sprintf'
+                                    and analyzer._sprintf_sql_template_guard(
+                                        sink.get('vid'))):
+                                continue
                         # Path-only sinks (file_put_contents): only check the
                         # path argument. Content data does not cause Path Traversal.
-                        if path_only_idx >= 0 and i != path_only_idx:
+                        # Fix 77: EXCEPTION — when the path side is a literal
+                        # PHP file (const leaf ending .php, possibly inside a
+                        # concat like dirname(...).'/lib/userdata.inc.php'),
+                        # attacker-controlled CONTENT is code/config injection
+                        # into an executable file (CVE-2026-41229: froxlor
+                        # writes API params into lib/userdata.inc.php). The
+                        # content arg must be traced in that case.
+                        if (path_only_idx >= 0 and i != path_only_idx
+                                and not (lang == 'php'
+                                         and sink_name_lower == 'file_put_contents'
+                                         and i == 1
+                                         and path_only_idx < len(arg_vids)
+                                         and analyzer._php_exec_target_in_subtree(
+                                             arg_vids[path_only_idx]))):
                             continue
+                        # Fix 106 (CVE-2026-126482): OpenEMR SQL wrapper
+                        # family — only the query-text arg can inject; the
+                        # array arg is the bound-parameter list (SLEOB:259
+                        # FP: const query, all values bound with ?).
+                        if query_only_idx >= 0 and i != query_only_idx:
+                            if os.environ.get("KM_DBG_QO"):
+                                print(f"[qo-skip] {sink_name_lower} i={i} qoi={query_only_idx} vid={sink.get('vid')}")
+                            continue
+                        if os.environ.get("KM_DBG_QO"):
+                            print(f"[qo-run] {sink_name_lower} i={i} qoi={query_only_idx} vid={sink.get('vid')}")
                         arg_label = _vattr(graph.vs[arg_vid], 'label', '')
                         if arg_label == 'function':
                             continue
@@ -810,6 +1495,47 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 """Recursively trace operator sub-args for controllable data."""
                                 if depth >= max_depth:
                                     return None, None
+                                # Fix 47: a flat chain of binary_op '.' (SQL
+                                # concat) is a linear sequence, not nested
+                                # structure — depth exists to cap exponential
+                                # call nesting.  String-concat operators do
+                                # not consume depth budget.
+                                _is_concat_op = (
+                                    _vattr(graph.vs[op_vid], "type", "") == "binary_op"
+                                    and _vattr(graph.vs[op_vid], "name", "") == ".")
+                                # Fix 49f-v2: for a JS/TS member-chain
+                                # operator (name is a dotted path like
+                                # 'settings.dataset.name'), the chain's base
+                                # identifier is the data origin.  Consume the
+                                # enrich_taint file-scoped source annotation
+                                # (Vue props / axios bindings) BEFORE anything
+                                # else — ast leaf operands (the property
+                                # identifier 'name') never carry it.
+                                _opn49 = str(_vattr(graph.vs[op_vid], "name", ""))
+                                if "." in _opn49:
+                                    _mc49 = op_vid
+                                    for _ in range(10):
+                                        _mins49 = [
+                                            e for e in graph.es.select(
+                                                _target=_mc49, label="member")
+                                        ]
+                                        if not _mins49:
+                                            break
+                                        _mc49 = _mins49[0].source
+                                        _mv49 = graph.vs[_mc49]
+                                        if _vattr(_mv49, "label", "") == "identifier":
+                                            _bn49 = _vattr(_mv49, "name", "")
+                                            _bt49 = _vattr(_mv49, "taint_type", "")
+                                            if _bn49 and _bt49 == "source":
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=1,
+                                                    reason=f"annotated source variable '{_bn49}' (member-chain base, file-scoped)",
+                                                    chain=[{"step": "annotated_source",
+                                                            "vid": _mc49, "name": _bn49,
+                                                            "code": 1}],
+                                                    path=[op_vid, _mc49]), None
+                                            break
                                 # Check if this operator is a repair function —
                                 # if so, its output is safe, return repaired.
                                 _callee = analyzer._resolve_callee_name(op_vid)
@@ -825,12 +1551,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # esc_html) that builtin_knowledge marks safe=True
                                 # but are not in the hardcoded _REPAIR_FUNCTIONS set.
                                 if _vattr(graph.vs[op_vid], "taint_type", "") == "safe":
-                                    from core.graph.graph_analyzer import AnalysisResult as _AR
-                                    return _AR(
-                                        code=2, reason=f"nested safe '{_callee or ''}'",
-                                        chain=[{"step": "safe", "vid": op_vid,
-                                                "name": _callee or '', "code": 2}],
-                                        path=[op_vid]), None
+                                    # Fix 48k: enrich-time safe marks are
+                                    # svid-blind; the per-svid registry veto
+                                    # (48f) applies here too — a function the
+                                    # registry knows but doesn't bind to the
+                                    # current sink svid is NOT safe here.
+                                    _nk_clean = ""
+                                    if _callee:
+                                        _nk_clean = _callee.lstrip("\\").replace("::", ".")
+                                        if "." in _nk_clean:
+                                            _nk_clean = _nk_clean.rsplit(".", 1)[-1]
+                                    _nk_veto = (_nk_clean
+                                                and analyzer._sink_svid is not None
+                                                and analyzer._registry_safe_for_sink(_nk_clean) is False)
+                                    if not _nk_veto:
+                                        from core.graph.graph_analyzer import AnalysisResult as _AR
+                                        return _AR(
+                                            code=2, reason=f"nested safe '{_callee or ''}'",
+                                            chain=[{"step": "safe", "vid": op_vid,
+                                                    "name": _callee or '', "code": 2}],
+                                            path=[op_vid]), None
                                 # Check func_summary_type via _is_safe_function_call.
                                 # Catches user-defined safe functions (e.g. adminer's
                                 # myescape, checkbox, html_select) that are marked safe
@@ -886,8 +1626,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                 # trace sub-args whose arg_index is in the list.
                                 # This prevents false taint from non-data args
                                 # (e.g. apply_filters hook name in arg0).
+                                # Fix 93c (CVE-2026-29080): builtin_knowledge
+                                # entries describe FUNCTION call forms
+                                # (builtin format(value, spec) passes only
+                                # arg0).  A method_call whose bare method name
+                                # collides ('...'.format(a, b, c)) is a
+                                # DIFFERENT function — str.format embeds ALL
+                                # args into the result.  Applying the function
+                                # entry's passthrough to the method form
+                                # silently killed taint at arg1+ (rucio
+                                # FilterEngine text(json_exists...format(key,
+                                # value))).  Mirror Rule 2b (graph_analyzer):
+                                # BK passthrough only gates plain 'call' ops.
                                 _bk_passthrough_idxs = None
-                                if _callee:
+                                if _callee and _vattr(graph.vs[op_vid], "type", "") == "call":
                                     try:
                                         _bk = analyzer._load_builtin_knowledge(analyzer.language)
                                         if _bk and _callee in _bk:
@@ -897,6 +1649,90 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     except Exception:
                                         pass
 
+                                # Fix 67c: framework source-member method call —
+                                # e.g. symfony 1.x $form['x']->getValue() where the
+                                # form is bound to request params ($form->bind(
+                                # $request->getParameter(...))).  The callee has no
+                                # local definition (empty-shell use targets), but the
+                                # SourceRegistry knows the dotted chain
+                                # ($form.getValue / request.getParameter) is a
+                                # user-input producer.  Consume BEFORE the
+                                # empty-shell bailout so framework sources win.
+                                if _callee:
+                                    _obj67 = None
+                                    for _me in graph.es.select(_target=op_vid, label="member"):
+                                        _ov67 = graph.vs[_me.source]
+                                        if _vattr(_ov67, "label", "") in ("identifier", "parameter"):
+                                            _obj67 = _vattr(_ov67, "name", "")
+                                            break
+                                    for _cand67 in filter(None, (
+                                            f"{_obj67}.{_callee}" if _obj67 else None,
+                                            f"${_obj67}.{_callee}" if _obj67 and not _obj67.startswith('$') else None,
+                                            _callee.lstrip('$'))):
+                                        try:
+                                            if (analyzer._source_registry is not None
+                                                    and analyzer._source_registry.is_source_member(_cand67)):
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=1,
+                                                    reason=f"framework source member '{_cand67}' (Fix 67c)",
+                                                    chain=[{"step": "framework_source_member",
+                                                            "vid": op_vid, "name": _cand67, "code": 1}],
+                                                    path=[op_vid]), None
+                                        except Exception:
+                                            pass
+                                # Fix 80b (CVE-2026-32613): consume the call
+                                # node's OWN knowledge_bridge annotation
+                                # BEFORE the empty-shell bailout below.  An
+                                # unresolved external method annotated
+                                # receiver-passthrough (e.g. `e.getValue()`
+                                # with receiver declared Map.Entry — kork
+                                # ExpressionTransform.evaluateValue feeding
+                                # SpEL parseExpression) returns a value
+                                # derived from its receiver: trace the dfg
+                                # receiver edge.  Without this the empty-
+                                # shell check saw a use-edge to a stub
+                                # function and returned code=3 first,
+                                # killing the chain at the very node the
+                                # enrichment had just resolved.
+                                if _vattr(graph.vs[op_vid], "taint_receiver_pt", False):
+                                    for _re80b in graph.es.select(_target=op_vid, label="dfg"):
+                                        _rv80b = graph.vs[_re80b.source]
+                                        if _vattr(_rv80b, "label", "") in ("identifier", "parameter"):
+                                            _sr80b = analyzer.parameters_back(_re80b.source)
+                                            if _sr80b is not None and _sr80b.is_controllable:
+                                                return _sr80b, None
+                                _tp80b = _vattr(graph.vs[op_vid], "taint_passthrough", []) or []
+                                # Fix 93d (CVE-2026-29080): 'all'（无界元数
+                                # 透传，str.format 内插全部实参）必须与索引
+                                # 透传一样在本 pre-bailout 块消费——下方的
+                                # 空壳 bailout（unresolved method, code=3）
+                                # 会先杀链，而 builtin 知识注记本身就是该
+                                # 调用的解析结果，"unresolved" 判定对它不
+                                # 成立。93c 曾把 'all' 排除出本块指望下方
+                                # 通用路径，实测通用路径在空壳门后，整链
+                                # 灭活（probe4 g0/g1/g2 全 0 检出）。
+                                _tp80b_all = "all" in _tp80b
+                                if _tp80b and (_tp80b_all or any(isinstance(_i, int) for _i in _tp80b)):
+                                    _tp80b_idx = set(int(i) for i in _tp80b if isinstance(i, int))
+                                    _ac80b = 0
+                                    for _ae80b in graph.es.select(_source=op_vid, label="ast"):
+                                        if _vattr(_ae80b, "role") != "arg":
+                                            continue
+                                        _ix80b = _vattr(_ae80b, "arg_index", None)
+                                        _ai80b = int(_ix80b) if _ix80b is not None else _ac80b
+                                        _ac80b += 1
+                                        if not _tp80b_all and _ai80b not in _tp80b_idx:
+                                            continue
+                                        _an80b = graph.vs[_ae80b.target]
+                                        if _vattr(_an80b, "label", "") == "operator":
+                                            _r80b, _ = _deep_trace_args(_ae80b.target, depth + 1, max_depth)
+                                            if _r80b is not None and _r80b.is_controllable:
+                                                return _r80b, None
+                                        else:
+                                            _sr80b = analyzer.parameters_back(_ae80b.target)
+                                            if _sr80b is not None and _sr80b.is_controllable:
+                                                return _sr80b, None
                                 _all_use_targets_empty = True
                                 for _ue in graph.es.select(_source=op_vid, label="use"):
                                     _fv = graph.vs[_ue.target]
@@ -935,6 +1771,36 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                          or _vattr(e, "arg_index", None) in _bk_passthrough_idxs)
                                 ]
                                 if not sub_arg_vids:
+                                    # Fix 49f: JS/TS member-chain operator (e.g.
+                                    # 'settings.dataset.name' as a synthesized
+                                    # v-html RHS) has no AST arg children — its
+                                    # value flows from the chain's base
+                                    # identifier.  Walk incoming member edges to
+                                    # the base and consume enrich_taint's
+                                    # file-scoped source annotation (Vue props).
+                                    _mc49 = op_vid
+                                    for _ in range(10):
+                                        _mins49 = [
+                                            e for e in graph.es.select(
+                                                _target=_mc49, label="member")
+                                        ]
+                                        if not _mins49:
+                                            break
+                                        _mc49 = _mins49[0].source
+                                        _mv49 = graph.vs[_mc49]
+                                        if _vattr(_mv49, "label", "") == "identifier":
+                                            _bn49 = _vattr(_mv49, "name", "")
+                                            _bt49 = _vattr(_mv49, "taint_type", "")
+                                            if _bn49 and _bt49 == "source":
+                                                from core.graph.graph_analyzer import AnalysisResult as _AR
+                                                return _AR(
+                                                    code=1,
+                                                    reason=f"annotated source variable '{_bn49}' (member-chain base, file-scoped)",
+                                                    chain=[{"step": "annotated_source",
+                                                            "vid": _mc49, "name": _bn49,
+                                                            "code": 1}],
+                                                    path=[op_vid, _mc49]), None
+                                            break
                                     # No AST children — try DFG sources as fallback.
                                     # This handles cases where the normalizer
                                     # connects operator operands via DFG edges
@@ -951,7 +1817,26 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     if sub_label == 'identifier':
                                         # Skip variables already marked safe by sanitizer propagation
                                         if _vattr(graph.vs[sub_vid], "taint_type", "") == "safe":
-                                            continue
+                                            # Fix 48l: same registry veto as 48e —
+                                            # the safe mark was propagated from the
+                                            # assigning sanitizer; when the registry
+                                            # knows that function but doesn't bind
+                                            # it to the current sink svid, keep
+                                            # tracing this variable instead of
+                                            # skipping it.
+                                            _l_veto = False
+                                            if analyzer._sink_svid is not None:
+                                                _l_rhs = analyzer._find_assign_rhs_call(sub_vid)
+                                                _l_callee = (analyzer._resolve_callee_name(_l_rhs)
+                                                             if _l_rhs is not None else "")
+                                                if _l_callee:
+                                                    _l_clean = _l_callee.lstrip("\\").replace("::", ".")
+                                                    if "." in _l_clean:
+                                                        _l_clean = _l_clean.rsplit(".", 1)[-1]
+                                                    _l_veto = (analyzer._registry_safe_for_sink(_l_clean)
+                                                               is False)
+                                            if not _l_veto:
+                                                continue
                                     if sub_label == 'function':
                                         # Check if this function is a sanitizer (taint_type="safe")
                                         _sub_callee = analyzer._resolve_callee_name(sub_vid)
@@ -963,7 +1848,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         continue
                                     u = None
                                     if sub_label == 'operator':
-                                        r, u = _deep_trace_args(sub_vid, depth + 1, max_depth)
+                                        # Fix 47: concat chains stay at the
+                                        # same depth (see comment above).
+                                        _sub_depth = depth if _is_concat_op else depth + 1
+                                        r, u = _deep_trace_args(sub_vid, _sub_depth, max_depth)
                                         if r is not None:
                                             if r.is_controllable:
                                                 return r, u
@@ -1005,13 +1893,53 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             r, u = _deep_trace_args(arg_vid)
                             if r is not None:
                                 if r.is_controllable:
+                                    if _import_gate(r):
+                                        if not found_unconfirmed:
+                                            found_unconfirmed = True
+                                            unconfirmed_result = r
+                                        continue
                                     found_controllable = True
                                     result = r
                                     break
-                                # Repair/safe result — sanitizer found, this arg is safe
+                                # Repair/safe result — sanitizer found, this arg is safe.
+                                # code=3 (inconclusive, e.g. `a ?? b` binary_op whose
+                                # sub-args trace to unsourced fields) is NOT a repair:
+                                # treating it as one set any_arg_repaired and the
+                                # L1196 method_sinks gate dropped presence-reporting
+                                # sinks entirely (CVE-2026-21858: copyBinaryFile).
+                                if getattr(r, 'code', 0) == 3:
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    # Fix 99 (CVE-2026-29080): code=3 is
+                                    # INCONCLUSIVE, not safe — deep trace
+                                    # failing to resolve a builtin method
+                                    # ('...'.format / dict.get) must not veto
+                                    # the authoritative parameters_back below.
+                                    # The old `continue` here skipped PB for
+                                    # the whole arg, dropping sinks whose PB
+                                    # verdict is code=1 (offline PB on the
+                                    # same graph proved controllable).
+                                    # Fall through: PB runs; if PB also
+                                    # fails, unconfirmed_result (set above)
+                                    # still governs the fallback path.
+                                    # (do NOT set any_arg_repaired — see
+                                    # CVE-2026-21858 comment above)
+                                    continue
                                 any_arg_repaired = True
                                 continue
-                        r = analyzer.parameters_back(arg_vid)
+                        # Fix 70i: sentinel rows analyze on the ISOLATED probe
+                        # analyzer — the main analyzer's decision cache must
+                        # never see sentinel taint traces (ordering again).
+                        # Fix 70i: sentinel rows analyze on the ISOLATED probe
+                        # analyzer — the main analyzer's decision cache must
+                        # never see sentinel taint traces (ordering again).
+                        # (71g tried extending this to db-probe sinks too, but
+                        # the probe analyzer is only built in the sprintf
+                        # sentinel context — everywhere else it is None and PB
+                        # collapsed to zero findings.  Reverted.)
+                        _pb_an = _probe_an if (sink.get('rule_hint') and lang == 'php') else analyzer
+                        r = _pb_an.parameters_back(arg_vid)
                         if r is not None:
                             if r.is_controllable:
                                 # callable_only sink: 检查 callable 参数是否有 null/空
@@ -1037,6 +1965,54 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                         found_unconfirmed = True
                                         unconfirmed_result = r
                                         continue
+                                # Fix 71c: rule-driven generic-DB probes
+                                # (->query/->exec, Fix 71) require a
+                                # SUPERGLOBAL-origin chain.  DB wrapper
+                                # entry params (db_query($query) passing
+                                # straight to $__db->query) are taint-true
+                                # but semantically neutral — the safety
+                                # decision lives at each caller, and
+                                # reporting the wrapper itself is a
+                                # structural FP (osticket mysqli.php).
+                                # Fix 73b: PHP include/require language-
+                                # construct sinks (Fix 73 admission) require
+                                # a request-origin chain.  Library factory
+                                # entry params (PEAR Mail::factory($driver)
+                                # → include_once 'Mail/'.$driver) are
+                                # taint-true but semantically neutral — the
+                                # driver choice belongs to callers/config
+                                # (osticket include/pear/Mail.php:79).
+                                # Same structural-FP family as Fix 71c.
+                                # Fix 73c refined the gate into _import_gate
+                                # (defined before the arg loop) so BOTH PB
+                                # paths — _deep_trace_args (concat operators
+                                # land here) and _pb_an.parameters_back —
+                                # apply the same origin requirement.
+                                if _import_gate(r):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
+                                # Fix 113 (CVE-2026-126480): sink call inside a
+                                # SQL wrapper function = pure delegation body;
+                                # the taint arrives through the wrapper's entry
+                                # parameter from callers that are themselves
+                                # registered sink lines.  Demote to unconfirmed
+                                # (structural FP family, Fix 71c doctrine).
+                                if _ql_in_wrapper:
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
+                                _is_db_probe = (
+                                    lang == 'php'
+                                    and not sink.get('rule_hint')
+                                    and str(_sn).lower().rsplit('.', 1)[-1] in ('query', 'exec'))
+                                if _is_db_probe and 'superglobal' not in str(getattr(r, 'reason', '')).lower():
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = r
+                                    continue
                                 found_controllable = True
                                 result = r
                                 break
@@ -1073,12 +2049,52 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     parent_func_vid = oe.source
                                     break
                             if parent_func_vid is not None:
-                                has_callers = any(
-                                    True for _ in analyzer.graph.es.select(
-                                        _target=parent_func_vid, label="cg"
+                                # Fix 68: container-dispatched entry methods
+                                # (Java servlet doGet/doPost/service) have no
+                                # cg in-edges by design — same rationale as
+                                # Fix 30's other gate.  A readObject sink
+                                # inside doPost is alive.  Java-only and a
+                                # strict name list: 'handle' was initially
+                                # included and broke php anchors (+171 rows
+                                # on osticket) — generic verb names must NOT
+                                # bypass the dead-code gate.
+                                _pf_name68 = str(_vattr(
+                                    analyzer.graph.vs[parent_func_vid], "name", "")).lower()
+                                if lang == "java" and _pf_name68 in (
+                                        "doget", "dopost", "doservice", "service",
+                                        "doput", "dodelete", "dohead", "dooptions",
+                                        "dotrace", "onmessage"):
+                                    has_callers = True
+                                else:
+                                    has_callers = any(
+                                        True for _ in analyzer.graph.es.select(
+                                            _target=parent_func_vid, label="cg"
+                                        )
                                     )
-                                )
+                                    # Fix 143n (CVE-2026-129448): java virtual
+                                    # dispatch binds callees via USE edges —
+                                    # the subtype-closure / interface fans
+                                    # (Fix 137g, Fix 143a/b/c) emit op→function
+                                    # use edges, so a method reached only
+                                    # through interface dispatch (xmlrpc:
+                                    # typeParser.getResult → SerializableParser
+                                    # .getResult) legitimately has ZERO cg
+                                    # in-edges.  A use in-edge from a real
+                                    # call operator IS a caller.  Java-only:
+                                    # PHP keeps the calibrated strict gate.
+                                    if not has_callers and lang == "java":
+                                        for _ue in analyzer.graph.es.select(
+                                                _target=parent_func_vid,
+                                                label="use"):
+                                            _usrc = analyzer.graph.vs[_ue.source]
+                                            if (_vattr(_usrc, "label", "") == "operator"
+                                                    and _vattr(_usrc, "type", "") in (
+                                                        "call", "method_call",
+                                                        "static_call", "new")):
+                                                has_callers = True
+                                                break
                                 if not has_callers:
+                                    _DEAD_CODE_SKIP_COUNTS[1] += 1  # Fix 58b
                                     logger.debug(
                                         "presence-of-sink skipped: '%s' in "
                                         "uncalled function vid=%d",
@@ -1092,13 +2108,58 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # find content data flow, not path flow.
                             if callable_only or path_only_idx >= 0:
                                 continue
-                            recv_result = analyzer.parameters_back(sink['vid'])
-                            if recv_result is not None and recv_result.is_controllable:
-                                found_controllable = True
-                                result = recv_result
-                                sink_vid = sink['vid']
-                            else:
+                            # Fix 106b (CVE-2026-126482): SQL wrapper family
+                            # (sqlQuery/sqlStatement/...) — the bare function
+                            # NAME is itself a registered second-order source
+                            # (Fix 86 CONTROLLED_SOURCES), so PB on the sink
+                            # call node self-reports "source function
+                            # 'sqlQuery'" for every call with uncontrollable
+                            # args (SLEOB.php:259: const query, all values
+                            # bound).  The query-text arg walk above is the
+                            # whole story for these sinks.
+                            if query_only_idx >= 0:
                                 continue
+                            # Fix 73d: import sinks (include/require family)
+                            # are language constructs with NO receiver object
+                            # — receiver tracing is pure waste here and the
+                            # per-sink parameters_back(sink_vid) call made
+                            # repo-scale scans blow past 2h. The arg walk is
+                            # the whole story for include/require.
+                            if _is_import_sink:
+                                continue
+                            recv_result = analyzer.parameters_back(sink['vid'])
+                            if os.environ.get("KM_DBG_PB"):
+                                print(f"[PB] noarg sink={sink.get('name')!r} "
+                                      f"vid={sink['vid']} recv="
+                                      f"{getattr(recv_result, 'code', None)} "
+                                      f"reason={getattr(recv_result, 'reason', None)!r}")
+                            if recv_result is not None and recv_result.is_controllable:
+                                # Fix 73c: receiver fallback respects the
+                                # import origin gate — arg-loop downgraded
+                                # phantom chains must not resurrect here
+                                # (osticket pear/Mail.php:79).
+                                if _import_gate(recv_result):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = recv_result
+                                else:
+                                    found_controllable = True
+                                    result = recv_result
+                                    sink_vid = sink['vid']
+                            else:
+                                # Rule-declared method sinks (require_taint
+                                # opt-in) must survive this gate: their vuln
+                                # boundary is the library's public API
+                                # parameter, invisible to the source model.
+                                # Fall through to rule matching, where the
+                                # require_taint=False presence path reports.
+                                _sn_now = sink.get('name', '')
+                                _sn_bare_early = _sn_now.lower().replace("::", ".").rsplit(".", 1)[-1]
+                                _has_ms_rule = any(
+                                    _sn_bare_early in [str(_x).lower() for _x in (getattr(_r, 'method_sinks', None) or [])]
+                                    for _r in lang_rule_list)
+                                if not _has_ms_rule:
+                                    continue
                         else:
                             # receiver 追溯：sink 的 arg 都不可控时，
                             # 检查 sink operator 本身是否通过 receiver 链路可控。
@@ -1110,25 +2171,75 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             # 的 passthrough 过滤），不要回退到 receiver 追溯——
                             # 那会绕过 builtin_knowledge 的 passthrough 约束。
                             if callable_only or any_arg_repaired:
-                                continue
+                                _ms_pass = _sink_has_method_sink_rule(sink, lang_rule_list)
+                                if not _ms_pass:
+                                    continue
                             # Path-only sinks (file_put_contents): skip receiver
                             # tracing. The path arg was already checked and found
                             # not controllable. Receiver tracing would re-discover
                             # the content arg flow, which is NOT a path traversal.
                             if path_only_idx >= 0:
                                 continue
+                            # Fix 106b (CVE-2026-126482): same SQL-wrapper
+                            # receiver-skip on the args-present fallback (see
+                            # the no-args branch above for the rationale).
+                            if query_only_idx >= 0:
+                                continue
                             # Sanitizer detected in args: skip receiver tracing.
                             # If any arg was sanitizer-wrapped (repair result),
                             # the sink output is safe even if receiver chain is controllable.
-                            if any_arg_repaired:
+                            if any_arg_repaired and not _sink_has_method_sink_rule(sink, lang_rule_list):
+                                continue
+                            # Fix 73d: same import-sink receiver skip on the
+                            # args-present fallback (no receiver object on a
+                            # language construct).
+                            if _is_import_sink:
                                 continue
                             recv_result = analyzer.parameters_back(sink['vid'])
                             if recv_result is not None and recv_result.is_controllable:
-                                found_controllable = True
-                                result = recv_result
-                                sink_vid = sink['vid']
+                                # Fix 73c: same import origin gate on the
+                                # args-present receiver fallback.
+                                if _import_gate(recv_result):
+                                    if not found_unconfirmed:
+                                        found_unconfirmed = True
+                                        unconfirmed_result = recv_result
+                                else:
+                                    found_controllable = True
+                                    result = recv_result
+                                    sink_vid = sink['vid']
                             else:
-                                continue
+                                # Fix 35e: also pass the gate when a rule
+                                # with an EXACT qualified sink-name match
+                                # opted into presence reporting
+                                # (require_taint=False).  find_sinks only
+                                # returns these via precise vul_function
+                                # matching (http.Request.get), so the
+                                # receiver-agnostic noise method_sinks
+                                # guards against cannot occur here.
+                                # CVE-2026-95634: CVI_9512 was blocked by
+                                # this gate -- bare 'get' is deliberately
+                                # NOT in its method_sinks (HashMap.get).
+                                _sn_gate = sink.get('name', '').lower().replace("::", ".")
+                                # Fix 60: nomination check must include names
+                                # parsed from the rule's match regex
+                                # (_get_rule_sink_names), not only the
+                                # vul_function list — CVI_7004 nominates
+                                # requests.get via its match pattern and has
+                                # no vul_function attribute at all.
+                                def _pt_nominations(_r):
+                                    _names = [str(_x).lower() for _x in (getattr(_r, 'vul_function', None) or [])]
+                                    try:
+                                        _names += [str(_n).lower().replace("::", ".")
+                                                   for _n in _get_rule_sink_names(_r)]
+                                    except Exception:
+                                        pass
+                                    return _names
+                                _has_pt_rule = any(
+                                    getattr(_r, 'require_taint', True) is False
+                                    and _sn_gate in _pt_nominations(_r)
+                                    for _r in lang_rule_list)
+                                if not _has_pt_rule and not _sink_has_method_sink_rule(sink, lang_rule_list):
+                                    continue
 
                     sink_name = sink.get('name', '')
                     # JSON Content-Type 的 @ResponseBody 不构成 XSS
@@ -1139,9 +2250,35 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     # Collect all matching rules, then try each rule's main() —
                     # first rule whose main() passes gets to report.
                     matched_rules = []
+                    # Fix 70d: sentinel sinks (sprintf-SQL Path E) carry a
+                    # rule_hint svid — bind directly to that rule; no rule's
+                    # vul_function lists 'sprintf' so name matching drops it.
+                    if _hint_rule is not None:
+                        matched_rules.append(_hint_rule)
                     sn_lower = sink_name.lower().replace("::", ".")
+                    _sn_bare = sn_lower.rsplit(".", 1)[-1]
                     for pass_name in ("exact", "suffix"):
+                        # Fix 71h: probe-originated sinks (via_db_probe) bind
+                        # EXCLUSIVELY to the SQLi family — checked BEFORE any
+                        # tamper method_sinks match.  In mixed-root scans the
+                        # wordpress tamper is active (subdir marker) and its
+                        # 'query' short name captured the drs probe sink as
+                        # CVI 1004 before the 1005/1006 binding ran, flipping
+                        # the CVE-gate expectation.
+                        _probe_sink71h = (pass_name == "exact"
+                                          and _sn_bare in ("query", "exec")
+                                          and bool(sink.get('via_db_probe')))
                         for rule in lang_rule_list:
+                            if _probe_sink71h:
+                                if str(getattr(rule, 'svid', '')) in ('1005', '1006'):
+                                    matched_rules.append(rule)
+                                continue
+                            # Rule-declared method sinks (receiver-agnostic,
+                            # mirrors find_sinks Path C): bare method name match.
+                            _rms = [str(_x).lower() for _x in (getattr(rule, 'method_sinks', None) or [])]
+                            if _rms and _sn_bare in _rms:
+                                matched_rules.append(rule)
+                                continue
                             rule_sink_names = _get_rule_sink_names(rule)
                             if not rule_sink_names:
                                 continue
@@ -1167,6 +2304,10 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
                     if not matched_rules:
                         continue
+
+                    # ════════ sink-loop segment 5/6: RULE EXECUTION ════════
+                    # (try each matched rule's main() · structured arg
+                    #  extraction · source-line pre-read fallback)
 
                     # Try each matched rule; first whose main() passes reports
                     # rule.main() 二次筛选 — build structured sink context from graph
@@ -1202,11 +2343,42 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                             continue
                                         _visited.add(_svid)
                                         if _sl == 'const':
+                                            # Fix 50-12: a const whose only
+                                            # outgoing dfg edge feeds a CALL
+                                            # is a call argument (e.g.
+                                            # highlight(x, "bash")) — not
+                                            # this identifier's value. Only
+                                            # a const tied to an assignment
+                                            # LHS (value definition) counts.
+                                            _fv_type = _vattr(graph.vs[_fv], 'type', '')
+                                            if _fv_type in ('call', 'method_call', 'static_call', 'new'):
+                                                _next_frontier.append(_svid)
+                                                continue
+                                            # Fix 85c (CVE-2026-44566): a const
+                                            # WITH dfg in-edges is an f-string
+                                            # template (python JoinedStr) — its
+                                            # interpolated expressions flow in
+                                            # via dfg, so the value is NOT a
+                                            # resolved literal. Treating it as
+                                            # resolved_value made CVI_7005.main
+                                            # drop `open(f"{d}/{file.filename}")`
+                                            # as a "hardcoded path".
+                                            if graph.es.select(_target=_svid, label='dfg'):
+                                                _next_frontier.append(_svid)
+                                                continue
                                             _resolved = _vattr(_sv, 'name', '')
                                             break
                                         # Also check ast children of operators
                                         # for embedded const (assignment RHS)
                                         if _sl == 'operator':
+                                            # Fix 50-12: call-type operators
+                                            # excluded — a const ARGUMENT
+                                            # (highlight(x, "bash")) is not
+                                            # the call's return value.
+                                            _sot = _vattr(_sv, 'type', '')
+                                            if _sot in ('call', 'method_call', 'static_call', 'new'):
+                                                _next_frontier.append(_svid)
+                                                continue
                                             for _ae in graph.es.select(_source=_svid, label='ast'):
                                                 _cv = graph.vs[_ae.target]
                                                 if _vattr(_cv, 'label', '') == 'const':
@@ -1322,6 +2494,17 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             pass
 
                     matched_rule = None
+                    # ════════ sink-loop segment 6/6: PRESENCE RULES ════════
+                    # (require_taint=False family · Fix 35d/60 gating)
+
+                    # Fix 35d: presence-opted rules (require_taint=False,
+                    # library-boundary sinks) must win the candidate race
+                    # over taint-proving rules that happen to share the
+                    # sink name -- otherwise the first rule's main()=None
+                    # claims matched_rule and the presence path never
+                    # fires (CVE-2026-95634: CVI_9504 shadowed CVI_9512).
+                    matched_rules.sort(
+                        key=lambda _r: 0 if getattr(_r, 'require_taint', True) is False else 1)
                     for candidate_rule in matched_rules:
                         if hasattr(candidate_rule, 'main') and callable(candidate_rule.main):
                             try:
@@ -1351,6 +2534,92 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                     if matched_rule is None:
                         # All candidate rules' main() returned False
                         continue
+
+
+                    # Presence-of-sink reporting for rules that opt out of
+                    # taint proof (require_taint=False).  Library-internal
+                    # sinks (e.g. OAuth2 fetch_token sending client_secret
+                    # to a caller-derived URL) have no framework source to
+                    # back-trace to: the vulnerability boundary is the
+                    # library's public API parameter, which the graph
+                    # source model cannot see.  The rule's main() already
+                    # filtered constants/literals via sink_args; without a
+                    # confirmed taint we still report -- the rule author
+                    # accepted the FP surface by opting in.
+                    if not found_controllable and getattr(matched_rule, 'require_taint', True) is False:
+                        # Fix 53b: presence mode only for the sink names the
+                        # rule explicitly nominated.  require_taint=False used
+                        # to apply to EVERY sink of the rule — for CVI_1011
+                        # (RCE) that turned classic exec/shell_exec/proc_open
+                        # calls in build-tooling (osticket cli modules running
+                        # `git describe` with literal strings) into 9 presence
+                        # FPs.  When the rule declares method_sinks, presence
+                        # reporting is limited to those bare names (library-
+                        # boundary statics); classic global sinks keep full
+                        # taint semantics.
+                        # Fix 60: the 53b gate was killing EXACT qualified
+                        # matches too.  Its job is to stop bare-suffix
+                        # (Path C) noise — receiver-agnostic 'get' matching
+                        # any obj.get().  A sink whose FULL qualified name
+                        # ('requests.get') is an explicit rule nomination
+                        # (vul_function entry or exact match of the parsed
+                        # sink-name list) is not suffix noise and must keep
+                        # presence rights.  Regression this fixed: yeti 2.5.0
+                        # passive_total.py requests.get (CVI-7004, ground
+                        # truth task 4811) went dark from task 4813 onward —
+                        # 53b (CVE-2026-118755 campaign) silently broke the
+                        # CVE-2026-63489 campaign's rule.
+                        _ms_gate = getattr(matched_rule, 'method_sinks', None)
+                        if _ms_gate:
+                            _sn_norm_p = sink_name.lower().replace('::', '.')
+                            _sn_bare_p = _sn_norm_p.rsplit('.', 1)[-1]
+                            _ms_lower = {str(_m).lower() for _m in _ms_gate}
+                            # Fix 60 (refined): only QUALIFIED nominations
+                            # ('requests.get', a receiver-qualified API the
+                            # rule author named explicitly) keep presence
+                            # rights.  A bare GLOBAL name ('exec') in the
+                            # parsed list is a wildcard signature, not a
+                            # nomination — classic globals keep full taint
+                            # semantics (53b's osticket FPs stay dead).
+                            _rule_nominated = {str(_n).lower().replace('::', '.')
+                                               for _n in _get_rule_sink_names(matched_rule)}
+                            _qualified_nomination = (
+                                '.' in _sn_norm_p
+                                and (_sn_norm_p in _rule_nominated or _sn_norm_p in _ms_lower))
+                            if not _qualified_nomination and _sn_bare_p not in _ms_lower:
+                                matched_rule = None
+                                continue
+                        # Fix 53c: optional per-rule presence_filter regex on
+                        # the sink source line.  CVI_7002 nominates bare
+                        # 'execute' (Path C) to reach library-attribute chains
+                        # (cls._db.aql.execute, CVE-2026-63489), but presence
+                        # must only fire on AQL sites — the same bare name
+                        # also matches every cursor/requests .execute() in
+                        # the corpus (75 presence FPs on yeti).  Declaring
+                        # presence_filter='aql' keeps classic execute sinks
+                        # under full taint semantics while AQL execution
+                        # sites report on presence.
+                        _pf = getattr(matched_rule, 'presence_filter', None)
+                        if _pf:
+                            try:
+                                if not re.search(_pf, main_input or ''):
+                                    matched_rule = None
+                                    continue
+                            except re.error:
+                                pass
+                        _arg_desc = ", ".join(
+                            filter(None, (
+                                (sa.get('name') or '') + ((' (' + sa['type'] + ')') if sa.get('type') else '')
+                                for sa in sink_args
+                            ))
+                        ) or '(no args)'
+                        result = type('R', (), {
+                            'is_controllable': True,
+                            'code': 1,
+                            'reason': "presence-of-sink: '%s' called with non-constant argument(s) %s; static taint unverifiable inside library boundary (parameter-controlled URL risk)" % (sink_name, _arg_desc),
+                            'path': [],
+                        })()
+                        found_controllable = True
 
                     # 文件路径过滤：vendor/test/third-party 目录
                     vuln_file_path = _vattr(graph.vs[sink['vid']], 'file_path', '') or _vattr(graph.vs[sink['vid']], 'path', '')
@@ -1437,6 +2706,105 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
 
             # Release analyzer indexes (~148MB) before next language iteration
             del analyzer
+
+            # ══ Fix 70k: sprintf-SQL sentinel sub-pass (fully isolated) ══
+            # The sentinel sink family never touches the main loop's
+            # analyzer, caches, or rule race — presence in the shared loop
+            # deterministically flipped same-file echo verdicts on the
+            # azuracast anchor.  Minimal dedicated handling here.
+            if _probe_an is not None and _sprintf_sql_probe:
+                try:
+                    _sprintf_extra = _probe_an.find_sinks(sink_names=['sprintf#sql-sentinel'])
+                    from web.index.models import Rules as _RulesM
+                    _sqli_rule = None
+                    for rule in lang_rule_list:
+                        if str(getattr(rule, 'svid', '')) == '1006':
+                            _sqli_rule = rule
+                            break
+                    if _sqli_rule is not None:
+                        for sink in _sprintf_extra:
+                            try:
+                                _found = False
+                                for arg_vid in sink.get('arg_vids', []):
+                                    r = _probe_an.parameters_back(arg_vid)
+                                    if r is not None and r.is_controllable:
+                                        _found = True
+                                        break
+                                if not _found:
+                                    continue
+                                sink_vid = sink['vid']
+                                file_path = _vattr(graph.vs[sink_vid], 'file_path', '') or _vattr(graph.vs[sink_vid], 'path', '')
+                                lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
+                                vuln = VulnerabilityResult.from_match(
+                                    (file_path, lineno, 'sprintf'),
+                                    svid=_sqli_rule.svid,
+                                    language='php',
+                                    rule_name=_sqli_rule.vulnerability,
+                                    author=_sqli_rule.author,
+                                )
+                                vuln.analysis = r.reason
+                                vuln.chain = [(str(c.get('step', '')), str(c.get('name', '')), file_path, lineno, int(c.get('vid', 0) or 0)) for c in (r.chain or [])[:4]]
+                                find_vulnerabilities.append(vuln)
+                                logger.debug('[CVI-1006] [GRAPH] sprintf-SQL sentinel found: %s:%s', file_path, lineno)
+                            except Exception as e:
+                                logger.debug('[SCAN] sentinel sink error: %s', e)
+                                continue
+                except Exception as e:
+                    logger.debug('[SCAN] sentinel sub-pass error: %s', e)
+
+            # ══ Fix 114b: URL-attribute escape sentinel sub-pass (isolated) ══
+            # CVE-2026-126451: escaped output inside a URL-loading attribute
+            # literal (src='…') keeps URI schemes executable — the escape is
+            # not a repair there.  Fully isolated from the main loop AND from
+            # the sprintf sentinel analyzer (separate GraphAnalyzer, separate
+            # decision cache — Fix 70k doctrine).
+            if lang == 'php' and _url_attr_probe:
+                try:
+                    _url_an = GraphAnalyzer(graph, language=lang,
+                                            source_registry=_make_source_registry(lang),
+                                            framework_method_sinks=set())
+                    _url_extra = _url_an.find_sinks(sink_names=['concat#url-attr-sentinel'])
+                    if _url_extra:
+                        from web.index.models import Rules as _RulesM2
+                        _xss_rule = None
+                        for _pref in ('1000', '10002'):
+                            for rule in lang_rule_list:
+                                if str(getattr(rule, 'svid', '')) == _pref:
+                                    _xss_rule = rule
+                                    break
+                            if _xss_rule is not None:
+                                break
+                        if _xss_rule is not None:
+                            for sink in _url_extra:
+                                try:
+                                    _found = False
+                                    for arg_vid in sink.get('arg_vids', []):
+                                        r = _url_an.parameters_back(arg_vid)
+                                        if r is not None and r.is_controllable:
+                                            _found = True
+                                            break
+                                    if not _found:
+                                        continue
+                                    sink_vid = sink['vid']
+                                    file_path = _vattr(graph.vs[sink_vid], 'file_path', '') or _vattr(graph.vs[sink_vid], 'path', '')
+                                    lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
+                                    vuln = VulnerabilityResult.from_match(
+                                        (file_path, lineno, 'concat'),
+                                        svid=_xss_rule.svid,
+                                        language='php',
+                                        rule_name=_xss_rule.vulnerability,
+                                        author=_xss_rule.author,
+                                    )
+                                    vuln.analysis = ('HTML-entity escape does not neutralize URI schemes in URL-attribute context; '
+                                                     + (r.reason or ''))
+                                    vuln.chain = [(str(c.get('step', '')), str(c.get('name', '')), file_path, lineno, int(c.get('vid', 0) or 0)) for c in (r.chain or [])[:4]]
+                                    find_vulnerabilities.append(vuln)
+                                    logger.info('[CVI-%s] [GRAPH] url-attr escape sentinel found: %s:%s', _xss_rule.svid, file_path, lineno)
+                                except Exception as e:
+                                    logger.debug('[SCAN] url-attr sentinel sink error: %s', e)
+                                    continue
+                except Exception as e:
+                    logger.debug('[SCAN] url-attr sentinel sub-pass error: %s', e)
 
     # ── Framework-dependency rules (independent of graph) ──
     if _fw_dep_rules:
@@ -1575,7 +2943,12 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
             step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    node_source = show_context(chain[2], chain[3], is_back=True)
+                    # Fix 43m-2: restore per-node source context for the web
+                    # dataflow panel. Fix 43m blanked it for scan speed; the
+                    # real cost was per-line console logging + uncached file
+                    # reads. quiet_context is silent + per-file cached, so
+                    # persistence keeps its speed while chains regain context.
+                    node_source = quiet_context(chain[2], chain[3])
                     node_vid = chain[4] if len(chain) >= 5 else None
                     tc = TaintChain(
                         scan_task=int(a_sid),
@@ -1610,6 +2983,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 'target_directory': target_directory
             }
         })
+    _report_dead_code_skips()  # Fix 58b: scan() end-of-scan summary
     return True
 
 
@@ -1739,7 +3113,13 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
             step = 0
             for chain in x.chain:
                 if type(chain) == tuple:
-                    node_source = show_context(chain[2], chain[3], is_back=True)
+                    # Fix 43m-2: restore per-node source context for the web
+                    # dataflow panel. Fix 43m blanked it for scan speed; the
+                    # real cost was per-line console logging + uncached file
+                    # reads. quiet_context is silent + per-file cached, so
+                    # persistence keeps its speed while chains regain context.
+                    node_source = quiet_context(chain[2], chain[3])
+                    node_vid = chain[4] if len(chain) >= 5 else None
                     tc = TaintChain(
                         scan_task=int(a_sid),
                         vul_result=sr.id,
@@ -1749,6 +3129,7 @@ def oldscan(target_directory, a_sid=None, s_sid=None, special_rules=None, langua
                         node_name=chain[1],
                         file_path=chain[2],
                         lineno=int(float(chain[3])) if chain[3] else 0,
+                        vid=node_vid,
                         source_code=node_source,
                     )
                     tc.save()

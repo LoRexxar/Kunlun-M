@@ -1,0 +1,4 @@
+fastapi>=0.100
+python-multipart
+mlflow>=3.3.0
+jumpserver>=4.10.16

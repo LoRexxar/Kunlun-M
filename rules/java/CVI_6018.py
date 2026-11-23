@@ -16,8 +16,20 @@ class CVI_6018(SingleRuleMixin):
         self.level = 3
 
         self.match_mode = "function-param-regex"
-        self.match = "forName|getDeclaredMethod|getMethod"
-        self.vul_function = ["Class.forName", "Class.getDeclaredMethod", "Class.getMethod"]
+        self.match = "forName|newInstance|getDeclaredMethod|getMethod"
+        self.vul_function = [
+            "Class.forName", "Class.getDeclaredMethod", "Class.getMethod",
+            # Fix 135b (CVE-2026-90436, Apache Axis1): class-load /
+            # reflective-instantiation wrappers on the sink path.
+            # ClassUtils.forName is the common static wrapper (Axis
+            # org.apache.axis.utils.ClassUtils.forName and the
+            # commons-lang ClassUtils.forName both delegate straight to
+            # Class.forName); newInstance completes the reflection
+            # instantiation family (Constructor.newInstance receiver is
+            # resolved via java typed-receiver lookup, Fix 135c).
+            "ClassUtils.forName",
+            "Class.newInstance", "Constructor.newInstance",
+        ]
 
     def main(self, regex_string, sink_args=None):
         """过滤编译器反射获取类型名的场景（非用户输入）"""

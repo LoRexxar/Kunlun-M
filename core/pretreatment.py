@@ -57,7 +57,95 @@ def normalize_language(lan_list):
     return result
 
 
-class Pretreatment:
+def _vue_props_from_script(script_text):
+    """Fix 49g: 用 esprima AST 从 <script> 块提取 Vue 组件 props 名(零正则)。
+
+    支持的宿主形态:
+    - export default { props: {...} | [...] }
+    - defineComponent({ props: ... })
+    - Vue.extend({...}) / Vue.component('x', {...}) / Vue.mixin({...})
+
+    script 含 import/export 时用 parseModule,失败回退 parseScript
+    (老式 <script> 无模块语法)。任何解析失败返回 [](该组件无 props)。
+    """
+    if not script_text or not script_text.strip():
+        return []
+    try:
+        import esprima
+    except ImportError:
+        return []
+    try:
+        try:
+            tree = esprima.parseModule(script_text)
+        except Exception:
+            tree = esprima.parseScript(script_text)
+    except Exception:
+        return []
+
+    def _node_children(node):
+        # esprima 节点: 遍历所有子字段(跳过 loc/range 元数据)
+        for _field, _val in vars(node).items():
+            if _field in ("loc", "range"):
+                continue
+            if hasattr(_val, "type"):
+                yield _val
+            elif isinstance(_val, list):
+                for _v in _val:
+                    if hasattr(_v, "type"):
+                        yield _v
+
+    def _props_from_value(val):
+        out = []
+        vt = getattr(val, "type", "")
+        if vt == "ObjectExpression":
+            for prop in (val.properties or []):
+                key = getattr(prop, "key", None)
+                n = getattr(key, "name", None) or getattr(key, "value", None)
+                if n:
+                    out.append(n)
+        elif vt == "ArrayExpression":
+            for el in (val.elements or []):
+                n = getattr(el, "value", None)
+                if n:
+                    out.append(n)
+        return out
+
+    names = []
+
+    def _visit(node, in_options_host):
+        nt = getattr(node, "type", "")
+        if not nt:
+            return
+        # 宿主形态 1: export default OBJ
+        if nt == "ExportDefaultDeclaration":
+            _visit(node.declaration, True)
+            return
+        # 宿主形态 2: defineComponent(OBJ) / Vue.extend|component|mixin(OBJ)
+        if nt == "CallExpression":
+            _callee = getattr(node.callee, "name", "") or ""
+            _callee_ns = ""
+            if getattr(node.callee, "type", "") == "MemberExpression":
+                _callee_ns = getattr(node.callee.property, "name", "") or ""
+            if _callee == "defineComponent" or _callee_ns in ("extend", "component", "mixin"):
+                for _a in (node.arguments or []):
+                    _visit(_a, True)
+                return
+        # 选项对象: props 属性
+        if nt == "ObjectExpression" and in_options_host:
+            for prop in (node.properties or []):
+                key = getattr(prop, "key", None)
+                kname = getattr(key, "name", None) or getattr(key, "value", None) or ""
+                if kname == "props":
+                    names.extend(_props_from_value(prop.value))
+        for _child in _node_children(node):
+            _visit(_child, False)
+
+    for _stmt in getattr(tree, "body", []):
+        _visit(_stmt, False)
+    return names
+
+
+class Pretreatment(object):
 
     def __init__(self):
         self.file_list = []
@@ -268,25 +356,34 @@ class Pretreatment:
 
                         # 合并字典
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        # Fix 58 (observability): explicit parse status so the
+                        # pipeline can report coverage instead of silently
+                        # dropping files the parser cannot handle.
+                        self.pre_result[filepath]['parse_status'] = 'ok' if not self.is_unprecom else 'unprecom'
                         continue  # 解析成功，跳过 repair 逻辑
 
                     except (SyntaxError, AssertionError) as e:
                         if isinstance(e, AssertionError):
                             logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                            self.pre_result[filepath]['parse_status'] = 'assertion_error'
                             continue
                         if self.is_unprecom:
                             logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                            self.pre_result[filepath]['parse_status'] = 'syntax_error_unprecom'
                             continue
+                        self.pre_result[filepath]['parse_status'] = 'syntax_error'
 
                     try:
                         repaired_code_content = self._repair_php_code_for_parser(code_content)
                     except Exception:
                         logger.warning('[AST] [ERROR] lexer repair failed for {}'.format(filepath))
+                        self.pre_result[filepath]['parse_status'] = 'repair_failed'
                         continue
 
                     # repair 成功后，尝试用修复后的代码重新解析
                     if repaired_code_content == code_content:
                         logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        self.pre_result[filepath]['parse_status'] = 'repair_noop'
                         continue
 
                     try:
@@ -294,14 +391,18 @@ class Pretreatment:
                         all_nodes = parser.parse(repaired_code_content, debug=False, lexer=lexer.clone(), tracking=True)
                         logger.warning('[AST] [INFO] parser {} fallback with callable-variable repair'.format(filepath))
                         self.pre_result[filepath]['ast_nodes'] = all_nodes
+                        self.pre_result[filepath]['parse_status'] = 'ok_repaired'
                     except AssertionError:
                         logger.warning('[AST] [ERROR] parser {}: {}'.format(filepath, traceback.format_exc()))
+                        self.pre_result[filepath]['parse_status'] = 'assertion_error'
                         continue
                     except Exception:
                         logger.warning('[AST] [ERROR] parser {} SyntaxError'.format(filepath))
+                        self.pre_result[filepath]['parse_status'] = 'syntax_error_after_repair'
                         continue
                     except:
                         logger.warning('[AST] something error, {}'.format(traceback.format_exc()))
+                        self.pre_result[filepath]['parse_status'] = 'unknown_error'
                         continue
 
                     # 搜索所有的常量
@@ -446,6 +547,57 @@ class Pretreatment:
                     # tmp.js save all inline javascript code
                     tmp_path = os.path.join(os.path.dirname(filepath), "tmp.js")
                     fi2 = codecs.open(tmp_path, "a", encoding='utf-8', errors='ignore')
+
+                    # Fix 49: Vue SFC — extract <script> block verbatim and
+                    # synthesize `.innerHTML = EXPR;` statements from template
+                    # `v-html="EXPR"` directives so CVI_3005 (innerHTML sink)
+                    # can flag stored-XSS via v-html (CVE-2026-116554:
+                    # argilla SettingsInfo.vue:10 v-html="settings.dataset.name").
+                    if filepath.endswith(".vue"):
+                        try:
+                            # Fix 49g: 零正则的 .vue 拆解 —— SFC 不是 JS,
+                            # 用 BeautifulSoup 解析模板结构(script 块 + 任意
+                            # 标签的 v-html 属性),props 用 esprima AST 提取。
+                            # 正则仅允许用于 sink 定位后的行级匹配,不用于
+                            # 内容解析(单/双引号、多行属性、嵌套块都会漏)。
+                            _vsoup = BeautifulSoup(code_content, "html.parser")
+                            _vscript = "\n".join(
+                                t.string or "" for t in _vsoup.find_all("script"))
+                            if _vscript.strip():
+                                fi2.write(" \n{}\n ".format(_vscript))
+                            # Fix 49c/49g: Vue 组件 props 是父级传入的外部数据,
+                            # 等价于函数形参(组件实例化时由外部填充)。AST 提取
+                            # props 名注入 __vue_props__ 标记调用,由
+                            # source_discovery 登记为该文件的源变量。
+                            _pnames = _vue_props_from_script(_vscript)
+                            if _pnames:
+                                fi2.write(" \n__vue_props__({});\n ".format(
+                                    ", ".join(_pnames)))
+                            for _tag in _vsoup.find_all(True):
+                                for _an, _av in _tag.attrs.items():
+                                    if _an.lower() == "v-html":
+                                        _expr = _av if isinstance(_av, str) \
+                                            else " ".join(_av)
+                                        fi2.write(
+                                            " \n__vue_vhtml__.innerHTML = {};\n ".format(_expr))
+                            fi2.close()
+                            if tmp_path not in script_list:
+                                script_list.append(tmp_path)
+                            self.target_queue.put(('.js', {'count': len(script_list), 'list': script_list}))
+                            self.file_list.append(('.js', {'count': len(script_list), 'list': script_list}))
+                        except:
+                            logger.warning('[AST][Vue] something error, {}'.format(traceback.format_exc()))
+                        finally:
+                            # Fix 49-v2: .vue 处理完毕后必须跳过下方 html 通用逻辑,
+                            # 否则 fi2 已关闭仍会被 html 分支再次 write →
+                            # ValueError: write to closed file → asyncio.gather 崩,
+                            # pre_result 全体残缺(9 轮扫描 0 源的根因)。
+                            try:
+                                if not fi2.closed:
+                                    fi2.close()
+                            except Exception:
+                                pass
+                        continue
 
                     try:
                         soup = BeautifulSoup(code_content, "html.parser")
@@ -667,6 +819,17 @@ class Pretreatment:
                     self.pre_result[filepath]['language'] = 'java'
                     self.pre_result[filepath]['ast_nodes'] = []
 
+                    # Fix 62: .xml is collected with the java family (pom.xml /
+                    # web.xml are project-structure files, original Kunlun
+                    # design), but it is NOT Java source — feeding it to
+                    # javalang only produced JavaSyntaxError noise that dented
+                    # parse-coverage stats (ureport anchor: 197/198). Keep the
+                    # file registered (rules like component detection still see
+                    # it), skip AST parsing.
+                    if filepath.endswith('.xml'):
+                        self.pre_result[filepath]['parse_status'] = 'file_only'
+                        continue
+
                     try:
                         fi = codecs.open(filepath, "r", encoding="utf-8", errors="ignore")
                         code_content = fi.read()
@@ -804,7 +967,11 @@ class Pretreatment:
                             try:
                                 import tree_sitter_typescript as tsts
                                 from tree_sitter import Language, Parser
-                                TS_LANG = Language(tsts.language_typescript())
+                                # Fix 50: TSX 语法是 TS 的超集 — language_tsx()
+                                # 同时正确解析 .ts 与 .tsx(含 JSX 节点)。
+                                # 旧 language_typescript() 对 .tsx 整树 ERROR,
+                                # React 组件(GenericBody.tsx 等)完全不可见。
+                                TS_LANG = Language(tsts.language_tsx())
                                 ts_parser = Parser(TS_LANG)
                                 tree = ts_parser.parse(bytes(code_content, 'utf8'))
                                 self.pre_result[filepath]['ast_nodes'] = tree

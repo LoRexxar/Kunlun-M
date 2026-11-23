@@ -40,6 +40,10 @@ class SourceRegistry:
         self.source_members = set()
         # 用户自定义 source producer 函数名 → SourceInfo
         self.user_source_functions = {}
+        # Fix 85 (CVE-2026-44566 Open WebUI): 检测到的框架名（None=未检测）。
+        # knowledge_bridge._enrich_fastapi_upload_params 以此为语义门：
+        # 显式检测到其他框架时不再把 UploadFile 注解参数当 FastAPI 源。
+        self.framework: "str | None" = None
 
     def add_source_member(self, name):
         """注册一个 source 变量/属性"""
@@ -109,6 +113,19 @@ _BUILTIN_SOURCE_MEMBERS = {
     # NOTE: 'input', 'sys.argv', 'os.environ' removed — CLI-only
     # sources that cause FP in web scans. Environment variables are
     # server-side config, not HTTP-client controllable.
+    # Fix 72 (CVE-2026-109830 Siemens meta-iot2050): config-FILE read
+    # sources.  Distinct threat model from env vars: the config file is a
+    # trusted-boundary artifact (device/app settings); an attacker who can
+    # manipulate it (local write, MITM'd provisioning, synced volume) makes
+    # the service execute attacker strings.  board-bootup-conf.py:
+    # json.load(open(cfg)) → getExternalDB9InitMode() → subprocess.call(
+    # "switchserialmode -m " + initMode, shell=True).  Registered as call-form
+    # members — matched by _node_contains_source(ast.Call) on the callee
+    # string, so only the PARSE call taints, not every file open.
+    'json.load',
+    'json.loads',
+    'yaml.load',
+    'yaml.safe_load',
 }
 
 # ---------------------------------------------------------------------------
@@ -197,6 +214,88 @@ _FRAMEWORK_REQUEST_PARAMS = {
 # ---------------------------------------------------------------------------
 # 框架检测
 # ---------------------------------------------------------------------------
+
+# Fix 134 (CVE-2026-64849 MLflow): app-level source overlay.  Framework
+# detection is SINGLE-select (first detect_packages substring wins) and a
+# real app's markers name its web framework first (mlflow's pyproject
+# contains 'flask'), so app-scoped second-order sources need their own
+# ADDITIVE layer — the python analog of the php tamper framework stack,
+# where multiple marker-scoped knowledge packs coexist.
+_APP_SOURCE_CONFIGS = {
+    'mlflow': {
+        'detect_files': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+        'detect_packages': ['mlflow'],
+        'source_members': {
+            # webhook url is STORED user input: handlers._create_webhook
+            # persists request_message.url via the ORM store; get_webhook
+            # reads the row back and delivery.py session.post(webhook.url)
+            # fetches it (SSRF, CVE-2026-64849 / GHSA-7gwp-5pfp-969j).
+            # Second-order ORM read source — the Fix 114a (Phreezer ORM
+            # Get) doctrine, marker-scoped to mlflow.
+            'store.get_webhook',
+        },
+    },
+    # Fix 142a (CVE-2026-104126 JumpServer <=4.10.16): second-order ORM
+    # attribute sources for the bastion-host asset/account/gateway models.
+    # These fields are STORED user input (org users create/patch assets,
+    # accounts and gateways through the REST API); the Ansible automation
+    # pipeline reads the rows back (JMSInventory over
+    # Asset.objects.filter(...) / gateway relations) and renders them into
+    # the task inventory file that ansible/ssh evaluate — unescaped
+    # ``{{ }}`` template expressions invoke Ansible lookups and unquoted
+    # f-string values break out of the ssh ProxyCommand string
+    # (inventory.py make_proxy_command / make_account_vars, fixed by
+    # cc57ba0de5f6 with escape_ansible_jinja + shlex.quote).
+    # Marker: pyproject name = "jumpserver". Fix 114a doctrine,
+    # marker-scoped — a non-JumpServer scan never sees these members.
+    'jumpserver': {
+        'detect_files': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+        'detect_packages': ['jumpserver'],
+        'source_members': {
+            # Gateway row fields (ProxyCommand injection chain)
+            'gateway.username',
+            'gateway.address',
+            'gateway.password',
+            'gateway.port',
+            'gateway.private_key',
+            # Asset row fields (inventory ansible_host / jms_asset)
+            'asset.address',
+            # Account row fields (ansible_user / ansible_password /
+            # become vars)
+            'account.secret',
+            'account.username',
+            'account.full_username',
+        },
+    },
+}
+
+
+def _config_files_contain(project_dir, detect_files, detect_packages):
+    """Marker check: walk up <=5 levels, substring-match any package name
+    inside the given config files (same read semantics as
+    detect_framework, factored out for the app overlay)."""
+    search_dir = project_dir
+    for _ in range(5):
+        if not search_dir or search_dir == '/':
+            break
+        for fname in detect_files:
+            fpath = os.path.join(search_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read().lower()
+                for pkg in detect_packages:
+                    if pkg in content:
+                        return True
+            except Exception:
+                pass
+        parent = os.path.dirname(search_dir)
+        if parent == search_dir:
+            break
+        search_dir = parent
+    return False
+
 
 def detect_framework(project_dir):
     """从 requirements.txt / setup.py / pyproject.toml 检测 Web 框架
@@ -382,6 +481,7 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
 
     # 2. 检测框架
     framework = detect_framework(project_dir)
+    registry.framework = framework
     if framework and framework in _FRAMEWORK_CONFIGS:
         fw_config = _FRAMEWORK_CONFIGS[framework]
         for sm in fw_config['source_members']:
@@ -389,6 +489,15 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
         logger.debug('[SourceDiscovery] Detected framework: {}'.format(framework))
     else:
         logger.debug('[SourceDiscovery] No Python framework detected')
+
+    # 2b. Fix 134 (CVE-2026-64849): app-level source overlay (additive,
+    #     marker-scoped — independent of the single-select framework above)
+    for app_name, app_cfg in _APP_SOURCE_CONFIGS.items():
+        if _config_files_contain(project_dir, app_cfg.get('detect_files', ()),
+                                 app_cfg.get('detect_packages', ())):
+            for sm in app_cfg['source_members']:
+                registry.add_source_member(sm)
+            logger.debug('[SourceDiscovery] App source overlay: {}'.format(app_name))
 
     # 3. 遍历 AST 发现用户自定义 source producer
     if tree and hasattr(tree, 'body'):

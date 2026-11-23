@@ -1,0 +1,6 @@
+{
+    "name": "openemr/openemr",
+    "description": "OpenEMR CVE-2026-126489 repro marker (framework detection)",
+    "type": "project",
+    "require": {}
+}

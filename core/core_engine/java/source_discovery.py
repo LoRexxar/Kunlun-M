@@ -59,6 +59,15 @@ _BUILTIN_SOURCE_MEMBERS = frozenset({
 # 内置 source producer 函数（方法名匹配）
 _BUILTIN_SOURCE_PRODUCERS = {}
 
+# 仅限定名匹配的内置 source producer（不做短名回退）。
+# 语义：HTTP/RPC 客户端同步调用返回的响应体 = 外部输入（第二阶污点，
+# 如 Spinnaker echo 从 front50 取用户可编辑的 pipeline 配置评估 SpEL，
+# CVE-2026-32613）。短名（如 execute）过于通用——ExecutorService.execute
+# 等随处可见——故只认 Class.method 全名，杜绝误染。
+_BUILTIN_QUALIFIED_SOURCE_PRODUCERS: dict = {
+    "Retrofit2SyncCall.execute": "Retrofit sync HTTP response body",
+}
+
 
 # ---------------------------------------------------------------------------
 # SourceInfo — 描述一个 source 的元信息
@@ -99,6 +108,31 @@ class SourceRegistry:
         if source_info:
             self.source_producers[name] = source_info
 
+    def is_source_member(self, name):
+        """Fix 80d (CVE-2026-32613): member-form source query.
+
+        之前只有 PHP/JS registry 实现了 is_source_member；knowledge_bridge
+        的 Fix 79 typed-receiver 源查询（`Pipeline.getExpectedArtifacts`）
+        与 analyzer 的 _is_source_variable 都用 hasattr 门控访问该方法 —
+        Java registry 缺方法 = 整条框架 getter 源静默不上图（跨语言接口
+        陷阱，Fix 61 判例同族）。
+
+        语义：精确匹配 + JS 风格前缀匹配（process.env.USER 命中
+        process.env）。Java 内置成员全为限定名（HttpServletRequest.
+        getParameter / Pipeline.getExpectedArtifacts），变量形式调用名
+        （request.getParameter / inputPipeline.getExpectedArtifacts）不会
+        误命中 — call-form 的 receiver 门控仍由 is_source_producer 与
+        graph_analyzer Direction 1/2 负责。
+        """
+        if not name:
+            return False
+        if name in self.source_members:
+            return True
+        for m in self.source_members:
+            if name.startswith(m + '.'):
+                return True
+        return False
+
     def add_framework_method(self, qualifier, member, source_info):
         """添加框架方法（如 request -> input 映射）"""
         self.framework_request_methods[(qualifier, member)] = source_info
@@ -134,6 +168,12 @@ class SourceRegistry:
         for full_name, origin in _BUILTIN_SOURCE_PRODUCERS.items():
             if func_name == full_name or short == full_name.split(".")[-1]:
                 return SourceInfo(type='builtin', name=full_name, origin=origin)
+        # 仅限定名匹配的 builtin producers（无短名回退）：
+        # Retrofit2SyncCall.execute 等通用短名(execute)不得误染
+        if "." in func_name:
+            for full_name, origin in _BUILTIN_QUALIFIED_SOURCE_PRODUCERS.items():
+                if func_name == full_name:
+                    return SourceInfo(type='builtin', name=full_name, origin=origin)
         return None
 
     def get_all_source_names(self):
@@ -145,6 +185,7 @@ class SourceRegistry:
             names.add(f"{qual}.{mem}")
         for full_name in _BUILTIN_SOURCE_PRODUCERS:
             names.add(full_name)
+        names.update(_BUILTIN_QUALIFIED_SOURCE_PRODUCERS)
         return list(names)
 
     def is_framework_request_method(self, qualifier, member):
@@ -162,6 +203,22 @@ class SourceRegistry:
 # 框架检测 — 解析 pom.xml / build.gradle
 # ---------------------------------------------------------------------------
 _FRAMEWORK_CONFIGS = {
+    # Fix 79 (CVE-2026-32613, Spinnaker echo SpEL RCE): pipelines are
+    # user-authored via the Front50 API and fan out to echo; the expected
+    # artifacts a pipeline declares carry ${SpEL} that echo evaluates with
+    # an unrestricted StandardEvaluationContext.  Registered as a
+    # TYPE-qualified source member so only the real in-corpus
+    # Pipeline.getExpectedArtifacts definition is marked source (bare-name
+    # matching would FP on unrelated getters).
+    'spinnaker': {
+        'detect_packages': [
+            'io.spinnaker.kork', 'spinnaker-kork', 'kork-bom',
+            'kork-expressions', 'io.spinnaker.echo', 'spinnaker-echo',
+        ],
+        'source_members': {
+            'Pipeline.getExpectedArtifacts',
+        },
+    },
     'spring': {
         'detect_packages': [
             'spring-boot-starter-web', 'spring-webmvc',
@@ -205,16 +262,34 @@ _FRAMEWORK_CONFIGS = {
 }
 
 
+# Fix 79b (CVE-2026-32613): framework detection walk-up cache.  Java
+# packages are routinely 8+ directories deep (com/netflix/spinnaker/echo/
+# pipelinetriggers/postprocessors), so the old 5-level cap could never
+# reach the build.gradle at the repo root — every deep file got
+# framework=None.  Per-dir caching keeps the now-unbounded walk cheap.
+_FRAMEWORK_DETECT_CACHE: dict = {}
+
+
 def _detect_framework(project_dir):
     """
     向上遍历目录，查找 pom.xml / build.gradle 检测 Java 框架。
+
+    Fix 79b (CVE-2026-32613): walk-up is UNBOUNDED (real-world Java
+    packages sit 8+ levels below the repo root) with a per-dir cache.
+    A build file whose deps match no known framework is TRANSPARENT —
+    the walk continues to the parent (monorepo nesting: submodule
+    markers sit below the aggregator marker).
     返回 (framework_name, detected_packages) 或 (None, [])
     """
-    detect_dir = project_dir
-    for _ in range(5):
-        if not detect_dir or detect_dir == '/':
-            break
+    if not project_dir:
+        return None, []
+    start = os.path.abspath(project_dir)
+    if start in _FRAMEWORK_DETECT_CACHE:
+        return _FRAMEWORK_DETECT_CACHE[start]
 
+    path_walked = [start]
+    detect_dir = start
+    while True:
         pom_xml = os.path.join(detect_dir, 'pom.xml')
         build_gradle = os.path.join(detect_dir, 'build.gradle')
         build_gradle_kts = os.path.join(detect_dir, 'build.gradle.kts')
@@ -233,7 +308,11 @@ def _detect_framework(project_dir):
                     artifact = dep.find(f'{ns}artifactId')
                     if artifact is not None and artifact.text:
                         found.append(artifact.text.strip())
-                return _match_framework(found)
+                matched, _ = _match_framework(found)
+                if matched:
+                    for d in path_walked:
+                        _FRAMEWORK_DETECT_CACHE[d] = (matched, found)
+                    return matched, found
             except Exception:
                 pass
 
@@ -245,11 +324,19 @@ def _detect_framework(project_dir):
                         content = f.read()
                     found = _parse_gradle_deps(content)
                     if found:
-                        return _match_framework(found)
+                        matched, _ = _match_framework(found)
+                        if matched:
+                            for d in path_walked:
+                                _FRAMEWORK_DETECT_CACHE[d] = (matched, found)
+                            return matched, found
                 except Exception:
                     pass
 
-        detect_dir = os.path.dirname(detect_dir)
+        parent = os.path.dirname(detect_dir)
+        if parent == detect_dir:
+            break
+        detect_dir = parent
+        path_walked.append(detect_dir)
 
     # 未找到构建文件，但目录结构暗示
     # 检查是否是标准的 Maven/Gradle 项目结构
@@ -257,6 +344,8 @@ def _detect_framework(project_dir):
     if os.path.isdir(src_main):
         return 'servlet', []
 
+    for d in path_walked:
+        _FRAMEWORK_DETECT_CACHE[d] = (None, [])
     return None, []
 
 
@@ -267,6 +356,18 @@ def _parse_gradle_deps(content):
     pattern = r"(?:implementation|compile|api|runtimeOnly|compileOnly)\s*\(?['\"]([^'\"]+)['\"]\)?"
     for m in re.finditer(pattern, content):
         deps.append(m.group(1))
+    # Fix 79 (CVE-2026-32613): BOM/platform form —
+    # `implementation enforcedPlatform("io.spinnaker.kork:kork-bom:$v")`
+    # wraps the coordinate in enforcedPlatform(...)/platform(...) which the
+    # plain pattern above misses.
+    pattern_platform = (
+        r"(?:implementation|compile|api|runtimeOnly|compileOnly|annotationProcessor)"
+        r"\s+(?:enforcedPlatform\(|platform\()?['\"]([^'\"]+)['\"]"
+    )
+    for m in re.finditer(pattern_platform, content):
+        dep = m.group(1)
+        if dep not in deps:
+            deps.append(dep)
     # 匹配 project(":xxx") 形式的模块依赖
     for m in re.finditer(r"(?:implementation|compile|api)\s*(?:\(?\s*)project\s*\(\s*['\"]?:([^'\"]+)['\"]?", content):
         deps.append(m.group(1))
@@ -479,4 +580,48 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
             registry.source_members.add(src)
 
     logger.debug('[AST][Java] Source Discovery: {}'.format(registry))
+    return registry
+
+
+def discover_project_sources(project_dir, controlled_list=None):
+    """Fix 79c (CVE-2026-32613): monorepo-aware source registry for
+    graph-level enrich.
+
+    ``discover_sources(project_dir, None)`` only walks UP from
+    ``project_dir`` — for a scan root that SITS ABOVE nested projects
+    (spinnaker monorepo: root -> echo-git/ + kork/, each with its own
+    build.gradle), the walk-up finds nothing and the whole scan loses
+    every framework source.  Union the frameworks of ALL build markers
+    found UNDER ``project_dir`` into the walk-up registry.  One bounded
+    os.walk at enrich time; heavy dirs pruned.
+    """
+    registry = discover_sources(project_dir, None, controlled_list=controlled_list)
+    try:
+        found_frameworks = set()
+        for root, dirs, files in os.walk(project_dir):
+            dirs[:] = [d for d in dirs if d not in (
+                '.git', '.hg', 'node_modules', 'build', 'target',
+                'dist', 'out', '.gradle', '__pycache__')]
+            if not any(m in files for m in ('pom.xml', 'build.gradle', 'build.gradle.kts')):
+                continue
+            fw, _deps = _detect_framework(root)
+            if fw:
+                found_frameworks.add(fw)
+        for fw in sorted(found_frameworks):
+            if fw == registry.framework:
+                continue
+            config = _FRAMEWORK_CONFIGS.get(fw, {})
+            for member in config.get('source_members', set()):
+                if isinstance(member, set):
+                    registry.source_members.update(member)
+                else:
+                    registry.add_source_member(member, SourceInfo(
+                        type='framework', name=member, framework=fw,
+                        origin=f'Java {fw.title()}'
+                    ))
+        if found_frameworks:
+            logger.debug('[AST][Java] Project-wide frameworks under {}: {}'.format(
+                project_dir, sorted(found_frameworks)))
+    except Exception as e:
+        logger.debug('[AST][Java] discover_project_sources failed: {}'.format(e))
     return registry
