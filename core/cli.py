@@ -188,7 +188,10 @@ def display_result(scan_id, is_ask=False):
 
             logger.info("[Chain] Vul {}".format(sr.id))
             for tc in chains:
-                logger.info("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
+                # Per-node chain lines are the dominant log-volume source (osticket anchor:
+                # ~2.3M lines / 300MB per task log). Keep them at DEBUG; set
+                # KUNLUN_LOG_LEVEL=DEBUG to re-enable for triage (see utils/log.py).
+                logger.debug("[Chain] {}, {}, {}:{}".format(tc.node_label, tc.node_name, tc.file_path, tc.lineno))
 
                 try:
                     if author == 'SCA':
