@@ -504,6 +504,33 @@ EXPECTATIONS = {
     # 21072.  The controller.php:851 echo row is a documented FP
     # (SugarCleaner::stripTags conditional sanitizer at source, not frozen).
     'sugar_file_utils.php': {'1017': 6},
+    # CVE-2026-100365 (SuiteCRM <7.15.2 AOR Reports): second-order ORDER BY
+    # SQLi — stored aor_fields rows loaded via the SugarBean mutator
+    # (`$field = BeanFactory::newBean('AOR_Fields'); $field->retrieve(
+    # $field_id)`), property reads splice into SQL.  GT = AOR_Report.php
+    # build_group_report: label -> str_replace-only "sanitize" (:500) ->
+    # $query_array['sort_by'][] (:501) -> foreach concat (:571-574) ->
+    # $this->db->query($query) (:577, row 21203); upstream fix adds
+    # preg_replace('/[^A-Za-z0-9_]/') on the label + field_defs validation
+    # (7.15.2 d6bca97).  Fix 146a: DBManager instance sinks (->query/
+    # ->limitQuery/->getOne) + quote/quoteIdentifier repair functions
+    # (rules/tamper/php/suitecrm.py).  Fix 146b: suitecrm FRAMEWORK_CONFIGS
+    # line (composer name + suitecrm_version.php fingerprint) with
+    # orm_mutator_methods {retrieve, retrieve_by_string_fields}.  Fix 146c:
+    # graph_analyzer _mutator_loaded_bean — receiver-variable property
+    # reads after an in-file ->retrieve() call are second-order sources
+    # ($this receivers excluded; probe-verified: $safe_label@501 code=1
+    # chain root dfg $field.label, container read-back $query_sort_by@573
+    # code=1, sink :577 code=1).  The 9 sibling 1006 rows (:254/:393/:656/
+    # :791/:793/:1090/:1428x3) are the same mutator family — other
+    # db->query sites consuming build_report_query-assembled SQL (field/
+    # module_path derived), hardened by the same commit's field_defs
+    # validation.  The 9 CVI_1015 unserialize rows are NOT frozen:
+    # unserialize(base64_decode($field->module_path), ['allowed_classes'
+    # => false]) mitigates object injection.  Corpus proof task 7285
+    # (byte-faithful 5-file focus @7.15.1, GT row 21149); repro subdir
+    # scan task 7286 rows 21198-21216.
+    'AOR_Report.php': {'1006': 10},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

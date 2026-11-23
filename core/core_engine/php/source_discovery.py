@@ -85,6 +85,14 @@ class SourceRegistry:
     # config key 'member_scope'.  See _resolve_member_scope.
     _member_scope: Dict[str, frozenset] = field(default_factory=dict)
 
+    # Fix 146c (CVE-2026-100365): ORM mutator method names (SugarCRM-style
+    # `$bean->retrieve($id)`).  Populated from the framework config key
+    # 'orm_mutator_methods'.  Unlike orm_fetch (return-value form), a
+    # mutator writes the DB row INTO the receiver object's properties —
+    # subsequent `$bean->prop` reads are second-order sources.  Consumed
+    # by graph_analyzer's member-chain walk, NOT by is_source_member.
+    orm_mutator_methods: Set[str] = field(default_factory=set)
+
     def is_source_variable(self, name: str) -> bool:
         """Check if a variable name is a known source (superglobal)."""
         return name in self.builtin_sources
@@ -259,6 +267,12 @@ class SourceRegistry:
             for sm, scopes in config.get('member_scope', {}).items()
         }
 
+        # Fix 146c (CVE-2026-100365): ORM mutator receiver methods —
+        # `$bean->retrieve($id)` loads the DB row into the receiver's
+        # properties; member reads on that receiver become second-order
+        # sources (graph_analyzer member-chain walk).
+        self.orm_mutator_methods = set(config.get('orm_mutator_methods', set()))
+
         # Fix 67: symfony 1.x form proxy — the form object is bound to
         # request params ($form->bind($request->getParameter(...))), so
         # field reads are user-input-backed: $form['field'] (base[] form)
@@ -428,6 +442,34 @@ FRAMEWORK_CONFIGS = {
             'xlt', 'xla', 'xlj',
         },
     },
+    'suitecrm': {
+        # Fix 146b (CVE-2026-100365): SuiteCRM 7.x (SugarCRM lineage) —
+        # second-order SQLi via AOR report engine.  Stored report field
+        # labels (aor_fields.label, admin/user-editable via the report
+        # editor) are loaded back with `$field = BeanFactory::newBean(
+        # 'AOR_Fields'); $field->retrieve($field_id);` and the property
+        # reads (`$field->label`) splice into ORDER BY without an
+        # identifier whitelist (AOR_Report.php:501 pre-7.15.2; upstream
+        # fix adds preg_replace('/[^A-Za-z0-9_]/')).
+        #
+        # Mutator form source: SugarBean::retrieve() (data/SugarBean.php
+        # @ 7.15.1:4579) returns $this AFTER populateFromRow($row) has
+        # copied the DB row into the receiver's properties — so the
+        # RECEIVER, not the (usually discarded) return value, carries the
+        # second-order data.  Registered via orm_mutator_methods and
+        # consumed by graph_analyzer's member-chain walk (Fix 146c).
+        # retrieve_by_string_fields (SugarBean.php:5817) is the same
+        # populateFromRow mutator keyed on arbitrary column matches.
+        #
+        # No request_object_names / global_source_functions: SuiteCRM
+        # reads user input through bare $_REQUEST/$_POST superglobals
+        # (already native sources); the only framework-specific source
+        # semantics here is the ORM mutator.
+        'request_object_names': set(),
+        'request_methods': set(),
+        'global_source_functions': set(),
+        'orm_mutator_methods': {'retrieve', 'retrieve_by_string_fields'},
+    },
     'cakephp': {
         # Fix 119a (CVE-2026-44381): CakePHP 2.x (MISP et al.) —
         # CakeRequest instance receivers: $request->query('x') /
@@ -512,6 +554,12 @@ def detect_framework(project_dir: str) -> Optional[str]:
             if data.get('name') == 'openemr/openemr':
                 return 'openemr'
 
+            # Fix 146b (CVE-2026-100365): SuiteCRM — project-type composer.json
+            # (name: suitecrm/suitecrm).  Same ordering rationale as OpenEMR:
+            # must precede the dependency loop (symfony/* tooling deps).
+            if data.get('name') == 'suitecrm/suitecrm':
+                return 'suitecrm'
+
             # Fix 119a (CVE-2026-44381): CakePHP — before symfony/*: cake
             # apps commonly pull symfony/console etc. as build tooling.
             if any(dep == 'cakephp/cakephp' or dep.startswith('cakephp/')
@@ -567,6 +615,11 @@ def detect_framework(project_dir: str) -> Optional[str]:
     if (os.path.isfile(os.path.join(project_dir, 'library', 'sql.inc.php'))
             and os.path.isdir(os.path.join(project_dir, 'interface'))):
         return 'openemr'
+    # Fix 146b (CVE-2026-100365): SuiteCRM — suitecrm_version.php is a
+    # SuiteCRM-only fingerprint (SugarCRM apps carry sugar_version.php).
+    if (os.path.isfile(os.path.join(project_dir, 'suitecrm_version.php'))
+            and os.path.isdir(os.path.join(project_dir, 'modules'))):
+        return 'suitecrm'
     # Fix 67: symfony 1.x (1.4-era) — vendored framework tree inside the
     # project (qdPM: core/lib/symfony; classic apps: lib/symfony)
     for _sf in (('core', 'lib', 'vendor', 'symfony'), ('core', 'lib', 'symfony'),

@@ -10739,6 +10739,61 @@ class GraphAnalyzer:
         except Exception:
             return False
 
+    def _mutator_loaded_bean(self, vid: int, name: str) -> bool:
+        """Fix 146c (CVE-2026-100365): ORM mutator receiver taint.
+
+        Under a framework registering orm_mutator_methods (SuiteCRM
+        SugarBean::retrieve), a local bean variable that calls a mutator
+        (``$field->retrieve($field_id)``) has the DB row copied INTO its
+        properties (populateFromRow) — every subsequent property read on
+        the same variable is second-order DB-stored data.
+
+        Precision: same-name identifier occurrences within the SAME FILE
+        (the _nname index walk, same approximation as Fix 49d-v2).  The
+        receiver must literally call ->retrieve() somewhere in the file,
+        so unrelated locals never qualify.
+
+        ``$this`` receivers are excluded: SugarBean.php itself calls
+        ``$this->retrieve($row['id'])`` (:4549 @ 7.15.1) and marking
+        ``$this`` loaded would taint every class-internal property read
+        (table_name / field_defs / db handle) inside the 6k-line bean
+        base class — the loaded row is consumed by retrieve() *callers*,
+        not by the class's own internals.
+        """
+        try:
+            reg = self._source_registry
+            if reg is None:
+                return False
+            muts = getattr(reg, 'orm_mutator_methods', None)
+            if not muts:
+                return False
+            if not name or name.lstrip('$') in ('this', ''):
+                return False
+            cache = getattr(self, "_mlb_cache", None)
+            if cache is None:
+                cache = {}
+                self._mlb_cache = cache
+            key = (vid, name)
+            if key in cache:
+                return cache[key]
+            fp = _vattr(self.graph.vs[vid], "file_path", "")
+            found = False
+            if fp:
+                for ov_vid in self._nname.get((NodeLabel.IDENTIFIER.value, name), []):
+                    ov = self.graph.vs[ov_vid]
+                    if _vattr(ov, "file_path", "") != fp:
+                        continue
+                    for e in self._edge_out(ov_vid, "member"):
+                        if _vattr(self.graph.vs[e.target], "name", "") in muts:
+                            found = True
+                            break
+                    if found:
+                        break
+            cache[key] = found
+            return found
+        except Exception:
+            return False
+
     def _is_source_via_member_chain(self, vid: int, name: str) -> str | None:
         """从节点沿 incoming member 边重建组合名，
         检查 source_registry / superglobals。
@@ -10799,6 +10854,13 @@ class GraphAnalyzer:
                 # If so, it selects a predefined value — not a data source.
                 if self._is_subscript_key_of_non_superglobal(parent_vid):
                     continue
+                return chain
+            # Fix 146c (CVE-2026-100365): ORM mutator receiver — the chain
+            # root is a bean variable that called ->retrieve() somewhere in
+            # this file (SugarBean mutator loads the DB row into the
+            # object's properties), so every property read under it is
+            # second-order DB-stored data.
+            if self._mutator_loaded_bean(parent_vid, parent_name):
                 return chain
             cur_vid = parent_vid
 

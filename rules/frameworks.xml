@@ -12,6 +12,11 @@
         <file value="interface/super/edit_layout.php"/>
         <folder value="interface/main"/>
     </framework>
+    <!-- Fix 146 (CVE-2026-100365): SuiteCRM — app tree markers -->
+    <framework name="SuiteCRM" language="php" code="https://github.com/salesagility/SuiteCRM">
+        <file value="suitecrm_version.php"/>
+        <folder value="modules/AOR_Reports"/>
+    </framework>
     <!-- Fix 119a (CVE-2026-44381): CakePHP 2.x — classic skeleton, MISP-style
          vendored submodule, bare app tree -->
     <framework name="CakePHP" language="php" code="https://github.com/cakephp/cakephp">
