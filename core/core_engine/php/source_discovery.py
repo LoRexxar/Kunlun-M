@@ -93,6 +93,32 @@ class SourceRegistry:
     # by graph_analyzer's member-chain walk, NOT by is_source_member.
     orm_mutator_methods: Set[str] = field(default_factory=set)
 
+    # Fix 149b (CVE-2026-63214): RPC entry-method classes (lowercase,
+    # PREFIX-matched).  Legacy REST/SOAP stacks (SugarCRM lineage) build
+    # one service object and dispatch every call through
+    # `$this->implementation->{$method}(...array_values($json_payload))`
+    # (service/core/REST/SugarRestJSON.php @ SuiteCRM 7.15.1:100) — a
+    # tainted-method-name dynamic dispatch the CG can never resolve
+    # (receiver built via `new $implementationClass()` from a string).
+    # Semantics: every PUBLIC method of a registered class (and its
+    # subclasses, via prefix) is an RPC endpoint whose parameters carry
+    # network input — entry-param sources, mirroring Java Fix 135a
+    # callback-interface params.  Consumed by graph_analyzer's
+    # entry-parameter guard, NOT by is_source_member.
+    rpc_entry_classes: Set[str] = field(default_factory=set)
+
+    def is_rpc_entry_class(self, class_name: str) -> bool:
+        """Fix 149b: does this (bare) class name belong to a registered
+        RPC entry-method family?  Prefix match so versioned subclasses
+        (SugarWebServiceImplv4_1 under sugarwebserviceimpl) inherit the
+        endpoint semantics.  Defensive no-op for non-PHP registries
+        missing the field (cross-language interface rule)."""
+        pool = getattr(self, 'rpc_entry_classes', None)
+        if not pool or not class_name:
+            return False
+        cn = class_name.lstrip('\\').lower()
+        return any(cn == p or cn.startswith(p) for p in pool)
+
     def is_source_variable(self, name: str) -> bool:
         """Check if a variable name is a known source (superglobal)."""
         return name in self.builtin_sources
@@ -272,6 +298,11 @@ class SourceRegistry:
         # properties; member reads on that receiver become second-order
         # sources (graph_analyzer member-chain walk).
         self.orm_mutator_methods = set(config.get('orm_mutator_methods', set()))
+
+        # Fix 149b (CVE-2026-63214): RPC entry-method classes — public
+        # methods of these classes receive network input via the legacy
+        # REST/SOAP dispatch (graph_analyzer entry-param guard).
+        self.rpc_entry_classes = set(config.get('rpc_entry_classes', set()))
 
         # Fix 67: symfony 1.x form proxy — the form object is bound to
         # request params ($form->bind($request->getParameter(...))), so
@@ -469,6 +500,14 @@ FRAMEWORK_CONFIGS = {
         'request_methods': set(),
         'global_source_functions': set(),
         'orm_mutator_methods': {'retrieve', 'retrieve_by_string_fields'},
+        # Fix 149b (CVE-2026-63214): legacy REST/SOAP RPC entry classes.
+        # service/core/webservice.php instantiates SugarWebServiceImplv4_1
+        # (via registerImplClass) and SugarRestJSON::serve dispatches
+        # `$this->implementation->{$_REQUEST['method']}(...$data)` with the
+        # JSON-decoded $_REQUEST['rest_data'] payload — every public method
+        # of the SugarWebServiceImpl family (core + v2..v4_1 subclasses,
+        # prefix-matched) is a network-facing endpoint.
+        'rpc_entry_classes': {'sugarwebserviceimpl'},
     },
     'cakephp': {
         # Fix 119a (CVE-2026-44381): CakePHP 2.x (MISP et al.) —

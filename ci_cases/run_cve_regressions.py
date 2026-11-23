@@ -530,7 +530,15 @@ EXPECTATIONS = {
     # => false]) mitigates object injection.  Corpus proof task 7285
     # (byte-faithful 5-file focus @7.15.1, GT row 21149); repro subdir
     # scan task 7286 rows 21198-21216.
-    'AOR_Report.php': {'1006': 10},
+    # 1006 count 10 -> 7 (Fix 149c, CVE-2026-63214 battle): the three
+    # ":1428x3 join rows" were PHANTOM sinks — the whole-string dynamic-
+    # dispatch test expanded `$module->$name->getJoin($params, true)` into
+    # query/limitQuery/getOne sink names parked on the getJoin line
+    # (no db->query exists at :1428 in source; A/B probe on graph task7394:
+    # HEAD analyzer reports :1428 query/limitquery/getone all code=1,
+    # 149c tree reports zero).  Real family rows :254/:393/:577/:656/:791/
+    # :793/:1090 unchanged (probe-verified identical PB verdicts).
+    'AOR_Report.php': {'1006': 7},
     # CVE-2026-71548 (SuiteCRM <7.15.2 AOR Reports): FIRST-ORDER where-
     # clause SQLi via the report parameter pane — controller.php:87/150/
     # 186/258 `$this->bean->user_parameters = requestToUserParameters()`
@@ -574,6 +582,43 @@ EXPECTATIONS = {
     # :1428x3 join rows ride other paths); linked_cve backfilled rows
     # 21145/21149/21150/21152/21153/21156, :577 now triple-linked
     # 100365+71548+61648.  Expectations unchanged.
+    #
+    # CVE-2026-63214 (GHSA-gjgm-wrr6-hrmp, SuiteCRM <7.15.2 / <8.10.2):
+    # legacy REST SQLi — /service/v4_1/rest.php dispatches every public
+    # method of the SugarWebServiceImpl family through a tainted-method-
+    # name dynamic call (SugarRestJSON.php:100
+    # `$this->implementation->{$method}(...$data)` with the receiver built
+    # via `new $implementationClass()`), so no CG edge can ever bind args
+    # to params.  GT = get_entries_count($session, $module_name, $query,
+    # $deleted): the `query` parameter (intended WHERE clause) passes the
+    # weak SugarSQLValidate checkQuery gate, splices into
+    # $where_clauses[] -> $sql ' WHERE ' . implode -> :1203
+    # DBManagerFactory::getInstance()->query($sql).  Upstream fix
+    # (7.15.2 d6bca97) adds the disable_v4_api_query_where config gate in
+    # SoapHelperWebService::checkQuery.  Fix 149b: rpc_entry_classes
+    # registry line (sugarwebserviceimpl prefix family) + entry-param
+    # source guard (public methods only).  Sibling rows: get_entry_list
+    # $order_by/$query -> SugarBean::get_list SQL family (13 db->query/
+    # limitQuery sites, :1288/:1290/:1439/:1506/:4284/:4305/:4307/:4533/
+    # :4544/:4599/:5218/:5300/:5332) and search_by_module :1058/:1065
+    # ($search_string raw-interpolated into a LIKE clause — that method
+    # never calls checkQuery at all, unpatched sibling in 7.15.1).
+    # Supporting fixes: 149a global-snapshot store (global $X; $X =
+    # $_REQUEST -> $GLOBALS['X'] reads), 149c dynamic-dispatch last-
+    # segment test (killed the getJoin-line phantom trio that inflated
+    # AOR_Report to 10), 149d Fix-71 origin gate semantic form (RPC entry
+    # evidence), 149e scanner NoneType row-loss guard, 149f mutator
+    # function-scoping + 149g mutator line-order guard (pre-retrieve
+    # reads are not stored data — killed build_related_list :5568 FP
+    # where taint only reached the limitQuery die-message arg).
+    # NOT frozen: SugarBean.php:1413 call_user_func_array 1009 — def-
+    # merge of `$value` (row-loop :1373 vs field_defs assign :1379)
+    # through the result-set passthrough brands the callback ARGS (fixed
+    # field_defs function name) — documented FP family (name-approximate
+    # def-chain debt).  Proof scans: repro task 7393 (17 rows), AOR
+    # non-regression task 7394 (7394 vs frozen: -3 phantom only).
+    'SugarWebServiceImpl.php': {'1006': 3},
+    'SugarBean.php': {'1006': 13},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

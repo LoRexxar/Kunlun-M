@@ -991,6 +991,90 @@ class GraphAnalyzer:
         except Exception:
             return None
 
+    def _is_rpc_entry_method_param(self, param_vid: int) -> str | None:
+        """Fix 149b (CVE-2026-63214): is this entry param a network source
+        because its enclosing method belongs to a registered RPC
+        entry-method class (SugarCRM legacy REST/SOAP service family)?
+
+        Graph-local proof chain (own edges only):
+        param --own--> method(function) --own--> class whose bare name
+        prefix-matches a registered rpc_entry_class.  PRIVATE/PROTECTED
+        methods are never RPC endpoints (the JSON/SOAP dispatch only
+        reaches public methods — method_exists + callable protocol), so
+        they are rejected.  Returns 'Class.method' or None.
+        """
+        try:
+            reg = self._source_registry
+            is_rpc = getattr(reg, "is_rpc_entry_class", None)
+            if is_rpc is None:
+                return None
+            method_vid = None
+            for e in self._edge_in(param_vid, "own"):
+                if _vattr(self.graph.vs[e.source], "label", "") == "function":
+                    method_vid = e.source
+                    break
+            if method_vid is None:
+                return None
+            mods = str(_vattr(self.graph.vs[method_vid], "modifiers", "") or "").lower()
+            if "private" in mods or "protected" in mods:
+                return None
+            for e in self._edge_in(method_vid, "own"):
+                src = self.graph.vs[e.source]
+                if _vattr(src, "label", "") == "class":
+                    cn = str(_vattr(src, "name", "")
+                             or _vattr(src, "fullname", "") or "").strip("'\"")
+                    if cn and is_rpc(cn):
+                        mname = _vattr(self.graph.vs[method_vid], "name", "") or ""
+                        return f"{cn}.{mname}"
+                    return None
+            return None
+        except Exception:
+            return None
+
+    def _global_snapshot_store_source(self, gvar_bare: str) -> str | None:
+        """Fix 149a (CVE-2026-63214): PHP global-snapshot store.
+
+        ``global $X; $X = $_REQUEST;`` inside a function binds $X by
+        REFERENCE to ``$GLOBALS['X']`` (include/utils.php @ SuiteCRM
+        7.15.1:2503-2506, clean_incoming_data), so any later read
+        ``$GLOBALS['X']['key']`` yields snapshotted user input — the
+        pre-sanitization raw payload.  Language-level semantics, not a
+        framework patch: any global var that stores a superglobal
+        snapshot propagates container taint to $GLOBALS reads.
+
+        Proof chain (all edges walked): an identifier node of type
+        'global' named ``$X`` (the ``global $X;`` declaration) exists,
+        AND an assign operator with LHS name ``$X`` whose RHS subtree
+        reads a known superglobal (``_store_value_hits_superglobal``).
+        Returns the snapshotted superglobal name, or None.
+        """
+        cache = getattr(self, "_gsnap_cache", None)
+        if cache is None:
+            cache = self._gsnap_cache = {}
+        if gvar_bare in cache:
+            return cache[gvar_bare]
+        result = None
+        dollar = "$" + gvar_bare.lstrip("$")
+        has_global_decl = False
+        for gv in self._nname.get((NodeLabel.IDENTIFIER.value, dollar), []):
+            if _vattr(self.graph.vs[gv], "type", "") == "global":
+                has_global_decl = True
+                break
+        if has_global_decl:
+            for av in self._nname.get((NodeLabel.OPERATOR.value, dollar), []):
+                if _vattr(self.graph.vs[av], "type", "") != "assign":
+                    continue
+                for ae in self._edge_out(av, "ast"):
+                    if _vattr(ae, "role", "") == "rhs":
+                        hit = self._store_value_hits_superglobal(ae.target)
+                        if hit:
+                            result = hit
+                        break
+                if result:
+                    break
+        cache[gvar_bare] = result
+        return result
+
     def find_sinks(self, sink_names: list[str] | None = None) -> list[dict]:
         """Locate sink operator nodes (call/static_call/method_call matching
         *sink_names*, defaulting to built-in _SINK_FUNCTIONS).
@@ -1425,6 +1509,28 @@ class GraphAnalyzer:
             # quote, so the dispatch detector loses no real target.
             if callee_name[:1] in ("'", '"'):
                 _is_dyn_expr_name = False
+            # Fix 149c (CVE-2026-63214): receiver-expression formatting is
+            # NOT dynamic dispatch — only a computed METHOD-NAME segment is.
+            # A static-property receiver renders as
+            # "Variable('$helperObject').checkQuery" (the '(' and spaces live
+            # in the receiver expression), which tripped the whole-string
+            # expression test and expanded EVERY such call into all
+            # framework sink names present in the graph — on the SuiteCRM
+            # service layer that meant ~150 phantom 'query/limitQuery/
+            # getOne' sink rows parked on check*/get_list call lines whose
+            # only "sinkness" was Path D's whitelist expansion (task7377:
+            # 203 rows, two thirds of them this artifact).  The dispatch
+            # target is decided by the LAST dotted segment: a plain
+            # identifier names a fixed method whatever the receiver looks
+            # like.  Real computed dispatches keep their expression in the
+            # final segment ("implementation.Variable('$method')" —
+            # SugarRestJSON.php:100, "$mainobj->{$src_item['prop']}" —
+            # CVE-2026-110895) and still expand.
+            if _is_dyn_expr_name:
+                _last_seg = callee_name.rsplit(".", 1)[-1].strip()
+                if _last_seg and not any(
+                        ch in _last_seg for ch in "()[]{}'\" "):
+                    _is_dyn_expr_name = False
             if (not matched_name and _is_dyn_expr_name
                     and self._framework_method_sinks
                     and _vattr(v, "type", "") == OperatorType.METHOD_CALL.value):
@@ -3852,6 +3958,31 @@ class GraphAnalyzer:
                                         "name": uname, "code": 1}],
                                 path=new_path,
                                 expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Fix 149b (CVE-2026-63214): PHP legacy REST/SOAP RPC
+                    # entry methods.  SugarRestJSON::serve dispatches
+                    # `$this->implementation->{$_REQUEST['method']}(
+                    # ...array_values($json->decode($_REQUEST['rest_data'])))`
+                    # — a tainted-method-name dynamic dispatch whose receiver
+                    # is built via `new $implementationClass()` (string class
+                    # name), so no CG edge can ever bind args to params.
+                    # Framework-level semantics: every PUBLIC method of a
+                    # registered rpc_entry_class receives network input in
+                    # its parameters (mirrors Java Fix 135a callback params).
+                    if self.language == "php" and self._source_registry is not None:
+                        _rpc149 = self._is_rpc_entry_method_param(up_vid)
+                        if _rpc149 is not None:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (framework RPC endpoint %s, controllable)",
+                                uname, up_vid, _rpc149,
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=(f"framework RPC entry parameter '{uname}' "
+                                        f"({_rpc149}, legacy REST dispatch)"),
+                                chain=[{"step": "rpc_entry_source", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
                     # Check for user-controlled annotations (Spring/JAX-RS) first,
                     # regardless of DFG upstream.  Parameters annotated with
                     # @RequestParam, @PathVariable, @RequestBody etc. are
@@ -4228,6 +4359,28 @@ class GraphAnalyzer:
                             chain=[{"step": "annotated_source", "vid": up_vid,
                                     "name": uname, "code": 1}],
                             path=new_path, expr_lineno=_vattr(uv, "lineno", 0)))
+                if (self.language == "php" and uname == "$GLOBALS"
+                        and ulabel == NodeLabel.IDENTIFIER.value):
+                    # Fix 149a companion: `$GLOBALS['X']['key']` used directly
+                    # as a value (arg-position form — the dfg anchors at the
+                    # $GLOBALS base, member children hang off ast/member
+                    # edges).  Consult the global-snapshot store through the
+                    # first member child; non-snapshot globals fall through.
+                    _g149name = None
+                    for _e149 in self._edge_out(up_vid, "member"):
+                        _cn149 = _vattr(self.graph.vs[_e149.target], "name", "")
+                        if _cn149 and self._global_snapshot_store_source(_cn149):
+                            _g149name = _cn149
+                            break
+                    if _g149name:
+                        return self._cached(cache_key, AnalysisResult(
+                            code=1,
+                            reason=(f"global-snapshot store '$GLOBALS[{_g149name}]' "
+                                    f"(superglobal snapshot, PHP global reference)"),
+                            chain=[{"step": "global_snapshot_source", "vid": up_vid,
+                                    "name": f"$GLOBALS.{_g149name}", "code": 1}],
+                            path=new_path,
+                            expr_lineno=_vattr(uv, "lineno", 0)))
                 if self._is_source_variable(uname):
                     # $_SERVER/$_FILES have mixed controllability per key — check if all
                     # member children in this file are non-source keys
@@ -10989,6 +11142,75 @@ class GraphAnalyzer:
         except Exception:
             return False
 
+    def _owning_function(self, vid: int):
+        """Nearest enclosing function/method node (Fix 149f).
+
+        Returns the innermost function whose [start, end] line range in
+        the same file contains vid's line, or None for file-level code.
+        Used to scope name-approximate heuristics to one function body
+        instead of one file.
+
+        Why line ranges and not graph edges: the identifiers this must
+        classify are exactly the ones WITHOUT reliable structural
+        parents — method-call receivers (``$seed->retrieve(...)``) hang
+        off member edges only, and string-interpolation property reads
+        (``"... {$seed->table_name} ..."``) carry no ast/own edges at
+        all.  Function extents are computed once from the own-subtree of
+        each function/method node (max descendant lineno), so edge-less
+        reads still resolve.  Innermost match wins (closures nest inside
+        their host's range).
+        """
+        try:
+            ranges = getattr(self, "_fnrange_cache", None)
+            if ranges is None:
+                ranges = self._fnrange_cache = self._build_function_ranges()
+            v = self.graph.vs[vid]
+            fp = _vattr(v, "file_path", "")
+            ln = _vattr(v, "lineno", 0) or 0
+            if not fp or not ln:
+                return None
+            best = None
+            for start, end, fvid in ranges.get(fp, ()):  # sorted by start
+                if start > ln:
+                    break
+                if ln <= end:
+                    best = fvid  # keep innermost (largest start ≤ ln)
+            return best
+        except Exception:
+            return None
+
+    def _build_function_ranges(self):
+        """{file_path: [(start, end, vid)] sorted by start} (Fix 149f)."""
+        by_fp = {}
+        for i, v in enumerate(self.graph.vs):
+            if _vattr(v, "label", "") not in ("function", "method"):
+                continue
+            fp = _vattr(v, "file_path", "")
+            if not fp:
+                continue
+            by_fp.setdefault(fp, []).append(
+                (_vattr(v, "lineno", 0) or 0, i))
+        out = {}
+        for fp, items in by_fp.items():
+            rng = []
+            for start, fvid in items:
+                end = start
+                seen = {fvid}
+                stack = [fvid]
+                while stack:
+                    cur = stack.pop()
+                    ln = _vattr(self.graph.vs[cur], "lineno", 0) or 0
+                    if ln > end:
+                        end = ln
+                    for e in self._edge_out(cur, "own"):
+                        if e.target not in seen:
+                            seen.add(e.target)
+                            stack.append(e.target)
+                rng.append((start, end, fvid))
+            rng.sort()
+            out[fp] = rng
+        return out
+
     def _mutator_loaded_bean(self, vid: int, name: str) -> bool:
         """Fix 146c (CVE-2026-100365): ORM mutator receiver taint.
 
@@ -11029,9 +11251,43 @@ class GraphAnalyzer:
             fp = _vattr(self.graph.vs[vid], "file_path", "")
             found = False
             if fp:
+                # Fix 149f (CVE-2026-63214): the file-scoped approximation
+                # cross-pollutes same-NAME locals across sibling functions.
+                # SuiteCRM's service layer reuses `$seed` in a dozen
+                # methods: `get_entry` calls `$seed->retrieve($id)` (:123)
+                # while `get_entries_count` reads `$seed->table_name` from
+                # a FRESHLY constructed bean and other methods read
+                # `$seed->db` / `$seed->module_dir` — every such property
+                # read was branded a second-order source by the file-wide
+                # walk (task7387: :1203 GT reason shadowed by
+                # `$seed.table_name`, :1058 receiver `$seed.db`,
+                # :1005/:1007 RFI `$seed.module_dir` — none of those beans
+                # ever loaded a row).  The mutator call and the property
+                # read must live in the SAME function scope (own-parent
+                # chain), matching the docstring's own claim ("a local
+                # bean variable that calls a mutator ... subsequent
+                # property read on the same variable").
+                read_fn = self._owning_function(vid)
+                read_ln = _vattr(self.graph.vs[vid], "lineno", 0) or 0
                 for ov_vid in self._nname.get((NodeLabel.IDENTIFIER.value, name), []):
                     ov = self.graph.vs[ov_vid]
                     if _vattr(ov, "file_path", "") != fp:
+                        continue
+                    if self._owning_function(ov_vid) != read_fn:
+                        continue
+                    # Fix 149g (CVE-2026-63214): the mutator call must
+                    # precede (or share) the property-read line — the
+                    # docstring's "SUBSEQUENT property read".  Order-blind
+                    # matching branded pre-mutator reads as stored data:
+                    # SugarBean::build_related_list reads
+                    # `$template->object_name` at :5573 (inside the
+                    # limitQuery die-message string) while the row loop's
+                    # `$template->retrieve()` sits at :5586 — the read
+                    # observes a freshly-passed template bean, not a
+                    # DB-loaded one (task7392 row :5568 FP).  AOR chain
+                    # reads (:223/:441/:499/:692) all follow their
+                    # retrieve (:206/:439/:675) and stay admitted.
+                    if (_vattr(ov, "lineno", 0) or 0) > read_ln:
                         continue
                     for e in self._edge_out(ov_vid, "member"):
                         if _vattr(self.graph.vs[e.target], "name", "") in muts:
@@ -11105,6 +11361,16 @@ class GraphAnalyzer:
                 if self._is_subscript_key_of_non_superglobal(parent_vid):
                     continue
                 return chain
+            # Fix 149a (CVE-2026-63214): PHP global-snapshot store — the
+            # chain roots at $GLOBALS (e.g. "$GLOBALS.RAW_REQUEST.rest_data").
+            # If the second segment names a global var that stores a
+            # superglobal snapshot (`global $X; $X = $_REQUEST;`), every
+            # subscript read under $GLOBALS['X'] is snapshotted user input.
+            if (self.language == "php" and parent_name == "$GLOBALS"
+                    and chain.count(".") >= 2):
+                _gvar149 = chain.split(".", 2)[1]
+                if _gvar149 and self._global_snapshot_store_source(_gvar149):
+                    return chain
             # Fix 146c (CVE-2026-100365): ORM mutator receiver — the chain
             # root is a bean variable that called ->retrieve() somewhere in
             # this file (SugarBean mutator loads the DB row into the

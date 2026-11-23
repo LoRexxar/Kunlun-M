@@ -1318,6 +1318,58 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                         except Exception:
                             pass
                         return True
+
+                    def _db_probe_request_origin(r_):
+                        """Fix 149d (CVE-2026-63214): Fix 71's generic-DB-probe
+                        origin gate keyed on the literal word "superglobal"
+                        appearing in the PB reason -- a reason-STRING test on
+                        an engine-authored origin claim.  Legitimate request
+                        origins phrased differently got demoted to
+                        unconfirmed and the row silently dropped: 149b's
+                        framework RPC entry parameters (legacy REST dispatch
+                        carries $_REQUEST['rest_data'] into every public
+                        service method) say "framework RPC entry parameter",
+                        and the demotion left result=None all the way into
+                        the chain-builder (scanner 'NoneType' has no
+                        attribute 'path' -- row lost, not just misreported).
+                        Semantic form: pass when the verdict's own
+                        chain/path carries request-origin EVIDENCE -- a
+                        superglobal-named node, an engine-native source
+                        variable, or an RPC entry-method parameter node --
+                        or the reason still says superglobal (legacy
+                        wording preserved)."""
+                        _rr = str(getattr(r_, "reason", "")).lower()
+                        if "superglobal" in _rr:
+                            return True
+                        _cand = []
+                        _chn = getattr(r_, "chain", None) or []
+                        for _c in _chn:
+                            try:
+                                if isinstance(_c, dict) and _c.get("vid") is not None:
+                                    _cand.append(_c["vid"])
+                            except Exception:
+                                pass
+                        _cand.extend(list(getattr(r_, "path", None) or [])[-4:])
+                        for _pvid in _cand:
+                            try:
+                                _nv = graph.vs[_pvid]
+                            except Exception:
+                                continue
+                            _nm = str(_vattr(_nv, "name", "") or "").strip()
+                            if _nm.startswith("$_"):
+                                return True
+                            try:
+                                if _nm and analyzer._is_source_variable(_nm):
+                                    return True
+                            except Exception:
+                                pass
+                            try:
+                                if analyzer._is_rpc_entry_method_param(_pvid):
+                                    return True
+                            except Exception:
+                                pass
+                        return False
+
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
                     any_arg_repaired = False
                     # call_user_func / call_user_func_array: RCE 风险仅存在于
@@ -2008,7 +2060,7 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     lang == 'php'
                                     and not sink.get('rule_hint')
                                     and str(_sn).lower().rsplit('.', 1)[-1] in ('query', 'exec'))
-                                if _is_db_probe and 'superglobal' not in str(getattr(r, 'reason', '')).lower():
+                                if _is_db_probe and not _db_probe_request_origin(r):
                                     if not found_unconfirmed:
                                         found_unconfirmed = True
                                         unconfirmed_result = r
@@ -2671,6 +2723,20 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                             vuln_fname.endswith('.test.js') or
                             vuln_fname.endswith('.test.ts')):
                             continue
+
+                    # Fix 149e (CVE-2026-63214): rule-matched sink with NO
+                    # taint verdict (result is None — e.g. every arg was
+                    # demoted to found_unconfirmed by the Fix 71/113 gates
+                    # and is_unconfirm mode is off).  The old code crashed
+                    # here ('NoneType' object has no attribute 'path'),
+                    # the per-sink except swallowed it, and the row was
+                    # silently LOST.  Skip with a debug breadcrumb instead.
+                    if result is None:
+                        logger.debug(
+                            '[SCAN] [GRAPH] sink %s vid=%s matched rule but no '
+                            'taint result (unconfirmed-only); skipping',
+                            sink.get('name', ''), sink.get('vid'))
+                        continue
 
                     # 构建污点传播链
                     chain = []
