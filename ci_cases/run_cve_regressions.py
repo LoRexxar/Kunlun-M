@@ -554,6 +554,26 @@ EXPECTATIONS = {
     # 1639→1583/1582→controller:88→aor_utils:178/154→$_REQUEST, and PB on
     # the :1713 unencodeMultienum operand returns code=1 via the store.
     # 1015 rows stay unfrozen (allowed_classes=false).
+    #
+    # CVE-2026-61648 (GHSA-pqq6-v2mj-hrm2, SuiteCRM <7.15.2): Multi-condition
+    # where-SQLi — same d6bca97 commit, DIFFERENT branch than 71548 (Field):
+    # the case 'Multi' non-multienum else-arm at :1729 `$value .= $field . '
+    # ' . $aor_sql_operator_list[$condition->operator] . " '" . $multi_value
+    # . "'"` concatenates unencodeMultienum() output UNQUOTED (upstream adds
+    # $this->db->quote($multi_value); the advisory notes AntiXSS prefix
+    # selection lets literal quotes pierce securexss()).  Chain: controller
+    # user_parameters store (Fix 147a/b) -> :1582-1584 condParam overwrite ->
+    # :1713 unencodeMultienum($condition->value) -> :1729 raw concat ->
+    # $query['where'][] :1732 -> assembled SQL -> db->query.  Native
+    # detection, zero engine change (store chain resolved by Fix 147a/b).
+    # Proof mini task 7355 (/tmp/cve-2026-61648/mini): PB chain values all
+    # code=1 (:1713 reason "cross-file property store 'user_parameters' ->
+    # superglobal '$_REQUEST'"); node-level graph ancestry puts all 7
+    # Multi-chain nodes in the sink-arg ancestry of exactly 6 of the 10
+    # frozen rows (:254/:577/:656/:791/:793/:1090 — :393 dbSelect param and
+    # :1428x3 join rows ride other paths); linked_cve backfilled rows
+    # 21145/21149/21150/21152/21153/21156, :577 now triple-linked
+    # 100365+71548+61648.  Expectations unchanged.
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
