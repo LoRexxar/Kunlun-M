@@ -33,8 +33,12 @@ FILTER_FUNCTIONS = {
     # AOR_Report Value 分支大量使用 $this->db->quote($condition->value)）；
     # quoteIdentifier = 标识符位置编码（反引号包裹 + 反引号转义，用于
     # table alias / column 拼接位）。两者都是真实编码函数，非白名单。
+    # Fix 150b (CVE-2026-69134): quoted = DBManager::quoted() — 引号包裹+
+    # 转义的值编码器（retrieve() WHERE :4593、mark_deleted :5278 先 quote
+    # 再下传 mark_undeleted :5330）。三个都是真实编码函数，非白名单。
     "quote": [1005, 1006],
     "quoteIdentifier": [1005, 1006],
+    "quoted": [1005, 1006],
 }
 
 # 二阶污点源：SugarBean ORM mutator 形态（$bean->retrieve($id) 把 DB 行

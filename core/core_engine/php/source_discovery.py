@@ -500,6 +500,17 @@ FRAMEWORK_CONFIGS = {
         'request_methods': set(),
         'global_source_functions': set(),
         'orm_mutator_methods': {'retrieve', 'retrieve_by_string_fields'},
+        # Fix 150 (CVE-2026-69134): graph-enrichment mirror of the tamper
+        # FILTER_FUNCTIONS quote/quoteIdentifier encoders (Fix 146a) —
+        # marks $x->db->quote(...) call nodes taint_type=safe so
+        # function_summary treats quote-wrapped return paths as sanitized
+        # (same two-line pattern as openemr's Fix 108 repair set; the
+        # analyzer-side qualified-name lookup is covered by the Fix 150
+        # registry short-tail fallback in _is_repair_function).
+        # Fix 150b: + quoted — DBManager::quoted() (value wrapped in
+        # quotes + escaped, used by retrieve() WHERE :4593) is a genuine
+        # SQL-string encoder; SugarBean.php:4599 limitQuery row was FP.
+        'repair_functions': {'quote', 'quoteIdentifier', 'quoted'},
         # Fix 149b (CVE-2026-63214): legacy REST/SOAP RPC entry classes.
         # service/core/webservice.php instantiates SugarWebServiceImplv4_1
         # (via registerImplClass) and SugarRestJSON::serve dispatches

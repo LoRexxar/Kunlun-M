@@ -11651,6 +11651,28 @@ class GraphAnalyzer:
                 # prototype iterator, safe: True).  Mirror of the dfg
                 # builder's _is_safe_callee qualified precedence (Fix 78).
                 return bool(entry.get("safe"))
+        # Fix 150 (CVE-2026-69134): registry short-tail fallback.  The
+        # per-svid repair registry (L1/L2/L3) is keyed by the names tamper
+        # FILTER_FUNCTIONS declares — short names like suitecrm's
+        # quote/quoteIdentifier.  A property-receiver method call reaches
+        # this check as a QUALIFIED rendered name ("$seed.db.quote",
+        # "Variable($seed).db.quote"), so the registry-first lookup on the
+        # full name missed and the svid-scoped framework sanitizer was
+        # silently ignored: SoapHelperWebService :1109/:1111/:1121 wrap
+        # every interpolation in $seed->db->quote(...) yet rows :1113/:1122
+        # still fired (task7412).  Mirrors the existing GLOBAL-set tail
+        # check above, but against the registry so per-svid semantics hold
+        # (quote is bound to {1005,1006} only — XSS/other families keep
+        # tracing).  Placed AFTER the Fix 69 source-member veto and the
+        # Fix 78e qualified builtin authority so both keep precedence.
+        if tail != clean:
+            _t150 = self._registry_safe_for_sink(tail)
+            if _t150 is not None:
+                if _t150:
+                    return True
+                if self._registry_knows(tail):
+                    return False
+        if bk:
             if tail != clean:
                 entry = bk.get(tail)
                 if entry and entry.get("safe"):

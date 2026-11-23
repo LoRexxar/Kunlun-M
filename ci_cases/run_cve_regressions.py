@@ -538,7 +538,34 @@ EXPECTATIONS = {
     # HEAD analyzer reports :1428 query/limitquery/getone all code=1,
     # 149c tree reports zero).  Real family rows :254/:393/:577/:656/:791/
     # :793/:1090 unchanged (probe-verified identical PB verdicts).
-    'AOR_Report.php': {'1006': 7},
+    'AOR_Report.php': {'1006': 6},
+    # Fix 150 (CVE-2026-69134 battle): 7 -> 6 — :393 (dbSelect) was FP:
+    # BOTH callers hand it quote-wrapped SQL — :331-339 buildMultiGroupReport
+    # interpolates only quoteIdentifier($_fieldIdName)/quoteIdentifier(
+    # $pth['module_path'][0]); :378-384 getGroupDisplayFieldByReportId builds
+    # its WHERE from $this->db->quote($reportId).  The row fired only
+    # because the suitecrm repair set (Fix 146a quote/quoteIdentifier,
+    # +150b quoted) was invisible to the analyzer's qualified-name lookup
+    # (Fix 150ga registry short-tail fallback closes that).  Remaining 6
+    # (:254/:577/:656/:791/:793/:1090) are the 61648-verified TP family.
+    #
+    # CVE-2026-69134 (GHSA-3phg-q9w9-4pqw, SuiteCRM <7.15.2 REST v4
+    # set_relationship SQLi): GT chain = SugarWebServiceImpl::set_
+    # relationship :270 ($name_value_list RPC entry param, Fix 149b
+    # sugarwebserviceimpl family) -> SoapHelperWebService::new_handle_set_
+    # relationship :838 `$name_value_pair[$value['name']] = $value['value']`
+    # -> Link2::add :547 -> M2MRelationship::add :193 getRowToInsert
+    # array_merge($row, $additionalFields) -> SugarRelationship::addRow
+    # :248 `"INSERT ... VALUES ($values)"` with `"'{$row[$field]}'"` raw
+    # interpolation + updateRow :275 UPDATE (reached via checkExisting).
+    # Upstream fix d6bca97 wraps both in $db->quote().  Family rows:
+    # SugarRelationship :300 deleteByWhere / :326 checkExisting SELECT,
+    # M2MRelationship :387 load / :490 getQuery ORDER BY.  Bonus TPs:
+    # SugarRestJSON.php :71/:123 echo $_GET['jsoncallback'] raw (JSONP
+    # reflected XSS, unfixed in 7.15.1).  Byte-faithful 9-file repro
+    # (composer.json + suitecrm_version.php markers frozen per Fix 122),
+    # proof scans: clean task 7419 (13 rows incl. 4 FP), fixed task 7424
+    # (9 rows, 4 FP killed by Fix 150/150b/151).
     # CVE-2026-71548 (SuiteCRM <7.15.2 AOR Reports): FIRST-ORDER where-
     # clause SQLi via the report parameter pane — controller.php:87/150/
     # 186/258 `$this->bean->user_parameters = requestToUserParameters()`
@@ -617,8 +644,26 @@ EXPECTATIONS = {
     # field_defs function name) — documented FP family (name-approximate
     # def-chain debt).  Proof scans: repro task 7393 (17 rows), AOR
     # non-regression task 7394 (7394 vs frozen: -3 phantom only).
-    'SugarWebServiceImpl.php': {'1006': 3},
-    'SugarBean.php': {'1006': 13},
+    'SugarWebServiceImpl.php': {'1006': 1},
+    # Fix 150 (CVE-2026-69134 battle) corrected three over-counted
+    # expectations — every removed row was source-verified FP:
+    #   :1058/:1065 (search_by_module) — $search_string is sanitized at
+    #     :960 `trim(DBManagerFactory::getInstance()->quote(...))` before
+    #     any interpolation; the surviving taint was the numeric
+    #     $offset/$limit limitQuery args (Fix 151 arg0 declaration).
+    #   SugarBean.php:4599 — retrieve() WHERE uses $this->db->quoted($id)
+    #     (:4593, Fix 150b repair-set addition); the die-message arg4 was
+    #     the only other channel (Fix 151).
+    #   SugarBean.php:5300/:5332 — mark_deleted quotes $id at :5278 before
+    #     the UPDATE interpolation; mark_undeleted re-quotes at :5330.
+    # SugarWebServiceImpl 3->1, SugarBean 13->10 (task 7425 A/B proof).
+    'SugarBean.php': {'1006': 10},
+    # CVE-2026-69134 repro (suitecrm69134/, byte-faithful 7.15.1):
+    # relationship-table SQLi family + JSONP XSS (see AOR_Report block
+    # above for the full GT chain narrative; proof task 7424).
+    'SugarRelationship.php': {'1006': 4},
+    'M2MRelationship.php': {'1006': 2},
+    'SugarRestJSON.php': {'1000': 2},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

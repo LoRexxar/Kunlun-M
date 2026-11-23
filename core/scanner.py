@@ -241,12 +241,28 @@ _SQL_QUERY_TEXT_SINK_INDEX = {
     # implode(',', $code_selected) . ")" from the form_icd_codes[] POST
     # array and executes via fetchRecords.
     "fetchrecords": 0,
-    # Fix 113b (CVE-2026-126480): CDR-engine delegation wrappers — arg0 is
-    # the query text passed through from callers; the body itself is judged
+    # Fix 113b (CVE-2026-126480): CDR-engine delegation wrappers — arg0 is the
+    # query text passed through from callers; the body itself is judged
     # at each caller (registered sinks).  Presence here also puts them in
     # _SQL_WRAPPER_FUNC_NAMES so their internal delegation calls demote.
     "sqlstatementcdrengine": 0,
     "sqlquerycdrengine": 0,
+    # Fix 151 (CVE-2026-69134): SuiteCRM/SugarCRM DBManager::limitQuery(
+    # $sql, $start, $count, ...) — arg0 is the query TEXT (the injection
+    # surface); $start/$count are LIMIT/OFFSET numerics that the callee
+    # int-casts before splicing (MysqlManager.php:268-269
+    # `$start = (int)$start; $count = (int)$count;` @ SuiteCRM 7.15.1).
+    # On unresolved callees (byte-faithful repro corpora without
+    # include/database/) the numeric args looked interpolable and RPC
+    # entry params reached them: SugarWebServiceImpl.php:1065
+    # limitQuery($main_query, $offset, ...) and the die-message variant
+    # SugarBean.php:4599 limitQuery($query, 0, 1, false, "... $id ...")
+    # both fired although no attacker text ever enters the SQL string.
+    # Declaring the query-text arg keeps every arg0-tainted row (the
+    # whole get_list $order_by family at :4533/:4544 et al. verified
+    # unchanged).  Only the suitecrm tamper EXTRA_SINK declares
+    # ->limitQuery(, so the scope is framework-gated by sink matching.
+    "limitquery": 0,
 }
 
 # Fix 113 (CVE-2026-126480): the SQL wrapper FUNCTION family.  A query-text
