@@ -206,6 +206,12 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "Format.htmlchars",  # qualified static call (dotted fullname on the wire)
     "Format.input",  # osTicket Format::input — alias of Format::htmlchars
     #    (NEVER add bare "input": it would match Laravel $request->input etc.)
+    "Format.sanitize",  # osTicket Format::sanitize — safe_html() HTMLPurifier
+    #    wrapper (source comment: "Avoid XSS injection"). Fix 148 (CVE-2026-71548
+    #    anchor fallout): cross-file property-store channel surfaced 10 XSS rows
+    #    all originating at ajax.i18n.php:77 $p->text = trim(Format::sanitize(..)).
+    #    Qualified only — bare "sanitize" stays Rails-scoped; no other corpus
+    #    defines Format::sanitize (checked realworld pool + SuiteCRM 7.15.1).
     "esc_html", "esc_attr", "esc_js", "esc_url", "esc_textarea",  # WordPress
     "sanitize_file_name", "sanitize_title",  # WordPress (sanitize_text_field: Fix 69 — tags only, quotes survive; XSS verdict via tamper registry per-svid)
     "sanitize_url",  # WordPress (alias of esc_url since WP 5.3)
@@ -6662,6 +6668,209 @@ class GraphAnalyzer:
                         results.append((re_.target, wfunc if wfunc is not None else assign_vid))
         return results
 
+    def _receiver_typed_store_link(self, reader_class: str, cand: int) -> bool:
+        """Fix 147a (CVE-2026-71548): third sound G3 linkage for
+        cross-file property stores.
+
+        The WRITE site's LHS receiver is a member chain ``$this-><field>``
+        (SuiteCRM MVC: ``$this->bean->user_parameters = ...`` inside the
+        module controller) while the READ site's receiver is ``$this``
+        inside the bean class itself.  The two classes share no extends
+        relationship, so G3's inheritance terms reject the pair even though
+        both expressions denote the same object at runtime.
+
+        Resolution: methods called on ``$this-><field>`` in the WRITER's
+        file whose name is defined by exactly ONE class in the corpus
+        (unique-method-definition inference — e.g. build_report_query is
+        defined only by AOR_Report).  When that class EQUALS the reader's
+        enclosing class, the stored value flows to the read.  Strictly
+        equality: a resolved subclass may shadow the property, so subclass
+        hits are not admitted."""
+        if not reader_class:
+            return False
+        memo = getattr(self, "_rtsl_memo", None)
+        if memo is None:
+            memo = self._rtsl_memo = {}
+        _key = (reader_class, cand)
+        if _key in memo:
+            return memo[_key]
+        memo[_key] = False  # pessimistic default against recursion
+        result = self._receiver_typed_store_link_impl(reader_class, cand)
+        memo[_key] = result
+        return result
+
+    def _receiver_typed_store_link_impl(self, reader_class: str, cand: int) -> bool:
+        cv = self.graph.vs[cand]
+        wfp = _vattr(cv, "file_path", "") or _vattr(cv, "path", "")
+        if not wfp:
+            return False
+        # LHS receiver chain: cand <- dfg(member-base flow) <- <field>(prop)
+        # <- member <- $this.  At write sites the base flows through a dfg
+        # edge (forward_slice), at call sites through member edges —
+        # collect field names whose property node is member-rooted at $this.
+        field_names: set[str] = set()
+        for de in self._edge_in(cand, "dfg"):
+            bv = self.graph.vs[de.source]
+            if _vattr(bv, "type", "") != "property":
+                continue
+            for me in self._edge_in(de.source, "member"):
+                if _vattr(self.graph.vs[me.source], "type", "") == "this":
+                    _fn = _vattr(bv, "name", "") or ""
+                    if _fn:
+                        field_names.add(_fn)
+                    break
+        for me in self._edge_in(cand, "member"):
+            bv = self.graph.vs[me.source]
+            if _vattr(bv, "type", "") != "property":
+                continue
+            for me2 in self._edge_in(me.source, "member"):
+                if _vattr(self.graph.vs[me2.source], "type", "") == "this":
+                    _fn = _vattr(bv, "name", "") or ""
+                    if _fn:
+                        field_names.add(_fn)
+                    break
+        if not field_names:
+            return False
+        # methods invoked on $this-><field> in the writer's file:
+        # method_call whose callee property node's member base chain is
+        # $this -> <field> -> callee.
+        method_names: set[str] = set()
+        for _ln, mvid in self._nfile_lineno.get(
+                (NodeLabel.OPERATOR.value, wfp), []):
+            mv = self.graph.vs[mvid]
+            if _vattr(mv, "type", "") != "method_call":
+                continue
+            for ae in self._edge_out(mvid, "ast"):
+                if _vattr(ae, "role", "") != "callee":
+                    continue
+                callee = self.graph.vs[ae.target]
+                if _vattr(callee, "type", "") != "property":
+                    continue
+                for ce in self._edge_in(ae.target, "member"):
+                    mid = self.graph.vs[ce.source]
+                    if (_vattr(mid, "type", "") == "property"
+                            and (_vattr(mid, "name", "") or "") in field_names
+                            and any(_vattr(self.graph.vs[e3.source], "type", "") == "this"
+                                    for e3 in self._edge_in(ce.source, "member"))):
+                        _mn = _vattr(callee, "name", "") or ""
+                        if _mn:
+                            method_names.add(_mn)
+                        break
+        if not method_names:
+            return False
+        # unique-method-definition inference: a name defined as a method by
+        # exactly one class in the corpus resolves $this-><field> to it.
+        for mn in method_names:
+            defining: set[str] = set()
+            for fvid in self._nname.get((NodeLabel.FUNCTION.value, mn), []):
+                # only real class methods: an own-parent chain that hits a
+                # class node before exhausting (top-level functions yield
+                # nothing, unlike _php_enclosing_class_name's line-order
+                # fallback which would pollute uniqueness with phantom
+                # classes).
+                cur = fvid
+                seen: set[int] = set()
+                cls = ""
+                while cur not in seen:
+                    seen.add(cur)
+                    if _vattr(self.graph.vs[cur], "type", "") == "class":
+                        cls = _vattr(self.graph.vs[cur], "name", "") or ""
+                        break
+                    nxt = None
+                    for oe in self._edge_in(cur, "own"):
+                        nxt = oe.source
+                        break
+                    if nxt is None:
+                        break
+                    cur = nxt
+                if cls:
+                    defining.add(cls)
+            if len(defining) == 1 and reader_class in defining:
+                return True
+        return False
+
+    def _member_base_is_this(self, vid: int, max_hops: int = 4) -> bool:
+        """Fix 148d helper: True when vid's member-base chain roots at a
+        ``$this`` node within max_hops (``$this->x``, ``$this->bean->x``).
+        Used to separate same-object receiver shapes ($this write → $this
+        read) from fetch-element receivers (ORM collection subscript)."""
+        cur = {vid}
+        for _ in range(max_hops):
+            nxt: set[int] = set()
+            for cv in cur:
+                for me in self._edge_in(cv, "member"):
+                    sv = self.graph.vs[me.source]
+                    if _vattr(sv, "type", "") == "this":
+                        return True
+                    nxt.add(me.source)
+            if not nxt:
+                return False
+            cur = nxt
+        return False
+
+    def _trace_write_node_value(self, write_vid: int, skip_vid: int | None = None):
+        """Fix 147b: bounded dfg trace from the WRITE property node's value
+        dfg in-edge sources, skipping the receiver-flow edge (member-base
+        dfg from a $this-rooted property) and the already-traced RHS."""
+        bases: set[int] = set()
+        # Fix 148b (CVE-2026-71548 anchor fallout): skip the write node's
+        # DIRECT member base — the receiver — whatever its node type.
+        # `$p->text = X` has an identifier receiver: a tainted handle
+        # (tainted-key fetch `$phrases[$lang]` from a $_POST foreach)
+        # must not bleed into the stored VALUE.  Same principle the
+        # $this-rooted case below already encodes: a tainted base object
+        # is not a tainted property value.
+        for me in self._edge_in(write_vid, "member"):
+            bases.add(me.source)
+        for de in self._edge_in(write_vid, "dfg"):
+            bv = self.graph.vs[de.source]
+            if _vattr(bv, "type", "") != "property":
+                continue
+            for me in self._edge_in(de.source, "member"):
+                if _vattr(self.graph.vs[me.source], "type", "") == "this":
+                    bases.add(de.source)
+                    break
+        # Fix 148c: vids belonging to the write's own assignment statement
+        # (the ast subtree rooted at the write's assign operator).  Sources
+        # inside it are the primary RHS adjudication's territory — 147b only
+        # rescues value delivered from OUTSIDE the statement (Fix 123
+        # corpus-wide return DFG landing the callee's return variable on the
+        # write node).
+        own_stmt_vids: set[int] = set()
+        for ae in self._edge_in(write_vid, "ast"):
+            root = ae.source
+            stack = [root]
+            while stack:
+                cur = stack.pop()
+                if cur in own_stmt_vids:
+                    continue
+                own_stmt_vids.add(cur)
+                for oe in self._edge_out(cur, "ast"):
+                    stack.append(oe.target)
+        for de in self._edge_in(write_vid, "dfg"):
+            if de.source in bases or de.source == skip_vid:
+                continue
+            # Fix 148c (CVE-2026-71548 anchor fallout): skip sources inside
+            # the write's own assignment statement — the assign's RHS subtree
+            # is the primary RHS adjudication's territory (the caller traces
+            # the rhs subtree root directly).  147b exists for value delivered
+            # from OUTSIDE the statement: Fix 123's corpus-wide return DFG
+            # lands the callee's return variable (or call node) directly on
+            # the write node (`$this->bean->user_parameters =
+            # requestToUserParameters()` is delivered via the callee's
+            # `$params` @aor_utils.php:178 — task 7304 GT).  Re-adjudicating
+            # same-statement edges from this second entry point flipped
+            # verdicts the primary trace had already judged: osTicket task
+            # 7321 kept 10 XSS rows alive via `$t->text = $content`
+            # (class.dynamic_forms.php:263, raw $_POST) linked to keyed reads
+            # of a disjoint object_hash family in class.translation.php.
+            if de.source in own_stmt_vids:
+                continue
+            r = self._trace_dfg_direct(de.source, max_depth=20)
+            if r is not None and r.is_controllable:
+                return r
+        return None
+
     def _php_is_ctor_param_store(self, rhs_vid: int, writer_func_vid: int) -> bool:
         """Fix 76d: True when the stored RHS identifier is a use of a formal
         parameter of the writer function AND that writer is a PHP
@@ -7445,6 +7654,17 @@ class GraphAnalyzer:
                     or (reader_class and reader_class in writer_file_classes)
                 )
                 if not linked:
+                    # Fix 147a (CVE-2026-71548): receiver-typed linkage.
+                    # The WRITE's LHS receiver is a member chain
+                    # `$this-><field>` (SuiteCRM MVC: the module controller
+                    # stores `$this->bean->user_parameters = ...`) while the
+                    # READ's receiver is `$this` inside the bean class
+                    # itself — the two classes share no extends edge, so
+                    # every G3 term above rejects what is the SAME object.
+                    # Admit the pair when `$this-><field>` resolves to the
+                    # reader's class via unique-method-definition inference.
+                    linked = self._receiver_typed_store_link(reader_class, cand)
+                if not linked:
                     continue
             # Fix 76d-2: constructor-param stores must resolve ONLY through
             # the reader-class-closure-restricted resolver.  The generic
@@ -7497,6 +7717,36 @@ class GraphAnalyzer:
                     path=[start_vid, cand, rhs_vid],
                     expr_lineno=_vattr(sv, "lineno", 0))
             r = self._trace_dfg_direct(rhs_vid, max_depth=20)
+            if r is None or not r.is_controllable:
+                # Fix 147b (CVE-2026-71548): the corpus-wide return DFG
+                # (Fix 123) delivers a tainted return DIRECTLY to the WRITE
+                # property node, bypassing the RHS call node entirely
+                # (`$this->bean->user_parameters = requestToUserParameters()`
+                # — the call node carries no dfg in-edge, the write node
+                # carries the return edge).  Trace the write node's value
+                # dfg sources, skipping the receiver-flow edge from its
+                # member base (a tainted base object is not a tainted
+                # property value).
+                _r147b = self._trace_write_node_value(cand, skip_vid=rhs_vid)
+                if _r147b is not None and _r147b.is_controllable:
+                    # Fix 148d (CVE-2026-71548 anchor fallout): a $this-
+                    # rooted WRITE (self-record save path — osTicket
+                    # CustomDataTranslation::save `$this->text =
+                    # encodeComplex($this->text)` re-encodes the record that
+                    # saveTranslations just tainted) only proves same-OBJECT
+                    # flow to reads whose receiver is ALSO $this-rooted
+                    # (SuiteCRM GT: write `$this->bean->user_parameters`,
+                    # read `$this->user_parameters` @AOR_Report.php:1581).
+                    # Fetch-element reads (`$mo[$msgid]->text` from an ORM
+                    # collection in translate()) are record-key-blind across
+                    # the DB round-trip: the writes only ever store
+                    # server-computed object_hash families (form title /
+                    # instructions tags) while the echo sinks read disjoint
+                    # dept-name tags — no runtime flow exists.
+                    _w_this = self._member_base_is_this(cand)
+                    _r_this = self._member_base_is_this(start_vid)
+                    if not (_w_this and not _r_this):
+                        r = _r147b
             if r is None or not r.is_controllable:
                 # Fix 52u: full backward analysis (parameters_back) as the
                 # 4th pass — the stored value may traverse call chains and

@@ -531,6 +531,29 @@ EXPECTATIONS = {
     # (byte-faithful 5-file focus @7.15.1, GT row 21149); repro subdir
     # scan task 7286 rows 21198-21216.
     'AOR_Report.php': {'1006': 10},
+    # CVE-2026-71548 (SuiteCRM <7.15.2 AOR Reports): FIRST-ORDER where-
+    # clause SQLi via the report parameter pane — controller.php:87/150/
+    # 186/258 `$this->bean->user_parameters = requestToUserParameters()`
+    # ($_REQUEST['parameter_value'] etc.) → AOR_Report.php:1582-1584
+    # `$condParam = $this->user_parameters[$condition->id]` overwrites
+    # $condition->value/operator/value_type → case 'Multi' :1713
+    # unencodeMultienum → :1728 `" '" . $multi_value . "'"` unquoted concat
+    # (upstream 7.15.2 d6bca97 adds $this->db->quote) → $query['where'][]
+    # :1732 → build_group_report db->query :577.  Fix 147a: receiver-typed
+    # cross-file property-store linkage — the controller's `$this->bean`
+    # resolves to AOR_Report by unique-method-definition inference
+    # (build_report_query defined only there), admitting the store→read
+    # pair G3's inheritance terms reject.  Fix 147b: G4 traces the WRITE
+    # property node itself when the RHS call node has no dfg in-edge (the
+    # corpus-wide return DFG delivers requestToUserParameters' tainted
+    # return straight to the write node).  Row-count expectations are
+    # UNCHANGED (the 1006 sink rows pre-exist via the second-order
+    # family); the fix is observable at reason level — task 7304 row
+    # AOR_Report.php:1639 flips to "cross-file property store
+    # 'user_parameters' → superglobal '$_REQUEST'" with the full chain
+    # 1639→1583/1582→controller:88→aor_utils:178/154→$_REQUEST, and PB on
+    # the :1713 unencodeMultienum operand returns code=1 via the store.
+    # 1015 rows stay unfrozen (allowed_classes=false).
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
