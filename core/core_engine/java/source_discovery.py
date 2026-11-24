@@ -57,7 +57,20 @@ _BUILTIN_SOURCE_MEMBERS = frozenset({
 })
 
 # 内置 source producer 函数（方法名匹配）
-_BUILTIN_SOURCE_PRODUCERS = {}
+_BUILTIN_SOURCE_PRODUCERS = {
+    # Fix 153 (CVE-2026-85627 Apache OFBiz 24.09): DataResource rows are
+    # attacker-writable second-order storage (updateLayoutImage stores the
+    # uploaded layout config as a *_OBJECT DataResource; renderDataResource
+    # AsText reads it back and evaluates the text as an FTL template via
+    # FreeMarkerWorker.renderTemplateFromString).  The DB read boundary is
+    # getDataResourceText — the dominant call sites are BARE static self-
+    # calls inside DataResourceWorker.java (call node name carries a leading
+    # dot, no class segment), which the qualified-only dict below cannot
+    # match, so this lives in the producer table (full-name + short-name
+    # match).  The method name is OFBiz-content-specific; collision risk
+    # outside OFBiz projects is negligible.
+    "DataResourceWorker.getDataResourceText": "OFBiz DataResource row text (second-order DB store, attacker-writable)",
+}
 
 # 仅限定名匹配的内置 source producer（不做短名回退）。
 # 语义：HTTP/RPC 客户端同步调用返回的响应体 = 外部输入（第二阶污点，

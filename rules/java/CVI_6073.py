@@ -27,7 +27,7 @@ class CVI_6073(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r'Velocity\.evaluate\s*\(|Velocity\.merge\s*\(|VelocityEngine\.evaluate\s*\(|\.process\s*\(\s*rootMap|new\s+Template\s*\(\s*["\x27][^"\x27]*["\x27],\s*new\s+StringReader'
+        self.match = r'Velocity\.evaluate\s*\(|Velocity\.merge\s*\(|VelocityEngine\.evaluate\s*\(|\.process\s*\(\s*rootMap|new\s+Template\s*\(\s*["\x27][^"\x27]*["\x27],\s*new\s+StringReader|FlexibleStringExpander\.expandString\s*\(|executeMacro\s*\(|GroovyUtil\.eval\s*\(|FreeMarkerWorker\.renderTemplate(FromString)?\s*\('
 
         # for regex
         self.unmatch = []
@@ -42,11 +42,50 @@ class CVI_6073(SingleRuleMixin):
 
             "FreeMarkerTemplate.process",
 
+            # Fix 153 (CVE-2026-82910/82912/82960 Apache OFBiz 24.09 SSTI
+            # family): OFBiz evaluates attacker-influenced strings as
+            # template/script code at three boundaries:
+            #  - FlexibleStringExpander.expandString(template, ctx, ...) —
+            #    STATIC form, arg0 IS the FTL template being evaluated
+            #    (service IN attrs bodyText/subject, CVE-2026-82912);
+            #  - MacroScreenRenderer.executeMacro(writer, macroString) —
+            #    arg1 is an FTL macro string assembled from unescaped link
+            #    parameter values (CVE-2026-82910);
+            #  - GroovyUtil.eval(expr, ctx) — form-field use-when/ignore-when
+            #    expressions with ${param} interpolated into the Groovy
+            #    source (CVE-2026-82960).
+            "FlexibleStringExpander.expandString",
+
+            "MacroScreenRenderer.executeMacro",
+
+            "GroovyUtil.eval",
+
+            # Fix 153b (CVE-2026-85627): FreeMarkerWorker evaluates a
+            # caller-supplied template string / template location —
+            # arg1 of renderTemplateFromString is the template text,
+            # arg0 of renderTemplate is the template location or text.
+            "FreeMarkerWorker.renderTemplateFromString",
+
+            "FreeMarkerWorker.renderTemplate",
+
         ]
 
     def main(self, regex_string, sink_args=None):
         """二次筛选：确认模板内容来自用户输入"""
         if sink_args:
+            # Fix 153 (OFBiz SSTI family): instance-form
+            # ``fse.expandString(context)`` — arg0 is the Map context, the
+            # FTL template lives inside the FlexibleStringExpander object
+            # itself (parsed at construction from widget XML), so this call
+            # form is NOT the SSTI boundary; context-derived taint flowing
+            # OUT of it is modeled by the Fix 137c passthrough and caught
+            # at the downstream evaluator (executeMacro / GroovyUtil.eval /
+            # static expandString).  Only the static form
+            # ``FlexibleStringExpander.expandString(template, ctx, ...)``
+            # evaluates a caller-supplied template string (arg0).
+            if ('.expandString(' in regex_string
+                    and 'FlexibleStringExpander.expandString(' not in regex_string):
+                return False
             # Graph path: const arg is hardcoded → safe
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]

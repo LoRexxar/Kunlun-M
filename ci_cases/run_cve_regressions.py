@@ -213,6 +213,48 @@ EXPECTATIONS = {
     # frozen from the same scan (task 6907).
     'UtilURL.java': {'6004': 1},
     'UtilXml.java': {'6044': 2, '6007': 1},
+    # Fix 153 (CVE-2026-82910/82912/82960/85627 Apache OFBiz 24.09 SSTI /
+    # EL-injection family, one bulletin four CVEs): CVI_6073 gains the OFBiz
+    # template-eval boundaries — FlexibleStringExpander.expandString (static
+    # form, arg0 IS the FTL template), MacroScreenRenderer.executeMacro
+    # (arg1 macroString), GroovyUtil.eval (arg0), FreeMarkerWorker.render
+    # TemplateFromString/renderTemplate; instance-form ``fse.expandString(
+    # context)`` is guarded out (arg0 is the context Map there, template
+    # lives in the receiver).  Fix 153b adds DataResourceWorker.getDataResource
+    # Text as a builtin source producer (second-order DB store read back and
+    # evaluated as FTL, 85627).  Repro ofbiz2409/ = 14 byte-faithful
+    # 24.09.07 files + synthetic OfbizSstiEntry wiring the four runtime
+    # entries; proof task 7586 (30 rows):
+    #   82912 GT EmailServices :540/:599/:616 — sendMailFromScreen expands
+    #     bodyText/subject (request.getParameter via Send Per Email form,
+    #     no permission check pre-PR1706) as FTL, fix removes the expand
+    #     calls (PR1706/1713);
+    #   82960 GT ModelFormField :937 useWhen -> GroovyUtil.eval + siblings
+    #     :4857 (CheckField.shouldUse) / :4885 (shouldIgnore ignore-when) —
+    #     widget use-when/ignore-when ${param} interpolated INTO the Groovy
+    #     source, fix PR1789 removes the interpolation;
+    #   82910 GT MacroScreenRenderer :356 renderLink linkUrl/text/param
+    #     values appended unescaped between quotes into the FTL macro
+    #     string, fix PR1711/1715 escapeFtlSingleQuoted + 19 TP-shape
+    #     siblings (same executeMacro unquoted-append shape across the
+    #     render* methods; :136 escapes the String branch but appends raw
+    #     non-String values);
+    #   85627 GT DataResourceWorker :911 renderDataResourceAsText evaluates
+    #     the *_OBJECT DataResource text as FTL (updateLayoutImage stored,
+    #     no perm check), fix PR1857 FTL_ALLOWED_SOURCE_TYPES allow-list.
+    # Documented over-approximation (NOT linked, counted per the 69142
+    # convention): FlexibleStringExpander.java :125/:143 static-delegation
+    # rows + MacroScreenRenderer.java :143 getEnvironment renderTemplate
+    # row fire on the arg1-context channel (template arg itself is a
+    # constant) — the taint they carry is the 137c passthrough context,
+    # harmless but same-sink-shape.  FSE basename is shared with the old
+    # ofbiz/ Fix 137 case: merged count 4 = 2 (ofbiz/, measured task 7587,
+    # UtilURL/UtilXml expectations there unaffected) + 2 (ofbiz2409/).
+    'MacroScreenRenderer.java': {'6073': 21},
+    'EmailServices.java': {'6073': 3},
+    'ModelFormField.java': {'6073': 3},
+    'DataResourceWorker.java': {'6073': 1},
+    'FlexibleStringExpander.java': {'6073': 2 + 2},  # 2 ofbiz2409/ (Fix 153) + 2 ofbiz/ (Fix 137 case, same delegation lines)
     # Fix 138 (CVE-2026-44203 OpenAM 16.1.0 pre-auth reflected XSS,
     # CVSS 8.3, fix 078bd47 = ?html escapes in FormPostResponse.ftl +
     # page/checkSession.ftl only): OAuth2 authorize form_post response
