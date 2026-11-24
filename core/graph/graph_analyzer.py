@@ -1031,6 +1031,89 @@ class GraphAnalyzer:
         except Exception:
             return None
 
+    def _soap_registered_names(self):
+        """Fix 152 (CVE-2026-97377): handler names registered on a nusoap
+        SOAP server in this scan.  Project-scoped pairing: the scan
+        instantiates soap_server/nusoap_server somewhere, and a method
+        call ``->register('<literal>', ...)`` names a handler function.
+        arg0 must be a string literal — bare ``->register()`` (DI
+        container / whoops family) never matches; SuiteCRM 7.15.1 full
+        tree audit: the only string-literal ``->register(`` call sites
+        are the nusoap handler registrations themselves."""
+        cache = getattr(self, "_soap_reg_names", None)
+        if cache is not None:
+            return cache
+        names = set()
+        try:
+            has_server = False
+            for v in self.graph.vs:
+                if _vattr(v, "label", "") != "operator":
+                    continue
+                cn = str(_vattr(v, "name", "") or "").lstrip("\\").lower()
+                if cn in ("soap_server", "nusoap_server"):
+                    has_server = True
+                    break
+            if has_server:
+                for v in self.graph.vs:
+                    if _vattr(v, "label", "") != "operator":
+                        continue
+                    if str(_vattr(v, "name", "") or "") != "register":
+                        continue
+                    # must be a method call: the callee identifier child
+                    # named 'register' carrying a receiver via member edge
+                    is_method = False
+                    for e in self._edge_out(v.index, "ast"):
+                        tv = self.graph.vs[e.target]
+                        if (_vattr(tv, "label", "") == "identifier"
+                                and str(_vattr(tv, "name", "") or "") == "register"):
+                            for _me in self._edge_in(e.target, "member"):
+                                is_method = True
+                                break
+                            break
+                    if not is_method:
+                        continue
+                    for e in self._edge_out(v.index, "ast"):
+                        tv = self.graph.vs[e.target]
+                        if _vattr(tv, "label", "") == "const":
+                            lit = str(_vattr(tv, "name", "") or "")
+                            if len(lit) >= 2 and lit[0] in "'\"" and lit[-1] == lit[0]:
+                                names.add(lit[1:-1])
+        except Exception:
+            names = set()
+        self._soap_reg_names = names
+        return names
+
+    def _soap_registered_function_param(self, param_vid: int) -> str | None:
+        """Fix 152 (CVE-2026-97377): is this the parameter of a top-level
+        function registered on a nusoap SOAP server (``$server->register(
+        '<name>', ...)`` + a ``new soap_server`` in the scan)?  nusoap
+        dispatches POST bodies to the named plain function with
+        client-supplied arguments, so its parameters are network input.
+        Own-edge proof: param -> function (label 'function') whose own
+        parent is NOT a class (top-level function — class methods are
+        149b territory) and whose bare name is registered.  Returns
+        "function 'name'" or None."""
+        try:
+            names = self._soap_registered_names()
+            if not names:
+                return None
+            fn_vid = None
+            for e in self._edge_in(param_vid, "own"):
+                if _vattr(self.graph.vs[e.source], "label", "") == "function":
+                    fn_vid = e.source
+                    break
+            if fn_vid is None:
+                return None
+            for e in self._edge_in(fn_vid, "own"):
+                if _vattr(self.graph.vs[e.source], "label", "") == "class":
+                    return None
+            fname = str(_vattr(self.graph.vs[fn_vid], "name", "") or "").strip("$'")
+            if fname and fname in names:
+                return f"function '{fname}'"
+            return None
+        except Exception:
+            return None
+
     def _global_snapshot_store_source(self, gvar_bare: str) -> str | None:
         """Fix 149a (CVE-2026-63214): PHP global-snapshot store.
 
@@ -3980,6 +4063,34 @@ class GraphAnalyzer:
                                 reason=(f"framework RPC entry parameter '{uname}' "
                                         f"({_rpc149}, legacy REST dispatch)"),
                                 chain=[{"step": "rpc_entry_source", "vid": up_vid,
+                                        "name": uname, "code": 1}],
+                                path=new_path,
+                                expr_lineno=_vattr(uv, "lineno", 0)))
+                    # Fix 152 (CVE-2026-97377): PHP nusoap SOAP-registered
+                    # entry functions.  soap.php builds `$server = new
+                    # soap_server;` and every included file registers
+                    # handlers via `$server->register('portal_get_entry_
+                    # list', ...)`; at request time nusoap parses the POST
+                    # body and invokes the named plain function with
+                    # client-supplied args, so those parameters are network
+                    # input.  The receiver is a cross-file global with no
+                    # dfg link to the constructor site, so pairing is
+                    # project-scoped: a soap_server/nusoap_server
+                    # instantiation anywhere in the scan + a method call
+                    # `->register('<literal>', ...)` marks that named
+                    # top-level function as an endpoint.
+                    if self.language == "php":
+                        _soap152 = self._soap_registered_function_param(up_vid)
+                        if _soap152 is not None:
+                            logger.debug(
+                                "entry parameter '%s' vid=%d (SOAP endpoint %s, controllable)",
+                                uname, up_vid, _soap152,
+                            )
+                            return self._cached(cache_key, AnalysisResult(
+                                code=1,
+                                reason=(f"SOAP entry parameter '{uname}' "
+                                        f"({_soap152}, nusoap dispatch)"),
+                                chain=[{"step": "soap_entry_source", "vid": up_vid,
                                         "name": uname, "code": 1}],
                                 path=new_path,
                                 expr_lineno=_vattr(uv, "lineno", 0)))

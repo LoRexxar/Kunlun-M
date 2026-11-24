@@ -657,7 +657,24 @@ EXPECTATIONS = {
     #   SugarBean.php:5300/:5332 — mark_deleted quotes $id at :5278 before
     #     the UPDATE interpolation; mark_undeleted re-quotes at :5330.
     # SugarWebServiceImpl 3->1, SugarBean 13->10 (task 7425 A/B proof).
-    'SugarBean.php': {'1006': 10},
+    'SugarBean.php': {'1006': 10 + 10},  # 10 REST (63214) + 10 SOAP (97377)
+    # CVE-2026-97377 repro (suitecrm97377/, byte-faithful 7.15.1): SOAP
+    # portal SQLi — soap.php builds `$server = new soap_server` and
+    # registers portal handlers (`$server->register('portal_get_entry_
+    # list', ...)`); nusoap dispatches POST bodies to those plain
+    # functions with client args, so their params are network input.
+    # Fix 152 (graph_analyzer._soap_registered_function_param + scanner
+    # origin-gate hook) marks them as entry-param sources; GT task 7466
+    # row 21929 (limitQuery :5649) + 21930 (query :5651) are the advisory
+    # portal_get_entry_list $order_by chain, 21665/21928 the sibling
+    # portal_get_related_notes family.  Merged into the shared SugarBean
+    # basename above: repro-gate dryrun 2026-11-24 measured got=20
+    # (10 REST 63214 subdir arm + 10 SOAP 97377 subdir arm; root mixed
+    # arm contributes 0 x 1006 — framework Unknown there).  The 97377
+    # SOAP arm carries 6 passthrough over-approx rows (:1506/:4284/
+    # :4305/:4307/:4533/:5826) counted in the 10, mirroring the 63214
+    # convention.  SoapPortalHelper.php:229 (guard-verified FP) left
+    # NON-asserted — 69135 1013-sibling precedent.
     # CVE-2026-69134 repro (suitecrm69134/, byte-faithful 7.15.1):
     # relationship-table SQLi family + JSONP XSS (see AOR_Report block
     # above for the full GT chain narrative; proof task 7424).

@@ -1384,6 +1384,13 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                                     return True
                             except Exception:
                                 pass
+                            try:
+                                # Fix 152 (CVE-2026-97377): nusoap-registered
+                                # function params are request origin too.
+                                if analyzer._soap_registered_function_param(_pvid):
+                                    return True
+                            except Exception:
+                                pass
                         return False
 
                     arg_vids = list(dict.fromkeys(sink.get('arg_vids', [])))
