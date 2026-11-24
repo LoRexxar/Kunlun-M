@@ -727,7 +727,41 @@ EXPECTATIONS = {
     # 69134/69142 convention). The :334/:577 echo rows are TP-shape XSS
     # siblings — NOT asserted, 69135/69142 convention. Basename shared
     # with suitecrm69142/ (7) — SugarBean 10+10 precedent, merged count:
-    'controller.php': {'1006': 7 + 5},  # 7 jjwg_Maps (69142) + 5 Project (61651)
+    # CVE-2026-69141 repro (suitecrm69141/, byte-faithful 7.15.1): Cases
+    # Controller search rebind SQLi (GHSA-wphj-qjgj-4j23, CVSS 8.3) — :52
+    # `$search = trim($_POST['search'])` -> :63 interpolation into
+    # $where -> :65 `$this->bean->db->limitQuery($query ...)`.  Upstream
+    # quotes trim().  Native detection zero engine change (core $_POST
+    # source + Fix 146a + Fix 150/151 limitQuery arg0).  PB three-segment
+    # proof task 7533 (trim@53 code=1, $where concat @64 code=1,
+    # limitQuery $query@66 code=1).  Proof scan task 7533 (3-file
+    # repro): GT :65 1 x 1006; the :82/:102 retrieve() property-store
+    # XSS rows are TP-shape siblings — NOT asserted, 69135 convention.
+    # controller.php basename now shared by 69142/61651/69141 (three
+    # subdirs, per-case framework markers) — merged count:
+    'controller.php': {'1006': 7 + 5 + 1},  # 7 jjwg_Maps (69142) + 5 Project (61651) + 1 Cases (69141)
+
+    # CVE-2026-61653 repro (suitecrm61653/, byte-faithful 7.15.1):
+    # Campaigns PopupCampaignRoi SQLi (GHSA-5m7h-v4v6-2r8h, CVSS 8.3) — :67
+    # `$campaign_id = $_REQUEST['id']` -> :73 interpolation into
+    # $campaign->db->query(...) args.  Upstream quotes via
+    # $campaign->db->quote.  Native detection zero engine change (core
+    # $_REQUEST source + framework sink).  PB three-segment proof task
+    # 7531 ($_REQUEST member access code=1, concat@73 code=1, query
+    # op@76 code=1).  Proof scan task 7531 (3-file repro): 2 x 1006 =
+    # GT :76 + TP sibling :90 (same $campaign_id second query, same
+    # advisory fix, no separate CVE assigned):
+    'PopupCampaignRoi.php': {'1006': 2},
+
+    # CVE-2026-69140 repro (suitecrm69140/, byte-faithful 7.15.1):
+    # Documents GetLatestRevision SQLi (GHSA-xg3m-xvc9-j55j, CVSS 8.3) — :53
+    # `{$_REQUEST['get_latest_for_id']}` string interpolation directly
+    # in the ->query(...) call.  Upstream moves it to
+    # `$safe_id = quote(...)`.  Native detection zero engine change
+    # (core $_REQUEST source + framework sink).  PB three-segment proof
+    # task 7532 (interp node@53 code=1, query op@54 code=1).  Proof
+    # scan task 7532 (3-file repro): GT :54 exact 1 x 1006:
+    'GetLatestRevision.php': {'1006': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
