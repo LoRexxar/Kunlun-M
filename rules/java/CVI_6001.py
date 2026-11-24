@@ -48,6 +48,26 @@ class CVI_6001(SingleRuleMixin):
 
             "Statement.addBatch",
 
+            # Fix 154c (CVE-2026-120201 Jpom <2.11.13 JPOM-USER-TOKEN SQLi
+            # auth bypass): hutool cn.hutool.db.Db WHERE-condition consumers.
+            # Db.find/findBy/del/count/page all take an Entity/Condition
+            # whose values hutool's condition parser may emit as RAW SQL
+            # (``WHERE password IS NOT NULL`` matches any user) instead of
+            # parameterized values — the Jpom UserService.checkUser
+            # (setPassword(header) → queryByBean → dataBeanToEntity →
+            # putAll → queryList → db.find) auth-bypass shape.  Qualified
+            # Class.method entries only; binding goes through the
+            # receiver-qualified op name / typed-receiver resolution.
+            "Db.find",
+
+            "Db.findBy",
+
+            "Db.del",
+
+            "Db.count",
+
+            "Db.page",
+
         ]
 
     def main(self, regex_string, sink_args=None):

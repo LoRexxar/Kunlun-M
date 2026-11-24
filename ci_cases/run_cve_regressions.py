@@ -255,6 +255,24 @@ EXPECTATIONS = {
     'ModelFormField.java': {'6073': 3},
     'DataResourceWorker.java': {'6073': 1},
     'FlexibleStringExpander.java': {'6073': 2 + 2},  # 2 ofbiz2409/ (Fix 153) + 2 ofbiz/ (Fix 137 case, same delegation lines)
+    # Fix 154a-e (CVE-2026-120201 Jpom <2.11.13 JPOM-USER-TOKEN header
+    # SQLi auth bypass, CVSS 9.3, fix v2.11.13 = isPasswordDigest 40-hex
+    # pre-check in UserService.checkUser, issue #121): LoginInterceptor
+    # getHeader(JPOM-USER-TOKEN) → UserService.checkUser setPassword
+    # (Lombok @Data bodyless setter arg→receiver write-back 154a) →
+    # super.queryByBean → this.dataBeanToEntity (154d explicit-this
+    # class-chain lookup: defined in PARENT BaseDbCommonService, was
+    # bound to an external stub) → Entity.putAll (154b: Entity/Dict
+    # extend LinkedHashMap = map receivers) → this.query →
+    # this.queryList (154e java overload candidates: was a no-op,
+    # bound to queryList(String,Object...) instead of the inherited
+    # queryList(Entity)) → hutool Db WHERE-condition consumers (154c
+    # sink family) where the parser emits raw SQL ('password IS NOT
+    # NULL' matches any row → super admin).  4 rows = the GT :271
+    # db.find (queryList) + same-shape siblings :224 db.del / :240
+    # db.count / :341 db.page — all consume the same tainted Entity
+    # where (mini task 7616, all reason = request.getHeader source).
+    'BaseDbCommonService.java': {'6001': 4},
     # Fix 138 (CVE-2026-44203 OpenAM 16.1.0 pre-auth reflected XSS,
     # CVSS 8.3, fix 078bd47 = ?html escapes in FormPostResponse.ftl +
     # page/checkSession.ftl only): OAuth2 authorize form_post response

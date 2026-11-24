@@ -299,6 +299,26 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             # Decoder.write's writeBuffer hit Encoder.writeBuffer — a
             # sibling nested class — via the same-file name fallback).
             # Try the own-class + extends chain BEFORE generic resolution.
+            # ── Fix 154d (CVE-2026-120201 Jpom): explicit `this.X(...)`
+            # receivers join this path too.  The 143b gate excluded the
+            # "this." prefix, so explicit-this calls went to the generic
+            # path whose Fix 137f guard only tries the OWN class — an
+            # inherited method (Jpom: BaseDbService.queryByBean calls
+            # this.dataBeanToEntity, defined in parent
+            # BaseDbCommonService) bound to an external stub instead of
+            # the corpus definition, cutting the callgraph leg and the
+            # whole JPOM-USER-TOKEN auth-bypass chain at that call.  Both
+            # shapes dispatch to own-class + extends-chain methods
+            # identically in Java.  On lookup MISS the block falls
+            # through to the generic path, preserving the 137f
+            # same-file fallback for nested-class receivers.
+            _explicit_this = (
+                language == "java"
+                and callee_name != "super"
+                and op_name
+                and op_name.startswith("this.")
+                and op_type == OperatorType.METHOD_CALL.value
+            )
             _implicit_this = (
                 language == "java"
                 and callee_name != "super"
@@ -306,7 +326,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 and not op_name.startswith("this.")
                 and ("." not in op_name or op_name.startswith("."))
             )
-            if _implicit_this:
+            if _implicit_this or _explicit_this:
                 _enc = self._enclosing_class_name_ast(graph, vid)
                 if _enc:
                     _iv = self._java_lookup_method(graph, _enc, callee_name)

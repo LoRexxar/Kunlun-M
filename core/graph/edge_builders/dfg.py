@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional
@@ -73,6 +74,12 @@ _JAVA_MAP_RECEIVER_TYPES: frozenset[str] = frozenset({
     "Map", "HashMap", "LinkedHashMap", "TreeMap", "Hashtable",
     "ConcurrentMap", "ConcurrentHashMap", "NavigableMap", "SortedMap",
     "AbstractMap", "MapStack", "Properties", "WeakHashMap", "EnumMap",
+    # Fix 154b (CVE-2026-120201 Jpom hutool): cn.hutool.db.Entity /
+    # cn.hutool.core.lang.Dict both extend LinkedHashMap — they ARE maps
+    # (``Entity entity = new Entity(tableName); entity.putAll(beanToMap)``).
+    # Without them the Jpom checkUser→dataBeanToEntity→queryList→db.find
+    # chain dies at the putAll container write-back.
+    "Entity", "Dict",
 })
 _JAVA_MAP_WRITE_METHODS: frozenset[str] = frozenset({"put", "putAll"})
 
@@ -299,6 +306,16 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if fname and not fullname:
                 self._func_name_index.setdefault(fname, []).append(v.index)
 
+        # Fix 154e (CVE-2026-120201 Jpom): java overload-resolution
+        # caches — bare-name index over ALL file-backed functions
+        # (java class methods carry fullname 'Class.method' and are
+        # invisible to _func_name_index), crg extends map, method→class
+        # memo.  All lazy: php corpora never trigger them (language gate
+        # in _resolve_overload).
+        self._func_bare_idx: dict[str, list[int]] | None = None
+        self._java_extends_cache: dict[str, str] | None = None
+        self._fn_class_memo: dict[int, str] = {}
+
         # 依次执行各分析步骤（分两阶段）
         # Phase 1: 不依赖 use 边的分析步骤
         # Phase 2: 依赖 use 边的分析步骤（参数传递、返回值传播、fluent API）
@@ -336,6 +353,9 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # argument → container write-back
             if language == "java":
                 self._analyze_java_map_writeback()
+                # Fix 154a (CVE-2026-120201): Lombok/@Data bodyless bean
+                # setter argument → receiver write-back
+                self._analyze_java_bean_setter_writeback()
                 # Fix 143g (CVE-2026-129448): implicit-this field
                 # write→read flow within a class family; runs BEFORE
                 # stream writeback — field flows also link field uses
@@ -1077,6 +1097,34 @@ class DataFlowBuilder(BaseEdgeBuilder):
 
         # Search for other overloads with the same name
         candidates = self._func_name_index.get(resolved_name, [])
+        # Fix 154e (CVE-2026-120201 Jpom): _func_name_index only holds
+        # fullname-LESS functions — every java class method carries
+        # fullname 'Class.method', so for java calls the candidate list
+        # was empty and overload resolution never redirected anything:
+        # this.queryList(where) stayed bound to the last-registered
+        # overload queryList(String, Object...) whose params swallowed
+        # the arg binding, while the real target — the inherited
+        # queryList(Entity) in BaseDbCommonService — never received the
+        # taint and its db.find sink stayed dark.  Add the java
+        # class-method candidates via a bare-name index over ALL
+        # file-backed functions, scoped to the resolved function's own
+        # class + extends chain (plus same-file, the original intent).
+        if self._func_bare_idx is None:
+            self._func_bare_idx = {}
+            for v in self.graph.vs:
+                i = v.index
+                if (self._vlabel[i] == NodeLabel.FUNCTION.value
+                        and self._vfile_path[i]):
+                    _nm = self._vname[i]
+                    if _nm:
+                        self._func_bare_idx.setdefault(_nm, []).append(i)
+        _extra = self._java_overload_candidates(resolved_vid, resolved_name)
+        if _extra:
+            _known = set(candidates)
+            for _c in _extra:
+                if _c not in _known:
+                    _known.add(_c)
+                    candidates = candidates + [_c]
         best_match = resolved_vid
         best_score = 0
         for cand_vid in candidates:
@@ -1104,6 +1152,84 @@ class DataFlowBuilder(BaseEdgeBuilder):
             logger.debug("[DFG] overload resolved: %s → %s (score=%d)",
                         resolved_name, _vattr(self.graph.vs[best_match], "signature", ""), best_score)
         return best_match
+
+    def _java_overload_candidates(self, resolved_vid: int,
+                                   name: str) -> list[int]:
+        """Fix 154e (CVE-2026-120201): java class-method overload
+        candidates for *name*, scoped to the resolved function's own
+        class + extends chain (crg extends edges, name-keyed) and its
+        file — the legal Java overload space for an instance call on
+        that receiver.  External stubs are excluded (no file_path).
+        """
+        base = self._func_bare_idx.get(name, [])
+        if not base:
+            return []
+        cls = self._java_fn_own_class(resolved_vid)
+        chain: set[str] = set()
+        if cls:
+            chain.add(cls)
+            emap = self._java_extends_map()
+            cur = cls
+            for _ in range(6):
+                parent = emap.get(cur)
+                if not parent or parent in chain:
+                    break
+                chain.add(parent)
+                cur = parent
+        rfile = self._vfile_path[resolved_vid]
+        if not chain and not rfile:
+            return []
+        out: list[int] = []
+        for c in base:
+            if c == resolved_vid:
+                continue
+            if rfile and self._vfile_path[c] == rfile:
+                out.append(c)
+                continue
+            if chain and self._java_fn_own_class(c) in chain:
+                out.append(c)
+        return out
+
+    def _java_fn_own_class(self, fn_vid: int) -> str:
+        """Owning class name of a corpus method (own-parent walk, memo)."""
+        if fn_vid in self._fn_class_memo:
+            return self._fn_class_memo[fn_vid]
+        cur, result, seen = fn_vid, "", set()
+        for _ in range(6):
+            if cur in seen:
+                break
+            seen.add(cur)
+            nxt = None
+            for eid in self.graph.incident(cur, mode="in"):
+                if self._elabel[eid] != EdgeLabel.OWN.value:
+                    continue
+                nxt = self.graph.es[eid].source
+                break
+            if nxt is None:
+                break
+            if self._vlabel[nxt] == NodeLabel.CLASS.value:
+                result = self._vname[nxt] or ""
+                break
+            cur = nxt
+        self._fn_class_memo[fn_vid] = result
+        return result
+
+    def _java_extends_map(self) -> dict[str, str]:
+        """Child-class → parent-class names from crg extends edges."""
+        if self._java_extends_cache is None:
+            m: dict[str, str] = {}
+            for e in self.graph.es:
+                if self._elabel[e.index] != EdgeLabel.CRG.value:
+                    continue
+                if _vattr(e, "type", "") != "extends":
+                    continue
+                s, t = e.source, e.target
+                if (self._vlabel[s] == NodeLabel.CLASS.value
+                        and self._vlabel[t] == NodeLabel.CLASS.value
+                        and self._vname[s]):
+                    m[self._vname[s]] = self._vname[t]
+            self._java_extends_cache = m
+        return self._java_extends_cache
 
     @staticmethod
     def _types_match(call_types: list[str], param_types: list[str]) -> bool:
@@ -1964,6 +2090,106 @@ class DataFlowBuilder(BaseEdgeBuilder):
             for a in arg_vids:
                 if a != receiver_vid:
                     self._add_dfg_edge(a, receiver_vid, DfgType.FORWARD_SLICE.value)
+
+    # Fix 154a (CVE-2026-120201 Jpom): JavaBean/Lombok setter write-back.
+    # ``userModel.setPassword(userMd5)`` — the receiver's class is a corpus
+    # class whose setter has NO source body (Lombok @Data generates setters
+    # at compile time), so the argument's taint died at the call node and
+    # the object stayed clean forever (Jpom auth-bypass chain died exactly
+    # here).  Storage semantics identical to Map.put (Fix 137b): a setter
+    # stores its argument INTO the receiver object — container-level weak
+    # update, arg → receiver identifier.
+    # Gates:
+    # - callee short name matches the JavaBean setter shape ^set[A-Z]\w*$
+    # - exactly ONE argument
+    # - receiver resolves to a same-name identifier/parameter via the
+    #   call's dfg in-edge (same technique as _analyze_java_map_writeback)
+    # - receiver's DECLARED java type resolves AND names a corpus class
+    #   node (``_nname`` class bucket) — external/library receivers are
+    #   excluded (their setters are opaque calls, not bean fields)
+    # - that class does NOT define the setter itself: a corpus-defined
+    #   setter body owns the field flow natively (param → this.x); the
+    #   Lombok-generated setter is exactly the one with no node here.
+    _JAVA_BEAN_SETTER_RE = re.compile(r"^set[A-Z]\w*$")
+
+    def _analyze_java_bean_setter_writeback(self) -> None:
+        """Fix 154a: bodyless JavaBean setter arg → receiver write-back."""
+        for v in self.graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] not in ("static_call", "method_call", "call"):
+                continue
+            vid = v.index
+            name = self._vname[vid] or ""
+            dot = name.rfind(".")
+            if dot <= 0:
+                continue
+            method = name[dot + 1:]
+            if not self._JAVA_BEAN_SETTER_RE.match(method):
+                continue
+            arg_vids = self._get_ast_children(vid, role=AstRole.ARG.value)
+            if len(arg_vids) != 1:
+                continue
+            receiver_name = name[:name.find(".")]
+            if not receiver_name:
+                continue
+            # receiver identifier: dfg in-edge from a same-name
+            # identifier/parameter (pending edges included, same technique
+            # as _analyze_java_map_writeback).
+            receiver_vid = None
+            for eid in self.graph.incident(vid, mode="in"):
+                e = self.graph.es[eid]
+                if self._elabel[e.index] != EdgeLabel.DFG.value:
+                    continue
+                src = self.graph.vs[e.source]
+                if (self._vlabel[src.index] in (NodeLabel.IDENTIFIER.value,
+                                                NodeLabel.PARAMETER.value)
+                        and (self._vname[src.index] or "") == receiver_name):
+                    receiver_vid = src.index
+                    break
+            if receiver_vid is None:
+                for src, tgt, _t in self._dfg_edges:
+                    if (tgt == vid and self._vlabel[src] in (NodeLabel.IDENTIFIER.value,
+                                                             NodeLabel.PARAMETER.value)
+                            and (self._vname[src] or "") == receiver_name):
+                        receiver_vid = src
+                        break
+            if receiver_vid is None or receiver_vid == arg_vids[0]:
+                continue
+            # declared-type gate + corpus class node (lazy class-name index —
+            # the _nname bucket lives on GraphAnalyzer, not on this builder)
+            jt = self._receiver_declared_java_type(vid, receiver_name)
+            if not jt:
+                continue
+            cls_idx = getattr(self, "_java_cls_idx", None)
+            if cls_idx is None:
+                cls_idx = self._java_cls_idx = {}
+                for cv in self.graph.vs:
+                    if self._vlabel[cv.index] == NodeLabel.CLASS.value:
+                        _cn = self._vname[cv.index] or ""
+                        if _cn:
+                            cls_idx.setdefault(_cn, []).append(cv.index)
+            cls_vids = cls_idx.get(jt, [])
+            if not cls_vids:
+                continue  # not a corpus-defined class — external receiver
+            # the corpus class must NOT define this setter itself
+            setter_defined = False
+            for cv in cls_vids:
+                for eid in self.graph.incident(cv, mode="out"):
+                    e = self.graph.es[eid]
+                    if self._elabel[e.index] != EdgeLabel.OWN.value:
+                        continue
+                    child = e.target
+                    if (self._vlabel[child] == NodeLabel.FUNCTION.value
+                            and (self._vname[child] or "") == method):
+                        setter_defined = True
+                        break
+                if setter_defined:
+                    break
+            if setter_defined:
+                continue
+            self._add_dfg_edge(arg_vids[0], receiver_vid,
+                               DfgType.FORWARD_SLICE.value)
 
     # Fix 143e (CVE-2026-129448): JDK in-memory output-stream mutators.
     # ByteArrayOutputStream.write(byte[]) stores its argument into the

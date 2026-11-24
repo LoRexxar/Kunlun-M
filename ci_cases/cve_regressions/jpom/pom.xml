@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright (c) 2019 Of Him Code Technology Studio
+    Jpom is licensed under Mulan PSL v2.
+    You can use this software according to the terms and conditions of the Mulan PSL v2.
+    You may obtain a copy of Mulan PSL v2 at:
+    			http://license.coscl.org.cn/MulanPSL2
+    THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+    See the Mulan PSL v2 for more details.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <packaging>pom</packaging>
+    <modules>
+        <module>modules/agent</module>
+        <module>modules/server</module>
+        <module>modules/common</module>
+        <module>modules/sub-plugin</module>
+        <module>modules/agent-transport</module>
+        <module>modules/storage-module</module>
+    </modules>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.18</version>
+        <relativePath/>
+    </parent>
+    <groupId>org.dromara.jpom</groupId>
+    <artifactId>jpom-parent</artifactId>
+    <name>Jpom (Java Project Online Manage)</name>
+    <description>
+        简而轻的低侵入式在线构建、自动部署、日常运维、项目监控软件
+    </description>
+    <inceptionYear>2017</inceptionYear>
+    <version>2.11.12</version>
+    <url>https://gitee.com/dromara/Jpom</url>
+    <properties>
+        <spring-framework.version>5.3.39</spring-framework.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java.version>1.8</java.version>
+        <!--当前程序兼容 jpom 最新版本号-->
+        <jpom-min-version>2.10.0</jpom-min-version>
+
+        <!-- 跳过测试 -->
+        <skipTests>true</skipTests>
+        <maven.test.skip>true</maven.test.skip>
+        <!--        <maven.javadoc.skip>true</maven.javadoc.skip>-->
+        <hutool.version>5.8.34</hutool.version>
+        <fastjson2.version>2.0.53</fastjson2.version>
+        <fastjson-version>2.0.53</fastjson-version>
+        <jna-version>5.14.0</jna-version>
+        <mwiede.jsch-version>0.2.18</mwiede.jsch-version>
+        <oshi.version>6.4.13</oshi.version>
+        <tomcat.version>9.0.99</tomcat.version>
+        <yaml.version>2.2</yaml.version>
+        <!--  h2 不能直接升级 The write format 2 is smaller than the supported format 3-->
+        <h2.version>2.1.214</h2.version>
+        <postgresql.version>42.3.10</postgresql.version>
+        <logback.version>1.2.13</logback.version>
+        <mysql.version>8.2.0</mysql.version>
+        <!-- logback 不能升级
+        https://github.com/spring-projects/spring-boot/issues/34708
+        https://github.com/spring-projects/spring-boot/issues/12649
+        -->
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 性能测试 -->
+        <dependency>
+            <groupId>org.databene</groupId>
+            <artifactId>contiperf</artifactId>
+            <version>2.3.4</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+    </dependencies>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-bom</artifactId>
+                <version>${hutool.version}</version>
+                <type>pom</type>
+                <!-- 注意这里是import -->
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.alibaba.fastjson2</groupId>
+                <artifactId>fastjson2</artifactId>
+                <version>${fastjson2.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>1.78</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.github.mwiede</groupId>
+                <artifactId>jsch</artifactId>
+                <version>${mwiede.jsch-version}</version>
+            </dependency>
+
+            <dependency>
+                <artifactId>snakeyaml</artifactId>
+                <groupId>org.yaml</groupId>
+                <version>${yaml.version}</version>
+            </dependency>
+
+            <dependency>
+                <artifactId>tomcat-embed-core</artifactId>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <version>${tomcat.version}</version>
+            </dependency>
+
+            <dependency>
+                <artifactId>tomcat-embed-el</artifactId>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <version>${tomcat.version}</version>
+            </dependency>
+
+            <dependency>
+                <artifactId>tomcat-embed-websocket</artifactId>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${h2.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${postgresql.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+                    <annotationProcessorPaths>
+                        <!--                        <path>-->
+                        <!--                            <groupId>org.springframework.boot</groupId>-->
+                        <!--                            <artifactId>spring-boot-configuration-processor</artifactId>-->
+                        <!--                        </path>-->
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.mycila</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+                <version>4.3</version>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>remove</goal>
+                            <goal>format</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <quiet>true</quiet>
+                    <licenseSets>
+                        <licenseSet>
+                            <!--HEADER文件-->
+                            <header>HEADER.txt</header>
+                            <includes>
+                                <!--取消默认排除-->
+                                <include>**</include>
+                                <include>web-vue/index.html</include>
+                                <include>**/dist/index.html</include>
+                            </includes>
+                            <!--排除文件-->
+                            <excludes>
+                                <!-- https://github.com/mathieucarbou/license-maven-plugin/blob/master/license-maven-plugin/src/main/java/com/mycila/maven/plugin/license/Default.java-->
+                                <exclude>docs/**</exclude>
+                                <!-- <exclude>web-vue/src/**</exclude>-->
+                                <!-- <exclude>web-vue2/**</exclude>-->
+                                <!-- <exclude>**/*.yml</exclude>-->
+                                <exclude>**/*.md</exclude>
+                                <exclude>**/i18n/*.properties</exclude>
+                                <exclude>**/*.txt</exclude>
+                                <exclude>**/dist/assets/**</exclude>
+                            </excludes>
+                        </licenseSet>
+                    </licenseSets>
+                    <!--严格检查-->
+                    <strictCheck>true</strictCheck>
+                    <mapping>
+                        <java>SLASHSTAR_STYLE</java>
+                    </mapping>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <!--            <distributionManagement>-->
+            <!--                <snapshotRepository>-->
+            <!--                    <id>maven-repo</id>-->
+            <!--                    <url>https://oss.sonatype.org/content/repositories/snapshots/</url>-->
+            <!--                </snapshotRepository>-->
+            <!--                <repository>-->
+            <!--                    <id>maven-repo</id>-->
+            <!--                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>-->
+            <!--                </repository>-->
+            <!--            </distributionManagement>-->
+            <build>
+                <plugins>
+                    <!-- Javadoc -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.0.0</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadoc</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <!--                            <additionalparam>-Xdoclint:none</additionalparam>-->
+                                    <additionalOptions>-Xdoclint:none</additionalOptions>
+                                </configuration>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <tags>
+                                <tag>
+                                    <name>date</name>
+                                    <placement>a</placement>
+                                    <head>创建时间</head>
+                                </tag>
+                            </tags>
+                        </configuration>
+                    </plugin>
+                    <!-- source插件,打包源码 -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>2.4</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- GPG -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.0.1</version>
+                        <executions>
+                            <execution>
+                                <id>verify-gpg</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!--                    <plugin>-->
+                    <!--                        <groupId>org.sonatype.plugins</groupId>-->
+                    <!--                        <artifactId>nexus-staging-maven-plugin</artifactId>-->
+                    <!--                        <version>1.7.0</version>-->
+                    <!--                        <extensions>true</extensions>-->
+                    <!--                        <configuration>-->
+                    <!--                            <serverId>sonatype-nexus-staging</serverId>-->
+                    <!--                            <nexusUrl>https://oss.sonatype.org/</nexusUrl>-->
+                    <!--                            <autoReleaseAfterClose>true</autoReleaseAfterClose>-->
+                    <!--                        </configuration>-->
+                    <!--                    </plugin>-->
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.6.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <!-- 这里的publishingServerId是在settings.xml中配置的server认证信息 -->
+                            <!-- 注意 Github Action 中的 server-id 也要与此保持一致 -->
+                            <publishingServerId>sonatype-nexus-staging</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <licenses>
+        <license>
+            <name>MulanPSL2 License</name>
+            <url>http://license.coscl.org.cn/MulanPSL2</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+</project>
