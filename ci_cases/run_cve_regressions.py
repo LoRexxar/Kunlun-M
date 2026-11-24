@@ -704,6 +704,44 @@ EXPECTATIONS = {
     # field_defs function name) — documented FP family (name-approximate
     # def-chain debt).  Proof scans: repro task 7393 (17 rows), AOR
     # non-regression task 7394 (7394 vs frozen: -3 phantom only).
+    #
+    # CVE-2026-63215 (GHSA-pmhw-r27f-w92m, SuiteCRM <7.15.2 / <8.10.2):
+    # REST API v4.1 get_entry_list time-based blind SQLi (CVSS 9.1 adv /
+    # 8.3 GHSA) — NATIVE DETECTION, zero engine change.  Chain: /service/
+    # v4_1/rest.php (impl SugarWebServiceImplv4_1) -> SugarRestJSON::serve
+    # :100 tainted-method dispatch (RAW_REQUEST rest_data bypasses
+    # clean_incoming_data/securexss, include/utils.php:2501-2529) ->
+    # SugarWebServiceImplv4::get_entry_list :258-316 ($query/$order_by
+    # entry params, Fix 149b rpc_entry_classes) -> checkQuery :276
+    # (SugarSQLValidate PHPSQLParser gate, include/SugarSQLValidate.php:
+    # 57-169 — the advisory's "two independent security mechanisms", both
+    # bypassable per the CVE) -> SugarWebServiceUtilv4::get_data_list :89
+    # (arg1 $order_by / arg2 $where) -> SugarBean::create_new_list_query
+    # :3632 (where concat :4118, order_by build :4120-4122) ->
+    # process_list_query :4265 -> GT sinks :4284 count-query / :4305
+    # limitQuery / :4307 query (Fix 146a DBManager sinks).  Upstream fix
+    # d6bca97: disable_v4_api_query_where config default true — kills the
+    # v4 API query/where path wholesale rather than strengthening the
+    # validators.  Proof mini task 7645 (/tmp/cve-2026-63215/mini, 5
+    # byte-faithful 7.15.1 files incl. the advisory's affected
+    # SugarWebServiceImplv4.php + SugarWebServiceUtilv4.php): 10 rows at
+    # the frozen SugarBean family sites (:1288/:1290/:1439/:1506/:4284/
+    # :4305/:4307/:4533/:4544/:5218, zero drift vs the 63214 freeze);
+    # PB entry params $query/$order_by code=1 "framework RPC entry
+    # parameter (SugarWebServiceImplv4.get_entry_list, legacy REST
+    # dispatch)" at their use sites (:283/:313/:315).  First-order
+    # entry->sink arm is guard-killed by defensible validator models the
+    # real-world CVE bypasses (preg_match join-inspection post-guard on
+    # $where; field_defs column-whitelist branch on $order_by) — modeling
+    # boundary, not engine bug; the sink rows still fire via the
+    # RPC-populated bean-property member-chain arm (new_handle_set_
+    # entries $seed->outlook_id :416 -> $seed->get_list :417 -> sinks,
+    # also first-order REST data).  linked_cve 6 rows: task 7645 fresh
+    # 21982/21983/21984 (:4284/:4305/:4307) + dual-linked 63214 rows
+    # 21835/21836/21837 (same sink sites, :577 triple-link precedent).
+    # Expectations UNCHANGED — the suitecrm63214 repro already freezes
+    # SugarBean.php 1006x10 covering these sink sites; no new repro dir
+    # (61648 docs-only precedent).
     'SugarWebServiceImpl.php': {'1006': 1},
     # Fix 150 (CVE-2026-69134 battle) corrected three over-counted
     # expectations — every removed row was source-verified FP:
