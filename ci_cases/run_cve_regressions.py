@@ -693,6 +693,24 @@ EXPECTATIONS = {
     # ['id'] into a fresh bean (formbase.php:122 skips id only when the
     # bean already has one) — NOT asserted, non-advisory.
     'Save.php': {'1006': 1},
+    # CVE-2026-69142 repro (suitecrm69142/, byte-faithful 7.15.1): jjwg_Maps
+    # map_markers distance SQLi (GHSA-pjc8-2w2x-xcgf) — controller.php:688/
+    # :698 `$map_distance = (!empty($_REQUEST['distance'])) ? $_REQUEST
+    # ['distance'] : ...` -> :770 concat into $where_conds -> :771
+    # create_new_list_query -> :773 str_replace -> :784 $this->bean->db->
+    # limitQuery($query, ...) sink.  Upstream d6bca97 casts both reads to
+    # (float).  Native detection zero engine change (core $_REQUEST source
+    # + Fix 146a suitecrm DBManager framework sink + Fix 150/151 limitQuery
+    # arg0); PB three-segment proof task 7507 ($map_distance@690/@700
+    # code=1, operand @771 code=1, sink $query@785 code=1, reason names
+    # 'distance' member chain).  Proof scan task 7508 (3-file repro): 7 x
+    # 1006 = GT :785 + table_name FP family :151/:162/:724/:874/:960
+    # (cross-file property store display_object over-approx, documented,
+    # 69134 convention) + TP-shape :936 ($_REQUEST['current_post'] ->
+    # generateSearchWhere -> create_export_query -> limitQuery, non-
+    # advisory sibling).  The :476 echo list_row_to_csv 1000 row is a
+    # TP-shape XSS sibling — NOT asserted, 69135 1013-sibling precedent.
+    'controller.php': {'1006': 7},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
