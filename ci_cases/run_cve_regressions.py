@@ -710,7 +710,24 @@ EXPECTATIONS = {
     # generateSearchWhere -> create_export_query -> limitQuery, non-
     # advisory sibling).  The :476 echo list_row_to_csv 1000 row is a
     # TP-shape XSS sibling — NOT asserted, 69135 1013-sibling precedent.
-    'controller.php': {'1006': 7},
+    # CVE-2026-61651 repro (suitecrm61651/, byte-faithful 7.15.1): Projects
+    # Controller get_end_date task_id SQLi (GHSA-7cj5-pc2f-9xgv) — :278
+    # `$id = $_POST['task_id']` -> :282 interpolation into $query ->
+    # :283 `$db->getOne($query)`. Upstream d6bca97 quotes task_id and
+    # casts lag. Native detection zero engine change (core $_POST source
+    # + Fix 146a suitecrm DBManager getOne sink, registered since the
+    # 100365 battle). PB three-segment proof task 7530 ($id@279 code=1
+    # $_POST member access, concat .@283 code=1, getOne op@284 code=1).
+    # Proof scan task 7530 (3-file repro): 5 x 1006 = GT :284 +
+    # TP sibling :240 (update_GanttChart :123 `$project_id =
+    # $_POST['project_id']` raw -> :238 interpolation -> :239 getOne,
+    # ALSO fixed by d6bca97 `$db->quote(...)`, no separate CVE assigned)
+    # + 3 retrieve() property-store FP family rows :73/:76/:81
+    # ($project->retrieve($_POST['pid']) brands ->id, over-approx,
+    # 69134/69142 convention). The :334/:577 echo rows are TP-shape XSS
+    # siblings — NOT asserted, 69135/69142 convention. Basename shared
+    # with suitecrm69142/ (7) — SugarBean 10+10 precedent, merged count:
+    'controller.php': {'1006': 7 + 5},  # 7 jjwg_Maps (69142) + 5 Project (61651)
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
