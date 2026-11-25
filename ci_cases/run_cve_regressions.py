@@ -883,6 +883,34 @@ EXPECTATIONS = {
     # task 7532 (interp node@53 code=1, query op@54 code=1).  Proof
     # scan task 7532 (3-file repro): GT :54 exact 1 x 1006:
     'GetLatestRevision.php': {'1006': 1},
+
+    # CVE-2026-61649 repro (suitecrm61649/, byte-faithful 7.15.1):
+    # Home dashlet RSS SSRF (GHSA-r665-27q3-wvg8, CVSS 7.7) —
+    # MySugar::displayDashlet :146 $current_user->getPreference
+    # ('dashlets', ...) store read (Fix 155a second-order source; the
+    # same $dashlets array is also member-merged from $_REQUEST at
+    # :160 sortOrder/orderBy) → :168 dynamic
+    # `new $dashlets[$id]['className']($id, isset(...) ?
+    # $dashlets[$id]['options'] : array())` (Fix 155b ternary value-
+    # arm DFG + 155f branch-actual arm expansion at the 52s bridge) →
+    # RSSDashlet ctor $def (Fix 155d dynamic-new ctor sites + 155e
+    # param/arg positional matching — the bridge previously read a
+    # nonexistent node 'index' attr and always matched arg0) →
+    # $this->url write :75 inside a guard branch (Fix 155a own-
+    # ancestor walk) → display :103 getRSSOutput($this->url) → :161
+    # validate_external_host guard — a CONDITIONAL check, not a
+    # sanitizer; the CVE itself is the stripos() substring bypass OF
+    # this guard, so the sink must stay reported — → :165
+    # file_get_contents (CVI 1002).  Upstream 7.15.2/8.10.2
+    # (a11f5018 + d6bca97) replaces the guard's stripos hostname
+    # containment with exact host equality.  Zero rows before Fix
+    # 155a-f.  Proof scans: mini task 7725 row 22232 (8-file); 5-file
+    # repro trial task 7726 row 22235.  The 2 MySugar.php echo-
+    # passthrough rows (:175 $contents = $dashlet->display(), :204
+    # displayScript — fetched-RSS second-order echo) are real-shaped
+    # but carry no advisory row: MySugar.php is deliberately NOT in
+    # expectations (count is minimum, not exact, per Fix 122):
+    'RSSDashlet.php': {'1002': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

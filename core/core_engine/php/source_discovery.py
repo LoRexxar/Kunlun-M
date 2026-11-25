@@ -492,13 +492,34 @@ FRAMEWORK_CONFIGS = {
         # retrieve_by_string_fields (SugarBean.php:5817) is the same
         # populateFromRow mutator keyed on arbitrary column matches.
         #
-        # No request_object_names / global_source_functions: SuiteCRM
-        # reads user input through bare $_REQUEST/$_POST superglobals
-        # (already native sources); the only framework-specific source
-        # semantics here is the ORM mutator.
+        # SuiteCRM reads user input through bare $_REQUEST/$_POST
+        # superglobals (already native sources); framework-specific source
+        # semantics are the ORM mutator and the getPreference store read
+        # (Fix 155a global_source_functions below).
         'request_object_names': set(),
         'request_methods': set(),
-        'global_source_functions': set(),
+        # Fix 155a (CVE-2026-61649): the user-preference read accessor is a
+        # second-order source.  SuiteCRM persists dashlet options (incl.
+        # RSSDashlet's rss url, MySugar.php:152/168 @ 7.15.1) into the
+        # user_preferences table via $current_user->setPreference(...) →
+        # UserPreference::savePreferencesToDB (serialize+base64 →
+        # SugarBean->save).  Every read side —
+        # $current_user->getPreference('dashlets', 'Home') (MySugar.php:146,
+        # Dashlet.php:440/454) and UserPreference::getPreference (raw
+        # $db->query + fetchByAssoc + unserialize back into $_SESSION) —
+        # returns that stored, user-editable data.  $_SESSION reads are
+        # deliberately excluded from superglobal sources, and the read
+        # path never passes through a registered orm_mutator, so without
+        # this registration the whole dashlet-options store channel is
+        # invisible (RSSDashlet getRSSOutput → validate_external_host →
+        # file_get_contents SSRF, CVE-2026-61649 stripos-bypass guard).
+        # Corpus-wide (7.15.1, 4307 files) getPreference is defined exactly
+        # in User and UserPreference and always means this accessor, so the
+        # bare key is safe here (framework-scoped, cf. openemr sqlQuery).
+        'global_source_functions': {
+            'getPreference',
+            'User.getPreference', 'UserPreference.getPreference',
+        },
         'orm_mutator_methods': {'retrieve', 'retrieve_by_string_fields'},
         # Fix 150 (CVE-2026-69134): graph-enrichment mirror of the tamper
         # FILTER_FUNCTIONS quote/quoteIdentifier encoders (Fix 146a) —

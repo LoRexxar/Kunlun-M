@@ -463,6 +463,48 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     NodeLabel.OPERATOR.value,
                 ):
                     self._add_dfg_edge(child_vid, vid, DfgType.FORWARD_SLICE.value)
+                elif child_label == NodeLabel.BRANCH.value:
+                    # Fix 155b (CVE-2026-61649): a ternary/conditional ARG.
+                    # Assign-RHS ternaries already connect their value arms
+                    # straight to the LHS, but call args only linked
+                    # identifier/const/operator children — a branch-typed
+                    # argument (MySugar.php:168 @ 7.15.1:
+                    # `new $dashlets[$id]['className']($id,
+                    # isset($dashlets[$id]['options']) ?
+                    # $dashlets[$id]['options'] : array())`) dropped its
+                    # value taint on the floor, so the dynamic-new op node
+                    # and the object it produces never carried the
+                    # constructor argument's taint.  Connect the branch's
+                    # VALUE arms (iftrue/iffalse; condition excluded — the
+                    # guard expression does not flow into the result) to
+                    # the call op, mirroring the assign-RHS semantics.
+                    for value_vid in self._branch_value_arms(child_vid, depth=0):
+                        self._add_dfg_edge(
+                            value_vid, vid, DfgType.FORWARD_SLICE.value)
+
+    def _branch_value_arms(self, branch_vid: int, depth: int) -> list[int]:
+        """Fix 155b: value-arm (iftrue/iffalse) children of a branch node.
+
+        Returns identifier/const/operator children reachable through
+        iftrue/iffalse/value roles (nested branches recursed, depth-capped)
+        — the data that a ternary's evaluation actually yields.
+        """
+        if depth > 3:
+            return []
+        out: list[int] = []
+        for role in (AstRole.IFTRUE.value, AstRole.IFFALSE.value,
+                     AstRole.VALUE.value):
+            for tgt in self._ast_role_from.get((branch_vid, role), []):
+                tgt_label = self._vlabel[tgt]
+                if tgt_label == NodeLabel.BRANCH.value:
+                    out.extend(self._branch_value_arms(tgt, depth + 1))
+                elif tgt_label in (
+                        NodeLabel.IDENTIFIER.value,
+                        NodeLabel.CONST.value,
+                        NodeLabel.OPERATOR.value,
+                ):
+                    out.append(tgt)
+        return out
 
     # -- 分析步骤 0b：method_call receiver 数据流 ------------------------------
 

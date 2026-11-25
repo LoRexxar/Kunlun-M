@@ -73,6 +73,11 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._use_pairs: set[tuple[int, int]] = set()
         # Fix 97: python 同名有体函数索引（懒构建，duck-typing 虚分发）
         self._py_dispatch_idx: dict[str, list[int]] | None = None
+        # Fix 155c (CVE-2026-61649): php 同名类方法索引（懒构建，
+        # dynamic-new 接收者虚拟分发 fan）
+        self._php_dynnew_idx: dict[str, list[int]] | None = None
+        # Fix 155c: 接收者回溯撞见 new op 的标记（每次 receiver 解析前重置）
+        self._recv_saw_new = False
         # Fix 137g: java 接口虚分发 — implements 关系（cr g 边 class→external class）
         # 与 接口方法判定缓存（target_vid → 接口名或 ''）
         self._iface_implementors: dict[str, set[str]] = defaultdict(set)
@@ -256,6 +261,9 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             resolved_type = None
             if op_type in (OperatorType.METHOD_CALL.value,
                            OperatorType.STATIC_CALL.value):
+                # Fix 155c: reset the dynamic-new provenance flag before
+                # each receiver-type walk (single-threaded sequential use).
+                self._recv_saw_new = False
                 resolved_type = self._resolve_receiver_type(
                     graph, vid, callee_name, name_index)
 
@@ -400,11 +408,48 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                             count += 1
                     continue
 
+            # Fix 155c (CVE-2026-61649): PHP dynamic-new receiver dispatch.
+            # `$dashlet = new $dashlets[$id]['className']($id, $opts);`
+            # followed by `$dashlet->display()` — the receiver traces back
+            # to a `new` op whose class EXPRESSION is data (starts with '$',
+            # never resolves a type), so resolved_type is None and the call
+            # used to bind a synthetic external stub, cutting the callgraph:
+            # the receiver's taint (ctor args: the stored dashlet options,
+            # a second-order getPreference source) never flowed into the
+            # class body ($this member reads) and every sink inside the
+            # dashlet class was invisible (RSSDashlet getRSSOutput →
+            # file_get_contents SSRF, CVE-2026-61649 stripos-bypass guard).
+            # _recv_saw_new is set by _resolve_receiver_type exactly when
+            # the backward receiver walk hit such a dynamic `new` op (a
+            # static `new ClassName` returns its name and never reaches
+            # here with resolved_type None).  Mirror the Fix 97 python
+            # duck-typing fan: bind the call to ALL corpus class METHODS
+            # with this exact name (virtual-dispatch over-approximation).
+            # Guards: php only; 2..8 candidates (single candidate already
+            # handled by the normal single-bind path; a name storm keeps
+            # the old behavior to bound edge growth).
+            if (language == "php"
+                    and op_type == OperatorType.METHOD_CALL.value
+                    and resolved_type is None
+                    and self._recv_saw_new):
+                _cands155 = self._php_dynnew_candidates(graph, callee_name)
+                if _cands155:
+                    for _tgt in _cands155:
+                        if (vid, _tgt) not in self._use_pairs:
+                            self._use_pairs.add((vid, _tgt))
+                            use_edges.append((vid, _tgt))
+                            use_attrs.append({
+                                "label": "use",
+                                "call_type": cg_call_type,
+                                "lineno": lineno,
+                            })
+                            count += 1
+                    continue
+
             # Build fullname
             if resolved_type:
                 fullname = f"{resolved_type}.{callee_name}"
                 # Fix 143i (CVE-2026-129448): java nested-class receivers
-                # resolve under the SIMPLE nested name — corpus methods of
                 # `Base64.Decoder` are indexed as `Decoder.write`, so the
                 # qualified form only ever matched (or created) an external
                 # stub and the call edge left the corpus.
@@ -822,6 +867,14 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                             return dtype
                         # PHP/JS "new ClassName" operator: name IS the type
                         if self._vtype[src_vid] == OperatorType.NEW.value:
+                            # Fix 155c (CVE-2026-61649): note that the
+                            # receiver traces back to a `new` op regardless
+                            # of whether its class expr resolves (a dynamic
+                            # `new $dashlets[$id]['className'](...)` starts
+                            # with '$' and never yields a type).  The flag
+                            # drives the PHP dynamic-new virtual-dispatch
+                            # fan below.
+                            self._recv_saw_new = True
                             new_name = self._vname[src_vid]
                             if new_name and new_name[0:1].isupper():
                                 return new_name
@@ -1060,6 +1113,44 @@ class UseEdgeBuilder(BaseEdgeBuilder):
     def _get_dfg_sources(self, graph: "ig.Graph", vid: int) -> list[int]:
         """Get upstream DFG source vertex IDs."""
         return list(self._dfg_to.get(vid, []))
+
+    def _php_dynnew_candidates(self, graph: "ig.Graph", name: str) -> list[int]:
+        """Fix 155c (CVE-2026-61649): all PHP class METHODS with this exact
+        name — the virtual-dispatch target set for a method call whose
+        receiver traces back to a dynamic `new $expr(...)` (class name is
+        data, no static type).  Own-parent = class node keeps file-scoped
+        functions out (an `->` call can only land on class methods), which
+        also keeps the candidate set small when a name is shared by both
+        forms.  Returns [] unless there are 2..8 candidates: a single
+        candidate is left to the normal single-bind path, and a storm
+        (>8 same-named methods) keeps old behavior to bound edge growth.
+        """
+        if not name:
+            return []
+        if self._php_dynnew_idx is None:
+            idx: dict[str, list[int]] = {}
+            own_to: dict[int, list[int]] = defaultdict(list)
+            for e in graph.es:
+                if _vattr(e, "label", "") == "own":
+                    own_to[e.source].append(e.target)
+            for i in range(graph.vcount()):
+                if self._vlabel[i] != NodeLabel.CLASS.value:
+                    continue
+                for ch in own_to.get(i, ()):
+                    if self._vlabel[ch] != NodeLabel.FUNCTION.value:
+                        continue
+                    if self._vis_external[ch]:
+                        continue
+                    if not str(self._vfile_path[ch]).endswith(".php"):
+                        continue
+                    nm = self._vname[ch]
+                    if nm:
+                        idx.setdefault(nm, []).append(ch)
+            self._php_dynnew_idx = idx
+        cands = self._php_dynnew_idx.get(name, [])
+        if 1 < len(cands) <= 8:
+            return cands
+        return []
 
     def _py_dispatch_candidates(self, graph: "ig.Graph", name: str) -> list[int]:
         """Fix 97 (CVE-2026-29080): all python METHODS with this exact name

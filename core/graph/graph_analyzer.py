@@ -2318,6 +2318,32 @@ class GraphAnalyzer:
         finally:
             self._pb_frame_depth = _pd
 
+    def _155_branch_arg_arms(self, vid: int, depth: int = 0) -> list[int]:
+        """Fix 155f (CVE-2026-61649): value arms of a ternary/conditional node.
+
+        Returns the iftrue/iffalse/value ast children (nested branches
+        recursed, depth-capped 3) — the data the conditional's evaluation
+        actually yields.  A non-branch vid returns [vid] unchanged, so
+        call-site bridges can pass any actual through this expander.
+        """
+        if _vattr(self.graph.vs[vid], "label", "") != NodeLabel.BRANCH.value:
+            return [vid]
+        if depth > 3:
+            return []
+        out: list[int] = []
+        for role in (AstRole.IFTRUE.value, AstRole.IFFALSE.value,
+                     AstRole.VALUE.value):
+            for e in self._edge_out(vid, "ast"):
+                if _vattr(e, "role", "") != role:
+                    continue
+                tgt = e.target
+                if _vattr(self.graph.vs[tgt], "label", "") \
+                        == NodeLabel.BRANCH.value:
+                    out.extend(self._155_branch_arg_arms(tgt, depth + 1))
+                else:
+                    out.append(tgt)
+        return out
+
     def _parameters_back_entry(self, start_vid: int, context_vid: int | None,
                                max_depth: int) -> AnalysisResult:
         # Fix 109 (CVE-2026-126482): call-site bridges (Fix 83/52t) bind a
@@ -4293,6 +4319,40 @@ class GraphAnalyzer:
                                 _pidx = int(_pidx)
                             except (TypeError, ValueError):
                                 _pidx = 0
+                            # Fix 155e (CVE-2026-61649): PHP param NODES carry
+                            # no index attribute — the position lives on the
+                            # ctor→param own edge ('index': '0'/'1').  Reading
+                            # the node attr made _pidx ALWAYS 0, so the bridge
+                            # matched the FIRST actual at every site
+                            # (probeA2: RSSDashlet ctor $def ← arg0 $id
+                            # instead of arg1 $opts — the only reason the
+                            # static harness detected was that its $id was
+                            # itself request-tainted).  Own-edge index first,
+                            # then 52t-style declaration order of the ctor's
+                            # param children.
+                            if self.language == "php":
+                                _pidx155 = None
+                                for _oe155 in self._edge_in(up_vid, "own"):
+                                    _oi155 = _vattr(_oe155, "index", "")
+                                    if _oi155 not in ("", None):
+                                        try:
+                                            _pidx155 = int(_oi155)
+                                        except (TypeError, ValueError):
+                                            _pidx155 = None
+                                        break
+                                if _pidx155 is None:
+                                    _fp155 = [
+                                        pe.target for pe in
+                                        sorted(self._edge_out(_ctor_fn2, "own"),
+                                               key=lambda e: e.target)
+                                        if _vattr(self.graph.vs[pe.target],
+                                                  "label", "")
+                                        == NodeLabel.PARAMETER.value]
+                                    try:
+                                        _pidx155 = _fp155.index(up_vid)
+                                    except ValueError:
+                                        _pidx155 = 0
+                                _pidx = _pidx155
                             # sibling new-calls of the same class
                             # Fix 52s-4: class keys can carry quotes (dual-node
                             # stub form 'ClassName'); strip and retry.
@@ -4345,25 +4405,81 @@ class GraphAnalyzer:
                                                 break
                                     _memo3[_cls_short] = list(_found)
                                     _sites52s = list(_found)
+                            # Fix 155d (CVE-2026-61649): PHP dynamic-new
+                            # ctor sites.  `new $cls(...)` — the class
+                            # EXPRESSION is data (op name starts with '$') —
+                            # never resolves a class, so its use edge binds a
+                            # '$cls' stub that matches no ctor and the site
+                            # is invisible to every 52s lookup: each ctor
+                            # param of each class dead-ends as an unresolved
+                            # entry parameter.  A dynamic new can construct
+                            # ANY corpus class, so union ALL dynamic-new
+                            # sites into the candidate set (sound
+                            # over-approximation mirroring the Fix 155c
+                            # receiver-dispatch fan).  php only; the site
+                            # list is memoized once; capped to bound fan-out
+                            # on dynamic-new-heavy corpora.
+                            if self.language == "php":
+                                _dyn155 = getattr(self, "_dynnew_sites", None)
+                                if _dyn155 is None:
+                                    _dyn155 = []
+                                    for v3 in self._nlbl.get(
+                                            NodeLabel.OPERATOR.value, []):
+                                        if _vattr(self.graph.vs[v3],
+                                                  "type", "") != "new":
+                                            continue
+                                        if str(_vattr(self.graph.vs[v3],
+                                                      "name", "")).startswith("$"):
+                                            _dyn155.append(v3)
+                                    self._dynnew_sites = _dyn155
+                                if _dyn155:
+                                    for _dv in _dyn155[:64]:
+                                        if _dv not in _sites52s:
+                                            _sites52s.append(_dv)
                             for _nv in _sites52s:
-                                for _ae in self._edge_out(_nv, "ast"):
-                                    if _vattr(_ae, "role", "") != "arg":
-                                        continue
-                                    _ai = _vattr(_ae, "index")
+                                # Fix 155e (CVE-2026-61649): the actual's
+                                # position is the ast-arg edge's 'arg_index'
+                                # ('0'/'1'); the edge's 'index' attr is EMPTY
+                                # on php ast args, so the old read made _ai 0
+                                # and the bridge always took the FIRST arg.
+                                # Fallback: positional order among the site's
+                                # arg edges (52t-style, sorted by vid).
+                                _aedges155 = [
+                                    ae for ae in
+                                    sorted(self._edge_out(_nv, "ast"),
+                                           key=lambda e: e.target)
+                                    if _vattr(ae, "role", "") == "arg"]
+                                for _aepos155, _ae in enumerate(_aedges155):
+                                    _ai155 = _vattr(_ae, "arg_index", "")
+                                    if _ai155 in ("", None):
+                                        _ai155 = _vattr(_ae, "index", "")
                                     try:
-                                        _ai = int(_ai)
+                                        _ai = int(_ai155)
                                     except (TypeError, ValueError):
-                                        _ai = 0
+                                        _ai = _aepos155
                                     if _ai == _pidx:
                                         _argv = _ae.target
                                         break
                                 if _argv is not None:
                                     break
                             if _argv is not None:
-                                _res = self.parameters_back(
-                                    _argv, context_vid=None, max_depth=max_depth - depth)
-                                if _res is not None and _res.is_controllable:
-                                    return self._cached(cache_key, _res)
+                                # Fix 155f (CVE-2026-61649): a ternary/
+                                # conditional actual (`new $cls($id,
+                                # isset(...) ? $x : array())`, MySugar.php:168)
+                                # is a BRANCH node with no dfg in-edges —
+                                # tracing from the branch itself dead-ends.
+                                # Expand to the branch's VALUE arms
+                                # (iftrue/iffalse; the guard condition is
+                                # excluded — it never flows into the result)
+                                # and trace each arm; a plain actual passes
+                                # through unchanged.
+                                _argvs155 = self._155_branch_arg_arms(_argv)
+                                for _av155 in _argvs155:
+                                    _res = self.parameters_back(
+                                        _av155, context_vid=None,
+                                        max_depth=max_depth - depth)
+                                    if _res is not None and _res.is_controllable:
+                                        return self._cached(cache_key, _res)
                                 # fall through to entry-param fallback below
                     if not list(self._get_dfg_sources(up_vid)):
                         # For Java/Kotlin: check if this is a framework-injected
@@ -6921,11 +7037,25 @@ class GraphAnalyzer:
                 assign_vid = le.source
                 if _vattr(self.graph.vs[assign_vid], "type", "") not in ("assign", "aug_assign"):
                     continue
+                # Fix 155a (CVE-2026-61649): the write is often nested in a
+                # control-flow block (`if (!empty($def['url'])) { $this->url
+                # = $def['url']; }` — RSSDashlet ctor).  The direct own
+                # parent is then a branch node, the one-hop lookup below
+                # lost the writer FUNCTION, wctx fell back to the assign op
+                # and every downstream ctor-param resolution died.  Walk
+                # the own-ancestor chain to the enclosing function (Fix
+                # 34b doctrine: full own subtree, both directions).
                 wfunc = None
-                for oe in self._edge_in(assign_vid, "own"):
-                    pn = self.graph.vs[oe.source]
-                    if _vattr(pn, "label", "") == NodeLabel.FUNCTION.value:
-                        wfunc = oe.source
+                _ow = assign_vid
+                _seen_ow = set()
+                while _ow is not None and _ow not in _seen_ow:
+                    _seen_ow.add(_ow)
+                    _ow_parents = [oe.source for oe in self._edge_in(_ow, "own")]
+                    if not _ow_parents:
+                        break
+                    _ow = _ow_parents[0]
+                    if _vattr(self.graph.vs[_ow], "label", "") == NodeLabel.FUNCTION.value:
+                        wfunc = _ow
                         break
                 for re_ in self._edge_out(assign_vid, "ast"):
                     if _vattr(re_, "role", "") == "rhs":
