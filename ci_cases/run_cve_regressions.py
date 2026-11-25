@@ -911,6 +911,36 @@ EXPECTATIONS = {
     # but carry no advisory row: MySugar.php is deliberately NOT in
     # expectations (count is minimum, not exact, per Fix 122):
     'RSSDashlet.php': {'1002': 1},
+
+    # CVE-2026-69136 repro (suitecrm69136/, byte-faithful 7.15.1):
+    # EmailTemplates handleAttachments authenticated SQLi
+    # (GHSA-3mjp-45mc-3256, CVSS 7.1) — handleAttachments :393
+    # `foreach ($_REQUEST['remove_attachment'] as $noteId)` (the
+    # advisory's remove_attachment POST ARRAY; entryPoint.php
+    # clean_incoming_data array_map('securexss') rewrites
+    # $_REQUEST but only HTML-encodes — SQL metacharacters
+    # survive) → :394 concat `'UPDATE notes SET deleted = 1
+    # WHERE id = \''.$noteId.'\''` → :395 `$focus->db->query($q)`
+    # (CVI 1006, reported at :396).  Upstream 7.15.2/8.10.2 wraps
+    # the element in `$focus->db->quote($noteId)` — the ONLY
+    # changed line in the whole file (diff verified against the
+    # v7.15.2 tag), proving the interpolation is the live sink.
+    # Native detection zero engine change (core $_REQUEST
+    # array-member source + foreach value binding + Fix 146a
+    # suitecrm DBManager query sink).  First-order single-file
+    # chain: no cross-file edges needed, so the 3-file repro
+    # (GT file + composer.json + suitecrm_version.php markers)
+    # is sufficient — 69140/61653 flat-repro precedent.  Proof
+    # scans: 5-file mini task 7758 row 22324 + trimmed 3-file
+    # repro task 7759 row 22325 (identical reason
+    # "superglobal '$_REQUEST' (via member chain from
+    # 'remove_attachment')").  The 4 include/formbase.php
+    # sibling rows seen in the 5-file mini (2x1013 header
+    # return_url/return_action open-redirect family + 2x1000
+    # json-encoded ajax echo) are real-shaped, carry no advisory
+    # row and are NOT in the repro — 69135 1013-sibling
+    # convention, deliberately not asserted:
+    'EmailTemplateFormBase.php': {'1006': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
