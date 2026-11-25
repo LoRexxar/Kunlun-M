@@ -839,6 +839,29 @@ EXPECTATIONS = {
     # subdirs, per-case framework markers) — merged count:
     'controller.php': {'1006': 7 + 5 + 1},  # 7 jjwg_Maps (69142) + 5 Project (61651) + 1 Cases (69141)
 
+    # CVE-2026-69137 repro (suitecrm69137/, byte-faithful 7.15.1):
+    # CalendarAccount SSRF (GHSA-72r3-24x4-j46c, CVSS 7.7) —
+    # action_testConnection: $_REQUEST['server_url'] ->
+    # setupCalendarAccountFromRequest :253 bean->server_url property store ->
+    # :119 CalendarSync::testProviderConnectionWithValidation($bean) ->
+    # registry getProviderForAccount -> factory createInstance ->
+    # setConnection (dynamic `new $className()`, CG via unresolved-call
+    # passthrough) -> CalDAVProvider getCalendarUrl :138
+    # $this->connection->server_url readback -> makeCalDAVRequest ->
+    # :158 curl_setopt(CURLOPT_URL) sink (CVI 1001).  Grammar-blocked
+    # before lphply 2.2.11 (Fix 122: PHP 8.1 new-in-initializers — 3/6
+    # files SyntaxError on promoted ctor defaults -> 0 rows); post-fix
+    # native detection, zero engine change.  Upstream d6bca97 adds
+    # validate_external_host() guard (runtime check, dataflow unchanged)
+    # + CURLOPT_PROTOCOLS — no forbidden control (assignment unchanged).
+    # :159 CURLOPT_HTTPHEADER = credentials-header sibling (username/
+    # password from the same request); :324 simplexml_load_string =
+    # response-XML sibling (parseCalendarQueryResponse of the tainted
+    # request's response).  controller.php basename shared with
+    # 69142/61651/69141 — this case adds NO controller.php rows (no sink
+    # there), merged count unchanged.
+    'CalDAVProvider.php': {'1001': 2, '1008': 1},
+
     # CVE-2026-61653 repro (suitecrm61653/, byte-faithful 7.15.1):
     # Campaigns PopupCampaignRoi SQLi (GHSA-5m7h-v4v6-2r8h, CVSS 8.3) — :67
     # `$campaign_id = $_REQUEST['id']` -> :73 interpolation into
