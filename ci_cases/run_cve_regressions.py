@@ -941,6 +941,33 @@ EXPECTATIONS = {
     # row and are NOT in the repro — 69135 1013-sibling
     # convention, deliberately not asserted:
     'EmailTemplateFormBase.php': {'1006': 1},
+
+    # CVE-2026-63213 repro (suitecrm63213/, byte-faithful 7.15.1):
+    # SuiteCRM Upgrade Wizard commit path traversal (GHSA-wfvr-mpq2-257w,
+    # CVSS 7.2, CWE-22) — the commit flow trusts the hidden
+    # $_REQUEST['zip_from_dir'] / ['zip_to_dir'] (:161-:171) and
+    # $_REQUEST['copy_'.$iii] (:246); clean_path() normalises separators
+    # but does NOT reject traversal sequences, so the values flow via
+    # string interpolation into clean_path("$sugar_home_dir/$zip_to_dir/
+    # $file_to_copy") (:252) and reach the file-operation sinks of the
+    # copy loop: copy($dest_file,$rest_file) :266, copy($src_file,
+    # $dest_file) :270 (the advisory's GT sink — copy extracted package
+    # files outside the intended destination), copy($rest_file,$dest_file)
+    # :277, unlink($dest_file) :279 — all CVI 1017.  Upstream 7.15.2 /
+    # 8.10.2 (d6bca97, +28/-2 in this file only) wraps all three
+    # parameter families in validate_safe_path() plus is_path_within_dir()
+    # containment on src_file/dest_file — the guards sit exactly on this
+    # chain, proving it live.  Native detection zero engine change (core
+    # $_REQUEST sources + CVI_1017 copy/unlink sink family).  Proof scan
+    # 3-file mini task 7790: rows 22327-22330 (fix-guarded family) +
+    # 22331 :438 unlink($uh->filename) (second-order via
+    # UpgradeHistory::retrieve($_REQUEST['previous_id']), NOT guarded
+    # upstream — real second-order shape, included in the count which is
+    # a minimum per Fix 122).  The 3 print rows (:520/:527/:536,
+    # $install_type / $file_action / $files_to_handle echo of request
+    # data) are real-shaped reflected XSS with no advisory row —
+    # 69135/69136 no-advisory convention, NOT asserted:
+    'UpgradeWizard_commit.php': {'1017': 5},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay
