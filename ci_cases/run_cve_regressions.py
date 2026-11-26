@@ -399,6 +399,26 @@ EXPECTATIONS = {
     # mixed-dir scan under-detects SLEOB — the documented subdir trap).
     'era_payments.php': {'1017': 1},
     'SLEOB.php': {'1006': 1},
+    # CVE-2026-124457 (OpenEMR <8.3.0 interface/billing/sl_eob_process.php
+    # eraname path traversal, GHSA-m6q6-5j87-3cmp, native detection zero
+    # engine change — era_payments/SLEOB above + FaxUploadStaging lines
+    # already carried the 1017 sink family): $_REQUEST['eraname'] (sl_eob
+    # :738) interpolated into $nameprefix "$eraDir/$eraname" (:753) splits
+    # into both primitives — READ: $eraFilePath = $nameprefix.'.edi' (:754)
+    # -> ParseERA::parseERAForCheck (:850) / ParseERA::parseERA (:851)
+    # static-call arg0 -> param $filename -> fopen($filename,'r') at
+    # ParseERA.php:488/:91; WRITE: "$nameprefix$namesuffix.html" (:762)
+    # -> fopen($fnreport,'w') (:763) + fwrite($fhreport, ...) (:911) —
+    # attacker writes the ERA report anywhere and parses any .edi echoed
+    # into it.  Frozen from sparse-checkout v8_2_0 focused scan task 7905
+    # (rows 22553/22554 write + 22566 read GT, 22565 read sibling; the
+    # isolated 2-file mini task 7907 proves all 4 chains from eraname,
+    # :91 being a multi-source sink shared with the era_payments upload
+    # chain above).  sl_eob_process.php is byte-faithful v8_2_0
+    # (md5 f63476f1); ParseERA.php is the pre-existing shared repro copy
+    # (sink line numbers coincide 91/488).
+    'sl_eob_process.php': {'1017': 2},
+    'ParseERA.php': {'1017': 2},
     # Fix 111/112/113 (CVE-2026-126480 OpenEMR Ccr parameter-name SQLi):
     # the whole $_REQUEST is passed to CcrTable::insertApprovedData() and
     # the taint surface is the ARRAY KEYS ('patient_data<col>-sel' →
