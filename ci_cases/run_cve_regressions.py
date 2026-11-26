@@ -535,6 +535,13 @@ EXPECTATIONS = {
     # second-adjudication precedent).  linked_cve CVE-2026-124450 back-
     # filled task 7904 rows 22470-22476/22479 (+ appended on the
     # task-6588 rows 16893-16896/16898/16901).
+    # CVE-2026-124446 (8.7, GHSA-x2vr-jgg8-c57c): THIRD advisory for the
+    # same disposeDocument flaw — same window (< 8.3.0), names RCFaxClient
+    # and SignalWireClient disposeDocument, same action=download read /
+    # action=setup overwrite primitives.  Same adjudication: strict
+    # disposeDocument row set linked (fresh 22471/22472/22475/22476/22479,
+    # old 16893/16894/16898/16901), expectations unchanged, zero engine
+    # change.
     # Fix 144a/144b (CVE-2026-124463): OpenEMR CAMOS stored XSS — read side
     # QueryUtils::fetchArrayFromResultSet (OO second-order source, Fix 144a)
     # -> raw non-print_html else branch -> array_push value-arg container
