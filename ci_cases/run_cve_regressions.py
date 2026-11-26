@@ -510,6 +510,31 @@ EXPECTATIONS = {
     'CVE-2026-124490_EtherFaxClient.php': {'1002': 1, '1017': 1},
     'CVE-2026-124490_FaxUploadStaging.php': {'1002': 1},
     'CVE-2026-124490_AppDispatch.php': {'1000': 2},
+    # CVE-2026-124450 (OpenEMR < 8.3.0, CVSS 9.3 CVSS:4.0 Critical,
+    # GHSA-wf4w-mx2w-j4vv): SECOND advisory for the SAME disposeDocument
+    # flaw as CVE-2026-124490 above — same component (oe-module-faxsms),
+    # same version window (< 8.3.0), same both primitives (action=download
+    # read via sendFile -> decryptFileBytes -> file_get_contents; action=
+    # setup write via file_put_contents($where, ...)).  The 8.2.0 refactor
+    # (#7859) split disposeDocument per-vendor; the advisory's divergence
+    # table: EtherFaxActions hardened after CVE-2026-24848 (authenticate +
+    # isPathAllowed/normalizePath + extension allowlist + exec-content
+    # guard), RCFaxClient (:667) and SignalWireClient (:525) got none.
+    # Adjudication 2026-11-26: re-verified on the REAL v8_2_0 tree (sparse
+    # checkout, composer.json marker at root), focused scan task 7904:
+    # 8/8 of the task-6588 family row set reproduces byte-identically at
+    # HEAD (rows 22470-22479: RC:682/:690, SW:342/:514/:546/:580,
+    # FaxUploadStaging:228 — all reason 'taint source $this.getRequest'),
+    # plus one new RC saveFaxToFile twin (RC:633, same shape the 124490
+    # run already judged TP-family on SW:514) and 4 EtherFaxActions rows
+    # on the HARDENED vendor (post-isPathAllowed unlink/rename/chmod +
+    # receive-staging write) = guard-unmodeled witness rows, documented
+    # NOT linked.  EXPECTATIONS UNCHANGED — the 124490 repro above is
+    # byte-faithful to the same v8_2_0 files this advisory describes, so
+    # the gate already asserts both CVEs' sink shapes (61648/63215
+    # second-adjudication precedent).  linked_cve CVE-2026-124450 back-
+    # filled task 7904 rows 22470-22476/22479 (+ appended on the
+    # task-6588 rows 16893-16896/16898/16901).
     # Fix 144a/144b (CVE-2026-124463): OpenEMR CAMOS stored XSS — read side
     # QueryUtils::fetchArrayFromResultSet (OO second-order source, Fix 144a)
     # -> raw non-print_html else branch -> array_push value-arg container
