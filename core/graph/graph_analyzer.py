@@ -117,7 +117,19 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     # Utility::getFilePath(trim($filePath)) chain → WP_Filesystem
     # get_contents pre-auth LFI (bit-pi ImageHelperTool:492).
     "stripslashes", "filter_var", "filter_input",
-    "htmlspecialchars_decode", "basename", "realpath",
+    "htmlspecialchars_decode", "basename",
+    # NOTE: "realpath" and "os.path.realpath" removed (Fix 156d,
+    # CVE-2026-133968) — canonicalization is NOT sanitization.
+    # os.path.realpath('../../etc/x') resolves to /etc/x: the traversal
+    # survives (the MONAI fix added a commonpath containment CHECK on top
+    # of realpath — the check is the guard, realpath itself only
+    # normalizes).  As global repairs they silently killed every
+    # dest=realpath(join(base, tainted)) write chain (shutil.copy arg1
+    # judged code=2 "repair 'path.realpath'" before the source was ever
+    # reached).  PHP keeps its svid-scoped LFI repair via the registry
+    # (rules/tamper/php/_base.py "realpath": [1007]); python
+    # builtin_knowledge already holds the authoritative verdict
+    # ({"passthrough": [0], "safe": False}).
     "ctype_alnum", "ctype_digit", "ctype_alpha",
     "is_numeric", "json_encode", "serialize",
     # CMS Made Simple — framework sanitizer (full HTML entity encode)
@@ -127,7 +139,7 @@ _REPAIR_FUNCTIONS: frozenset[str] = frozenset({
     "html.escape", "html.unescape",
     "re.escape", "urllib.parse.quote", "urllib.parse.quote_plus",
     "cgi.escape", "markupsafe.escape",
-    "os.path.basename", "os.path.realpath",
+    "os.path.basename",
     "int", "float", "str",
     # Fix 142c (CVE-2026-104126): json/pickle serialization removed from the
     # repair table. A serializer neutralizes NO injection class: json.dumps

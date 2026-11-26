@@ -1229,6 +1229,37 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                     if _vid is not None:
                         return _vid
 
+        # Fix 156b (CVE-2026-133968): bare-name DIRECT calls bind same-file
+        # FIRST.  Python module-level functions and same-named methods of
+        # imported classes share the BARE fullname key ("add_image" — python
+        # method nodes are not class-qualified in the fullname index), so the
+        # exact-match step resolved the call to whichever same-named node the
+        # index kept — an arbitrary cross-file METHOD — while the module-level
+        # function defined in the CALLER's own file lost (MONAI Label
+        # endpoints/datastore.py: api_add_image's helper call ``add_image(...)``
+        # bound to the abstract Datastore.add_image in interfaces/datastore.py
+        # instead of the module-level add_image 155 lines up, cutting the
+        # endpoint -> datastore chain).  A dot-less fullname is exactly the
+        # ambiguous shape: prefer the same-file non-external declaration —
+        # the direct-call analog of the Fix 137f receiver-relative doctrine.
+        # A bare-name call site whose own module defines that name is
+        # module-local scoping in python semantics.  PHP-GATED (156b2,
+        # 2026-11-26 anchor task 7867 + repro gate): in PHP a class method
+        # NEVER shadows a global/builtin function, so same-file-first
+        # mis-bound bare builtins to same-class methods — osticket
+        # class.util.php:93 ``sort($this->storage)`` bound to BaseList::sort,
+        # the storage arg positionally mis-mapped into the $key callable
+        # param and fired a false CVI 1009 at array_map($key,...):81, while
+        # suitecrm69134 ``$this->removeRow(...)`` correctly bound to the
+        # real method but that killed the baselined passthrough-source
+        # verdict (SugarRelationship.php:300, -1 row) and 10 baselined
+        # osticket XSS passthrough rows.  Scope the doctrine to python
+        # caller files only.
+        if caller_file.endswith(".py") and "." not in fullname:
+            _sf = self._func_name_file_idx.get(func_name, {}).get(caller_file)
+            if _sf is not None and not self._vis_external[_sf]:
+                return _sf
+
         # 1. Exact fullname match
         vid = self._func_fullname_idx.get(fullname)
         if vid is not None:

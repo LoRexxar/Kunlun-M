@@ -33,13 +33,26 @@ class CVI_7005(SingleRuleMixin):
         send_file(BytesIO_obj) → False (content, not path)
         """
         if sink_args:
+            # Fix 156c (CVE-2026-133968): the hardcoded-path veto must hold
+            # only when EVERY argument is a constant.  Two-arg copy/rename
+            # sinks carry the attacker-controlled destination in arg1 while
+            # arg0 is routinely a constant-ish source path
+            # (shutil.copy(image_file, dest) — MONAI Label add_image), and
+            # the old arg0-only const check returned False for the whole
+            # call although the tainted dest arg had already been judged
+            # controllable — a second-stage filter vetoing the taint stage.
+            _any_var = False
+            for _arg in sink_args:
+                if _arg.get('label') == 'const' or _arg.get('type') in ('string', 'constant'):
+                    continue
+                if _arg.get('resolved_value', ''):
+                    continue
+                _any_var = True
+                break
+            if not _any_var:
+                return False
             if len(sink_args) >= 1:
                 arg0 = sink_args[0]
-                # const/string literal → hardcoded path, safe
-                if arg0.get('label') == 'const' or arg0.get('type') in ('string', 'constant'):
-                    return False
-                if arg0.get('resolved_value', ''):
-                    return False
                 # send_file / FileResponse with function-return argument:
                 # if arg0 comes from a function call, the return value is
                 # typically an in-memory content object (BytesIO, string),

@@ -968,6 +968,52 @@ EXPECTATIONS = {
     # data) are real-shaped reflected XSS with no advisory row —
     # 69135/69136 no-advisory convention, NOT asserted:
     'UpgradeWizard_commit.php': {'1017': 5},
+
+    # CVE-2026-133968 repro (monailabel/, byte-faithful 0.8.5, 18 files
+    # md5-verified against the v0.8.5 tree + requirements.txt fastapi
+    # marker): MONAILabel PUT /datastore/image directory traversal with
+    # resultant RCE (GHSA-qc22-rmgc-vg94, CVSS 9.8, CWE-24, exploited
+    # in the wild since 2026-09; fix = PR #1915 / 0.8.6).  Chain:
+    # endpoints/datastore.py:69 add_image route — ``image: Optional[str]
+    # = None`` FastAPI scalar query param -> image_id (:75) ->
+    # instance.datastore().add_image(image_id, ...) (:86) ->
+    # datastore/local.py:434 add_image -> name = _filename(image_id,
+    # ext) (:440) -> dest = realpath(join(image_path(), name)) (:441)
+    # -> shutil.copy(image_filename, dest) (:445, GT sink, row 22376
+    # repro task 7834).  Sibling GT: save_label route param ``tag``
+    # -> local.py:476 save_label -> label_path = label_path(label_tag)
+    # (:495) -> os.makedirs(label_path) (:501) + shutil.copy
+    # (label_filename, dest) (:502) — the 0.8.6 fix's _confine_path
+    # explicitly covers BOTH (labels_root + dest), proving the label
+    # tag family in-scope.  Engine work (Fix 156a-d, this commit):
+    # 156a FastAPI scalar route params are sources (query/form/header
+    # slots, scalar-hint + route-decorator discriminators; UploadFile
+    # Fix 85 / Pydantic body Fix 118 already existed); 156b bare-name
+    # DIRECT call binds same-file module-level function first (the
+    # endpoint helper ``add_image(...)`` was hijacked by the abstract
+    # Datastore.add_image method across files); 156c CVI_7005 const
+    # veto requires ALL args const (shutil.copy(image_file, dest) has
+    # const-ish arg0, tainted arg1); 156d realpath/os.path.realpath
+    # removed from the GLOBAL repair table — canonicalization is NOT
+    # sanitization, the 0.8.6 fix itself keeps realpath and adds a
+    # commonpath containment CHECK on top (PHP keeps its svid-scoped
+    # LFI repair via rules/tamper/php/_base.py).  Read/delete-side
+    # TP-family rows (not separately asserted, minimum semantics):
+    # endpoints FileResponse :147/:158 (download_image/download_label
+    # — traversal id registered by the add_image write makes
+    # objects.get(image_id) resolve, so the read side chains);
+    # generic.py:50/:52 remove_file rmtree/unlink (remove_label
+    # tag path); generic.py:144 file_checksum open.  Known FP family
+    # documented, NOT in expectations: local.py:132/:143/:144/:673/:687
+    # (ctor/refresh makedirs+open — object-store over-approx:
+    # ``self._datastore.objects[image_id] = ...`` pollutes receiver
+    # reads; label_path(tag) summary taints constant-tag call sites)
+    # and auth.py:39 requests.get 7004 (realm_uri from settings/env,
+    # config-driven, not request-tainted).  Proof scans: mini task
+    # 7832/7833 14 rows; repro dry-run task 7834 rows 22373-22386:
+    'local.py': {'7005': 8},
+    'datastore.py': {'7005': 2},
+    'generic.py': {'7005': 3},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

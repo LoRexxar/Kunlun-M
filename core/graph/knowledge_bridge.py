@@ -243,6 +243,12 @@ def enrich_taint(
         #     source 成员，member-based source 永远打不中。以项目内
         #     BaseModel 子类闭包（CRG EXTENDS 边）为判据注源。
         count += _enrich_fastapi_body_params(graph, source_registry)
+        # 5e. Fix 156a (CVE-2026-133968): FastAPI 标量路由参数 —
+        #     ``image: Optional[str] = None`` query 参数（及 str/int/… 裸形参、
+        #     Form/Query 标注形参）是 HTTP 攻击者可控输入，全程不出现
+        #     request.* 成员。Fix 85/118 只覆盖 UploadFile/Pydantic body 两类，
+        #     标量形参永远种不上污点。以标量 type_hint + 路由作用域为判据。
+        count += _enrich_fastapi_query_params(graph, source_registry)
 
     # 6. 框架 safe 方法标注
     #    某些框架方法返回值经过安全转换（hash/枚举/常量），不应传播污点。
@@ -1626,6 +1632,114 @@ def _enrich_fastapi_body_params(graph: ig.Graph, source_registry) -> int:
     if count:
         logger.info(
             "[KnowledgeBridge] Fix 118: marked %d FastAPI body-model param(s) as sources",
+            count,
+        )
+    return count
+
+
+def _enrich_fastapi_query_params(graph: ig.Graph, source_registry) -> int:
+    """Fix 156a (CVE-2026-133968): FastAPI scalar route parameters are HTTP
+    sources.
+
+    FastAPI binds each simple-typed route-handler parameter to a request
+    slot — query string, path segment, form field or header — so values
+    like ``image: Optional[str] = None`` (PUT /datastore/image) are
+    attacker-controlled strings that flow into application code without
+    any ``request.*`` member read ever appearing.  Fix 85 covers the
+    ``UploadFile`` object and Fix 118 the Pydantic body model; the scalar
+    param family stayed invisible, so path-traversal chains seeded by a
+    query-param ``image`` (image_id -> _filename -> os.path.join ->
+    shutil.copy dest, MONAI Label 0.8.5 CVE-2026-133968) were unreachable.
+
+    Discriminators (all graph-native, mirroring Fix 118):
+    1. *Route scope*: only parameters of functions carrying a router
+       decorator whose last segment is an HTTP verb (``router.put``,
+       ``app.get``, ``api_router.api_route``...).
+    2. *Scalar shape*: the type_hint's identifier tokens, after removing
+       wrapper/annotation keywords (Optional/Annotated/List/Union/Query/
+       Path/Form/Header/Cookie/Body/Depends/None), must ALL be scalar
+       names (str/bytes/int/float/bool).  Project classes (User,
+       BulkDeleteRequest), framework injection objects (BackgroundTasks,
+       Request, UploadFile) and Depends hints fail this test and stay
+       untainted — those flows are Fix 85/118 or dependency-injection
+       objects, not raw request slots.
+    3. *Depends exclusion*: any hint or default containing ``Depends(``
+       is dependency injection, not a request binding — skipped.
+
+    Semantic gate mirrors Fix 85/118: skip when the project declares a
+    DIFFERENT framework.  Unknown / fastapi → apply.
+    """
+    fw = getattr(source_registry, "framework", None) if source_registry is not None else None
+    if fw is not None and fw != "fastapi":
+        return 0
+
+    import re as _re
+
+    # --- 1. functions owning a route decorator -----------------------------
+    _route_dec = _re.compile(
+        r"(?:^|\.)(?:get|post|put|delete|patch|head|options|api_route|route)$")
+    route_funcs: set[int] = set()
+    for v in graph.vs:
+        if _vattr(v, "label") != "annotation":
+            continue
+        if _vattr(v, "raw_type") != "Decorator":
+            continue
+        if not _route_dec.search(_vattr(v, "name", "") or ""):
+            continue
+        for e in graph.incident(v.index, mode="in"):
+            edge = graph.es[e]
+            if edge["label"] == "own":
+                route_funcs.add(edge.source)
+    if not route_funcs:
+        return 0
+
+    # params of route functions (own edges from function nodes)
+    route_params: set[int] = set()
+    for fidx in route_funcs:
+        for e in graph.incident(fidx, mode="out"):
+            edge = graph.es[e]
+            if edge["label"] != "own":
+                continue
+            tgt = graph.vs[edge.target]
+            if _vattr(tgt, "label") == "parameter":
+                route_params.add(edge.target)
+
+    # --- 2. scalar-shape test ----------------------------------------------
+    _WRAPPERS = {
+        "Optional", "Annotated", "List", "list", "Sequence", "Union",
+        "Literal", "Query", "Path", "Form", "File", "Header", "Cookie",
+        "Body", "Depends", "None", "NoneType", "Ellipsis",
+    }
+    _SCALARS = {"str", "bytes", "int", "float", "bool"}
+
+    def _is_scalar_hint(th: str) -> bool:
+        tokens = _re.findall(r"[A-Za-z_][A-Za-z0-9_]*", th or "")
+        if not tokens:
+            return True  # untyped route param == query param (FastAPI semantics)
+        core = [t for t in tokens if t not in _WRAPPERS]
+        if not core:
+            # Optional[None]/Query(None)-style degenerate hint — nothing
+            # application-typed left; keep FastAPI semantics (query slot).
+            return True
+        return all(t in _SCALARS for t in core)
+
+    count = 0
+    for pidx in route_params:
+        v = graph.vs[pidx]
+        if _vattr(v, "taint_type"):
+            continue
+        th = _vattr(v, "type_hint", "") or ""
+        dv = _vattr(v, "default_value", "") or ""
+        if "Depends" in th or "Depends(" in dv:
+            continue
+        if not _is_scalar_hint(th):
+            continue
+        graph.vs[pidx]["taint_type"] = "source"
+        graph.vs[pidx]["taint_origin"] = "fastapi_query_param"
+        count += 1
+    if count:
+        logger.info(
+            "[KnowledgeBridge] Fix 156a: marked %d FastAPI scalar route param(s) as sources",
             count,
         )
     return count
