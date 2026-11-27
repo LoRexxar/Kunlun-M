@@ -1093,6 +1093,37 @@ EXPECTATIONS = {
     'local.py': {'7005': 8},
     'datastore.py': {'7005': 2},
     'generic.py': {'7005': 3},
+
+    # CVE-2026-103935 (OpenEMR < 8.3.0 stored XSS, Fix 159): interface/
+    # forms/transfer_summary/new.php + functional_cognitive_status/new.php
+    # render stored DB values (form_transfer_summary.transfer_to / form_
+    # functional_cognitive_status.code+codetext via formFetch/sqlFetchArray
+    # second-order sources) through text() = htmlspecialchars(ENT_NOQUOTES)
+    # inside double-quoted HTML value attributes — the escape leaves `"`
+    # intact so a stored `"` breaks out of the attribute (quote-breakout
+    # event-handler injection).  Upstream 8.3.0 d301444f converts exactly
+    # these 5 sites to attr() (ENT_QUOTES): FCS new.php 157/159/189/191 +
+    # TS new.php 103 — byte-faithful to v8_2_0.  Fix 159 = the
+    # echo#attr-noquotes-sentinel (Fix 70k doctrine, isolated sub-pass):
+    # gate 1 call already taint_type='safe' (Fix 106 openemr repair-set
+    # "text" entry), gate 2 callee in _NO_QUOTES_ESCAPERS, gate 3 raw-line
+    # attribute-context regex (callee-anchored so a textarea-body text()
+    # like FCS :173 never matches — the 159b fix, proven by scan3 task
+    # 8035 producing row 22709 and scan4 task 8036 not reproducing it),
+    # gate 4 escaper-arg controllable.  Discriminator: the root mixed scan
+    # contributes 0 rows for this case (no framework → sqlFetchArray/
+    # formFetch sources unresolved), and in the openemr/ scan the repair
+    # set kills the generic echo rows on the 5 GT lines — so >=5 CVI-1000
+    # rows on new.php can ONLY come from the sentinel; if it regresses,
+    # only the 2 generic FP rows (FCS :168 ternary-literal / :169 $key+1
+    # arithmetic — echo of literal/numeric arms, documented, NOT asserted
+    # beyond this note) remain and the gate fails.  Repro layout:
+    # forms-103935/ self-contained (6 files x 2 form dirs + composer.json
+    # + library/api.inc.php for the formFetch source-summary; deliberately
+    # no library/htmlspecialchars.inc.php / sql.inc.php — no duplicate
+    # defs in the shared openemr/ scan, gate 1 rides the framework repair
+    # set).  Proof: mini task 8036 rows 22707-22712 (5 GT + 2 FP):
+    'new.php': {'1000': 5},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

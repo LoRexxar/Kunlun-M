@@ -265,6 +265,19 @@ _HTML_ENTITY_ESCAPERS: frozenset[str] = frozenset({
     "hsc", "htmlchars", "Format.htmlchars", "Format.input",  # DokuWiki / osTicket aliases
 })
 
+# Fix 159 (CVE-2026-103935): escapers that encode HTML-special chars but
+# leave BOTH quote characters intact (htmlspecialchars with ENT_NOQUOTES).
+# Safe in an HTML text-node context, UNSAFE inside any quoted attribute
+# value — a bare `"` breaks out of value="…".  Used ONLY by the
+# echo#attr-noquotes-sentinel pass, always paired with the enrich-time
+# taint_type=='safe' gate, so a bare name never fires alone.
+_NO_QUOTES_ESCAPERS: frozenset[str] = frozenset({
+    # OpenEMR library/htmlspecialchars.inc.php @ v8_2_0:
+    # function text($text) { return htmlspecialchars(($text ?? ''), ENT_NOQUOTES); }
+    # (attr() is the ENT_QUOTES counterpart and stays a full repair.)
+    "text",
+})
+
 # Fix 14: PHP type cast operators that sanitize taint.
 # (int), (float), (bool), (array) casts destroy string content,
 # making XSS/SQLi/injection impossible through the cast result.
@@ -1917,6 +1930,68 @@ class GraphAnalyzer:
                     "type": _vattr(v, "type", ""),
                     "arg_vids": esc_args,
                     "rule_hint": "1000",
+                })
+
+        # Fix 159 (Path G): quoted-attribute no-quotes-escaper sentinel (PHP).
+        # CVE-2026-103935 (OpenEMR transfer_summary/functional_cognitive_status
+        # new.php): `value="<?php echo text($obj['code']) ?>"` — text() =
+        # htmlspecialchars(ENT_NOQUOTES) kills < > & but leaves `"` intact, so
+        # the stored value breaks out of the double-quoted attribute (upstream
+        # fix d301444f switched these sites to attr() = ENT_QUOTES).  The
+        # escape is NOT a repair in ANY quoted-attribute context.  Shape: an
+        # echo/print op whose sole ast arg is a call the engine already
+        # believes is a sanitizer from the no-quotes escaper family; the
+        # sink's taint args are the escaper call's own args (the PRE-escape
+        # value).  The raw-template attribute-context regex lives in the
+        # scanner sub-pass (graph layer has no file-content access).
+        # Fires ONLY on the sentinel pseudo-name request (never joined to the
+        # shared sink loop — Fix 70k doctrine).
+        if (self.language == "php"
+                and "echo#attr-noquotes-sentinel" in (sink_names or [])):
+            for vid in self._nlbl.get(NodeLabel.OPERATOR.value, []):
+                v = self.graph.vs[vid]
+                if _vattr(v, "name", "") not in ("echo", "print"):
+                    continue
+                node_lang = _vattr(v, 'language', '')
+                if node_lang and self.language and node_lang != self.language:
+                    continue
+                echo_args = [
+                    e.target for e in self._edge_out(v.index, "ast")
+                    if _vattr(e, "role") == "arg"
+                ]
+                if len(echo_args) != 1:
+                    continue
+                rv = self.graph.vs[echo_args[0]]
+                if _vattr(rv, "type", "") not in _CALL_TYPES:
+                    continue
+                # gate 1: the engine must already consider this call a
+                # sanitizer (enrich marked it safe via a repair set)
+                if _vattr(rv, "taint_type", "") != "safe":
+                    continue
+                # gate 2: no-quotes escaper family only — these leave both
+                # quote characters literal (ENT_NOQUOTES family).
+                _short = _vattr(rv, "callee", "") or str(_vattr(rv, "name", "") or "")
+                _short = _short.replace("::", ".").rsplit(".", 1)[-1]
+                if _short not in _NO_QUOTES_ESCAPERS:
+                    continue
+                esc_args = [
+                    e.target for e in self._edge_out(echo_args[0], "ast")
+                    if _vattr(e, "role") == "arg"
+                ]
+                if not esc_args:
+                    continue
+                results.append({
+                    "vid": v.index, "name": "echo",
+                    "lineno": _vattr(v, "lineno", 0),
+                    "file_path": _vattr(v, "file_path", "") or _vattr(v, "path", ""),
+                    "type": _vattr(v, "type", ""),
+                    "arg_vids": esc_args,
+                    "rule_hint": "1000",
+                    # the escaper callee short name — the scanner's raw-line
+                    # attribute-context regex anchors on it so a different
+                    # echo island on the same line can never supply the
+                    # context (textarea-body FPs, Fix 159b)
+                    "escaper": _short,
                 })
 
         # 第三轮：查找 import 类型节点（PHP include/require）

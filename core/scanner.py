@@ -2895,6 +2895,88 @@ def scan(target_directory, a_sid=None, s_sid=None, special_rules=None, language=
                 except Exception as e:
                     logger.debug('[SCAN] url-attr sentinel sub-pass error: %s', e)
 
+            # ══ Fix 159: quoted-attribute no-quotes-escaper sentinel ══
+            # CVE-2026-103935: text() (htmlspecialchars ENT_NOQUOTES) inside
+            # value="…" leaves `"` alive, so the stored value breaks out of
+            # the quoted attribute — the escape is not a repair there.  Fully
+            # isolated analyzer (Fix 70k doctrine); the attribute-context
+            # regex runs here because only the scanner can read the raw
+            # template line (the HTML around the PHP island is not in the
+            # graph).
+            if lang == 'php' and _url_attr_probe:
+                try:
+                    _nq_an = GraphAnalyzer(graph, language=lang,
+                                           source_registry=_make_source_registry(lang),
+                                           framework_method_sinks=set())
+                    _nq_extra = _nq_an.find_sinks(sink_names=['echo#attr-noquotes-sentinel'])
+                    if _nq_extra:
+                        _xss_rule2 = None
+                        for _pref in ('1000', '10002'):
+                            for rule in lang_rule_list:
+                                if str(getattr(rule, 'svid', '')) == _pref:
+                                    _xss_rule2 = rule
+                                    break
+                            if _xss_rule2 is not None:
+                                break
+                        if _xss_rule2 is not None:
+                            # attribute-open directly followed (inside the
+                            # quoted value) by the PHP echo island whose
+                            # echoed expression is THIS sink's escaper call
+                            # (name=…<?php echo text( — the [^"'] span cannot
+                            # cross a closing quote, and the callee anchor
+                            # prevents a different echo island on the same
+                            # line from supplying the context, so text-node
+                            # contexts like textarea bodies never match).
+                            for sink in _nq_extra:
+                                try:
+                                    _esc_name = str(sink.get('escaper') or 'text')
+                                    _attr_open = re.compile(
+                                        r'''[a-zA-Z_:][-\w:.]*\s*=\s*["'][^"']{0,120}<\?php\s+(?:echo|print)\s+''' + re.escape(_esc_name) + r'''\s*\(''')
+                                    sink_vid = sink['vid']
+                                    file_path = _vattr(graph.vs[sink_vid], 'file_path', '') or _vattr(graph.vs[sink_vid], 'path', '')
+                                    lineno = int(_vattr(graph.vs[sink_vid], 'lineno', 0) or 0)
+                                    # gate 3: raw template line must place the
+                                    # echo inside a quoted attribute value
+                                    raw_line = None
+                                    try:
+                                        _fp = file_path if os.path.isabs(file_path) else os.path.join(target_directory, file_path)
+                                        with open(_fp, 'r', encoding='utf-8', errors='replace') as fh:
+                                            for i, ln in enumerate(fh, 1):
+                                                if i == lineno:
+                                                    raw_line = ln
+                                                    break
+                                                if i > lineno:
+                                                    break
+                                    except Exception:
+                                        raw_line = None
+                                    if raw_line is None or not _attr_open.search(raw_line):
+                                        continue
+                                    _found = False
+                                    for arg_vid in sink.get('arg_vids', []):
+                                        r = _nq_an.parameters_back(arg_vid)
+                                        if r is not None and r.is_controllable:
+                                            _found = True
+                                            break
+                                    if not _found:
+                                        continue
+                                    vuln = VulnerabilityResult.from_match(
+                                        (file_path, lineno, 'echo'),
+                                        svid=_xss_rule2.svid,
+                                        language='php',
+                                        rule_name=_xss_rule2.vulnerability,
+                                        author=_xss_rule2.author,
+                                    )
+                                    vuln.analysis = ('ENT_NOQUOTES escape does not neutralize quote breakout in quoted-attribute context; '
+                                                     + (r.reason or ''))
+                                    vuln.chain = [(str(c.get('step', '')), str(c.get('name', '')), file_path, lineno, int(c.get('vid', 0) or 0)) for c in (r.chain or [])[:4]]
+                                    find_vulnerabilities.append(vuln)
+                                    logger.info('[CVI-%s] [GRAPH] attr-noquotes escape sentinel found: %s:%s', _xss_rule2.svid, file_path, lineno)
+                                except Exception as e:
+                                    logger.debug('[SCAN] attr-noquotes sentinel sink error: %s', e)
+                                    continue
+                except Exception as e:
+                    logger.debug('[SCAN] attr-noquotes sentinel sub-pass error: %s', e)
+
     # ── Framework-dependency rules (independent of graph) ──
     if _fw_dep_rules:
         from utils.pom_parser import check_framework_dependency, search_code_patterns
