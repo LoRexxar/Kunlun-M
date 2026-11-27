@@ -101,6 +101,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
         self._vfullname: list[str] = [""] * n
         self._vjava_type: list[str] = [""] * n
         self._vdtype: list[str] = [""] * n
+        self._vtype_hint: list[str] = [""] * n
         self._vreturn_type: list[str] = [""] * n
         self._vvalue: list[str] = [""] * n
         self._vraw_type: list[str] = [""] * n
@@ -116,6 +117,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             self._vfullname[i] = _vattr(v, "fullname", "") or ""
             self._vjava_type[i] = _vattr(v, "java_type", "") or ""
             self._vdtype[i] = _vattr(v, "dtype", "") or ""
+            self._vtype_hint[i] = _vattr(v, "type_hint", "") or ""
             self._vreturn_type[i] = _vattr(v, "return_type", "") or ""
             self._vvalue[i] = _vattr(v, "value", "") or ""
             self._vraw_type[i] = _vattr(v, "raw_type", "") or ""
@@ -813,6 +815,24 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             return parts[0]
         return ""
 
+    @staticmethod
+    def _cls_from_hint(hint: str) -> str | None:
+        """Fix 157b: sanitize a PHP type hint into a class candidate.
+
+        Mirrors Fix 115b's ``_cls_from_hint``: strip nullable ``?`` and FQCN
+        separators, accept only first-char-uppercase results — PHP primitive
+        hints (array/string/int/bool/float/callable/iterable/mixed/object)
+        are all lowercase and rejected here, so they can neither bind a
+        receiver nor shadow a later real-class candidate.
+        """
+        if not hint:
+            return None
+        h = hint.lstrip("?").strip()
+        base = h.replace("::", "\\").rsplit("\\", 1)[-1]
+        if base and base[0:1].isupper() and base.isidentifier():
+            return base
+        return None
+
     def _resolve_receiver_type(self, graph: "ig.Graph", op_vid: int,
                                callee_name: str,
                                name_index: dict[str, list[int]]) -> str | None:
@@ -854,6 +874,25 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                 if dtype and dtype != "var":
                     return dtype
 
+                # Fix 157b (CVE-2026-124444 OpenEMR/Phreeze corpus): PHP
+                # parameter type hints are recorded by the normalizer as the
+                # vertex attr ``type_hint`` (``Phreezer $phreezer`` in a ctor
+                # or DI setter), NOT ``dtype`` — the java normalizer writes
+                # ``java_type`` for the same role.  A receiver variable whose
+                # candidates include a typed parameter resolved to nothing
+                # before, so constructor-injected services
+                # (``$this->Phreezer->Query(...)`` where PortalController's
+                # ctor does ``Phreezer $phreezer`` +
+                # ``$this->Phreezer = & $phreezer``) bound to a bare-name
+                # external stub and the whole ORM callgraph leg was
+                # invisible.  Primitive hints are rejected by
+                # _cls_from_hint, so they cannot shadow a later real-class
+                # candidate.
+                if self._vlabel[vid] == NodeLabel.PARAMETER.value:
+                    hint_cls = self._cls_from_hint(self._vtype_hint[vid])
+                    if hint_cls:
+                        return hint_cls
+
                 # Trace DFG backward to find definition site
                 visited: set[int] = set()
                 current = vid
@@ -865,6 +904,14 @@ class UseEdgeBuilder(BaseEdgeBuilder):
                         dtype = self._vjava_type[src_vid] or self._vdtype[src_vid]
                         if dtype:
                             return dtype
+                        # Fix 157b: typed parameter reached through the
+                        # backward walk (write-site property name node →
+                        # assigned variable → typed ctor/DI parameter).
+                        if self._vlabel[src_vid] == NodeLabel.PARAMETER.value:
+                            hint_cls = self._cls_from_hint(
+                                self._vtype_hint[src_vid])
+                            if hint_cls:
+                                return hint_cls
                         # PHP/JS "new ClassName" operator: name IS the type
                         if self._vtype[src_vid] == OperatorType.NEW.value:
                             # Fix 155c (CVE-2026-61649): note that the
@@ -1313,6 +1360,7 @@ class UseEdgeBuilder(BaseEdgeBuilder):
             ("_vfullname", fullname),
             ("_vjava_type", ""),
             ("_vdtype", ""),
+            ("_vtype_hint", ""),
             ("_vreturn_type", ""),
             ("_vvalue", ""),
         ]:

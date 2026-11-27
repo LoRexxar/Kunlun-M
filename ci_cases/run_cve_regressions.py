@@ -419,6 +419,33 @@ EXPECTATIONS = {
     # (sink line numbers coincide 91/488).
     'sl_eob_process.php': {'1017': 2},
     'ParseERA.php': {'1017': 2},
+    # Fix 157b-k (CVE-2026-124444, OpenEMR <8.4.0 portal OnsiteDocument
+    # query API SQLi, GHSA-hx8r-g8gw-6g2j, VulnCheck CNA): mass assignment
+    # lets request parameters set bitwise criteria filters (Id_BitwiseAnd
+    # et al.) whose values land unquoted in the SQL WHERE clause.  Chain:
+    # $_REQUEST array-keys (RequestUtil::GetFromQuery :491 foreach key
+    # $fieldname) -> OnsiteDocumentCriteria::SetOrder / Filters property
+    # store (:344/:345 GetOrder) -> QueryBuilder::GetSQL :255/:259 ->
+    # Phreezer::GetSQL :465/:470 -> new DataSet(...) PHP 8 PROMOTED ctor
+    # param `private $_sql` (:58) -> _sql read :133 -> DataAdapter::Select
+    # :209/:215 -> MySQLi::Query :107 -> mysqli_query :109 (CVI_1006 GT).
+    # Engine fixes: lphply 2.2.12 grammar 157a/157c (dynamic class-name
+    # expr + ctor promotion modifier) + 157d normalizer promoted attr +
+    # 157b use-graph type_hint receiver + 157e promoted-write + 157f
+    # self-field-php + 157g dyn-writeback + 157h recv-this + 157j new-op
+    # ctor arg->__construct param binding + 157k alias fanout re-bind
+    # (dfg_phase3 builder after alias).  Sparse-tree A/B task 7957 vs
+    # 7940: +4/-0, 1 TP-family (RCFaxClient :522 disposeDoc unlink twin
+    # of the 124450 family, linked) + 3 FP documented (X12RemoteTracker
+    # :155/:174 bind-array passthrough on unresolved sqlInsert/sqlState-
+    # ment, ub04_dispose :171 echo of application/pdf bytes).  Frozen
+    # from mini8 task 7950 (rows 22677/22678) + repro dry-run task 7956
+    # (rows 22682/22683); the 1017 DataSet:525 row is the pre-existing
+    # UnlockCache lockfile sibling (GetCache return, LockFilePath+md5
+    # key — present before the 157 fixes, kept as same-file witness).
+    # 14 files byte-faithful v8_2_0 + composer.json marker at repro root.
+    'MySQLi.php': {'1006': 1},
+    'DataSet.php': {'1017': 1},
     # Fix 111/112/113 (CVE-2026-126480 OpenEMR Ccr parameter-name SQLi):
     # the whole $_REQUEST is passed to CcrTable::insertApprovedData() and
     # the taint surface is the ARRAY KEYS ('patient_data<col>-sel' →

@@ -338,26 +338,61 @@ def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
     from core.graph.node_edge_schema import NodeLabel
     from utils.igraph_compat import _vattr
 
-    func_by_name: dict[str, list[tuple[int, str]]] = {}
+    func_by_name: dict[str, list[tuple[int, str, str, bool]]] = {}
     for v in graph.vs:
         if _vattr(v, "label") != NodeLabel.FUNCTION.value:
             continue
         fname = _vattr(v, "name", "")
         if fname:
             fst = _vattr(v, "func_summary_type", "")
-            func_by_name.setdefault(fname, []).append((v.index, fst))
+            func_by_name.setdefault(fname, []).append(
+                (v.index, fst, str(_vattr(v, "fullname", "") or ""),
+                 bool(_vattr(v, "is_external", False))))
+
+    def _cls158a(fn_full: str) -> str:
+        # Fix 158a: class part of a qualified fullname ('Criteria.GetOrder'
+        # -> 'Criteria', 'NS\\Cls::run' -> 'NS\\Cls').  '' = global fn.
+        for _sep in ("::", "."):
+            if _sep in fn_full:
+                return fn_full.rsplit(_sep, 1)[0]
+        return ""
 
     for fname, entries in func_by_name.items():
         best = ""
-        for _, fst in entries:
+        for _, fst, _, _ in entries:
             if fst in ("safe", "source", "source:user"):
                 best = fst
                 break
             if fst == "passthrough" and not best:
                 best = fst
         if best:
-            for vid, fst in entries:
+            # Fix 158a (CVE-2026-124444): 'safe' needs class identity for
+            # REAL method/ctor defs.  PHP kept 102b's calibrated external-
+            # hub semantics, but real-def fanout is pure bare-name
+            # coincidence: ONE natively-safe __construct (a ctor with an
+            # explicit return) stamped all 284 ctors in the OpenEMR sparse
+            # tree, DataSet.__construct included, and the scanner's
+            # safe-cut then deleted the arg DFG edges of
+            # ``new DataSet($sql, ...)`` (Phreezer:470) — the Phreeze
+            # ORDER BY GT chain was severed in every full-tree scan while
+            # a 14-file mini (no same-name safe def -> no stamping)
+            # detected it natively.  Same disease as Fix 102a (python) /
+            # Fix 136 (java), closed on the PHP real-def side: a real def
+            # whose fullname carries a class part only receives 'safe'
+            # from a same-class def.  Globals (no class part) and external
+            # placeholder hubs keep the calibrated 102b propagation
+            # semantics; source/passthrough keep propagating on name (they
+            # favour detection).
+            _safe_classes158a = None
+            if best == "safe":
+                _safe_classes158a = {
+                    _cls158a(fn_full)
+                    for _, fst, fn_full, _ in entries
+                    if fst == "safe"
+                }
+            for vid, fst, fn_full, ext in entries:
                 if fst != best:
+                    # (Fix 102a/102b/136 guards follow — unchanged.)
                     # Fix 102a (CVE-2026-29080 gates): never propagate 'safe'
                     # onto EXTERNAL placeholder nodes.  Same-name propagation
                     # is a name coincidence, and a placeholder is a bare-name
@@ -405,6 +440,16 @@ def _propagate_same_name_summaries(graph: "ig.Graph") -> None:
                         if (_lang102 == "java"
                                 or (not _lang102
                                     and _hub_serves_java(graph, vid))):
+                            continue
+                    # Fix 158a stamp gate: real def with a class part gets
+                    # 'safe' only from same-class defs (see block comment
+                    # above).  External hubs (ext) and globals (empty class
+                    # part) keep the calibrated propagation.
+                    if (best == "safe" and not ext
+                            and _safe_classes158a is not None):
+                        _tgt_cls158a = _cls158a(fn_full)
+                        if (_tgt_cls158a
+                                and _tgt_cls158a not in _safe_classes158a):
                             continue
                     graph.vs[vid]["func_summary_type"] = best
 
@@ -1685,6 +1730,46 @@ def _trace_return_value(
             if _unknown_origin is not None:
                 return {"origin": vname, "origin_type": "unknown",
                         "dep_params": [], "has_unresolved_call": True}
+            # Fix 158b (CVE-2026-124444): the read property IS a PHP 8
+            # promoted ctor param (``$this->_constructor_order`` — the
+            # promotion IS the assignment, so no ctor assign will ever be
+            # found and the historic fallback below certified it 'safe').
+            # That collapsed every getter returning such a member
+            # (Criteria::GetOrder/GetWhere/GetJoin returning $this->_order,
+            # assigned from the promoted $_constructor_order) into a safe
+            # summary; the scanner's safe-cut then deleted the getter
+            # calls' arg DFG edges and the Phreeze ORDER BY chain died in
+            # every full-tree scan (mini detected natively — no stamp).
+            # A promoted param is CALLER-FED (new Criteria($where, $order))
+            # — its literal default only applies when the caller omits the
+            # argument, which is not a safety proof.  Scope to the reader's
+            # own class (145f doctrine), match by stripped param name.
+            # 158b binding: _pn is pre-initialized to None at the identifier
+            # branch top (145f init) and only set inside the $this/self
+            # branch — _prop_name is NOT pre-initialized (145e precedent:
+            # referencing it at for-body level raises UnboundLocalError on
+            # non-$this containers).  Use _pn only.
+            if (isinstance(container_name, str)
+                    and container_name in ("$this", "self")
+                    and isinstance(_pn, str) and _pn):
+                _reader158b = eidx.get("__reader_fvid145f__")
+                _rcls158b = (_php_fn_class_map(graph, eidx).get(_reader158b, "")
+                             if _reader158b is not None else "")
+                if _rcls158b:
+                    _ctor_cache158b = _CTOR_NODES_CACHE.get(id(graph)) or []
+                    for _fv158b in _ctor_cache158b:
+                        if _vattr(graph.vs[_fv158b], "language", "") != "php":
+                            continue
+                        if _php_fn_class_map(graph, eidx).get(_fv158b, "") != _rcls158b:
+                            continue
+                        for _cp158b, _ci158b in eidx["own_ch"].get(_fv158b, []):
+                            if (_vattr(graph.vs[_cp158b], "label", "") != NodeLabel.PARAMETER.value
+                                    or not _vattr(graph.vs[_cp158b], "promoted", "")):
+                                continue
+                            _ppn158b = str(_vattr(graph.vs[_cp158b], "name", "")).lstrip("$").strip("'\"")
+                            if _ppn158b == _pn:
+                                return {"origin": vname, "origin_type": "unknown",
+                                        "dep_params": [], "has_unresolved_call": False}
             return {"origin": vname, "origin_type": "safe", "dep_params": [], "has_unresolved_call": False}
             if container_taint == "source":
                 return {"origin": vname, "origin_type": "source", "dep_params": [], "has_unresolved_call": False}

@@ -390,12 +390,23 @@ class Normalizer:
         default = getattr(param_node, "default", None)
         is_ref = getattr(param_node, "is_ref", False)
 
+        # Fix 157d (CVE-2026-124444): PHP 8 constructor promotion —
+        # lphply Fix 157c records the promotion modifier on the
+        # FormalParameter (`promoted`, None for plain params).  Flattened
+        # onto the vertex so DataFlowBuilder Fix 157e can see which ctor
+        # params are implicit property writes (`private $_sql` ⇒
+        # `$this->_sql = $_sql`), without which ctor-arg taint dies
+        # before every promoted-property read (Phreeze DataSet).
+        promoted = getattr(param_node, "promoted", None)
+
         attrs: dict[str, Any] = {
             "type_hint": str(type_hint) if type_hint else "",
             "default_value": repr(default)[:80] if default else "",
         }
         if is_ref:
             attrs["is_reference"] = True
+        if promoted:
+            attrs["promoted"] = promoted
 
         pos = add_node({
             "label": NodeLabel.PARAMETER.value,

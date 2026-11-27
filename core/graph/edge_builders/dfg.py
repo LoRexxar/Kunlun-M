@@ -279,6 +279,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if path:
                 self._path_to_file_vid[path] = vid
 
+        # Fix 157k (perf, CVE-2026-124444): alias-out index — one O(E)
+        # pass replaces the per-call-op incident() fanout scan.  On hub
+        # stubs the incident scan is quadratic: sparse-tree oe-sparse has
+        # the 'array' builtin stub with 4913 out-edges called from 4913
+        # ops (24M edge visits, 9min stall vs 41s baseline).  Empty in
+        # phases 1/2 (alias edges don't exist yet — alias builder runs
+        # after dfg_phase2/cg); populated for phase 3.
+        self._alias_out_idx: dict[int, list[int]] = {}
+        for e in self.graph.es:
+            if self._elabel[e.index] == EdgeLabel.ALIAS.value:
+                self._alias_out_idx.setdefault(e.source, []).append(e.target)
+
         # 预构建函数名索引：name → [vid1, vid2, ...]
         # 避免在 _resolve_function 中对每个函数调用做 O(V) 全图遍历
         self._func_name_index = {}
@@ -396,6 +408,43 @@ class DataFlowBuilder(BaseEdgeBuilder):
             # on the caller's variable)
             if language == "java":
                 self._analyze_java_reference_writeback()
+            # Fix 157e (CVE-2026-124444): PHP 8 promoted ctor param
+            # implicit property write (param → same-name never-written
+            # property reads, class-scoped)
+            self._analyze_php_promoted_param_writes()
+            # Fix 157g (CVE-2026-124444): PHP dynamic-name property write
+            # → base-object weak taint (mass-assignment source leg)
+            self._analyze_php_dynamic_prop_writeback()
+            # Fix 157h (CVE-2026-124444): PHP method-call receiver →
+            # callee $this binding (object-state taint crosses the
+            # method boundary)
+            self._analyze_php_receiver_this_binding()
+        elif phase == 3:
+            # Fix 157k (CVE-2026-124444): post-alias arg binding.  The
+            # alias builder (runs after dfg_phase2/cg) resolves bodyless
+            # use targets to real functions; only now can indirect calls
+            # bind their arguments to the real callee's params
+            # (DataSet:133 ``->DataAdapter->Select($this->_sql)`` →
+            # DataAdapter::Select $sql param).  _get_cg_targets performs
+            # the alias fanout; already-bound phase-2 calls are no-ops
+            # (edge-set dedup).
+            # Restricted pass: ONLY call ops whose use target is a
+            # bodyless stub carrying alias edges — the exact ops phase 2
+            # could not bind.  Re-running the full 45k-op pass would
+            # double parameter-passing cost on 300k-node graphs (sparse
+            # tree: phase-2 binding ≈ minutes); builtin hub stubs
+            # without alias resolution ('array' × 4913 callers) are
+            # skipped entirely.
+            if self._alias_out_idx:
+                ops: set[int] = set()
+                for stub in self._alias_out_idx:
+                    for eid in self.graph.incident(stub, mode="in"):
+                        if self._elabel[eid] == EdgeLabel.USE.value:
+                            ops.add(self.graph.es[eid].source)
+                for vid in sorted(ops):
+                    if self._vlabel[vid] == NodeLabel.OPERATOR.value:
+                        for func_vid in self._get_cg_targets(vid):
+                            self._bind_call_args_to(vid, func_vid)
 
         # 批量写入
         self._apply_dfg_edges()
@@ -995,6 +1044,16 @@ class DataFlowBuilder(BaseEdgeBuilder):
             OperatorType.STATIC_CALL.value,
             OperatorType.METHOD_CALL.value,
         }
+        # Fix 157j (CVE-2026-124444): PHP ``new CtorClass($a, $b)`` — the
+        # NEW op's use edge points at a body-less placeholder named like
+        # the class, so its args were never bound to __construct params
+        # and ctor-arg taint died at the instantiation site (Phreeze
+        # ``new DataSet($this, $objectclass, $sql, ...)``: the SQL string
+        # never reached the ctor param).  Python reaches the same fix via
+        # CALL (Fix 96d); Java has its own ctor enrich (Fix 143r).  PHP
+        # only — keeps other languages' NEW handling untouched.
+        if self._language == "php":
+            call_types.add(OperatorType.NEW.value)
 
         for v in self.graph.vs:
             if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
@@ -1035,7 +1094,12 @@ class DataFlowBuilder(BaseEdgeBuilder):
         # class's __init__ so the generic arg→param binding below
         # applies; the self-offset treats it like a method call.
         is_ctor_call = False
-        if (self._language == "python"
+        # Fix 157j (CVE-2026-124444): php joins python — a body-less use
+        # target named like a class redirects to the class ctor
+        # (__construct) so the generic arg→param binding applies.  PHP
+        # __construct does NOT declare a $this param, so the self-offset
+        # below is a no-op for php (first-param name never matches).
+        if (self._language in ("python", "php")
                 and resolved_vid is not None
                 and not self._has_function_body(resolved_vid)):
             ctor_vid = self._find_class_ctor(resolved_vid)
@@ -1981,10 +2045,19 @@ class DataFlowBuilder(BaseEdgeBuilder):
         never connect — the aiohttp FP shape (two fields of one object)
         is unreachable by construction.
 
-        Scoped to python (this campaign's corpus); extending to PHP
-        needs the $this receiver forms re-verified against anchors.
+        php is explicitly included for CVE-2026-124444 (OpenEMR/Phreeze):
+        the ORM writes a container property in one method
+        (``$this->DataAdapters[$key] = new DataAdapter(...)`` in the
+        ctor) and reads it in another (``$this->DataAdapters[$key]`` in
+        SelectAdapter) — the receiver-type walk and the taint BFS both
+        dead-ended at the read.  PHP member reads hang off their base via
+        ``member`` edges exactly like python's, so the same write→read
+        rule applies; $this is the only self form.
         """
-        if self._language != "python":
+        if self._language not in ("python", "php"):
+            return
+        graph = self.graph
+        if graph is None:
             return
         self_names = {"self", "this", "$this"}
 
@@ -2022,10 +2095,18 @@ class DataFlowBuilder(BaseEdgeBuilder):
                 fname = self._vname[tgt_vid]
                 if not fname:
                     continue
-                is_write = any(
-                    e.attributes().get("role") == AstRole.LHS.value
-                    for e in self.graph.es.select(_target=tgt_vid, label="ast")
-                )
+                # Fix 157f (perf): the original es.select(_target=tgt_vid,
+                # label="ast") is O(E) per property node — fine for the
+                # python corpora this pass was built on, a bomb on
+                # osticket-scale PHP graphs (60k+ property nodes).  Use
+                # incident() (O(degree)) and filter label/role inline.
+                is_write = False
+                for eid in graph.incident(tgt_vid, mode="in"):
+                    _e = graph.es[eid]
+                    if _e["label"] == "ast" and \
+                            _e.attributes().get("role") == AstRole.LHS.value:
+                        is_write = True
+                        break
                 bucket = writes if is_write else reads
                 bucket.setdefault(fname, []).append(
                     (_class_scope(tgt_vid), tgt_vid))
@@ -2042,6 +2123,274 @@ class DataFlowBuilder(BaseEdgeBuilder):
                         continue
                     self._add_dfg_edge(
                         w_vid, r_vid, DfgType.FORWARD_SLICE.value)
+
+    def _analyze_php_promoted_param_writes(self) -> None:
+        """Fix 157e (CVE-2026-124444): PHP 8 promoted ctor param implicit
+        property write.
+
+        ``function __construct(&$preezer, protected $_objectclass,
+        private $_sql, ...)`` implicitly does ``$this->_sql = $_sql``.
+        lphply records the promotion modifier (Fix 157c) on the
+        FormalParameter, the normalizer stores it as the vertex attr
+        ``promoted`` (Fix 157d) — but the body has no explicit assignment,
+        so the parameter never connected to the property READ sites and
+        the constructor-argument taint died before every ``$this->_sql``
+        use (Phreeze DataSet: the SQL string handed to ``new DataSet()``
+        never reached ``$this->_phreezer->DataAdapter->Select($this->_sql)``).
+
+        Rule (guarded against plain same-name ctor params): a promoted
+        parameter P of class C's ``__construct`` connects to every
+        same-name property READ node of C ONLY when no explicit
+        ``$this-><name> = ...`` write exists anywhere in C — the
+        never-written property's only possible producer is the implicit
+        promotion write.  Classes that do assign the property keep their
+        normal write→read semantics untouched.
+        """
+        if self._language != "php":
+            return
+        graph = self.graph
+        if graph is None:
+            return
+
+        def _class_scope(vid: int):
+            cur = vid
+            seen = {vid}
+            while cur is not None:
+                if self._vlabel[cur] == NodeLabel.CLASS.value:
+                    return cur
+                nxt = None
+                for lbl in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                    parents = self._edges_to(cur, lbl)
+                    if parents:
+                        nxt = parents[0]
+                        break
+                if nxt is None or nxt in seen:
+                    return None
+                seen.add(nxt)
+                cur = nxt
+            return None
+
+        # bucket every $this-membered property node by (class, name)
+        writes: dict[tuple[int, str], int] = {}
+        reads: dict[tuple[int, str], list[int]] = {}
+        for v in graph.vs:
+            if self._vlabel[v.index] != NodeLabel.IDENTIFIER.value:
+                continue
+            if self._vtype[v.index] != "property":
+                continue
+            fname = self._vname[v.index]
+            if not fname:
+                continue
+            bases = self._edges_to(v.index, EdgeLabel.MEMBER.value)
+            if not bases or self._vname[bases[0]] != "$this":
+                continue
+            cls = _class_scope(v.index)
+            if cls is None:
+                continue
+            key = (cls, fname)
+            is_write = False
+            for eid in graph.incident(v.index, mode="in"):
+                _e = graph.es[eid]
+                if _e["label"] == "ast" and \
+                        _e.attributes().get("role") == AstRole.LHS.value:
+                    is_write = True
+                    break
+            if is_write:
+                writes[key] = v.index
+            else:
+                reads.setdefault(key, []).append(v.index)
+
+        # ctor params carrying a promotion modifier
+        for v in graph.vs:
+            if self._vlabel[v.index] != NodeLabel.FUNCTION.value:
+                continue
+            if self._vname[v.index] != "__construct":
+                continue
+            cls = None
+            for pid in self._edges_to(v.index, EdgeLabel.OWN.value):
+                if self._vlabel[pid] == NodeLabel.CLASS.value:
+                    cls = pid
+                    break
+            if cls is None:
+                continue
+            for ch in self._edges_from(v.index, EdgeLabel.OWN.value):
+                if self._vlabel[ch] != NodeLabel.PARAMETER.value:
+                    continue
+                if not _vattr(graph.vs[ch], "promoted", ""):
+                    continue
+                prop = (self._vname[ch] or "").lstrip("$")
+                if not prop:
+                    continue
+                key = (cls, prop)
+                if key in writes:
+                    # explicit assignment wins — promotion is not the
+                    # producer, do not manufacture a second source
+                    continue
+                for r_vid in reads.get(key, ()):
+                    self._add_dfg_edge(
+                        ch, r_vid, DfgType.FORWARD_SLICE.value)
+
+    def _analyze_php_dynamic_prop_writeback(self) -> None:
+        """Fix 157g (CVE-2026-124444): PHP dynamic-name property write
+        → base-object weak taint.
+
+        ``$criteria->$prop_normal = RequestUtil::Get($prop)`` (OpenEMR
+        OnsiteDocumentController mass-assignment, the CVE-2026-124444
+        source) writes a request-controlled value into an UNKNOWN
+        property: the write node carries the pseudo-name
+        ``Variable('$prop_normal')`` and its dfg in-edges carry the
+        tainted value, but nothing leaves it — the whole-object state
+        change was invisible to both analysis directions and the taint
+        died at the write.
+
+        Doctrine: same container weak-taint as java Map.put (Fix 137b)
+        and python append/extend (Fix 96c) — the stored value flows back
+        onto the BASE object so any later read of the object (property
+        reads, get_object_vars, receiver bindings) can recover it.  Edge
+        target = the base variable's reaching definitions (the def hub
+        every later use reads from); when the base has no dfg in-edges
+        (a parameter or $this) the base node itself is the hub.
+        Strictly gated to the dynamic pseudo-name write shape —
+        statically-named property writes keep field-sensitive semantics.
+        """
+        if self._language != "php":
+            return
+        graph = self.graph
+        if graph is None:
+            return
+        for v in graph.vs:
+            if self._vlabel[v.index] != NodeLabel.IDENTIFIER.value:
+                continue
+            if self._vtype[v.index] != "property":
+                continue
+            wname = self._vname[v.index] or ""
+            if "Variable($" not in wname:
+                continue
+            w_vid = v.index
+            # must be a genuine WRITE (assign lhs), not a dynamic read
+            is_write = False
+            for eid in graph.incident(w_vid, mode="in"):
+                _e = graph.es[eid]
+                if _e["label"] == "ast" and \
+                        _e.attributes().get("role") == AstRole.LHS.value:
+                    is_write = True
+                    break
+            if not is_write:
+                continue
+            for base_vid in self._edges_to(w_vid, EdgeLabel.MEMBER.value):
+                if self._vlabel[base_vid] != NodeLabel.IDENTIFIER.value:
+                    continue
+                if self._vtype[base_vid] not in ("variable", "this", "property"):
+                    continue
+                # $this bases: per-site nodes with no def chain — the
+                # callee's $this binding (Fix 157h) is the recovery path,
+                # so taint the $this node itself
+                defs = [
+                    s for s in self._edges_to(base_vid, EdgeLabel.DFG.value)
+                    if s != w_vid
+                    and self._vlabel[s] in (
+                        NodeLabel.IDENTIFIER.value, NodeLabel.PARAMETER.value)
+                ]
+                for d_vid in (defs or [base_vid]):
+                    self._add_dfg_edge(
+                        w_vid, d_vid, DfgType.FORWARD_SLICE.value)
+
+    def _analyze_php_receiver_this_binding(self) -> None:
+        """Fix 157h (CVE-2026-124444): PHP method-call receiver → callee
+        ``$this`` binding.
+
+        PHP methods declare no ``$this`` parameter, so unlike java/python
+        there is no param node the receiver can bind to: every
+        ``identifier/this`` node in a method body has zero dfg in-edges
+        and the backward BFS from anything inside the callee that reads
+        object state (``get_object_vars($this)``, Criteria::Prepare's
+        WHERE builder) dead-ended at $this — the criteria object's taint
+        could never cross the method boundary (CVE-2026-124444:
+        ``$criteria->GetWhere()`` receiver taint → ``$this`` →
+        get_object_vars → foreach ``$val`` → ``_where`` → SQL sink).
+
+        Edge: for every resolved method call, each dfg receiver node of
+        the call op connects to EVERY ``$this`` node inside the callee's
+        own subtree.  Backward analysis walks it as "$this state came
+        from the receiver object"; forward analysis as "the receiver's
+        taint is visible on the callee's $this".  Receiver identification
+        = dfg in-edges of the call op that are not ast[arg] children
+        (args bind to formal params by _analyze_parameter_passing).
+        Bound: only callees with a real body; receiver fan capped at 4
+        nodes per call (multi-segment chains only need the last).
+        """
+        if self._language != "php":
+            return
+        graph = self.graph
+        if graph is None:
+            return
+
+        # per-function $this node lists (own subtree, prebuilt)
+        func_this: dict[int, list[int]] = {}
+        for v in graph.vs:
+            if self._vlabel[v.index] != NodeLabel.IDENTIFIER.value:
+                continue
+            if self._vtype[v.index] != "this":
+                continue
+            cur = v.index
+            seen = {cur}
+            fn = None
+            while cur is not None:
+                if self._vlabel[cur] == NodeLabel.FUNCTION.value:
+                    fn = cur
+                    break
+                nxt = None
+                for lbl in (EdgeLabel.OWN.value, EdgeLabel.AST.value):
+                    parents = self._edges_to(cur, lbl)
+                    if parents:
+                        nxt = parents[0]
+                        break
+                if nxt is None or nxt in seen:
+                    break
+                seen.add(nxt)
+                cur = nxt
+            if fn is not None:
+                func_this.setdefault(fn, []).append(v.index)
+
+        if not func_this:
+            return
+
+        call_types = {
+            OperatorType.METHOD_CALL.value,
+        }
+        for v in graph.vs:
+            if self._vlabel[v.index] != NodeLabel.OPERATOR.value:
+                continue
+            if self._vtype[v.index] not in call_types:
+                continue
+            vid = v.index
+            callees = [
+                f for f in self._get_cg_targets(vid)
+                if self._vlabel[f] == NodeLabel.FUNCTION.value
+                and self._has_function_body(f)
+            ]
+            if not callees:
+                continue
+            arg_set = set()
+            for eid in graph.incident(vid, mode="in"):
+                _e = graph.es[eid]
+                if _e["label"] == "ast" and \
+                        _e.attributes().get("role") == "arg":
+                    arg_set.add(_e.source)
+            receivers = [
+                s for s in self._edges_to(vid, EdgeLabel.DFG.value)
+                if s not in arg_set
+                and self._vlabel[s] == NodeLabel.IDENTIFIER.value
+            ][:4]
+            if not receivers:
+                continue
+            for f in callees:
+                for t_vid in func_this.get(f, ()):
+                    for r_vid in receivers:
+                        if t_vid == r_vid:
+                            continue
+                        self._add_dfg_edge(
+                            r_vid, t_vid, DfgType.FORWARD_SLICE.value)
 
     _APPEND_METHODS = frozenset({"append", "extend", "insert"})
 
@@ -4150,7 +4499,35 @@ class DataFlowBuilder(BaseEdgeBuilder):
             if self._elabel[e.index] == EdgeLabel.USE.value:
                 targets.append(e.target)
         if targets:
-            return targets
+            # Fix 157k (CVE-2026-124444): indirect-call placeholder →
+            # alias fanout.  AliasBuilder resolves bodyless use targets
+            # to real functions via alias edges, and the analyzer side
+            # already follows those edges for CG traversal (graph_analyzer
+            # _edge_out(*,"alias") sites) — the builder-side arg binding
+            # and return propagation must too, or taint dies at every
+            # indirect call: DataSet:133
+            # ``$this->_phreezer->DataAdapter->Select($this->_sql)`` —
+            # the use stub 'Select' aliases DataAdapter::Select but the
+            # $this->_sql arg was never bound to its $sql param.
+            expanded: list[int] = []
+            seen: set[int] = set()
+            for t in targets:
+                if t not in seen:
+                    seen.add(t)
+                    expanded.append(t)
+                if self._vlabel[t] != NodeLabel.FUNCTION.value:
+                    continue
+                if self._has_function_body(t):
+                    continue
+                # Fix 157k (perf): dict-lookup fanout (alias-out index
+                # built once per phase) — the incident() scan was
+                # quadratic on hub stubs ('array' 4913 out-edges × 4913
+                # callers on the sparse tree).
+                for tgt2 in self._alias_out_idx.get(t, ()):
+                    if tgt2 not in seen:
+                        seen.add(tgt2)
+                        expanded.append(tgt2)
+            return expanded
         # JS 等语言用 ast[role=callee] 而非 use 边
         return list(self._ast_role_from.get((vid, "callee"), []))
 
@@ -4449,6 +4826,10 @@ class DataFlowBuilder(BaseEdgeBuilder):
         """
         if self._class_ctor_index is None:
             idx: dict[str, int] = {}
+            # Fix 157j (CVE-2026-124444): php new-op redirect needs
+            # __construct (python keeps __init__).  Java never reaches
+            # this helper (143r owns java ctor enrich).
+            ctor_name = "__init__" if self._language == "python" else "__construct"
             for v in self.graph.vs:
                 if self._vlabel[v.index] != NodeLabel.CLASS.value:
                     continue
@@ -4457,11 +4838,15 @@ class DataFlowBuilder(BaseEdgeBuilder):
                     continue
                 for ch in self._edges_from(v.index, EdgeLabel.OWN.value):
                     if (self._vlabel[ch] == NodeLabel.FUNCTION.value
-                            and self._vname[ch] == "__init__"):
+                            and self._vname[ch] == ctor_name):
                         idx[cname] = ch
                         break
             self._class_ctor_index = idx
-        return self._class_ctor_index.get(self._vname[stub_vid] or "")
+        # Fix 157j: the php NEW op's use target is a placeholder whose
+        # name is the quoted literal ("'DataSet'" with embedded quotes);
+        # class nodes carry the bare name — strip quotes to match.
+        stub_name = (self._vname[stub_vid] or "").strip("'\"")
+        return self._class_ctor_index.get(stub_name)
 
     def _find_assign_lhs_for_callee(self, caller_vid: int) -> Optional[int]:
         """找到调用 operator 作为某个赋值语句 RHS 时的 LHS 顶点。

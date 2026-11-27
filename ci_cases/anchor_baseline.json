@@ -18,11 +18,11 @@
    "include/staff/ticket-view.inc.php:1174",
    "include/mysqli.php:158"
   ],
-  "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains). | 2026-11-14 Fix84 (CVE-2026-30530): method-body DB-probe semantic gate; installer CREATE DATABASE chain (install.php:52 $_POST → db_create_database → mysqli.php:158) human-verified real TP but flaps with cross-file dfg arg-binding races — tolerated in known_flaky_locs. | 2026-11-17 Fix 98c/99b3/102a/102b (CVE-2026-29080 rucio): python-gated summary fixes; PHP returns to HEAD form (Removed DFG 27361) +1 stable TP ticket-preview.tmpl.php:59 (preview renders POSTed draft ticket; file-scoped annotation family, in 6164+6172). | 2026-11-23 surgical +2 (Fix 145f, task 146, deterministic across retry): 1017 pear Mail/mimePart.php:551 + Net/Socket.php:393 — same-function same-param family siblings of baselined 457/384 (fwrite sink; 393 writes the same tainted $data param via substr loop branch; 551 = $this->body_file->fopen->fgets->quotedPrintableEncode->fwrite, file-based sibling of 457 $this->body chain). Same-class property/param propagation is Fix 145 designed scope, not cross-class pollution. | 2026-11-25 surgical +95/-3 (Fix 155a-f CVE-2026-61649 SuiteCRM RSSDashlet dynamic-new SSRF, source task 7755; deterministic: first-run 7754 and retry 7755 both +96/-3 vs 574). +95 split: 85x1000 = 155b ternary value-arm->call-op DFG unification surfacing ternary echo args as same-family siblings of baselined plain echoes (sub-families: $_GET member-access chains, cross-file property-store -> $_POST, unresolved-call passthrough, __() shared-summary poisoning — 8 exact `echo __(\"<const>\")` rows already baselined pre-155, e.g. ticket-edit.inc.php:164; queue-tickets.tmpl.php:288 human-verified REAL taint-preserving path: Format::htmlchars catch branch class.format.php:418 `return $var` bypasses the htmlspecialchars sanitize); 10x1017 = 155c/155d/155e dynamic-new dispatch fan + ctor-site union + positional matching connecting store chains into file-write sinks (class.export fopen/unlink/fputs, Mail/mimePart fwrite — same family as baselined 551/432 fwrite rows). -3: note.tmpl.php:6 = repair-piercing weak def-chain FP correctly killed (Fix 105 family: post-155b Format::datetime ternary arms get structured repair verdict; pre-155 the weak walker pierced the sanitizer); class.export.php:265/301 = def-chain $query weak-channel attribution retired by the 155c 6-way dump() fan replacing the old single-binding weak verdict (old reason `def-chain $query -> $_GET` rode _trace_dfg_direct; new structured bindings compute clean). i18n.php:314 (10003) stays EXCLUDED per d5e4bef8 FP-governance (bare-name hijack open debt).",
+  "note": "five XSS borderline chains flip run-to-run (all human-verified real chains, Fix 63); runner tolerates their presence/absence | 2026-11-13 Fix74-77 (CVE-2026-41228/41229): +3 stable TPs (class.forms 4765/4777 prop-store chain, mimePart fwrite) + Shm:154 flaky; 76d-3 stub-skip reverted (killed 43 TPs). | 2026-11-14 Fix78 (CVE-2026-41478): +1 stable TP laminas Pop3.php:138 sendRequest fwrite (same family as Imap:321/AbstractProtocol:264; JS destructure/closure-capture DFG gains). | 2026-11-14 Fix84 (CVE-2026-30530): method-body DB-probe semantic gate; installer CREATE DATABASE chain (install.php:52 $_POST → db_create_database → mysqli.php:158) human-verified real TP but flaps with cross-file dfg arg-binding races — tolerated in known_flaky_locs. | 2026-11-17 Fix 98c/99b3/102a/102b (CVE-2026-29080 rucio): python-gated summary fixes; PHP returns to HEAD form (Removed DFG 27361) +1 stable TP ticket-preview.tmpl.php:59 (preview renders POSTed draft ticket; file-scoped annotation family, in 6164+6172). | 2026-11-23 surgical +2 (Fix 145f, task 146, deterministic across retry): 1017 pear Mail/mimePart.php:551 + Net/Socket.php:393 — same-function same-param family siblings of baselined 457/384 (fwrite sink; 393 writes the same tainted $data param via substr loop branch; 551 = $this->body_file->fopen->fgets->quotedPrintableEncode->fwrite, file-based sibling of 457 $this->body chain). Same-class property/param propagation is Fix 145 designed scope, not cross-class pollution. | 2026-11-25 surgical +95/-3 (Fix 155a-f CVE-2026-61649 SuiteCRM RSSDashlet dynamic-new SSRF, source task 7755; deterministic: first-run 7754 and retry 7755 both +96/-3 vs 574). +95 split: 85x1000 = 155b ternary value-arm->call-op DFG unification surfacing ternary echo args as same-family siblings of baselined plain echoes (sub-families: $_GET member-access chains, cross-file property-store -> $_POST, unresolved-call passthrough, __() shared-summary poisoning — 8 exact `echo __(\"<const>\")` rows already baselined pre-155, e.g. ticket-edit.inc.php:164; queue-tickets.tmpl.php:288 human-verified REAL taint-preserving path: Format::htmlchars catch branch class.format.php:418 `return $var` bypasses the htmlspecialchars sanitize); 10x1017 = 155c/155d/155e dynamic-new dispatch fan + ctor-site union + positional matching connecting store chains into file-write sinks (class.export fopen/unlink/fputs, Mail/mimePart fwrite — same family as baselined 551/432 fwrite rows). -3: note.tmpl.php:6 = repair-piercing weak def-chain FP correctly killed (Fix 105 family: post-155b Format::datetime ternary arms get structured repair verdict; pre-155 the weak walker pierced the sanitizer); class.export.php:265/301 = def-chain $query weak-channel attribution retired by the 155c 6-way dump() fan replacing the old single-binding weak verdict (old reason `def-chain $query -> $_GET` rode _trace_dfg_direct; new structured bindings compute clean). i18n.php:314 (10003) stays EXCLUDED per d5e4bef8 FP-governance (bare-name hijack open debt). | 2026-11-27 Fix 157/158 (CVE-2026-124444 OpenEMR/Phreeze) surgical regen 666->682 from d1anchor task 8000 (WIP tree, lphply 2.2.12): +20 same-family widening (17x1000 'cross-file property store text' echo rows — reason-identical siblings of baselined queue.inc:35/department.inc:79/email.inc:115/cannedresponses.inc:136 in the same files, ORM QuerySet->iterator reach widened by 157h receiver->this + 157j new-arg ctor binding; +3x1017 family siblings File.php:160 pear-cache / Imap.php:348 fwrite host-store / mimePart.php:539 fopen _client-store); -4 FP kills source-verified: class.export.php:409/438 (key-insensitive container weak-taint through UNBOUND Exporter ctor param $options['file'] — no real caller passes a 'file' option, ajax.tickets.php:2053 array has filename/interval/delimiter keys only; 157j precise binding), Streams.php:250 (pear Net_DNS2 dead code — app uses dns_get_record class.validator.php:187; 7939 verdict rode nested unresolved-call passthrough; 157k/157b precise resolution), ticket-print.tmpl.php:119 (coincidental _choices cross-file linkage to PersonName::getFirst, no semantic connection). Parser ruled out: AST A/B 2.2.11<->2.2.12 identical + parse coverage 691/697 both. i18n.php:314 stays EXCLUDED per d5e4bef8 FP-governance (bare-name hijack open debt).",
   "_flaky_note": "pear Net/DNS2 cache rows flicker with engine-external nondeterminism; Fix 68 baseline run: -2 (vs -23 without Fix 68)",
   "retry_on_fail": true,
-  "task_id": 7755,
-  "count": 666,
+  "task_id": 8000,
+  "count": 682,
   "findings": [
    {
     "cvi": "1000",
@@ -294,10 +294,6 @@
    },
    {
     "cvi": "1000",
-    "loc": "include/client/templates/ticket-print.tmpl.php:119"
-   },
-   {
-    "cvi": "1000",
     "loc": "include/client/templates/ticket-print.tmpl.php:154"
    },
    {
@@ -342,11 +338,19 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:253"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/client/tickets.inc.php:256"
    },
    {
     "cvi": "1000",
     "loc": "include/client/tickets.inc.php:258"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/client/tickets.inc.php:261"
    },
    {
     "cvi": "1000",
@@ -439,6 +443,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/cannedresponses.inc.php:136"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/cannedresponses.inc.php:137"
    },
    {
     "cvi": "1000",
@@ -566,6 +574,18 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/department.inc.php:529"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:541"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/department.inc.php:74"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/department.inc.php:79"
    },
    {
@@ -651,6 +671,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/dynamic-lists.inc.php:88"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/email.inc.php:108"
    },
    {
     "cvi": "1000",
@@ -783,6 +807,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/header.inc.php:74"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/helptopic.inc.php:138"
    },
    {
     "cvi": "1000",
@@ -982,6 +1010,10 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/queue.inc.php:33"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/queue.inc.php:35"
    },
    {
@@ -1038,6 +1070,10 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/settings-emails.inc.php:160"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/settings-pages.inc.php:301"
    },
    {
@@ -1063,6 +1099,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/settings-system.inc.php:387"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/settings-system.inc.php:55"
    },
    {
     "cvi": "1000",
@@ -1134,6 +1174,10 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/staff.inc.php:354"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/staff.inc.php:479"
    },
    {
@@ -1171,6 +1215,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/staffmembers.inc.php:253"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/staffmembers.inc.php:91"
    },
    {
     "cvi": "1000",
@@ -1506,6 +1554,10 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/templates/mark-as.tmpl.php:39"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/templates/mark-as.tmpl.php:6"
    },
    {
@@ -1610,6 +1662,10 @@
    },
    {
     "cvi": "1000",
+    "loc": "include/staff/templates/queue-column.tmpl.php:104"
+   },
+   {
+    "cvi": "1000",
     "loc": "include/staff/templates/queue-column.tmpl.php:146"
    },
    {
@@ -1671,6 +1727,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/templates/release.tmpl.php:63"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/release.tmpl.php:71"
    },
    {
     "cvi": "1000",
@@ -2083,6 +2143,10 @@
    {
     "cvi": "1000",
     "loc": "include/staff/templates/ticket-status.tmpl.php:90"
+   },
+   {
+    "cvi": "1000",
+    "loc": "include/staff/templates/tickets.tmpl.php:169"
    },
    {
     "cvi": "1000",
@@ -2582,14 +2646,6 @@
    },
    {
     "cvi": "1017",
-    "loc": "include/class.export.php:409"
-   },
-   {
-    "cvi": "1017",
-    "loc": "include/class.export.php:438"
-   },
-   {
-    "cvi": "1017",
     "loc": "include/class.export.php:598"
    },
    {
@@ -2611,6 +2667,10 @@
    {
     "cvi": "1017",
     "loc": "include/laminas-mail/src/Protocol/AbstractProtocol.php:269"
+   },
+   {
+    "cvi": "1017",
+    "loc": "include/laminas-mail/src/Protocol/Imap.php:348"
    },
    {
     "cvi": "1017",
@@ -2654,6 +2714,10 @@
    },
    {
     "cvi": "1017",
+    "loc": "include/pear/Mail/mimePart.php:539"
+   },
+   {
+    "cvi": "1017",
     "loc": "include/pear/Mail/mimePart.php:551"
    },
    {
@@ -2674,11 +2738,11 @@
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Net/DNS2/Cache/File.php:93"
+    "loc": "include/pear/Net/DNS2/Cache/File.php:160"
    },
    {
     "cvi": "1017",
-    "loc": "include/pear/Net/DNS2/Socket/Streams.php:250"
+    "loc": "include/pear/Net/DNS2/Cache/File.php:93"
    },
    {
     "cvi": "1017",

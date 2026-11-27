@@ -21,18 +21,23 @@ __all__ = [
 ]
 
 # Builder execution order
-# dfg_phase1  → use → dfg_phase2 → cg → alias
+# dfg_phase1  → use → dfg_phase2 → cg → alias → dfg_phase3
 # DFG split into two phases: phase 1 builds basic DFG edges; use edges built
 # after phase 1 so receiver type resolution can leverage them; phase 2 runs
 # analyses that depend on use edges (param passing, return propagation,
 # fluent API returns). CG needs use edges to derive function→function call
-# graph; alias runs last.
+# graph; alias runs last.  Phase 3 (Fix 157k, CVE-2026-124444) re-runs the
+# arg→param binding AFTER alias edges exist: the alias builder resolves
+# bodyless use targets to real functions, and only then can indirect calls
+# (DataSet:133 → DataAdapter::Select) bind their arguments — the analyzer
+# side already follows alias edges; phase 3 closes the builder-side gap.
 _BUILDERS = [
     ("dfg_phase1", DataFlowBuilder),
     ("use", UseEdgeBuilder),
     ("dfg_phase2", DataFlowBuilder),
     ("cg", CallGraphBuilder),
     ("alias", AliasBuilder),
+    ("dfg_phase3", DataFlowBuilder),
 ]
 
 
@@ -54,6 +59,8 @@ def run_all(graph: "ig.Graph", language: str, **kwargs) -> dict[str, int]:
             count = builder.build(graph, language, phase=1, **kwargs)
         elif name == "dfg_phase2":
             count = builder.build(graph, language, phase=2, **kwargs)
+        elif name == "dfg_phase3":
+            count = builder.build(graph, language, phase=3, **kwargs)
         else:
             count = builder.build(graph, language, **kwargs)
         results[name] = count
