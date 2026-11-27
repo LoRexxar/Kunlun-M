@@ -332,6 +332,23 @@ EXPECTATIONS = {
     # KBStorageHelper.delete_storage(kb_path) → shutil.rmtree(kb_path)
     # arbitrary directory delete.  Depends alias current_user stays clean.
     'CVE-2026-42048_langflow_kb_bulk_delete.py': {'7005': 1},
+    # Fix 160a/b/c (CVE-2026-97677 Langflow 1.0.0–1.12.2, IBM bulletin
+    # 7290694, fixed 1.12.3 fec71dca): FileContentRetrieverComponent's
+    # persistent_dir StrInput is flow-author data (Fix 160a component-input
+    # source overlay, langflow/ marker) — write arm base.mkdir:160/
+    # text_dir.mkdir:162/df_dir.mkdir:164/txt_path.write_text:171/
+    # df.to_parquet:181 + orphan-cleanup iterdir:189/:193, read arm
+    # read_text:125/:130/:142 + pd.read_parquet:147 (crafted on-disk
+    # index, json.loads source).  Sink vocabulary = Fix 160b pathlib/
+    # pandas method_sinks + qualified forms; Fix 160c receiver-channel
+    # const-veto exception for the pathlib object family (module-form
+    # os.mkdir('/literal') keeps dying at receiver-PB no-taint skip —
+    # verified).  Byte-faithful v1.12.2
+    # src/lfx/src/lfx/components/files_ingestion/file_content_retriever.py
+    # (md5 720e74f3fc5e3af6462a69e75d1f4b17); 11 rows = 4 read + 5 write
+    # + 2 iterdir.  Atomic-write internals (open:207/replace:209/
+    # unlink:211) correctly stay dark: mkstemp receiver is not tainted.
+    'file_content_retriever.py': {'7005': 11},
     # Fix 117a/b/c/e/f/g/m (CVE-2026-110279 IBM ContextForge MCP Gateway):
     # request.headers → {k.lower(): v for k,v in headers.items()} dict-comp
     # → passthrough_headers["Authorization"]=v subscript write-back → await

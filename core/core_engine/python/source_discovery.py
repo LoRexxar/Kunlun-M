@@ -297,6 +297,102 @@ def _config_files_contain(project_dir, detect_files, detect_packages):
     return False
 
 
+# ---------------------------------------------------------------------------
+# Fix 160a (CVE-2026-97677 Langflow <=1.12.2): component-input sources
+# ---------------------------------------------------------------------------
+
+def _langflow_component_base(class_node):
+    """True when any base class name ends with 'Component' — the langflow
+    /lfx component contract (Component, CustomComponent, ...).  Attribute
+    bases (a.b.Component) count by their last segment."""
+    for base in class_node.bases:
+        seg = None
+        if isinstance(base, ast.Name):
+            seg = base.id
+        elif isinstance(base, ast.Attribute):
+            seg = base.attr
+        if seg and seg.endswith('Component'):
+            return True
+    return False
+
+
+def _langflow_input_names(class_node):
+    """Extract ``self.<name>`` source members from a component class's
+    class-level ``inputs = [XInput(name="...", ...), ...]`` declaration.
+
+    The declaration may be a plain Assign or an AnnAssign; list elements
+    are Input-constructor calls whose ``name=`` keyword carries a string
+    literal.  Outputs are NOT collected — they bind component methods,
+    not flow-author data.
+    """
+    names = set()
+    for stmt in class_node.body:
+        value = None
+        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == 'inputs'):
+            value = stmt.value
+        elif (isinstance(stmt, ast.AnnAssign)
+                and isinstance(stmt.target, ast.Name)
+                and stmt.target.id == 'inputs'):
+            value = stmt.value
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            for el in value.elts:
+                if not isinstance(el, ast.Call):
+                    continue
+                for kw in el.keywords:
+                    if kw.arg == 'name' and isinstance(kw.value, ast.Constant) \
+                            and isinstance(kw.value.value, str):
+                        _nm = kw.value.value.strip()
+                        if _nm and _nm.isidentifier():
+                            names.add('self.' + _nm)
+                        break
+    return names
+
+
+def _langflow_component_input_members(project_dir):
+    """Langflow component-input attribute sources (Fix 160a).
+
+    Langflow populates Component instance attributes from the flow JSON
+    authored by the authenticated flow author (CVE-2026-97677 threat
+    model, IBM bulletin 7290694): every ``inputs = [StrInput(name="x")]
+    `` declaration becomes ``self.x`` — flow-author-controlled data at
+    every read site.  FileContentRetrieverComponent's ``persistent_dir``
+    StrInput wrote attacker-chosen file content into any service-writable
+    directory and read arbitrary files through a crafted on-disk index
+    (fixed in 1.12.3 via lfx/utils/file_path_security.py
+    enforce_local_file_access + index-entry traversal rejection).
+
+    Marker-gated on the langflow package — a non-langflow scan never
+    collects these members.  Walks the project's .py files once, finds
+    classes whose bases end with 'Component' and unions their input
+    names.  Same shape as the Fix 142a jumpserver ORM overlay, but the
+    member names are mined from the corpus AST instead of hardcoded —
+    any component input is flow-author data by the framework contract.
+    """
+    members = set()
+    for root, _dirs, files in os.walk(project_dir):
+        if any(part in ('.git', 'node_modules', '.venv', 'venv')
+               for part in root.split(os.sep)):
+            continue
+        for fn in files:
+            if not fn.endswith('.py'):
+                continue
+            fpath = os.path.join(root, fn)
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    tree = ast.parse(f.read())
+            except Exception:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                if not _langflow_component_base(node):
+                    continue
+                members.update(_langflow_input_names(node))
+    return members
+
+
 def detect_framework(project_dir):
     """从 requirements.txt / setup.py / pyproject.toml 检测 Web 框架
     
@@ -498,6 +594,20 @@ def discover_sources(project_dir, tree, file_path=None, controlled_list=None):
             for sm in app_cfg['source_members']:
                 registry.add_source_member(sm)
             logger.debug('[SourceDiscovery] App source overlay: {}'.format(app_name))
+
+    # 2c. Fix 160a (CVE-2026-97677): langflow component-input sources.
+    #     Marker-gated AST walk — names are mined from the corpus (any
+    #     component input is flow-author data), so this cannot be a static
+    #     _APP_SOURCE_CONFIGS entry.
+    if _config_files_contain(project_dir,
+                             ('requirements.txt', 'setup.py', 'pyproject.toml'),
+                             ('langflow',)):
+        _lf_members = _langflow_component_input_members(project_dir)
+        for sm in sorted(_lf_members):
+            registry.add_source_member(sm)
+        if _lf_members:
+            logger.debug('[SourceDiscovery] Langflow component inputs ({}): {}'.format(
+                len(_lf_members), sorted(_lf_members)[:40]))
 
     # 3. 遍历 AST 发现用户自定义 source producer
     if tree and hasattr(tree, 'body'):
