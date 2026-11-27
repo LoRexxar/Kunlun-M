@@ -447,6 +447,22 @@ FRAMEWORK_CONFIGS = {
             'QueryUtils.fetchTableColumn', 'fetchTableColumn',
             'QueryUtils.fetchTableColumnAssoc', 'fetchTableColumnAssoc',
             'QueryUtils.fetchSingleValue', 'fetchSingleValue',
+            # Fix 161a (CVE-2026-124479): the REST document download chain
+            # (src/Services/DocumentService.php getFile @ v8_2_0) reads the
+            # stored document back via
+            # `$obj = new \C_Document(); $document = $obj->retrieve_action(
+            # $pid, $did, true, true, true);` (onReturnRetrieveKey grants
+            # the raw-bytes return).  Stored document bytes are user-
+            # uploadable content (DocumentService::insertAtPath ->
+            # file_get_contents(tmp_name) -> createDocument), so the return
+            # value is a second-order source.  Same dual-key pattern as
+            # QueryUtils/getPreference: qualified key for the graph enrich
+            # full_lookup (C_Document receiver type resolves from the new
+            # op), bare key for the AST parser path (get_simple_name).
+            # retrieve_action is defined only on C_Document in the OpenEMR
+            # corpus and always returns stored document content, so the
+            # bare key is framework-scoped-safe (cf. openemr sqlQuery).
+            'C_Document.retrieve_action', 'retrieve_action',
         },
         # Fix 114a (CVE-2026-126451): the patient-portal Phreezer ORM is the
         # other second-order channel.  Portal patients persist arbitrary

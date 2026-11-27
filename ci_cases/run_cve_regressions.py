@@ -1141,6 +1141,44 @@ EXPECTATIONS = {
     # defs in the shared openemr/ scan, gate 1 rides the framework repair
     # set).  Proof: mini task 8036 rows 22707-22712 (5 GT + 2 FP):
     'new.php': {'1000': 5},
+
+    # CVE-2026-124479 (OpenEMR < 8.4.0, GHSA-xgxv-36g2-hq5g): REST
+    # document download arbitrary local file read.  downloadFile:160
+    # `$results = $this->documentService->getFile($pid, $did)` returns
+    # `['file' => $document, ...]` where `$document = (new \C_Document())->
+    # retrieve_action(...)` fetches STORED UPLOADED DOCUMENT BYTES
+    # (second-order source, Fix 161a C_Document.retrieve_action), and
+    # :161 `new BinaryFileResponse($results['file'], ...)` (Fix 161b
+    # CVI_1017 sink) treats those bytes as a FILESYSTEM PATH: an
+    # authenticated uploader stores an absolute pathname (e.g. the
+    # sqlconf.php location) as document content, then downloads it and
+    # Symfony streams the local file at that path.  Upstream v8_4_0
+    # replaces the response with `new StreamedResponse(fn () => echo
+    # $bytes)` — the fix comment states "BinaryFileResponse's first
+    # constructor argument is a filesystem path"; bytes go to a
+    # callback, keeping the response class out of the filesystem.
+    # Byte-faithful v8_2_0 4-file repro (md5: DocumentRestController
+    # 8520f686, DocumentService cd3e726e, C_Document bddd6a93 — all
+    # tag-verified) with composer.json marker at the scan root.
+    # Line-number contract: sink at :161 — lphply 2.2.13 (Fix 158
+    # t_php_COMMENT attribute-block lineno double count, +1 per #[OA]
+    # block, 3 blocks here) corrected the 2.2.12 :164 drift; task 8114
+    # (2.2.12, :164) vs task 8120 (2.2.13, :161) prove it.  Ablation
+    # controls (task 8122/8121-order): mini-nosql (sqlQuery -> literal)
+    # still detects with reason 'retrieve_action'; mini-noret
+    # (retrieve_action -> literal) still detects with reason 'sqlQuery'
+    # via the array-return member writeback — both channels are
+    # second-order sources so the verdict stands; which reason is
+    # reported is traversal-order dependent (known W1 debt).  The 6
+    # C_Document.class.php sibling rows are real-shaped, carry no
+    # advisory row and are NOT asserted (69136 convention): :282
+    # fopen($_FILES tmp_name) FP (PHP-controlled upload temp path);
+    # :393/:394/:419 note_action_process couch temp-file write/
+    # fwrite/unlink (receiver passthrough of stored url_file —
+    # createDocument embeds upload $fname/$_GET[higher_level_path]);
+    # :715/:889 echo ciphertext/filetext under attachment +
+    # application/octet-stream — no XSS execution context:
+    'DocumentRestController.php': {'1017': 1},
 }
 
 # Fix 119g (CVE-2026-44381): negative expectations — these files MUST stay

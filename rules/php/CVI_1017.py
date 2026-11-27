@@ -7,6 +7,10 @@
     Covers: copy, rename, unlink, mkdir, rmdir, file_put_contents,
     file_get_contents, fopen, readfile, file, move_uploaded_file (superset of CVI_1016),
     touch, chmod, chown, chgrp, link, symlink.
+    Fix 161b (CVE-2026-124479): Symfony BinaryFileResponse constructor —
+    new BinaryFileResponse($path) reads the file at $path and streams it;
+    a tainted path argument is an arbitrary local file read (OpenEMR REST
+    document download passes stored document BYTES as the path, GHSA-xgxv-36g2-hq5g).
 """
 
 from utils.api import *
@@ -28,8 +32,8 @@ class CVI_1017(SingleRuleMixin):
 
         # 部分配置
         self.match_mode = "function-param-regex"
-        self.match = r"copy\s*\(|rename\s*\(|unlink\s*\(|mkdir\s*\(|rmdir\s*\(|file_put_contents\s*\(|file_get_contents\s*\(|fopen\s*\(|fwrite\s*\(|fputs\s*\(|readfile\s*\(|file\s*\(|touch\s*\(|chmod\s*\(|chown\s*\(|link\s*\(|symlink\s*\("
-        self.vul_function = ["mkdir", "rmdir", "unlink", "rename", "copy", "file_put_contents", "fopen", "fwrite", "fputs", "chmod", "chown", "chgrp", "get_contents"]
+        self.match = r"copy\s*\(|rename\s*\(|unlink\s*\(|mkdir\s*\(|rmdir\s*\(|file_put_contents\s*\(|file_get_contents\s*\(|fopen\s*\(|fwrite\s*\(|fputs\s*\(|readfile\s*\(|file\s*\(|touch\s*\(|chmod\s*\(|chown\s*\(|link\s*\(|symlink\s*\(|BinaryFileResponse\s*\("
+        self.vul_function = ["mkdir", "rmdir", "unlink", "rename", "copy", "file_put_contents", "fopen", "fwrite", "fputs", "chmod", "chown", "chgrp", "get_contents", "BinaryFileResponse"]
 
     def main(self, regex_string, sink_args=None):
         """
